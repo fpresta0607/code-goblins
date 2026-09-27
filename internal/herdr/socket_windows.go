@@ -52,15 +52,14 @@ func (c *Client) Socket(ctx context.Context) (Socket, error) {
 	return Socket{pipe: `\\.\pipe\` + status.Server.Socket}, nil
 }
 
-// PaneInput types into and scrolls a session's panes with no process per
-// call, for a view that types key by key.
+// PaneInput types into a session's panes and reads their history with no
+// process per call, for a view that types key by key.
 type PaneInput interface {
 	// SendText types unsubmitted literal text into a pane.
 	SendText(ctx context.Context, pane, text string) error
-	// Scroll shows a pane's screen offset lines up from its bottom, and
-	// returns the offset Herdr applied, which it holds within the pane's
-	// history.
-	Scroll(ctx context.Context, pane string, offset int) (int, error)
+	// History returns up to lines of the pane's most recent output, history
+	// included, with its colors.
+	History(ctx context.Context, pane string, lines int) (string, error)
 }
 
 // PaneInput reaches the session's panes over its socket.
@@ -74,24 +73,24 @@ func (s Socket) SendText(ctx context.Context, pane, text string) error {
 	return err
 }
 
-// Scroll sets how far up from its bottom a pane shows its history; typing
-// does not bring it back, so a caller scrolls to 0 before it types.
-func (s Socket) Scroll(ctx context.Context, pane string, offset int) (int, error) {
-	result, err := s.request(ctx, "pane.scroll", map[string]any{"pane_id": pane, "offset_from_bottom": offset})
+// History reads the pane's recent output, history included, as ANSI text.
+// A view of a pane cannot scroll the pane: Herdr sends an observer only the
+// live screen, and pane.scroll moves only the pane's own view, which every
+// Herdr window on it shares. So a view shows history it read.
+func (s Socket) History(ctx context.Context, pane string, lines int) (string, error) {
+	result, err := s.request(ctx, "pane.read", map[string]any{"pane_id": pane, "source": "recent", "lines": lines, "format": "ansi", "strip_ansi": false})
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	var answer struct {
-		Pane struct {
-			Scroll *struct {
-				Offset *int `json:"offset_from_bottom"`
-			} `json:"scroll"`
-		} `json:"pane"`
+		Read *struct {
+			Text *string `json:"text"`
+		} `json:"read"`
 	}
-	if err := json.Unmarshal(result, &answer); err != nil || answer.Pane.Scroll == nil || answer.Pane.Scroll.Offset == nil {
-		return 0, errors.New("herdr: pane.scroll: answer names no scroll offset")
+	if err := json.Unmarshal(result, &answer); err != nil || answer.Read == nil || answer.Read.Text == nil {
+		return "", errors.New("herdr: pane.read: answer carries no text")
 	}
-	return *answer.Pane.Scroll.Offset, nil
+	return *answer.Read.Text, nil
 }
 
 // request sends one request and returns its result.

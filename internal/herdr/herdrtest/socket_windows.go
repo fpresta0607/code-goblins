@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,12 +27,12 @@ type Request struct {
 // what Herdr's status reports as the socket; the pipe is named after it.
 type Socket struct {
 	Path string
-	// Answer is the line sent back for a request; nil answers pane.scroll as
-	// Herdr does, with the offset held within History lines, and every other
+	// Answer is the line sent back for a request; nil answers pane.read with
+	// the last lines asked for of History, as Herdr does, and every other
 	// request with an ok result.
 	Answer func(Request) string
-	// History is how many lines a pane can scroll up.
-	History int
+	// History is a pane's output, one line each.
+	History []string
 
 	mu       sync.Mutex
 	requests []Request
@@ -108,9 +109,9 @@ func (s *Socket) answer(conn *os.File) {
 	answer, history := s.Answer, s.History
 	s.mu.Unlock()
 	reply := `{"id":` + quote(request.ID) + `,"result":{"type":"ok"}}`
-	if offset, ok := request.Params["offset_from_bottom"].(float64); ok && request.Method == "pane.scroll" {
-		shown := min(int(offset), history)
-		reply = fmt.Sprintf(`{"id":%s,"result":{"type":"pane_info","pane":{"pane_id":%s,"scroll":{"offset_from_bottom":%d,"max_offset_from_bottom":%d,"viewport_rows":40}}}}`, quote(request.ID), quote(fmt.Sprint(request.Params["pane_id"])), shown, history)
+	if lines, ok := request.Params["lines"].(float64); ok && request.Method == "pane.read" {
+		recent := history[max(0, len(history)-int(lines)):]
+		reply = fmt.Sprintf(`{"id":%s,"result":{"type":"pane_read","read":{"pane_id":%s,"source":"recent","format":"ansi","text":%s,"revision":0,"truncated":%t}}}`, quote(request.ID), quote(fmt.Sprint(request.Params["pane_id"])), quote(strings.Join(recent, "\n")), len(recent) < len(history))
 	}
 	if answer != nil {
 		reply = answer(request)

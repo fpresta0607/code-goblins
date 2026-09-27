@@ -55,6 +55,9 @@ type launcherFixture struct {
 	// nativeAttached the native terminals shown in this terminal.
 	nativeStarts   []string
 	nativeAttached []string
+	// harnesses are the harnesses each CFO start, in Herdr or native, was
+	// asked to start.
+	harnesses []string
 	// cfoTerminalRuns is whether native terminal cfo's host answers.
 	cfoTerminalRuns bool
 	runtime         commandRuntime
@@ -97,16 +100,18 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		},
 		gitTop: func(context.Context) (string, error) { return f.project, nil },
 		stdin:  strings.NewReader(""),
-		startCFO: func(_ context.Context, project string) (bool, error) {
+		startCFO: func(_ context.Context, project, harness string) (bool, error) {
 			f.cfoStarts = append(f.cfoStarts, project)
+			f.harnesses = append(f.harnesses, harness)
 			return true, nil
 		},
 		attachHerdr: func(session string) int {
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_, project string) error {
+		startNativeCFO: func(_, project, harness string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
+			f.harnesses = append(f.harnesses, harness)
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {

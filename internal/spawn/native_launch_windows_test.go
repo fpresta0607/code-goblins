@@ -716,7 +716,9 @@ func TestAScreenReadThatFailsForAMomentIsReadAgain(t *testing.T) {
 // or an argument cmd would interpret, is refused.
 func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	bin := t.TempDir()
-	writeFile(t, filepath.Join(bin, "claude.cmd"), "@echo off\r\n")
+	for _, name := range []string{"claude.cmd", "codex.cmd", "pi.cmd"} {
+		writeFile(t, filepath.Join(bin, name), "@echo off\r\n")
+	}
 	t.Setenv("PATH", bin)
 	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
 
@@ -731,6 +733,23 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 		if program, err := nativeProgram(harness.Pi, harness.Launch{TypedLaunch: true, Executable: "pi", Args: []string{arg}}); err == nil {
 			t.Errorf("pi with %q = %q, want refused", arg, program)
 		}
+	}
+}
+
+// A typed launch leaves finding its program to cmd, in the user environment
+// the host runs with, so one not on this process's PATH still starts through
+// cmd /c.
+func TestATypedNativeLaunchIsNotLookedUpOnThisProcessPath(t *testing.T) {
+	// Arrange
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+
+	// Act
+	program, err := nativeProgram(harness.Codex, harness.Launch{TypedLaunch: true, Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
+
+	// Assert
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra"}) {
+		t.Errorf("codex not on PATH = %q, %v; want it through cmd /c", program, err)
 	}
 }
 
