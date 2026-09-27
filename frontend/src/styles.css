@@ -177,6 +177,7 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .task-card-shell .card-pr { position: absolute; right: 16px; bottom: 12px; }
 .task-card.history { position: relative; color: inherit; text-decoration: none; padding-bottom: 36px; }
 .task-card.history .card-pr { position: absolute; right: 16px; bottom: 12px; }
+.task-card-shell:hover, .task-card-shell:focus-within, .task-card.history:hover, .task-card.history:focus-visible { z-index: 3; }
 .phase-queued .status-dot, .phase-unavailable .status-dot, .phase-stale .status-dot, .phase-unknown .status-dot, .phase-ended .status-dot { background: #a6beda; }
 .phase-working .status-dot, .phase-busy .status-dot, .phase-active .status-dot, .phase-started .status-dot { background: var(--blue); animation: working 2.4s ease-in-out infinite; }
 .phase-blocked .status-dot { background: var(--amber); }
@@ -753,6 +754,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
+.ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
 .ranked-item .task-card { padding-left: 44px; }
 .ranked-item .card-waiting { left: 100px; }

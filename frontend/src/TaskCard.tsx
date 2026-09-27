@@ -3,7 +3,7 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
-import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
 // A task's card on the board: a short title of at most two lines, then one
 // muted line with the repo and the status, and a quiet clock of how long its
@@ -24,7 +24,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, o
   const tip = clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
   const pr = safePullRequest(task.pr), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
   const waiting = task.phase === "queued";
-  const clock = task.archived ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
+  const clock = taskColumn(task) === "Completed" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const content = <>
     <Avatar persona={personaFor(task)} />
     <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}<strong className="card-title">{name}</strong>
