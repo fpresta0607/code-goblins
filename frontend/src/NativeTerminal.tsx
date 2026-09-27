@@ -174,7 +174,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     term.onData(send);
     // Typing in the history types into the pane and returns to its live screen.
     past.onData((text) => { closeHistory(); send(text); });
-    const typePaste = (text: string) => { try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
+    const typePaste = (text: string) => { closeHistory(); try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -182,6 +182,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (text) typePaste(text);
     };
     element.addEventListener("paste", paste, true);
+    pastElement.addEventListener("paste", paste, true);
     const copy = (from: Terminal = showing ? past : term) => {
       if (!from.hasSelection()) return;
       navigator.clipboard.writeText(from.getSelection()).then(() => {
@@ -196,6 +197,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const startCopy = () => window.addEventListener("pointerup", release, { once: true });
     element.addEventListener("pointerdown", startCopy);
     pastElement.addEventListener("pointerdown", startCopy);
+    const focusPill = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
     term.attachCustomKeyEventHandler((event) => {
       // Escape belongs to the pane, never the surrounding panel.
       event.stopPropagation();
@@ -203,7 +205,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       if (dictated !== null) return dictated;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
-        if (event.type === "keydown") element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+        if (event.type === "keydown") focusPill();
         return false;
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
@@ -221,6 +223,13 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     });
     past.attachCustomKeyEventHandler((event) => {
       event.stopPropagation();
+      const dictated = dictate(event);
+      if (dictated !== null) return dictated;
+      if (event.shiftKey && event.key === "Escape") {
+        event.preventDefault();
+        if (event.type === "keydown") focusPill();
+        return false;
+      }
       const page = event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown");
       if (page || event.key === "Escape" || event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
         event.preventDefault();
@@ -305,7 +314,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
     };
     void read();
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
