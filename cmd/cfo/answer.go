@@ -23,6 +23,7 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	f.SetOutput(stderr)
 	option := f.String("option", "", "the choice that answers the question, in full or by its first word such as a")
 	note := f.String("note", "", "text the goblin receives after the choice")
+	recordOnly := f.Bool("record-only", false, "record on the board a choice the goblin already received another way, sending nothing; only for a notify already acknowledged or answered")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -38,10 +39,23 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	c := supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	chosen, err := c.AnswerGoblin(ctx, args[0], *option, *note)
+	if *recordOnly {
+		chosen, err := c.RecordGoblinAnswer(ctx, args[0], *option, *note)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "recorded %s on the board: %s (nothing was sent)\n", args[0], chosen)
+		return 0
+	}
+	chosen, queued, err := c.AnswerGoblin(ctx, args[0], *option, *note)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if queued {
+		fmt.Fprintf(stdout, "answered %s: %s (queued: the goblin was working and takes it when its current turn ends; recorded, so do not send it again)\n", args[0], chosen)
+		return 0
 	}
 	fmt.Fprintf(stdout, "answered %s: %s\n", args[0], chosen)
 	return 0

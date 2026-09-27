@@ -532,7 +532,7 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 	}
 	surfaced(t, store, meta, record, connection)
 
-	if _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
+	if _, _, err := connection.AnswerGoblin(ctx, fmt.Sprint(record.Seq), "sqlite", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
