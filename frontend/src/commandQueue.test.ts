@@ -7,6 +7,15 @@ import { parseSnapshot, type BoardActivity } from "./types.ts";
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
 
+test("goblins' items follow the In progress order, and a goblin's own items its longest wait", () => {
+  const snapshot = parseSnapshot({ healthy: true,
+    tasks: ["notes", "billing"].map((id) => ({ id, phase: "working", generation: "g1", verified: false, archived: false, merged: false })),
+    questions: [question("billing-old", "billing", "2026-09-24T00:00:00Z"), question("notes-new", "notes", "2026-09-24T00:30:00Z"), question("cfo", "", "2026-09-24T00:40:00Z"), question("unplaced", "gone", "2026-09-23T00:00:00Z")],
+    reviews: [review("notes-old", "notes", "2026-09-24T00:10:00Z")],
+  });
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo", "review:notes-old", "question:notes-new", "question:billing-old", "question:unplaced"]);
+});
+
 test("questions and open review items share one stack: the CFO first, then goblins by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true,
     questions: [question("g-new", "billing", "2026-09-24T00:30:00Z"), question("cfo-late", "", "2026-09-24T00:40:00Z"), question("done", "billing", "2026-09-24T00:00:00Z", "queued"), question("g-undated", "notes", "")],

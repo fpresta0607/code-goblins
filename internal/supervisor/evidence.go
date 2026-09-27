@@ -366,10 +366,37 @@ func queuedBriefs(h home.Home) []Task {
 			}
 		}
 		if !dispatched {
-			tasks = append(tasks, Task{ID: id, Title: id, Dependencies: []string{}, Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			project := briefProject(filepath.Join(h.Data, id, "brief.md"))
+			if project != "" {
+				project = filepath.Base(project)
+			}
+			tasks = append(tasks, Task{ID: id, Title: id, Project: project, Dependencies: []string{}, Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks
+}
+
+// briefProject is the checkout a brief's Project section names, or empty
+// when it names none.
+func briefProject(path string) string {
+	lines, err := fsx.ReadLines(path)
+	if err != nil {
+		return ""
+	}
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "## Project" {
+			continue
+		}
+		for _, next := range lines[i+1:] {
+			if next = strings.TrimSpace(next); next != "" {
+				if strings.HasPrefix(next, "#") {
+					return ""
+				}
+				return next
+			}
+		}
+	}
+	return ""
 }
 
 func exists(path string) bool {
