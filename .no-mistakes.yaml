@@ -44,14 +44,13 @@ auto_fix:
 # review saw it. After lint, the last fixing step a gate can follow, this gate
 # fails when the pipeline's own commits (subject no-mistakes(<step>): ...)
 # deleted a test that HEAD still lacks, or added more skip lines to a test
-# file than they removed while HEAD still has their skips there (counted per gate
-# commit, so a reworded or moved skip still shows and a merged main never
-# counts), which parks the run with an ask-user
-# finding: approve accepts it, fix restores the test. It
-# reads every gate commit since the merge base, so a later gate run on a branch
-# whose gate deletion was already approved parks again, and approving again
-# clears it. It runs the installed cfo, the trusted binary, so it works once
-# the CFO installs a build that has `cfo gate`.
+# file than they removed while HEAD still has their skips there (counted per
+# gate commit, so a reworded or moved skip still shows and a merged main never
+# counts), which parks the run with an ask-user finding: approve accepts it,
+# fix restores the test. It reads every gate commit since the merge base, so a
+# later gate run on a branch whose gate deletion was already approved parks
+# again, and approving again clears it. It runs the installed cfo, the trusted
+# binary, so it works once the CFO installs a build that has `cfo gate`.
 gates:
   - name: tests-kept
     after: lint
