@@ -8,7 +8,7 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it with its `0.1.71` floor and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+`cfo doctor` reports it against its `0.1.79` floor and the Code Goblins build (`0.1.79-codegoblins.1` or newer) and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 
 ## Request
 
@@ -21,9 +21,9 @@ If it is empty, infer what to show from the conversation.
 
 - **Plain chat** for a yes-or-no decision, a single recommendation, a status answer, or anything one paragraph carries.
 - **Lavish** when several options, trade-offs, a structured report, a plan, a comparison, a diagram, or a fleet-wide table justify a surface the Overlord can annotate.
-- **Neither, and say so** when lavish-axi is missing or below its floor: name the unavailable state once ("visual review is unavailable, here it is as text"), deliver the content in plain text, and carry on.
+- **Neither, and say so** when lavish-axi is missing, below its floor, or not the Code Goblins build (the upstream package): name the unavailable state once ("visual review is unavailable, here it is as text"), deliver the content in plain text, and carry on.
   Never hang waiting for a surface that cannot open, and never hold unrelated dispatch for an install.
-  When the Overlord wants the visual version, ask for consent to run `npm install -g lavish-axi@latest`, then confirm with `cfo doctor`.
+  When the Overlord wants the visual version, ask for consent to install the Code Goblins build of lavish-axi with the command `cfo doctor` prints, then confirm with `cfo doctor`.
 
 ## Workflow
 
