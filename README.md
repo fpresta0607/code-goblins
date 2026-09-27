@@ -336,7 +336,8 @@ cfo reap [--dry-run|--apply]
 cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
-cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"] [--record-only]
+cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
+cfo answer <question-id> --option <choice> [--note "<text>"] --record-only
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]

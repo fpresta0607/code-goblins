@@ -23,7 +23,7 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	f.SetOutput(stderr)
 	option := f.String("option", "", "the choice that answers the question, in full or by its first word such as a")
 	note := f.String("note", "", "text the goblin receives after the choice")
-	recordOnly := f.Bool("record-only", false, "record on the board a choice the goblin already received another way, sending nothing; only for a notify already acknowledged or answered")
+	recordOnly := f.Bool("record-only", false, "record on the board a choice the goblin already received another way, sending nothing; takes the question ID, and only for a notify already acknowledged or answered")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
 		return 2
 	}

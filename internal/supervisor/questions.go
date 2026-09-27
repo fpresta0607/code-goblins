@@ -319,15 +319,18 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 // primary CFO may do it, and only once the CFO has handled the notify: it was
 // acknowledged, or it reads answered. A notify still waiting unanswered is
 // refused, since cfo answer is how that one is answered, and so is a
-// question the Overlord is answering on the board. ref is the question's ID
-// or its notify's wake sequence. It returns the choice it recorded.
-func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, ref, option, note string) (string, error) {
+// question the Overlord is answering on the board. id is the question's ID,
+// notify-<task>-<sequence>. It returns the choice it recorded.
+func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, id, option, note string) (string, error) {
 	identity, release, err := c.CallerIdentity(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer release()
-	seq, err := questionSeq(ref)
+	if !strings.HasPrefix(id, "notify-") {
+		return "", fmt.Errorf("--record-only takes the question's ID, notify-<task>-<sequence>, not %s", id)
+	}
+	seq, err := questionSeq(id)
 	if err != nil {
 		return "", err
 	}
@@ -351,9 +354,9 @@ func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, ref, option, not
 			return "", fmt.Errorf("notify %d was never raised", seq)
 		}
 	}
-	q, err := boardQuestion(c.State, ref, seq)
+	q, err := readQuestion(c.State, id)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("question %s is not on the board: %w", id, err)
 	}
 	if q.AnswerID != "" && q.Status != "failed" {
 		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was recorded", q.ID, q.Status)
@@ -401,32 +404,6 @@ func questionSeq(ref string) (int, error) {
 		return 0, fmt.Errorf("%s names neither a goblin question nor its notify's wake sequence", ref)
 	}
 	return seq, nil
-}
-
-// boardQuestion finds the goblin question a reference names on the board: by
-// its ID, or by its notify's wake sequence when the notify itself, and so its
-// task, is already gone from the wake queue.
-func boardQuestion(stateDir, ref string, seq int) (Question, error) {
-	if ref != strconv.Itoa(seq) {
-		q, err := readQuestion(stateDir, ref)
-		if err != nil {
-			return Question{}, fmt.Errorf("question %s is not on the board: %w", ref, err)
-		}
-		return q, nil
-	}
-	data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
-	if err != nil {
-		return Question{}, fmt.Errorf("read the board's questions: %w", err)
-	}
-	var db Database
-	if err := json.Unmarshal(data, &db); err != nil {
-		return Question{}, errors.New("supervisor question history is unreadable")
-	}
-	i := slices.IndexFunc(db.Questions, func(q Question) bool { return q.Seq == seq && q.Task != "" })
-	if i < 0 {
-		return Question{}, fmt.Errorf("no goblin question on the board comes from notify %d", seq)
-	}
-	return db.Questions[i], nil
 }
 
 // withNote is the answer a goblin receives: the choice, then the note.
