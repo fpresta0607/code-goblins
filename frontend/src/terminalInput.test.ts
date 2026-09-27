@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, fittedFontSize, historyText, inputBytes, maxInputBytes, queueInput, scrollAction, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput.ts";
+import { bracketedPaste, fittedFontSize, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);
@@ -74,6 +74,45 @@ test("a pane's screen is fitted to the panel whole, by its width or its height, 
 test("the fit follows the cell size the terminal measured, not an assumed one", () => {
   assert.equal(fittedFontSize(900, 800, 132, 43, { width: 0.5, height: 1.2 }), 13.5);
   assert.equal(fittedFontSize(1800, 1000, 132, 43, { width: 0.6, height: 1.5 }), 15.5);
+});
+
+test("typing never merges into a size the view asked for", () => {
+  const queue: PaneCommand[] = [];
+  queueInput(queue, "a");
+  queue.push({ type: "terminal.resize", cols: 100, rows: 30 });
+  queueInput(queue, "b");
+  assert.deepEqual(queue, [typed("a"), { type: "terminal.resize", cols: 100, rows: 30 }, typed("b")]);
+});
+
+test("a view that sizes its pane fills the panel with whole cells, within what Herdr accepts", () => {
+  const cell = { width: 0.6, height: 1.2 };
+  const cases: [string, number, number, number, { cols: number; rows: number } | null][] = [
+    ["a maximized panel at 20 px", 1574, 750, 20, { cols: 131, rows: 31 }],
+    ["the side panel at 20 px", 700, 750, 20, { cols: 58, rows: 31 }],
+    ["a larger font holds fewer cells", 1574, 750, 28, { cols: 93, rows: 22 }],
+    ["a vast panel stops at Herdr's largest pane", 20000, 20000, 12, { cols: 400, rows: 160 }],
+    ["a panel too narrow for a terminal", 200, 750, 20, null],
+    ["a hidden panel", 0, 0, 20, null],
+  ];
+  for (const [name, width, height, font, grid] of cases) assert.deepEqual(panelGrid(width, height, font, cell), grid, name);
+});
+
+test("the most recent interaction wins the pane's size", () => {
+  const view = { sized: false, focused: true, shown: true, held: false };
+  const cases: [string, SizeEvent, typeof view, ReturnType<typeof sizeStep>][] = [
+    ["opening the terminal in the focused board takes the size", "live", view, "take"],
+    ["opening it while he is in another window leaves the size", "live", { ...view, focused: false }, "stay"],
+    ["opening it after another client took the pane leaves the size", "live", { ...view, held: true }, "stay"],
+    ["coming back to the board takes the size, even from another client", "focus", { ...view, held: true }, "take"],
+    ["typing in the board takes the size, even from another client", "typed", { ...view, held: true }, "take"],
+    ["leaving the board for a Herdr window hands the size back", "blur", { ...view, sized: true }, "give"],
+    ["moving to another view hands the size back", "hidden", { ...view, sized: true }, "give"],
+    ["showing the view again in the focused board takes the size", "shown", view, "take"],
+    ["a view out of sight never takes the size", "focus", { ...view, shown: false }, "stay"],
+    ["a view that has the size keeps it", "typed", { ...view, sized: true }, "stay"],
+    ["leaving a view that does not have the size changes nothing", "blur", view, "stay"],
+  ];
+  for (const [name, event, state, action] of cases) assert.equal(sizeStep(event, state), action, name);
 });
 
 test("a refused input explains itself in plain words", () => {
