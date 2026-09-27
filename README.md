@@ -192,7 +192,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
-- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
+- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed, each pull request once, under the repository it was opened in, even when a fork carries its upstream's merges; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
@@ -204,10 +204,11 @@ On a narrow screen the columns stack and a card's name, repo and status wrap ont
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
-Completed shows only the newest cards that fit the visible board, and a pager under it says which show, such as 1–5 of 18, and turns to the earlier ones; on a touch screen a sideways swipe does the same.
+Each list shows only the cards that fit the visible board, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
 A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 On a touch screen, drag a card by its number.
+A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past the page's edge moves it on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
@@ -338,6 +339,7 @@ cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
+cfo answer <question-id> --option <choice> [--note "<text>"] --record-only
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]

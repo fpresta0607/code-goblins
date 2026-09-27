@@ -208,6 +208,16 @@ func ackSequence(records, displayed []Record) (int, bool) {
 	return maxSeq, true
 }
 
+// Acked reports whether seq is at or below the durable ack floor, so its
+// record has been retired from the queue.
+func Acked(dir string, seq int) (bool, error) {
+	floor, err := readAckFloor(dir)
+	if err != nil {
+		return false, err
+	}
+	return seq > 0 && seq <= floor, nil
+}
+
 // AckThrough retires every record with Seq <= seq and advances the durable
 // ack floor. Acking an already-empty or already-acked range is a no-op.
 func AckThrough(dir string, seq int) error {

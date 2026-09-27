@@ -30,6 +30,12 @@ export function clampPage(page: number, size: number, count: number): number {
   return Math.min(Math.max(0, page), pages - 1);
 }
 
+// The page a card at index is on, so a card moved past its page's edge
+// carries the view with it.
+export function pageOf(index: number, size: number): number {
+  return Math.floor(index / size);
+}
+
 // Which cards the page shows, such as 1–5 of 18; empty when one page holds
 // the whole list.
 export function pageLabel(page: number, size: number, count: number): string {

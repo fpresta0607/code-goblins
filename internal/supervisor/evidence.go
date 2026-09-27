@@ -33,6 +33,7 @@ const (
 	historyWindow      = 7 * 24 * time.Hour
 	historyLimit       = 20
 	pullRequestRecheck = 10 * time.Minute
+	pullHeadsRecheck   = 10 * time.Minute
 	pullRequestBudget  = 5 * time.Second
 )
 
@@ -86,11 +87,50 @@ func slicesContainsPath(paths []string, path string) bool {
 // GitMergedPRs reads merged pull requests from each repository's own
 // history. The fleet merges with merge commits, whose subject names the pull
 // request, so this sees every merge, gated or not, without a forge call; the
-// gate database only knows merges its CI monitor happened to watch.
+// gate database only knows merges its CI monitor happened to watch. A merge
+// commit several repositories hold, such as a fork's copy of its upstream's
+// history, is listed once, under the repository the pull request was opened
+// in (see gitMergedPRs).
 func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, error) {
+	return gitMergedPRs(repos, pullRequestHeads, time.Now)
+}
+
+// gitMergedPRs lists merges as GitMergedPRs does. A merge commit more than one
+// repository holds goes to the repository whose origin publishes that pull
+// request's head as the merge's second parent; when none does, to the first
+// repository listed, the CFO home first. heads lists every pull request head
+// a repository's origin publishes in one call, and a listing is kept: it is
+// asked for again only for a pull request it does not list or lists with
+// another head, such as one listed while it was still open, and then at most
+// every pullHeadsRecheck, so a fork carrying a week of its upstream's merges
+// costs one call per repository, not one per merge.
+func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (map[string]string, error), now func() time.Time) func(context.Context, time.Time) ([]MergedPR, error) {
+	type listing struct {
+		heads map[string]string
+		at    time.Time
+	}
+	listings := map[string]listing{}
+	type merge struct {
+		pr           MergedPR
+		number, head string
+	}
 	return func(ctx context.Context, since time.Time) ([]MergedPR, error) {
-		var merged []MergedPR
 		var errs error
+		publishes := func(repo, number, head string) bool {
+			known, ok := listings[repo]
+			if !ok || known.heads[number] != head && now().Sub(known.at) >= pullHeadsRecheck {
+				fresh, err := heads(ctx, repo)
+				errs = errors.Join(errs, err)
+				if err == nil {
+					known.heads = fresh
+				}
+				known.at = now()
+				listings[repo] = known
+			}
+			return known.heads[number] == head
+		}
+		holders := map[string][]merge{}
+		var commits []string
 		for _, repo := range repos {
 			remote, err := (Git{}).run(ctx, repo, "remote", "get-url", "origin")
 			match := githubRemote.FindStringSubmatch(strings.TrimSpace(remote))
@@ -107,23 +147,62 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, 
 			if ref == "" {
 				continue
 			}
-			out, err := (Git{}).run(ctx, repo, "log", ref, "--merges", "--since="+since.UTC().Format(time.RFC3339), "--format=%ct%x09%s")
+			out, err := (Git{}).run(ctx, repo, "log", ref, "--merges", "--since="+since.UTC().Format(time.RFC3339), "--format=%H%x09%P%x09%ct%x09%s")
 			if err != nil {
 				errs = errors.Join(errs, err)
 				continue
 			}
 			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-				at, subject, ok := strings.Cut(strings.TrimSpace(line), "\t")
-				m := mergeSubject.FindStringSubmatch(subject)
-				seconds, err := strconv.ParseInt(at, 10, 64)
-				if !ok || m == nil || err != nil {
+				fields := strings.SplitN(strings.TrimSpace(line), "\t", 4)
+				if len(fields) != 4 {
 					continue
 				}
-				merged = append(merged, MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds})
+				parents := strings.Fields(fields[1])
+				m := mergeSubject.FindStringSubmatch(fields[3])
+				seconds, err := strconv.ParseInt(fields[2], 10, 64)
+				if len(parents) < 2 || m == nil || err != nil {
+					continue
+				}
+				if _, seen := holders[fields[0]]; !seen {
+					commits = append(commits, fields[0])
+				}
+				holders[fields[0]] = append(holders[fields[0]], merge{pr: MergedPR{PR: "https://github.com/" + match[1] + "/pull/" + m[1], Branch: m[2], Project: repo, At: seconds}, number: m[1], head: parents[1]})
 			}
+		}
+		merged := make([]MergedPR, 0, len(commits))
+		for _, commit := range commits {
+			candidates := holders[commit]
+			chosen := candidates[0]
+			if len(candidates) > 1 {
+				for _, candidate := range candidates {
+					if publishes(candidate.pr.Project, candidate.number, candidate.head) {
+						chosen = candidate
+						break
+					}
+				}
+			}
+			merged = append(merged, chosen.pr)
 		}
 		return merged, errs
 	}
+}
+
+// pullRequestHeads lists the head commit of every pull request repo's origin
+// publishes, by number, as GitHub publishes them: refs/pull/<number>/head.
+func pullRequestHeads(ctx context.Context, repo string) (map[string]string, error) {
+	out, err := (Git{}).run(ctx, repo, "ls-remote", "origin", "refs/pull/*/head")
+	if err != nil {
+		return nil, err
+	}
+	heads := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		head, ref, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		number, isHead := strings.CutSuffix(strings.TrimPrefix(ref, "refs/pull/"), "/head")
+		if ok && isHead && number != "" {
+			heads[number] = head
+		}
+	}
+	return heads, nil
 }
 
 // fleetEvaluation is the status of a task no native hook has reported: a
