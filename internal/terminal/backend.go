@@ -96,7 +96,8 @@ var _ Backend = (*herdr.Client)(nil)
 type Opener func(session string) Backend
 
 // HerdrSessions opens client in a session: a named one replaces the client's
-// own, and an empty one keeps it.
+// own, and an empty one keeps it. Every session shares the client's socket
+// cache, when it has one.
 func HerdrSessions(client *herdr.Client) Opener {
 	return func(session string) Backend {
 		scoped := *client

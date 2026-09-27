@@ -17,7 +17,7 @@ var (
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
-	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
+	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
 	blockerToken       = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)`)
 	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
 )
@@ -45,7 +45,13 @@ type BacklogRow struct {
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
 	Artifact      string   `json:"artifact"`
-	Raw           string   `json:"raw"`
+	// Harness, Model, Effort and Mode are what a row names for its spawn,
+	// such as (harness: codex, model: gpt-6-astra).
+	Harness string `json:"harness,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	Raw     string `json:"raw"`
 }
 
 // ReadBacklog parses the supported Queued, Parked and Done records without
@@ -119,6 +125,10 @@ func parseBacklogRow(line string) BacklogRow {
 		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,
 		Artifact:      backlogArtifact(rest),
+		Harness:       metadataValue(rest, "harness"),
+		Model:         metadataValue(rest, "model"),
+		Effort:        metadataValue(rest, "effort"),
+		Mode:          metadataValue(rest, "mode"),
 		Raw:           line,
 	}
 }

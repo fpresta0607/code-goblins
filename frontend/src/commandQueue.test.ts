@@ -17,6 +17,16 @@ test("a goblin's wait on the Overlord is a status card, anything else under revi
   for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
 });
 
+test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
+  const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
+    tasks: ["notes", "billing", "alpha", "zeta"].map((id) => ({ id, phase: "working", generation: "g1", verified: false, archived: false, merged: false })),
+    questions: [question("billing-old", "billing", "2026-09-24T00:00:00Z"), question("notes-new", "notes", "2026-09-24T00:30:00Z"), question("cfo", "", "2026-09-24T00:40:00Z"), question("gone", "gone", "2026-09-23T00:00:00Z"),
+      question("alpha-late", "alpha", "2026-09-24T02:00:00Z"), question("zeta-early", "zeta", "2026-09-24T00:05:00Z")],
+    reviews: [review("notes-old", "notes", "2026-09-24T00:10:00Z")],
+  });
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["question:cfo", "review:notes-old", "question:notes-new", "question:billing-old", "question:gone", "question:zeta-early", "question:alpha-late"]);
+});
+
 test("questions and open review items share one stack: the CFO first, then goblins by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true,
     questions: [question("g-new", "billing", "2026-09-24T00:30:00Z"), question("cfo-late", "", "2026-09-24T00:40:00Z"), question("done", "billing", "2026-09-24T00:00:00Z", "queued"), question("g-undated", "notes", "")],

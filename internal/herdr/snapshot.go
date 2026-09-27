@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -68,10 +69,28 @@ type SnapshotAgent struct {
 // typed API envelope, so it takes no --json flag.
 func (c *Client) Snapshot(ctx context.Context) (SessionSnapshot, error) {
 	session := c.session()
+	if raw, ok := c.socketRead(ctx, "session.snapshot", map[string]any{}); ok {
+		if snapshot, err := decodeSnapshot(session, raw); err == nil {
+			return snapshot, nil
+		}
+	}
 	result, err := c.required(ctx, session, Target{}, "api snapshot", "api", "snapshot")
 	if err != nil {
 		return SessionSnapshot{}, err
 	}
+	raw, code, err := envelope(result.Stdout)
+	if err == nil && code != "" {
+		err = fmt.Errorf("response error %s", code)
+	}
+	if err != nil {
+		return SessionSnapshot{}, fmt.Errorf("herdr: decode api snapshot response for session %q: %w", session, err)
+	}
+	return decodeSnapshot(session, raw)
+}
+
+// decodeSnapshot reads a session snapshot result, as the socket answers it
+// and as the herdr command wraps it.
+func decodeSnapshot(session string, raw json.RawMessage) (SessionSnapshot, error) {
 	var response struct {
 		Type     string `json:"type"`
 		Snapshot struct {
@@ -84,7 +103,7 @@ func (c *Client) Snapshot(ctx context.Context) (SessionSnapshot, error) {
 			Layouts    []SnapshotLayout    `json:"layouts"`
 		} `json:"snapshot"`
 	}
-	if err := decodeResult(result.Stdout, &response); err != nil {
+	if err := decodeRaw(raw, &response); err != nil {
 		return SessionSnapshot{}, fmt.Errorf("herdr: decode api snapshot response for session %q: %w", session, err)
 	}
 	if response.Type != "session_snapshot" {

@@ -2,7 +2,9 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +164,124 @@ func TestSocketWithoutAServerFails(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "connect to") {
 		t.Fatalf("SendText with no server = %v, want a connect error", err)
+	}
+}
+
+// With a socket cache, a session's snapshot and a pane's process info are read
+// on Herdr's socket, a pipe round trip of milliseconds, instead of starting a
+// herdr process for each, which takes about a second on a loaded machine: the
+// whole cache asks Herdr's status once and runs no other command.
+func TestSocketCacheReadsSnapshotAndProcessInfoOnTheSocket(t *testing.T) {
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(request herdrtest.Request) string {
+		switch request.Method {
+		case "session.snapshot":
+			return `{"id":"session.snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9","protocol":22,"workspaces":[],"tabs":[],"panes":[{"pane_id":"w1:p2","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"term_1"}],"agents":[],"layouts":[]}}}`
+		case "pane.process_info":
+			return `{"id":"pane.process_info","result":{"type":"pane_process_info","process_info":{"shell_pid":10,"foreground_process_group_id":20}}}`
+		}
+		return ""
+	}
+	runner := &fakeRunner{replies: []runnerReply{rawReply(socket.Status())}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	for i := 0; i < 2; i++ {
+		snapshot, err := client.Snapshot(context.Background())
+		if err != nil || len(snapshot.Panes) != 1 || snapshot.Panes[0].TerminalID != "term_1" {
+			t.Fatalf("snapshot %d = %+v, %v; want the socket's one pane", i, snapshot, err)
+		}
+		info, err := client.PaneProcessInfo(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+		if err != nil || info.ShellPID != 10 || info.ForegroundProcessGroupID != 20 {
+			t.Fatalf("process info %d = %+v, %v; want the socket's pids", i, info, err)
+		}
+	}
+
+	if calls := runner.Requests(); len(calls) != 1 || strings.Join(calls[0].Args, " ") != "status --json --session fleet" {
+		t.Fatalf("commands run = %v, want only the one status read", calls)
+	}
+	if requests := socket.Requests(); len(requests) != 4 {
+		t.Fatalf("socket got %d requests, want 2 snapshots and 2 process infos", len(requests))
+	}
+}
+
+// A socket that cannot be reached is forgotten and the read goes through the
+// herdr command, so a restarted Herdr is found again on the next read.
+func TestSocketCacheFallsBackToTheCommandWhenThePipeIsGone(t *testing.T) {
+	path, err := json.Marshal(filepath.Join(t.TempDir(), "herdr.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := `{"client":{"protocol":22},"server":{"status":"running","running":true,"protocol":22,"compatible":true,"socket":` + string(path) + `}}`
+	snapshot := `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9","protocol":22,"workspaces":[],"tabs":[],"panes":[],"agents":[],"layouts":[]}}}`
+	runner := &fakeRunner{replies: []runnerReply{rawReply(gone), rawReply(snapshot), rawReply(gone), rawReply(snapshot)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	for i := 0; i < 2; i++ {
+		if _, err := client.Snapshot(context.Background()); err != nil {
+			t.Fatalf("snapshot %d through the command: %v", i, err)
+		}
+	}
+
+	var got []string
+	for _, call := range runner.Requests() {
+		got = append(got, strings.Join(call.Args, " "))
+	}
+	want := []string{"status --json --session fleet", "api snapshot --session fleet", "status --json --session fleet", "api snapshot --session fleet"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("commands run = %q, want %q: the unreachable pipe is not kept", got, want)
+	}
+}
+
+// A live Herdr's error answer keeps the socket: the read goes through the
+// herdr command, and the next read uses the same socket without asking
+// Herdr's status again.
+func TestSocketCacheKeepsTheSocketAfterAnErrorAnswer(t *testing.T) {
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(request herdrtest.Request) string {
+		return `{"id":"` + request.ID + `","error":{"code":"internal","message":"try again"}}`
+	}
+	snapshot := `{"id":"cli:api:snapshot","result":{"type":"session_snapshot","snapshot":{"version":"0.9","protocol":22,"workspaces":[],"tabs":[],"panes":[],"agents":[],"layouts":[]}}}`
+	runner := &fakeRunner{replies: []runnerReply{rawReply(socket.Status()), rawReply(snapshot), rawReply(snapshot)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	for i := 0; i < 2; i++ {
+		if _, err := client.Snapshot(context.Background()); err != nil {
+			t.Fatalf("snapshot %d through the command: %v", i, err)
+		}
+	}
+
+	var got []string
+	for _, call := range runner.Requests() {
+		got = append(got, strings.Join(call.Args, " "))
+	}
+	want := []string{"status --json --session fleet", "api snapshot --session fleet", "api snapshot --session fleet"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("commands run = %q, want %q: the answering socket is kept", got, want)
+	}
+	if requests := socket.Requests(); len(requests) != 2 {
+		t.Fatalf("socket got %d requests, want both snapshots", len(requests))
+	}
+}
+
+// With a cache, a pane input whose status read fails asks Herdr's status once.
+func TestSocketCachePaneInputReadsAFailingStatusOnce(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{rawReply(`{"server":{"running":false}}`)}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	_, err := client.PaneInput(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("PaneInput = %v, want the status's not running error", err)
+	}
+	if calls := runner.Requests(); len(calls) != 1 {
+		t.Fatalf("commands run = %v, want the one status read", calls)
 	}
 }

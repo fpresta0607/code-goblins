@@ -453,6 +453,137 @@ func TestUnreadableProgressEvidenceStillWakes(t *testing.T) {
 	}
 }
 
+// The noise of 2026-09-27: a goblin plainly working in its gate's test step
+// woke the CFO every few minutes, because each scan on which Herdr's
+// process-info timed out threw away the transcript already read. What could
+// be read still counts: a transcript that keeps being written is progress
+// whether or not the goblin's processes could be listed.
+func TestAMovingTranscriptHoldsTheWakeWhenProcessesCannotBeRead(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	timeout := errors.New("herdr: pane process-info for default:w9:pBA: context deadline exceeded")
+	scanWorking(t, service, probe, meta, &now, 0)
+
+	for scan := range 12 {
+		// Act
+		progress.sample.TranscriptAt = now.Add(4 * time.Minute)
+		progress.err = nil
+		if scan%2 == 0 {
+			progress.err = timeout
+		}
+		r := scanWorking(t, service, probe, meta, &now, 5*time.Minute)
+
+		// Assert
+		if r.Event != nil {
+			t.Fatalf("a goblin writing its transcript woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+		}
+	}
+}
+
+// A wedge the monitor loses sight of for one scan, such as a gate probe that
+// timed out beside a fresh transcript, is not new when it is seen again: the
+// CFO already has it. The same busy wake for the same task waits a whole
+// budget after the last one, and a different one is raised at once.
+func TestTheSameBusyWakeWaitsABudgetBeforeItIsRaisedAgain(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	gate := &fakeGate{sample: GateSample{Active: true, Step: "test", ActiveFor: 70 * time.Minute}}
+	service.Gate = gate
+	scanWorking(t, service, probe, meta, &now, 0)
+	first := scanWorking(t, service, probe, meta, &now, 11*time.Minute)
+	if first.Event == nil || !strings.Contains(first.Event.Detail, "gate step test") {
+		t.Fatalf("a gate step past the budget = %+v, want a wake naming it", first.Event)
+	}
+	publish(t, service, first.Event)
+	lostSight := func() {
+		gate.err = errors.New("no-mistakes axi status: context deadline exceeded")
+		progress.sample.TranscriptAt = now.Add(time.Minute)
+		if r := scanWorking(t, service, probe, meta, &now, 2*time.Minute); r.Event != nil {
+			t.Fatalf("a scan with a fresh transcript woke: %+v", r.Event)
+		}
+		gate.err = nil
+	}
+
+	// Act
+	var repeats []string
+	for range 2 {
+		lostSight()
+		if r := scanWorking(t, service, probe, meta, &now, 2*time.Minute); r.Event != nil {
+			repeats = append(repeats, now.Format(time.Kitchen)+": "+r.Event.Detail)
+			publish(t, service, r.Event)
+		}
+	}
+	lostSight()
+	later := scanWorking(t, service, probe, meta, &now, 2*time.Minute)
+
+	// Assert
+	if len(repeats) != 0 {
+		t.Errorf("the same wedge was raised again within the budget: %q", repeats)
+	}
+	if later.Event == nil {
+		t.Errorf("the same wedge seen a whole budget after its wake was not raised again")
+	}
+}
+
+func TestADifferentBusyWakeIsRaisedAtOnce(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
+	service, probe, progress, meta := progressService(t, &now)
+	gate := &fakeGate{sample: GateSample{Active: true, Step: "test", ActiveFor: 70 * time.Minute}}
+	service.Gate = gate
+	scanWorking(t, service, probe, meta, &now, 0)
+	first := scanWorking(t, service, probe, meta, &now, 11*time.Minute)
+	publish(t, service, first.Event)
+	gate.err = errors.New("no-mistakes axi status: context deadline exceeded")
+	progress.sample.TranscriptAt = now.Add(time.Minute)
+	scanWorking(t, service, probe, meta, &now, 2*time.Minute)
+	gate.err = nil
+	gate.sample = GateSample{Active: true, Step: "ci", ActiveFor: 80 * time.Minute, NoCI: true}
+
+	// Act
+	r := scanWorking(t, service, probe, meta, &now, 2*time.Minute)
+
+	// Assert
+	if r.Event == nil || !strings.Contains(r.Event.Detail, "gate step ci") {
+		t.Fatalf("a wedge in another gate step = %+v, want it raised at once", r.Event)
+	}
+}
+
+// Herdr's process-info failing leaves the transcript readable, and the prober
+// hands back what it read beside the error.
+func TestHostProgressKeepsTheTranscriptWhenProcessInfoFails(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	transcript := filepath.Join(home, ".claude", "projects", "C--dev-app", "session-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	written := time.Date(2026, 9, 27, 9, 44, 0, 0, time.UTC)
+	if err := os.Chtimes(transcript, written, written); err != nil {
+		t.Fatal(err)
+	}
+	prober := HostProgress{Panes: failingPanes{errors.New("context deadline exceeded")}, Home: home}
+
+	// Act
+	progress, err := prober.InspectProgress(context.Background(), state.TaskMeta{}, EndpointSample{Harness: "claude", Session: "session-1"})
+
+	// Assert
+	if err == nil || !progress.TranscriptAt.Equal(written) {
+		t.Fatalf("InspectProgress = %v, %v; want the transcript written at %v beside the process-info error", progress.TranscriptAt, err, written)
+	}
+}
+
+type failingPanes struct{ err error }
+
+func (f failingPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
+	return herdr.PaneProcessInfo{}, f.err
+}
+
 func TestHarnessJobsCountsOnlyWorkStartedAfterLaunch(t *testing.T) {
 	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
 	table := processTable{

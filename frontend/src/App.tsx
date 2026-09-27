@@ -20,6 +20,9 @@ import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
 import { Alerts } from "./Alerts";
 import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
+import { panelViews } from "./cards";
+import { startOutcome, type AcceptedStart } from "./start";
+import { useStart } from "./useStart";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -65,6 +68,10 @@ export function App() {
   // startingShown is whether this page already opened the terminal of a CFO
   // that is starting, so closing it is not undone.
   const [startingShown, setStartingShown] = useState(false);
+  // awaitingStart is the Start the Overlord made, until its task is up or a
+  // snapshot of it shows it failed.
+  const [awaitingStart, setAwaitingStart] = useState<AcceptedStart | null>(null);
+  const cardStart = useStart(snapshot, awaitingStart, setAwaitingStart);
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
@@ -126,6 +133,10 @@ export function App() {
   // A CFO starting in its terminal waits there for Claude Code's sign-in, so
   // the board opens that terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
+  // A task the Overlord started opens on its terminal once its session is up;
+  // a start that failed shows why on its card instead.
+  const outcome = awaitingStart && snapshot ? startOutcome(awaitingStart, snapshot) : "wait";
+  if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, choice: firstRunChoice });
   const close = () => {
@@ -134,10 +145,12 @@ export function App() {
   };
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || cfoOpen);
-  const terminalShown = showsPanel && panelView === "terminal";
+  // A queued task has no terminal yet, so its panel shows its Task view.
+  const shownView: PanelView = panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
+  const terminalShown = showsPanel && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
-  const maximizeView = maximizedView(view, panelView);
+  const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizeView, maximizedChoice[maximizeView]);
   const panelWide = paneOpen && maximized && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
@@ -185,20 +198,20 @@ export function App() {
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
-        {!snapshot ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} />
+        {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
       {paneOpen && !panelWide && !compact && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
-        {snapshot && paneOpen && (!showsPanel
+        {snapshot && cardStart && paneOpen && (!showsPanel
           ? <><div className="panel-top"><div className="panel-top-side" /><div /><div className="panel-top-side end">{closeButton}</div></div>
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={panelView} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)}
             leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>

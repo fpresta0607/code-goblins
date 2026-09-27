@@ -24,6 +24,9 @@ type Client struct {
 	Commands execx.Runner
 	Session  string
 	Sleep    func(context.Context, time.Duration) error
+	// Sockets, when set, reads the session's structure on Herdr's socket
+	// instead of starting a herdr process for each read.
+	Sockets *SocketCache
 }
 
 type requestError struct {
@@ -367,18 +370,23 @@ func (c *Client) PaneProcessInfo(ctx context.Context, target Target) (PaneProces
 	if err := validateTarget(target); err != nil {
 		return PaneProcessInfo{}, err
 	}
-	result, err := c.required(ctx, target.Session, target, "pane process-info", "pane", "process-info", "--pane", target.Pane)
-	if err != nil {
-		return PaneProcessInfo{}, err
-	}
 	var response struct {
 		ProcessInfo struct {
 			ForegroundProcessGroupID int `json:"foreground_process_group_id"`
 			ShellPID                 int `json:"shell_pid"`
 		} `json:"process_info"`
 	}
-	if err := decodeResult(result.Stdout, &response); err != nil {
-		return PaneProcessInfo{}, fmt.Errorf("herdr: decode pane process info for %s: %w", target, err)
+	scoped := *c
+	scoped.Session = target.Session
+	raw, ok := scoped.socketRead(ctx, "pane.process_info", map[string]any{"pane_id": target.Pane})
+	if !ok || decodeRaw(raw, &response) != nil {
+		result, err := c.required(ctx, target.Session, target, "pane process-info", "pane", "process-info", "--pane", target.Pane)
+		if err != nil {
+			return PaneProcessInfo{}, err
+		}
+		if err := decodeResult(result.Stdout, &response); err != nil {
+			return PaneProcessInfo{}, fmt.Errorf("herdr: decode pane process info for %s: %w", target, err)
+		}
 	}
 	info := PaneProcessInfo{
 		ShellPID:                 response.ProcessInfo.ShellPID,
