@@ -53,10 +53,23 @@ func TestNativeTerminalProgram(t *testing.T) {
 		file.Close()
 	}
 	fmt.Println("program ready")
+	// harness makes the program show Claude Code's composer, and each line
+	// typed after it a turn in progress, so a native delivery can type into
+	// it the way it types into Claude Code.
+	harness := false
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := lines.Text()
 		switch {
+		case line == "harness":
+			harness = true
+			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+		case strings.HasPrefix(line, "ask "):
+			if _, err := goblinAsker(context.Background(), args[2], nil, strings.TrimPrefix(line, "ask ")); err != nil {
+				record("ask error: " + err.Error())
+				continue
+			}
+			record("asked")
 		case line == "register":
 			described, err := Register(context.Background(), args[2], nil, "claude", "session-1")
 			if err != nil {
@@ -81,6 +94,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 			os.Exit(code)
 		default:
 			record(line)
+			if harness {
+				fmt.Println("✽ Pondering… (esc to interrupt)")
+			}
 		}
 	}
 	os.Exit(0)

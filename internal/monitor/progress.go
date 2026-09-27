@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -45,9 +46,12 @@ type PaneProcesses interface {
 }
 
 // HostProgress reads progress evidence on this machine: the harness's
-// transcript under the user's home, and the processes under the pane.
+// transcript under the user's home, and the processes under the harness.
 type HostProgress struct {
 	Panes PaneProcesses
+	// StateDir is where native terminals' hosts record the program each
+	// runs, the harness of a native task.
+	StateDir string
 	// Home is the user's home directory, where every harness keeps its
 	// transcripts. Empty skips the transcript.
 	Home string
@@ -59,22 +63,33 @@ type HostProgress struct {
 const harnessLaunch = 2 * time.Minute
 
 // InspectProgress reads the transcript and the harness's own processes. The
-// harness is whatever Herdr reports in the pane's foreground; a pane back at
-// its shell has no harness and so no processes of its own.
-func (h HostProgress) InspectProgress(ctx context.Context, _ state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
+// harness of a native task is the program its terminal runs; otherwise it is
+// whatever Herdr reports in the pane's foreground, and a pane back at its
+// shell has no harness and so no processes of its own.
+func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
-	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
-	if err != nil {
-		return progress, err
-	}
-	if info.ForegroundProcessGroupID == info.ShellPID {
-		return progress, nil
+	var harnessPID int
+	if meta.Backend == "native" {
+		record, err := host.ReadRecord(h.StateDir, meta.ID)
+		if err != nil {
+			return progress, err
+		}
+		harnessPID = record.ChildPID
+	} else {
+		info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
+		if err != nil {
+			return progress, err
+		}
+		if info.ForegroundProcessGroupID == info.ShellPID {
+			return progress, nil
+		}
+		harnessPID = info.ForegroundProcessGroupID
 	}
 	processes, err := proc.Processes()
 	if err != nil {
 		return progress, err
 	}
-	progress.Jobs, progress.JobCPU = harnessJobs(info.ForegroundProcessGroupID, processes, harnessLaunch, proc.StartTime, proc.CPUTime)
+	progress.Jobs, progress.JobCPU = harnessJobs(harnessPID, processes, harnessLaunch, proc.StartTime, proc.CPUTime)
 	return progress, nil
 }
 

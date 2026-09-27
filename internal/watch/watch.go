@@ -150,11 +150,15 @@ func ConfigFromEnv(h home.Home) Config {
 	userHome, _ := os.UserHomeDir()
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
-		Probe:    monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
-		Gate:     monitor.ExecGateProber{},
+		Probe: monitor.BackendProber{
+			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
+			Native: monitor.NativeProber{StateDir: h.State},
+		},
+		Gate: monitor.ExecGateProber{},
 		Progress: monitor.HostProgress{
-			Panes: &herdr.Client{Commands: execx.OSRunner{}, Session: session},
-			Home:  userHome,
+			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session},
+			StateDir: h.State,
+			Home:     userHome,
 		},
 		Polls:        monitor.ProcessPolls{},
 		Heartbeat:    heartbeat,
