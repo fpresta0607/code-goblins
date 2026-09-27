@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,6 +369,60 @@ func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	}
 	if !slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/32" }) {
 		t.Fatalf("tasks = %+v, want the healthy repository's merge", view.Tasks)
+	}
+}
+
+// The Completed column shows the newest twenty entries, but a finished task
+// finds its merge among every merge in the window: pd-cost-cuts-resume read
+// Finished while its merged PR sat behind 38 newer fleet merges.
+func TestAFinishedTaskFindsItsMergeBehindTwentyNewerMerges(t *testing.T) {
+	store, h := testStore(t)
+	repo := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	now := time.Now().UTC()
+	var stream strings.Builder
+	committer := func(minute int) string {
+		return fmt.Sprintf("committer t <t@t> %d +0000\n", now.Add(time.Duration(minute-60)*time.Minute).Unix())
+	}
+	fmt.Fprintf(&stream, "commit refs/heads/side\nmark :1\n%sdata 4\nside\n", committer(0))
+	fmt.Fprintf(&stream, "commit refs/heads/main\n%sdata 4\nbase\n", committer(0))
+	for pr := 1; pr <= 21; pr++ {
+		subject := fmt.Sprintf("Merge pull request #%d from o/fix/pr-%d", pr, pr)
+		fmt.Fprintf(&stream, "commit refs/heads/main\n%sdata %d\n%s\nmerge :1\n", committer(pr), len(subject), subject)
+	}
+	git := func(stdin string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Stdin = strings.NewReader(stdin)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("", "init", "-q", "--initial-branch=main")
+	git(stream.String(), "fast-import", "--quiet")
+	git("", "remote", "add", "origin", "https://github.com/o/PrecisionDocs-AI.git")
+	git("", "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+	if err := os.WriteFile(filepath.Join(h.State, "pd-cost-cuts-resume.status"), []byte("done: PR https://github.com/o/PrecisionDocs-AI/pull/1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Options: Options{MergedPRs: GitMergedPRs([]string{repo})}}
+
+	if err := service.refreshHistory(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:pd-cost-cuts-resume" })
+	if index < 0 || !view.Tasks[index].Merged {
+		t.Fatalf("tasks = %+v, want the finished task to carry its merge", view.Tasks)
+	}
+	if completed := slices.DeleteFunc(slices.Clone(view.Tasks), func(task Task) bool { return !task.Archived }); len(completed) != historyLimit {
+		t.Fatalf("Completed lists %d entries, want the newest %d", len(completed), historyLimit)
 	}
 }
 
