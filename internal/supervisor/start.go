@@ -149,11 +149,14 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	h := s.Store.Home
 	detail := "start failed: " + failure
 	if err == nil {
-		// Started now, it goes to the top of In progress.
+		// Started now, it goes to the top of In progress, under the lock an
+		// order the Overlord saves meanwhile takes.
+		s.ordering.Lock()
 		order, readErr := fleet.ReadAttention(h)
 		if readErr == nil {
 			readErr = fleet.WriteAttention(h, append([]string{plan.id}, slices.DeleteFunc(order, func(id string) bool { return id == plan.id })...))
 		}
+		s.ordering.Unlock()
 		if readErr != nil {
 			s.publish(readErr)
 		}
