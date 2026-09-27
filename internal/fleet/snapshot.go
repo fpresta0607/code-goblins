@@ -179,11 +179,10 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {
 		return snapshot.Tasks[i].ID < snapshot.Tasks[j].ID
 	})
-	attention, err := ReadAttention(h)
-	if err != nil {
-		return Snapshot{}, err
+	// An unreadable attention order leaves the tasks in ID order.
+	if attention, err := ReadAttention(h); err == nil {
+		SortByAttention(snapshot.Tasks, attention, func(task TaskRow) string { return task.ID })
 	}
-	SortByAttention(snapshot.Tasks, attention, func(task TaskRow) string { return task.ID })
 	return snapshot, nil
 }
 

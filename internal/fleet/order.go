@@ -31,17 +31,18 @@ type queuedBlock struct {
 
 // ReorderQueued rewrites data\backlog.md's Queued section so its rows run in
 // order, top first, which is the order the CFO dispatches in. A row moves
-// with its indented detail lines; notes, parked rows and every other section
+// with its indented detail lines; notes, parked rows, the rows of tasks in
+// live, which are in progress rather than queued, and every other section
 // stay where they are. added holds the row to write for each task in order
 // that has a brief and no row yet. An order that is not exactly the queue
 // the file holds, with added, is ErrQueueChanged and writes nothing.
-func ReorderQueued(h home.Home, order []string, added map[string]string) error {
+func ReorderQueued(h home.Home, order []string, added map[string]string, live map[string]bool) error {
 	path := filepath.Join(h.Data, "backlog.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("fleet: read backlog: %w", err)
 	}
-	next, err := reorderedBacklog(string(data), order, added)
+	next, err := reorderedBacklog(string(data), order, added, live)
 	if err != nil || next == string(data) {
 		return err
 	}
@@ -51,9 +52,9 @@ func ReorderQueued(h home.Home, order []string, added map[string]string) error {
 	return nil
 }
 
-func reorderedBacklog(text string, order []string, added map[string]string) (string, error) {
+func reorderedBacklog(text string, order []string, added map[string]string, live map[string]bool) (string, error) {
 	lines := strings.Split(text, "\n")
-	blocks, anchor := queuedBlocks(lines)
+	blocks, anchor := queuedBlocks(lines, live)
 	current := make(map[string]queuedBlock, len(blocks))
 	for _, block := range blocks {
 		if _, twice := current[block.id]; twice {
@@ -116,9 +117,10 @@ func reorderedBacklog(text string, order []string, added map[string]string) (str
 	return strings.Join(append(out, lines[next:]...), "\n"), nil
 }
 
-// queuedBlocks finds the rows ReadBacklog lists as queued, in file order, and
-// the last written line of the first Queued section, or -1 without one.
-func queuedBlocks(lines []string) ([]queuedBlock, int) {
+// queuedBlocks finds the rows ReadBacklog lists as queued, in file order,
+// except those of tasks in live, and the last written line of the first
+// Queued section, or -1 without one.
+func queuedBlocks(lines []string, live map[string]bool) ([]queuedBlock, int) {
 	var blocks []queuedBlock
 	anchor := -1
 	section, first := "", true
@@ -144,7 +146,7 @@ func queuedBlocks(lines []string) ([]queuedBlock, int) {
 			anchor = i
 		}
 		row := parseBacklogRow(trimmed)
-		if !row.Structured || strings.EqualFold(metadataValue(trimmed, "hold-kind"), "parked") {
+		if !row.Structured || live[row.ID] || strings.EqualFold(metadataValue(trimmed, "hold-kind"), "parked") {
 			continue
 		}
 		end := i + 1

@@ -379,7 +379,7 @@ It is local and private by default: nothing in it is pushed anywhere, and in a c
 
 | Path | What it holds |
 | --- | --- |
-| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work. |
+| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
 | `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](#memory)). |
 | `data/memory-archive.md` | Memory the `stow` skill retired; never loaded. |

@@ -749,7 +749,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .rank .grip { display: none; width: 14px; height: 14px; fill: currentColor; }
 .ranked-item:hover .rank-number, .ranked-item:focus-within .rank-number, .ranked-item.dragging .rank-number { display: none; }
 .ranked-item:hover .grip, .ranked-item:focus-within .grip, .ranked-item.dragging .grip { display: block; }
-@media (pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
+@media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
 .ranked-item.dragging .task-card { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
 .order-error { margin: 12px 0 0; color: #f6d79e; }
