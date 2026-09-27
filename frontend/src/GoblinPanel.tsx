@@ -8,7 +8,7 @@ import { ownsTaskSession } from "./lineageTree";
 import type { ReviewControls } from "./review";
 import { panelViews } from "./cards";
 import { QueuedTasks } from "./QueuedTasks";
-import type { AcceptedStart } from "./start";
+import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
 export type PanelView = "task" | "terminal";
@@ -18,10 +18,10 @@ export type PanelView = "task" | "terminal";
 // themselves live in the terminal deck below the panel, which keeps each one
 // live while the board is open, so switching goblins never reconnects.
 // The CFO's Task view also lists every queued task, as the Tasks column does.
-export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, awaitingStart, onView, onAnswer, onOpenTask, onStarted, leading, trailing }: {
+export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, leading, trailing }: {
   task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
-  awaitingStart: AcceptedStart | null; onStarted: (accepted: AcceptedStart) => void; leading?: ReactNode; trailing: ReactNode;
+  cardStart: CardStarter; leading?: ReactNode; trailing: ReactNode;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   const terminal = panelViews(task, node).includes("terminal");
@@ -40,7 +40,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <p className="column-hint">Top starts first, when memory allows.</p>
-          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} awaitingStart={awaitingStart} onSelect={(next) => onOpenTask(next)} onStarted={onStarted} />
+          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} cardStart={cardStart} onSelect={(next) => onOpenTask(next)} />
         </section>}
       </div>}
     </div>

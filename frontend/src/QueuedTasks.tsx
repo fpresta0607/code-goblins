@@ -2,22 +2,19 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
 import { TaskCard } from "./TaskCard";
-import { nextChip, type AcceptedStart } from "./start";
-import { useStart } from "./useStart";
+import { nextChip } from "./start";
+import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
 // The queue, top first, as the Tasks column and the CFO's Task tab both show
 // it: free memory against the mark at which the CFO starts the next task, and
 // each queued task with its rank, its drag and its Start.
-export function QueuedTasks({ snapshot, selected, now, presentations, awaitingStart, onSelect, onStarted }: {
+export function QueuedTasks({ snapshot, selected, now, presentations, cardStart, onSelect }: {
   snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[];
-  // awaitingStart is the accepted Start the board waits on; onStarted hears
-  // that a queued task's Start was accepted.
-  awaitingStart: AcceptedStart | null;
+  // cardStart is the board's one Start, shared by every list of queued tasks.
+  cardStart: CardStarter;
   onSelect: (task: Task, source: HTMLElement) => void;
-  onStarted: (accepted: AcceptedStart) => void;
 }) {
-  const cardStart = useStart(snapshot, awaitingStart, onStarted);
   const memory = snapshot.memory;
   return <>
     {memory && <MemoryMeter memory={memory} />}
