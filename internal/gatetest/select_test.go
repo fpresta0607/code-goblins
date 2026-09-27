@@ -79,24 +79,33 @@ func TestSelectTakesChangedPackagesAndTheirDirectImporters(t *testing.T) {
 	}
 }
 
-// A package at the module root owns the files directly in the root and the
-// files it embeds, not every file below it that no other package owns.
+// A package at the module root owns its build inputs and the files its embed
+// patterns cover, not every file below it that no other package owns.
 func TestSelectGivesARootPackageOnlyItsOwnFiles(t *testing.T) {
 	packages := append([]Package{
-		{ImportPath: "example.com/repo", Dir: root, Embeds: []string{"docs/pipeline.md"}},
+		{ImportPath: "example.com/repo", Dir: root, EmbedPatterns: []string{"AGENTS.md", "all:.agents/skills", "docs/pipeline.md"}},
 		pkg("internal/install", "example.com/repo"),
 	}, repo...)
+	chosen := []string{"example.com/repo (changed)", "example.com/repo/internal/install (imports example.com/repo)"}
 	for name, test := range map[string]struct {
 		files []string
 		want  []string
 	}{
 		"an embedded file": {
-			files: []string{"docs/pipeline.md"},
-			want:  []string{"example.com/repo (changed)", "example.com/repo/internal/install (imports example.com/repo)"},
+			files: []string{"AGENTS.md"},
+			want:  chosen,
 		},
-		"a file directly in the root": {
-			files: []string{"install.ps1"},
-			want:  []string{"example.com/repo (changed)", "example.com/repo/internal/install (imports example.com/repo)"},
+		"a deleted file under an embedded directory": {
+			files: []string{".agents/skills/stow/SKILL.md"},
+			want:  chosen,
+		},
+		"a Go file directly in the root": {
+			files: []string{"home_files.go"},
+			want:  chosen,
+		},
+		"a file beside the root package that is no build input": {
+			files: []string{"README.md", ".no-mistakes.yaml"},
+			want:  nil,
 		},
 		"an unembedded file in a directory with no package": {
 			files: []string{"docs/other.md", "frontend/src/app.ts"},

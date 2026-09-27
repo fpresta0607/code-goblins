@@ -136,6 +136,34 @@ func TestReadChoosesARootPackageOnlyForItsEmbeddedFiles(t *testing.T) {
 	}
 }
 
+// A file only an external test embeds, outside testdata, still chooses its
+// package and the packages that import it.
+func TestReadChoosesAPackageForAFileItsExternalTestEmbeds(t *testing.T) {
+	// Arrange
+	dir := newModule(t)
+	write(t, filepath.Join(dir, "a", "fixtures", "x.json"), "{}\n")
+	write(t, filepath.Join(dir, "a", "a_x_test.go"), "package a_test\n\nimport _ \"embed\"\n\n//go:embed fixtures/x.json\nvar fixture string\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "fixture")
+	git(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	write(t, filepath.Join(dir, "a", "fixtures", "x.json"), "{\"changed\": true}\n")
+
+	// Act
+	plan, err := Read(context.Background(), execx.OSRunner{}, dir)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, choice := range plan.Choices {
+		got = append(got, choice.String())
+	}
+	if want := []string{"example.com/m/a (changed)", "example.com/m/b (imports example.com/m/a)"}; plan.Everything || !slices.Equal(got, want) {
+		t.Errorf("Read = %q, everything %v; want %q", got, plan.Everything, want)
+	}
+}
+
 // A branch that changed no Go package has nothing to test.
 func TestReadChoosesNothingWhenNoPackageChanged(t *testing.T) {
 	// Arrange
