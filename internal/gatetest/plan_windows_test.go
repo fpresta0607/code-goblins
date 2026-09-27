@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // A module reached under its 8.3 short name, as GitHub runners spell their
@@ -29,7 +30,7 @@ func TestReadChoosesTheChangedPackageUnderAShortName(t *testing.T) {
 		t.Fatalf("short name of %s: %v", dir, err)
 	}
 	short := syscall.UTF16ToString(buf[:n])
-	if filepath.Clean(short) == filepath.Clean(dir) {
+	if filepath.Clean(short) == filepath.Clean(fsx.LongPath(dir)) {
 		if os.Getenv("CI") == "true" {
 			t.Fatalf("CI's volume has no 8.3 short name for %s, so the short-name path went untested", dir)
 		}

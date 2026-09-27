@@ -187,14 +187,18 @@ func checkRepoConfig(data []byte, p Policy, checkAutomatic bool) error {
 	if !checkAutomatic {
 		return nil
 	}
-	if _, hasCI := config.AutoFix["ci"]; !hasCI {
-		if legacy, ok := config.AutoFix["babysit"]; ok {
-			config.AutoFix["ci"] = legacy
+	// A branch can edit its own .no-mistakes.yaml, so each count is held to
+	// the policy's as a ceiling: lowering one only sends more to a person,
+	// while raising one, or setting one the policy does not govern, could let
+	// a gate fix its way past a decision. babysit is the legacy name for ci.
+	ceilings := map[string]int{"review": p.AutoFix.Review, "test": p.AutoFix.Test, "lint": p.AutoFix.Lint, "rebase": p.AutoFix.Rebase, "ci": p.AutoFix.CI, "babysit": p.AutoFix.CI}
+	for key, got := range config.AutoFix {
+		ceiling, governed := ceilings[key]
+		if !governed {
+			return fmt.Errorf("pipeline: repository auto_fix.%s is not a count the task policy governs", key)
 		}
-	}
-	for key, want := range map[string]int{"review": p.AutoFix.Review, "test": p.AutoFix.Test, "lint": p.AutoFix.Lint, "rebase": p.AutoFix.Rebase, "ci": p.AutoFix.CI} {
-		if got, ok := config.AutoFix[key]; ok && got != want {
-			return fmt.Errorf("pipeline: repository auto_fix.%s differs from the task policy", key)
+		if got < 0 || got > ceiling {
+			return fmt.Errorf("pipeline: repository auto_fix.%s is %d, outside 0 to the task policy's %d: a repository may lower an automatic fix, never raise one", key, got, ceiling)
 		}
 	}
 	return nil

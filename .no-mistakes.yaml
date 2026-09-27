@@ -37,18 +37,18 @@ commands:
 
 # These committed overrides also bound a new gate during the initial rollout.
 # Shared machine settings are rendered only in an explicit idle window.
-# The CI auto-fix hole stays open for now: a repository gate can run only
-# after rebase, review, test, document or lint, so a no-mistakes(ci) fix that
-# deleted or skipped a test would ship unchecked by the tests-kept gate below.
-# ci stays 1 because the pipeline policy currently refuses a repository
-# auto_fix that differs from it. A follow-up lets a repository lower an
-# automatic fix below the policy and then sets ci to 0 here.
+# CI auto-fix is off in code-goblins, and must stay off: a repository gate can
+# run only after rebase, review, test, document or lint, so a no-mistakes(ci)
+# fix that deleted or skipped a test would ship unchecked by the tests-kept
+# gate below. A CI failure goes back to the goblin, whose own fix is gated
+# again. cfo pipeline run accepts this because a repository may lower an
+# automatic fix below the frozen policy, never raise one.
 auto_fix:
   review: 0
   test: 1
   lint: 1
   rebase: 1
-  ci: 1
+  ci: 0
 
 # A gate fix must never delete or skip a test unseen: on 2026-09-24 a test
 # step fixed a failing test on PrecisionDocs #1272 by deleting it, and no
