@@ -202,8 +202,8 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 	return nil
 }
 
-// history reads a live pane view's recent output, history included: Herdr
-// sends an observer only the live screen, so the view shows history it read.
+// history reads a view's recent output, history included: Herdr sends a view
+// only the live screen, so the view shows history it read.
 // It types nothing, so gate custody does not stop it, but it still reads
 // only the pane the view was verified on.
 func (l *terminalLease) history(ctx context.Context, lines int, verify func(context.Context, terminalBinding, bool) error) (string, error) {
@@ -213,8 +213,8 @@ func (l *terminalLease) history(ctx context.Context, lines int, verify func(cont
 	if closed {
 		return "", errors.New("Terminal is disconnected. Reconnect to read its history.")
 	}
-	if l.control {
-		return "", errors.New("Only a live pane view reads its pane's history.")
+	if l.panes == nil {
+		return "", errors.New("History is unavailable: this pane's Herdr socket cannot be found.")
 	}
 	if err := verify(ctx, l.binding, false); err != nil {
 		return "", err
@@ -325,7 +325,8 @@ type tickCheck struct {
 }
 
 // checkTick proves a view's terminal, process and custody again, and that a
-// live pane view's pane kept the size the view shows.
+// live pane view's pane kept the size the view shows. A gate taking custody
+// ends a view that sizes the pane, which hands the pane back its own size.
 func (h *HTTP) checkTick(ctx context.Context, b terminalBinding, control bool, cols, rows int) tickCheck {
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
 	defer stop()
@@ -333,6 +334,9 @@ func (h *HTTP) checkTick(ctx context.Context, b terminalBinding, control bool, c
 		return tickCheck{reason: err.Error()}
 	}
 	custody := h.Service.terminalCustody(check, b)
+	if control && custody != nil {
+		return tickCheck{reason: "A review gate owns this goblin's work now, so the board shows its pane at its own size."}
+	}
 	if !control {
 		paneCols, paneRows, err := h.paneSize(ctx, b.Target)
 		if err != nil {
@@ -343,6 +347,31 @@ func (h *HTTP) checkTick(ctx context.Context, b terminalBinding, control bool, c
 		}
 	}
 	return tickCheck{custody: custody}
+}
+
+// handBack returns a pane the view sized to the size Herdr lays it out at, as
+// a Herdr window does when a controller leaves; with no Herdr window open,
+// nothing else would. It is best effort and bounded: a stream already gone,
+// or a pane another client took over, keeps the size it has.
+func (h *HTTP) handBack(lease *terminalLease) {
+	ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	cols, rows, err := h.paneSize(ctx, lease.binding.Target)
+	if err != nil {
+		return
+	}
+	// An input on its way holds the stream for a moment; one that holds it
+	// longer loses the stream, as it did before views handed the size back.
+	write, written := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer written()
+	unblock := context.AfterFunc(write, func() { _ = lease.stream.Close() })
+	defer unblock()
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	lease.closed = true
+	if write.Err() == nil {
+		_ = lease.stream.Send(herdr.TerminalCommand{Type: "terminal.resize", Cols: cols, Rows: rows})
+	}
 }
 
 func (h *HTTP) terminalInput(w http.ResponseWriter, r *http.Request) {
@@ -423,11 +452,14 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	}
 	select {
 	case h.terminalSlots <- struct{}{}:
-		defer func() { <-h.terminalSlots }()
 	default:
 		apiError(w, 429, "Too many native terminal views")
 		return
 	}
+	// A view gives its slot back as it ends, before it hands the pane its
+	// size back or waits for its Herdr process to exit.
+	free := sync.OnceFunc(func() { <-h.terminalSlots })
+	defer free()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
@@ -458,7 +490,6 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cols, rows := input.Cols, input.Rows
-	var panes herdr.PaneInput
 	if !input.Control {
 		// An observer sees only the part of the screen its size covers and
 		// hears of no change outside it, so a view smaller than the pane is a
@@ -467,16 +498,26 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 409, err.Error())
 			return
 		}
-		// Typing and history reads reach the pane over its session's
-		// socket; finding the socket is the one process the view starts
-		// for them.
-		if panes, err = h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err != nil {
-			apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
-			return
-		}
+	}
+	// A live view types, and every view reads history, over the pane's
+	// session socket; finding the socket is the one process a view starts
+	// for them. A control view types through its own stream, so it opens
+	// without the socket, only without history.
+	var panes herdr.PaneInput
+	if found, err := h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err == nil {
+		panes = found
+	} else if !input.Control {
+		apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")
+		return
+	}
+	// A control view's Herdr process outlives the browser's request, so the
+	// view can hand the pane its size back however the view ends.
+	attach := ctx
+	if input.Control {
+		attach = context.WithoutCancel(ctx)
 	}
 	open := h.openTerminal
-	stream, err := open(ctx, b.Target.Session, b.Terminal, input.Control, cols, rows)
+	stream, err := open(attach, b.Target.Session, b.Terminal, input.Control, cols, rows)
 	if err != nil {
 		apiError(w, 503, "Native terminal attachment is unavailable.")
 		return
@@ -527,9 +568,15 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		// Refuse new input before waiting for the observer to exit, and close
 		// the pipe before acquiring the input mutex: a native stdin write may be
-		// holding it while the output side disconnects.
+		// holding it while the output side disconnects. A control view first
+		// hands the pane its size back, closing the pipe itself if a write
+		// holds the mutex past its bound.
 		unregister()
 		cancel()
+		free()
+		if input.Control {
+			h.handBack(lease)
+		}
 		_ = stream.Close()
 		lease.mu.Lock()
 		lease.closed = true
@@ -594,7 +641,11 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 			}
 		case f, ok := <-frames:
 			if !ok {
-				closed("Native terminal disconnected or is already controlled elsewhere. No takeover was attempted.")
+				if input.Control {
+					closed("Native terminal disconnected.")
+				} else {
+					closed("Native terminal disconnected or is already controlled elsewhere. No takeover was attempted.")
+				}
 				return
 			}
 			if f.Type == "terminal.closed" {
