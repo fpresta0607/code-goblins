@@ -1,9 +1,9 @@
 // Package reap finds and retires the fleet resources nothing else notices: a
-// harness process whose pane is gone, a dev server left running in a worktree
-// no live goblin is working in, the worktree, metadata and status records
-// left behind when a task ends without a clean cleanup, and the directory
-// under a project's .worktrees/ that the project does not register as a
-// worktree at all.
+// harness process whose pane or native terminal host is gone, a dev server
+// left running in a worktree no live goblin is working in, the worktree,
+// metadata and status records left behind when a task ends without a clean
+// cleanup, and the directory under a project's .worktrees/ that the project
+// does not register as a worktree at all.
 //
 // No single source sees all of it. cfo knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
@@ -281,6 +281,21 @@ type Task struct {
 	Meta     state.TaskMeta
 	Verb     string
 	Terminal bool
+	// Hosted says a native task's terminal still runs: Classify sets it from
+	// the inventory's live host records, and it is what a native goblin,
+	// which has no pane, is alive by.
+	Hosted bool
+	// HostUnreadable says a native task's host record could not be read, so
+	// whether its goblin still runs is unknown.
+	HostUnreadable bool
+}
+
+// NativeHost is the record of one native terminal's host: the terminal it
+// runs, the host's pid, and when the host recorded itself.
+type NativeHost struct {
+	ID      string
+	HostPID int
+	Started time.Time
 }
 
 // Registration is what a project repository answered about a directory under
@@ -323,7 +338,11 @@ type WorktreeDir struct {
 type Inventory struct {
 	// Session is the fleet's own Herdr session. A Herdr server for any other
 	// session is a test fixture some goblin or gate started, not the fleet.
-	Session         string
+	Session string
+	// StateDir is this home's state directory. A native terminal host run
+	// with any other --state belongs to a scratch CFO home some goblin's test
+	// or proof set up, not to the fleet.
+	StateDir        string
 	Tasks           []Task
 	OrphanStatusIDs []string
 	Panes           []Pane
@@ -358,6 +377,15 @@ type Inventory struct {
 	// be the goblin working in the worktree a finding names. Whatever rests
 	// on placing an agent is held while any agent is unplaced.
 	UnplacedAgents []string
+	// NativeHosts are the host records of native terminals. A native goblin
+	// has no pane: its harness, and everything the harness starts, runs
+	// under its terminal's host, the way a pane's run under its shell.
+	NativeHosts []NativeHost
+	// UnreadableHosts are the terminal ids whose state/hosts/<id>.json could
+	// not be read, and every native task's id when state/hosts itself could
+	// not be. Such a goblin may be alive or gone, so whatever rests on it
+	// being gone is held.
+	UnreadableHosts []string
 }
 
 // harnessSignatures are the distinctive command-line fragments a CFO-launched
@@ -396,7 +424,15 @@ var serverModules = []string{"next", "vite", "webpack", "nodemon", "npm", "pnpm"
 // by class in a stable order, so two runs over the same inventory produce the
 // same report.
 func Classify(inv Inventory) []Finding {
-	supervised := supervisedPIDs(inv)
+	hosts := liveHosts(inv)
+	inv.Tasks = slices.Clone(inv.Tasks)
+	for i, task := range inv.Tasks {
+		_, running := hosts[task.ID]
+		native := task.Meta.Backend == "native"
+		inv.Tasks[i].Hosted = running && native
+		inv.Tasks[i].HostUnreadable = native && slices.Contains(inv.UnreadableHosts, task.ID)
+	}
+	supervised := supervisedPIDs(inv, hosts)
 	fleet := descendants(inv.Processes, inv.FleetRootPIDs)
 	tasks := make(map[string]Task, len(inv.Tasks))
 	for _, task := range inv.Tasks {
@@ -447,12 +483,33 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session)
-			if underFixture && fixtureInUse(fixture.Cwd, inv, tasks, panes, gates, unreadable) {
-				// A stand-in harness a live goblin's or gate's test is
-				// running: its fixture's Herdr server outlived the script
-				// that started it, so its ancestry reaches no pane here.
-				continue
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir)
+			owner := ""
+			if underFixture {
+				inUse := false
+				for _, dir := range fixture.Dirs {
+					dir = scratchpadOwner(dir, inv.Worktrees)
+					inUse = inUse || fixtureInUse(dir, inv, tasks, panes, gates, unreadable)
+					if _, ok := worktreeHolding(dir, inv.Worktrees); ok && owner == "" {
+						owner = dir
+					}
+				}
+				if inUse {
+					// A stand-in harness a live goblin's or gate's test is
+					// running: its fixture's Herdr server or scratch home's
+					// host outlived the script that started it, so its
+					// ancestry reaches no pane here.
+					continue
+				}
+				if fixture.ScratchHome && owner == "" {
+					// A scratch CFO home no goblin's worktree or scratchpad
+					// can be tied to is somebody's test or proof, never this
+					// fleet's orphan.
+					continue
+				}
+				if owner == "" {
+					owner = fixture.Cwd
+				}
 			}
 			finding := Finding{
 				Class:  OrphanProcess,
@@ -463,17 +520,25 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			if worktree, ok := worktreeOf(process, inv.Worktrees); ok {
 				finding.TaskID = worktree.TaskID
 				finding.Path = worktree.Path
-			} else if worktree, ok := worktreeHolding(fixture.Cwd, inv.Worktrees); underFixture && ok {
+			} else if worktree, ok := worktreeHolding(owner, inv.Worktrees); underFixture && ok {
 				finding.TaskID = worktree.TaskID
 				finding.Path = worktree.Path
 			}
 			if underFixture {
-				where := fixture.Cwd
+				where := owner
 				if where == "" {
 					where = "a directory that could not be read"
 				}
-				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under Herdr server pid %d, of a session other than the fleet's, started in %s, where nothing live works any more)", fixture.PID, where)
+				runsUnder := fmt.Sprintf("Herdr server pid %d, of a session other than the fleet's", fixture.PID)
+				if fixture.ScratchHome {
+					runsUnder = fmt.Sprintf("native terminal host pid %d, of a CFO home other than this one", fixture.PID)
+				}
+				finding.Detail += fmt.Sprintf(" (a test fixture's: it runs under %s, started for %s, where nothing live works any more)", runsUnder, where)
 				finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
+				if worktree, ok := worktreeHolding(owner, inv.Worktrees); ok {
+					task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+					finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
+				}
 			}
 			if !fleet[process.PID] {
 				finding.refuseUntilEstablished(unidentifiedHold, strconv.Itoa(process.PID))
@@ -518,6 +583,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 			// assigned, so an unrelated pane that could not report its
 			// identity cannot drop it.
 			finding.refuseUnlessForced(unfinishedHold(task, known, unreadableRecord), ownerKey(task, known, worktree))
+			finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
 			finding.refuseUnlessForced(killNeedsItsOwnPID, strconv.Itoa(process.PID))
 			findings = append(findings, finding)
 		}
@@ -553,6 +619,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 		// as a finished one, so it is reported; it is held because the task
 		// never said it was done, or because nothing can say whether it did.
 		finding.refuseUnlessForced(unfinishedHold(task, known, unreadable[worktree.TaskID]), ownerKey(task, known, worktree))
+		finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, worktree))
 		findings = append(findings, finding)
 	}
 	return findings
@@ -632,6 +699,18 @@ func unfinishedHold(task Task, known, unreadable bool) string {
 	return ""
 }
 
+// unreadableHostHold is why nothing may rest on a native goblin being gone
+// when its terminal's host record could not be read: that record is the only
+// evidence of whether it still runs.
+func unreadableHostHold(task Task, known bool) string {
+	if known && task.HostUnreadable {
+		return unreadableHostText
+	}
+	return ""
+}
+
+const unreadableHostText = "its native terminal's host record could not be read, so whether its goblin still runs is unknown"
+
 // classifyDirectory reports a directory under .worktrees/ that the project
 // does not register as a worktree. It is deliberately not an OrphanWorktree:
 // the premise every worktree question rests on has stopped holding here, and a
@@ -659,6 +738,7 @@ func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, 
 		finding.Detail += "; no command line names it, and a working directory is not readable from a process listing, so if the removal fails a leaked process is holding it open"
 	}
 	finding.refuseUnlessForced(unfinishedHold(task, known, unreadable), ownerKey(task, known, dir))
+	finding.refuseUnlessForced(unreadableHostHold(task, known), ownerKey(task, known, dir))
 	return finding
 }
 
@@ -718,7 +798,7 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
-		if _, ok := panes[task.Meta.HerdrPaneID]; ok {
+		if _, ok := panes[task.Meta.HerdrPaneID]; ok || task.Hosted {
 			continue
 		}
 		if worktrees[normalizePath(task.Meta.Worktree)] {
@@ -737,9 +817,13 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 			Detail: "no pane, no process, and no directory left on disk; its task " + taskOutcome(task, true, false),
 			Action: "force-archive the task record",
 		}
+		if task.HostUnreadable {
+			finding.Detail = unreadableHostText + "; no pane, no process, and no directory left on disk; its task " + taskOutcome(task, true, false)
+		}
 		if !task.Terminal {
 			finding.refuseUnlessForced("task has not reached a terminal status (latest verb "+verbText(task.Verb)+")", finding.TaskID)
 		}
+		finding.refuseUnlessForced(unreadableHostHold(task, true), finding.TaskID)
 		findings = append(findings, finding)
 	}
 	return findings
@@ -774,6 +858,9 @@ func goblinIsAlive(task Task, known bool, panes map[string]Pane, worktree string
 		if pane, ok := panes[task.Meta.HerdrPaneID]; ok && pane.HasAgent {
 			return true
 		}
+		if task.Hosted {
+			return true
+		}
 	}
 	for _, pane := range panes {
 		if pane.HasAgent && pathWithin(pane.AgentCwd, worktree) {
@@ -793,26 +880,119 @@ const fixtureAncestry = 8
 // or a gate's test starts a Herdr session of its own and runs stand-in
 // harnesses in its panes, and the server outlives the script that started it,
 // so the stand-ins' ancestry reaches no pane of this fleet. With the fleet's
-// session unknown, no server can be told apart from the fleet's own.
-func fixtureServer(process Process, byPID map[int]Process, session string) (Process, bool) {
-	if session == "" {
-		return Process{}, false
+// session unknown, no server can be told apart from the fleet's own. A scratch
+// home's host carries its harness's command line after --, so it is its own
+// fixture origin.
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir string) (fixtureOrigin, bool) {
+	if dirs, scratch := scratchHost(process, stateDir); scratch {
+		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
 	}
 	current := process
 	for range fixtureAncestry {
 		parent, ok := byPID[current.ParentPID]
 		if !ok || parent.PID == current.PID || (!parent.Start.IsZero() && !current.Start.IsZero() && current.Start.Before(parent.Start)) {
-			return Process{}, false
+			return fixtureOrigin{}, false
 		}
 		if isHerdrServer(parent) {
-			if !strings.EqualFold(herdrSession(parent.CommandLine), session) {
-				return parent, true
+			if session != "" && !strings.EqualFold(herdrSession(parent.CommandLine), session) {
+				return fixtureOrigin{Process: parent, Dirs: []string{parent.Cwd}}, true
 			}
-			return Process{}, false
+			return fixtureOrigin{}, false
+		}
+		if dirs, scratch := scratchHost(parent, stateDir); scratch {
+			return fixtureOrigin{Process: parent, Dirs: append([]string{parent.Cwd}, dirs...), ScratchHome: true}, true
 		}
 		current = parent
 	}
-	return Process{}, false
+	return fixtureOrigin{}, false
+}
+
+// fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
+// server of another session, or the native terminal host of another CFO home.
+// Dirs are where it was started and, for a host, the state and terminal
+// directories it names; any of them can tie it to the goblin whose test or
+// proof it is.
+type fixtureOrigin struct {
+	Process
+	Dirs        []string
+	ScratchHome bool
+}
+
+// scratchHost reports whether process is a native terminal host run for a CFO
+// home other than this one, and the --state and --dir it names. cfo host is
+// only ever run with the home's state directory, so a host with any other is
+// a scratch home some goblin's test or proof started.
+func scratchHost(process Process, stateDir string) ([]string, bool) {
+	args := commandArgs(process.CommandLine)
+	if len(args) < 2 || !strings.EqualFold(args[1], "host") {
+		return nil, false
+	}
+	var state, dir string
+	for index := 2; index+1 < len(args) && args[index] != "--"; index++ {
+		switch args[index] {
+		case "--state":
+			state = args[index+1]
+		case "--dir":
+			dir = args[index+1]
+		}
+	}
+	if state == "" || normalizePath(filepath.Clean(state)) == normalizePath(filepath.Clean(stateDir)) {
+		return nil, false
+	}
+	return []string{state, dir}, true
+}
+
+// commandArgs splits a Windows command line into its arguments, a quoted
+// argument whole and without its quotes.
+func commandArgs(commandLine string) []string {
+	var args []string
+	var current strings.Builder
+	quoted, started := false, false
+	for _, r := range commandLine {
+		switch {
+		case r == '"':
+			quoted, started = !quoted, true
+		case (r == ' ' || r == '\t') && !quoted:
+			if started {
+				args = append(args, current.String())
+				current.Reset()
+				started = false
+			}
+		default:
+			current.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		args = append(args, current.String())
+	}
+	return args
+}
+
+// scratchpadOwner is the worktree a directory under a Claude Code session's
+// temporary folder belongs to, since Claude Code names that folder
+// %TEMP%\claude\<slug> after the working directory, each character in it that
+// is not an ASCII letter or digit replaced by -; any other directory is its
+// own answer.
+func scratchpadOwner(dir string, worktrees []WorktreeDir) string {
+	parts := strings.Split(normalizePath(dir), `\`)
+	for index := 0; index+2 < len(parts); index++ {
+		if parts[index] != "temp" || parts[index+1] != "claude" {
+			continue
+		}
+		for _, worktree := range worktrees {
+			slug := strings.Map(func(r rune) rune {
+				if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') {
+					return r
+				}
+				return '-'
+			}, normalizePath(worktree.Path))
+			if parts[index+2] == slug {
+				return worktree.Path
+			}
+		}
+	}
+	return dir
 }
 
 func isHerdrServer(process Process) bool {
@@ -921,12 +1101,15 @@ func taskHasProcess(task Task, processes []Process, supervised, fleet map[int]bo
 }
 
 // supervisedPIDs is everything this sweep must never touch: each live pane's
-// shell and foreground group, everything descended from them, and this
-// process's own ancestry. The pane set is the real answer to whether something
-// is supervised; the self set is what keeps the sweep from reporting the
-// session it runs inside.
-func supervisedPIDs(inv Inventory) map[int]bool {
-	roots := make([]int, 0, len(inv.Panes)*2+len(inv.SelfPIDs))
+// shell and foreground group, each live native terminal's host, everything
+// descended from them, and this process's own ancestry. The pane and host sets
+// are the real answer to whether something is supervised; the self set is what
+// keeps the sweep from reporting the session it runs inside.
+func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
+	roots := make([]int, 0, len(inv.Panes)*2+len(hosts)+len(inv.SelfPIDs))
+	for _, pid := range hosts {
+		roots = append(roots, pid)
+	}
 	for _, pane := range inv.Panes {
 		if pane.ShellPID != 0 {
 			roots = append(roots, pane.ShellPID)
@@ -937,6 +1120,25 @@ func supervisedPIDs(inv Inventory) map[int]bool {
 	}
 	roots = append(roots, inv.SelfPIDs...)
 	return descendants(inv.Processes, roots)
+}
+
+// liveHosts maps each native terminal whose host still runs to the host's
+// pid. A record names its host by pid, and Windows reuses pids: a host that
+// was stopped by pid leaves its record behind, so the pid counts only while a
+// process holding it started no later than the host recorded itself.
+func liveHosts(inv Inventory) map[string]int {
+	started := make(map[int]time.Time, len(inv.Processes))
+	for _, process := range inv.Processes {
+		started[process.PID] = process.Start
+	}
+	hosts := make(map[string]int, len(inv.NativeHosts))
+	for _, host := range inv.NativeHosts {
+		start, running := started[host.HostPID]
+		if running && !start.After(host.Started) {
+			hosts[host.ID] = host.HostPID
+		}
+	}
+	return hosts
 }
 
 // descendants returns roots plus every process reachable from one by parent
@@ -1135,6 +1337,8 @@ func worktreeOf(process Process, worktrees []WorktreeDir) (WorktreeDir, bool) {
 // anything about panes restates the outcome a second time.
 func placementOutcome(inv Inventory, task Task, known, unreadable bool) string {
 	switch {
+	case known && task.HostUnreadable:
+		return "a native terminal whose host record could not be read, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
 	case len(inv.UnplacedAgents) > 0:
 		return "an agent the sweep could not place, so nothing establishes whether its goblin is working there, and its task " + taskOutcome(task, known, unreadable)
 	case !known && !unreadable:
