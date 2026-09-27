@@ -32,6 +32,9 @@ export interface Task extends Evaluation {
   gate_step: string;
   archived: boolean;
   merged: boolean;
+  // since is when a live task's session started, or when queued work's brief
+  // was written; empty when neither is known.
+  since: string;
 }
 export interface Session {
   runtime?: RuntimeEvidence;
@@ -105,6 +108,8 @@ export interface Snapshot {
   actions: Action[];
   decisions: Decision[];
   issues: string[];
+  // attention is the Overlord's order of the live goblins, top first; a goblin it does not name has not been placed.
+  attention: string[];
   questions?: Question[];
   reviews?: Review[];
   runs?: Run[];
@@ -279,6 +284,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     inbox: number(v.inbox),
     retired: strings(v.retired),
     issues: strings(v.issues),
+    attention: strings(v.attention),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
     questions: array(v.questions).map((value) => {
       const q = object(value);
@@ -317,6 +323,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
+        since: string(t.since),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

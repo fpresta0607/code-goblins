@@ -300,8 +300,8 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// the gate and the goblin's own progress evidence, and wake only if
 		// nothing underneath is actually moving.
 		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
-			if stalled, detail := s.busyOverAge(ctx, meta, sample, &observation, now); stalled {
-				return s.busyOverAgeObservation(observation, detail, now)
+			if kind, detail := s.busyOverAge(ctx, meta, sample, &observation, now); kind != "" {
+				return s.busyOverAgeObservation(observation, kind, detail, now)
 			}
 		}
 		return workingObservation(observation, sample, now)
@@ -390,8 +390,13 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 // nothing - a long refactor and a shell that will never return look the same
 // from the pane - so the goblin's own progress evidence decides: it is wedged
 // only once neither its transcript nor its own processes have moved for the
-// whole budget. Without a progress prober the budget alone decides.
-func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) (bool, string) {
+// whole budget. When its processes cannot be read, the evidence that could
+// be decides alone: a transcript written, or processor use read, within the
+// budget. Without a progress prober the budget alone decides. A wedged goblin
+// gets a kind, which says what the wedge is so the same one is recognized
+// when it is seen again, and the detail for the wake; a goblin that is not
+// wedged gets an empty kind.
+func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, now time.Time) (kind, detail string) {
 	stretch := *observation.BusySince
 	age := now.Sub(stretch).Round(time.Minute).String()
 	gateDetail := "no gate probe available"
@@ -404,7 +409,7 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 			gateDetail = "no active gate run"
 		case gate.ActiveFor < s.busyTurnMax():
 			// The gate is moving between steps even though the pane is busy.
-			return false, ""
+			return "", ""
 		default:
 			detail := "gate step " + gate.Step + " active for " + gate.ActiveFor.Round(time.Minute).String()
 			if gate.LastActivity != "" {
@@ -413,30 +418,33 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 			if gate.Step == "ci" && gate.NoCI {
 				detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
 			}
-			return true, detail
+			return "gate step " + gate.Step, detail
 		}
 	}
 	if s.Progress == nil {
-		return true, "working for " + age + " with " + gateDetail + "; inspect the shell"
+		return "turn age", "working for " + age + " with " + gateDetail + "; inspect the shell"
 	}
 	jobs, measured, err := s.sampleProgress(ctx, meta, sample, observation, stretch, now)
-	if err != nil {
-		return true, "working for " + age + " with " + gateDetail + "; progress evidence unreadable (" + err.Error() + "); inspect the shell"
-	}
 	last := stretch
 	if observation.EvidenceAt != nil && observation.EvidenceAt.After(last) {
 		last = *observation.EvidenceAt
 	}
-	if now.Sub(last) < s.busyTurnMax() || (len(jobs) > 0 && !measured) {
-		return false, ""
+	if err != nil {
+		if now.Sub(last) < s.busyTurnMax() {
+			return "", ""
+		}
+		return "unreadable progress", "working for " + age + " with " + gateDetail + "; progress evidence unreadable (" + err.Error() + ") and " + noProgressFor(now.Sub(last)) + "; inspect the shell"
 	}
-	detail := "working for " + age + " with " + gateDetail + "; " + noProgressFor(now.Sub(last))
+	if now.Sub(last) < s.busyTurnMax() || (len(jobs) > 0 && !measured) {
+		return "", ""
+	}
+	detail = "working for " + age + " with " + gateDetail + "; " + noProgressFor(now.Sub(last))
 	if len(jobs) > 0 {
 		detail += " and " + stalledJobs(jobs, min(now.Sub(*observation.JobSampledSince), now.Sub(last)))
 	} else {
 		detail += " and no processes of its own running"
 	}
-	return true, detail + "; inspect the shell"
+	return "no progress", detail + "; inspect the shell"
 }
 
 // noProgressFor says how long a goblin has shown none of the evidence that its
@@ -471,15 +479,15 @@ const jobSampleInterval = time.Minute
 // more. It returns the processes still running, and whether their processor
 // use has been read across a whole stall interval of consecutive readings
 // within the stretch being judged, so a lack of it can be concluded. An error
-// means the evidence could not be read, and the caller wakes rather than
-// trusting silence.
+// means some evidence could not be read: a transcript read beside it is still
+// folded in, and the processes are left as last read.
 func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, stretch, now time.Time) ([]string, bool, error) {
 	progress, err := s.Progress.InspectProgress(ctx, meta, sample)
-	if err != nil {
-		return nil, false, err
-	}
 	if written := progress.TranscriptAt.UTC(); !progress.TranscriptAt.IsZero() && (observation.EvidenceAt == nil || written.After(*observation.EvidenceAt)) {
 		observation.EvidenceAt = timePointer(written)
+	}
+	if err != nil {
+		return nil, false, err
 	}
 	if len(progress.Jobs) == 0 {
 		observation.JobCPU = 0
@@ -535,8 +543,10 @@ func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample Endpoi
 // busyOverAgeObservation wakes once for a wedged working goblin and then
 // holds, exactly as staleObservation does for an idle one. A later cycle in
 // which the gate has moved on returns through workingObservation, which
-// clears StaleSince and lets a fresh wedge wake again.
-func (s Service) busyOverAgeObservation(observation Observation, detail string, now time.Time) Observation {
+// clears StaleSince and lets a fresh wedge wake again, unless it is the same
+// kind of wedge woken for within the last busy budget: that is the one the
+// CFO already has, seen again after a scan that lost sight of it.
+func (s Service) busyOverAgeObservation(observation Observation, kind, detail string, now time.Time) Observation {
 	observation.LastSeen = now
 	observation.Health = HealthStale
 	observation.Reason = BusyTurnOverAge
@@ -548,6 +558,11 @@ func (s Service) busyOverAgeObservation(observation Observation, detail string, 
 	next := now.Add(s.staleEscalateAfter())
 	observation.NextEscalation = &next
 	observation.Escalation = 0
+	if kind == observation.BusyWakeKind && observation.BusyWakeAt != nil && now.Sub(*observation.BusyWakeAt) < s.busyTurnMax() {
+		return observation
+	}
+	observation.BusyWakeKind = kind
+	observation.BusyWakeAt = timePointer(now)
 	event := taskEvent(observation.TaskID, BusyTurnOverAge, detail)
 	observation.PendingEvent = &event
 	return observation

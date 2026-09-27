@@ -4,10 +4,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -37,7 +39,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
 
 commands:
   version   print the cfo version
@@ -67,6 +69,7 @@ commands:
   cfo verify <task-id> [--tier fast|full|deep]
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
+  cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -134,12 +137,12 @@ type commandRuntime struct {
 	focusCFO    func(context.Context, herdr.Endpoint) error
 	gitTop      func(context.Context) (string, error)
 	stdin       io.Reader
-	startCFO    func(context.Context, string) (bool, error)
+	startCFO    func(ctx context.Context, project, harness string) (bool, error)
 	attachHerdr func(string) int
 	// startNativeCFO and attachNative start the CFO in a native terminal and
 	// show a native terminal in this console, for goblins --native and a CFO
 	// registered in one.
-	startNativeCFO func(stateDir, project string) error
+	startNativeCFO func(stateDir, project, harness string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never
@@ -270,18 +273,30 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if len(args) == 0 {
-		if runtime.goblins {
-			return runLauncher(stdout, stderr, runtime, false)
-		}
-		fmt.Fprint(stderr, usage)
-		return 2
-	}
-	if runtime.goblins && len(args) == 1 && args[0] == "--native" {
-		return runLauncher(stdout, stderr, runtime, true)
-	}
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
+	}
+	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
+		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		native := fs.Bool("native", false, "start a new CFO in a native terminal shown here instead of in Herdr")
+		harness := fs.String("harness", "", "the harness goblins starts the CFO as, remembered for later starts: claude, codex or pi")
+		if err := fs.Parse(args); err != nil {
+			return 2
+		}
+		if fs.NArg() != 0 {
+			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --native and --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
+			return 2
+		}
+		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
+			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
+			return 2
+		}
+		return runLauncher(stdout, stderr, runtime, *native, *harness)
+	}
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
 	}
 	switch args[0] {
 	case "attach":
@@ -330,6 +345,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSecurity(args[1:], stdout, stderr, runtime)
 	case "hygiene":
 		return runHygiene(args[1:], stdout, stderr, runtime)
+	case "gate":
+		return runGate(args[1:], stdout, stderr)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":
