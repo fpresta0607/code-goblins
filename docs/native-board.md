@@ -117,6 +117,8 @@ Board groups actual tasks into Tasks, In progress and Completed.
 The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Completed lists verified delivery, and within the last week at most 20 entries of history: tasks cleanup finished, from a status log left without its record or one the archive holds, and pull requests merged into a fleet repository, read from merge commits on origin's default branch of this home and each checkout under the projects root, locally and without a forge call.
+A merge commit several of those repositories hold, such as a fork's copy of its upstream's history, is listed once, under the repository its pull request was opened in: the one whose origin publishes that pull request's head, `refs/pull/<n>/head` read with `git ls-remote`, as the merge's second parent.
+That is asked only for a merge more than one repository holds, and each answer is remembered; when no origin can say, the merge goes to the first repository listed, this home first.
 A merged pull request whose live task already shows the merge, in phase merged or done, appears only on that task's card, which stays In progress as merged-awaiting-verification until landed content is verified.
 Any other merged pull request keeps its Completed card, even when a live task reported it: a task whose gate missed the merge, or that is blocked, failed or waiting on a question, keeps its own proven state on its card.
 A history card is its pull request link, since it has no live worktree to review.
