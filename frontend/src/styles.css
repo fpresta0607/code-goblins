@@ -746,7 +746,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .task-card .card-title { font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: .9375rem; line-height: 1.4; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
-.card-sep { opacity: .5; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
 /* Completed shows as many cards as fit the visible board, newest first, and

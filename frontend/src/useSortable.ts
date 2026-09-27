@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { dropIndex, moveTo, stepped } from "./priority";
 
 interface Point { x: number; y: number }
@@ -13,9 +13,10 @@ const at = (node: HTMLElement): Point => ({ x: node.offsetLeft, y: node.offsetTo
 // arrow key on a focused card. While a card is dragged the others make room
 // and slide to their new places; onOrder gets the order it was dropped in.
 // A mouse or pen drags a card from anywhere on it, and a finger from its rank,
-// so a finger on the rest of the card still scrolls the page.
-export function useSortable(ids: string[], onOrder: (order: string[], moved: string) => void) {
-  const listRef = useRef<HTMLDivElement>(null);
+// so a finger on the rest of the card still scrolls the page. A list shown a
+// page at a time renders its cards from offset on, and a drag places a card
+// among them; listRef is the list the cards are the children of.
+export function useSortable(ids: string[], onOrder: (order: string[], moved: string) => void, offset: number, listRef: RefObject<HTMLDivElement | null>) {
   const [preview, setPreview] = useState<string[] | null>(null);
   const order = preview ?? ids;
   const shown = useRef(order);
@@ -84,7 +85,7 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       const frame = list.getBoundingClientRect();
       const columns = getComputedStyle(list).gridTemplateColumns.split(" ").length;
       const index = dropIndex(others.map((other) => ({ left: other.offsetLeft, top: other.offsetTop, width: other.offsetWidth, height: other.offsetHeight })), next.clientX - frame.left, next.clientY - frame.top, columns);
-      const moved = moveTo(shown.current, id, index);
+      const moved = moveTo(shown.current, id, offset + index);
       if (same(moved, shown.current)) place();
       else setPreview(moved);
     };
@@ -147,5 +148,5 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
   };
 
   // Each card of the list carries data-sort-id and these three handlers.
-  return { listRef, order, onPointerDown, onKeyDown, onClickCapture };
+  return { order, onPointerDown, onKeyDown, onClickCapture };
 }

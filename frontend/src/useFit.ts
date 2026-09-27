@@ -51,7 +51,8 @@ export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>
     };
   }, [count, frameRef, listRef]);
 
-  const turn = (step: number) => setChosen(clampPage(page + step, size, count));
+  const show = (next: number) => setChosen(clampPage(next, size, count));
+  const turn = (step: number) => show(page + step);
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     swipe.current = event.pointerType === "touch" ? { x: event.clientX, y: event.clientY } : null;
   };
@@ -60,5 +61,5 @@ export function useFit(count: number, frameRef: RefObject<HTMLDivElement | null>
     swipe.current = null;
     if (start) turn(swipeStep(event.clientX - start.x, event.clientY - start.y));
   };
-  return { size, page, start: page * size, turn, onPointerDown, onPointerUp };
+  return { size, page, start: page * size, turn, show, onPointerDown, onPointerUp };
 }
