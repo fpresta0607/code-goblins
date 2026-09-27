@@ -36,8 +36,9 @@ const nativeSpawnHost = "native-spawn-host"
 // a spawn would recognize ("silent"), or no console at all ("detached"). Half
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
-// the typing starts ("late"), or a submitted line can leave it looking idle
-// ("unmoved").
+// the typing starts ("late"), a submitted line can leave it looking idle
+// ("unmoved"), or each turn can end a moment after it starts ("turns"), where
+// by default a turn never ends.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
@@ -90,7 +91,7 @@ func fakeHarness() {
 			env[name] = &value
 		}
 	}
-	record(codexEvent{Event: "env", PID: os.Getpid(), Env: env})
+	record(codexEvent{Event: "env", PID: os.Getpid(), Env: env, Text: strings.Join(os.Args[1:], " ")})
 	mode := os.Getenv(fakeCodexMode)
 	if mode == "detached" {
 		_, _, _ = windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConsole").Call()
@@ -212,6 +213,10 @@ func fakeHarness() {
 				if mode != "unmoved" {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
 					line.Reset()
+				}
+				if mode == "turns" {
+					time.Sleep(8 * time.Second)
+					composer("Ask Codex to do anything")
 				}
 			case key == "\x1b[A" || key == "\x1b[B":
 			default:
@@ -763,14 +768,15 @@ func (c fixtureCredentials) Preflight(context.Context, string) (auth.Result, err
 // nativeAdapter builds kind's launch the way its adapter does: codex typed
 // through its shim, claude started as its own program.
 type nativeAdapter struct {
-	kind harness.Kind
+	kind    harness.Kind
+	control harness.Control
 }
 
 func (a nativeAdapter) Kind() harness.Kind { return a.kind }
 
 func (nativeAdapter) Validate(context.Context, execx.Runner) error { return nil }
 
-func (nativeAdapter) Control() harness.Control { return harness.Control{} }
+func (a nativeAdapter) Control() harness.Control { return a.control }
 
 func (a nativeAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	launch := harness.Launch{

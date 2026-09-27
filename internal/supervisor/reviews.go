@@ -797,7 +797,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		}
 	}
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = Evaluation{Reason: "Submitted through Herdr while its reporter was working; it takes the answer when its current turn ends."}, nil
+		result, err = Evaluation{Reason: "Submitted while its reporter was working; it takes the answer when its current turn ends."}, nil
 	}
 	if err != nil {
 		return result, err

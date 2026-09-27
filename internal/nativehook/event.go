@@ -39,6 +39,10 @@ type Event struct {
 	AgentType       string    `json:"agent_type,omitempty"`
 	CWD             string    `json:"cwd"`
 	OccurredAt      time.Time `json:"occurred_at"`
+	// Prompt marks an active event the harness raises as it takes a prompt
+	// for a turn, the proof a delivery was accepted rather than left waiting
+	// in the composer.
+	Prompt bool `json:"prompt,omitempty"`
 }
 
 type Context struct {
@@ -113,6 +117,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		c.Role = "cfo"
 	}
 	e := Event{Schema: 1, Harness: c.Harness, Kind: kind, SessionID: p.SessionID, TaskID: c.TaskID, Role: c.Role, TurnID: p.TurnID, Generation: c.Generation, CWD: p.CWD, OccurredAt: c.Now.UTC()}
+	e.Prompt = p.Event == "UserPromptSubmit" || (c.Harness == "pi" && p.Event == "agent_start")
 	e.Model, e.AgentType = p.Model, p.AgentType
 	e.ParentSessionID, e.ParentHarness, e.RootSessionID = c.ParentSessionID, c.ParentHarness, c.RootSessionID
 	if e.ParentSessionID != "" {
@@ -150,6 +155,9 @@ func (e Event) Validate() error {
 	case "started", "active", "settled", "ended", "interrupted":
 	default:
 		return errors.New("invalid event kind")
+	}
+	if e.Prompt && e.Kind != "active" {
+		return errors.New("only an active event takes a prompt")
 	}
 	if e.Role != "cfo" && e.Role != "goblin" && e.Role != "subagent" && e.Role != "worker" {
 		return errors.New("invalid session role")
