@@ -780,7 +780,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-start { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 4px 12px; font-size: .875rem; font-weight: 700; }
 .card-start.icon-button { width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 10px; }
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
-.card-start:disabled { cursor: not-allowed; }
+.card-start[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.card-start.icon-button.raised[aria-disabled="true"]:hover { transform: none; box-shadow: var(--shadow-1); }
 .task-card-shell.has-start:not(.prominent-start) .task-card { padding-right: 46px; }
 /* The prominent Start sits in the card's bottom corner, in room the card
    keeps for it, so it never covers the Next chip or the title; sharing the

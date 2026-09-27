@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, meterState, nextChip, startBlock, startOutcome } from "./start.ts";
+import { freeGigabytes, meterState, nextChip, refusalStands, startBlock, startOutcome } from "./start.ts";
 import type { Memory, Snapshot, Task } from "./types.ts";
 
 const GB = 2 ** 30;
@@ -54,5 +54,24 @@ test("an accepted Start opens its goblin once its session is up, stops on a fail
 
     // Assert
     assert.equal(outcome, want, name);
+  }
+});
+
+test("a refused Start's reason stays until a newer snapshot shows the Start no longer blocked", () => {
+  // Arrange
+  const refusal = { reason: "next-task is starting; start another once it is up", revision: 12 };
+  const cases: [string, number, string, boolean][] = [
+    ["the snapshot it arrived at", 12, "", true],
+    ["an older snapshot", 11, "", true],
+    ["a newer snapshot that still blocks it", 13, "Another task is starting", true],
+    ["a newer snapshot in which it can start", 13, "", false],
+  ];
+
+  for (const [name, revision, blocked, want] of cases) {
+    // Act
+    const stands = refusalStands(refusal, { revision, tasks: [task()] } as Snapshot, blocked);
+
+    // Assert
+    assert.equal(stands, want, name);
   }
 });

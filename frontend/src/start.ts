@@ -27,6 +27,15 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   return "";
 }
 
+// A Start's refusal on its card, and the snapshot revision it arrived at.
+export interface Refusal { reason: string; revision: number }
+
+// Whether a refusal still stands: it lapses once a newer snapshot shows its
+// task's Start no longer blocked, as once the task that was starting is up.
+export function refusalStands(refusal: Refusal, snapshot: Snapshot, blocked: string): boolean {
+  return snapshot.revision <= refusal.revision || blocked !== "";
+}
+
 // A Start the supervisor accepted, and the revision from which every snapshot
 // shows it rather than a failure of the task's last Start.
 export interface AcceptedStart { id: string; revision: number }

@@ -345,6 +345,40 @@ func TestStartTakesOneTaskAtATime(t *testing.T) {
 	}
 }
 
+func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	handler, h := startBoard(t, 16*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	t.Cleanup(func() {
+		close(spawner.release)
+		waitStarted(t, handler, "next-task")
+	})
+	if response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken); response.Code != 202 {
+		t.Fatalf("start = %d %s, want 202", response.Code, response.Body)
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "next-task", Project: h.Root, Worktree: h.Root, Harness: "claude", Mode: "no-mistakes", Kind: "ship", Backend: "native", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range snapshot.Tasks {
+		if task.ID == "next-task" {
+			if task.Phase == "queued" || !task.Starting {
+				t.Fatalf("card = %+v, want it live and still starting while cfo spawn runs", task)
+			}
+			return
+		}
+	}
+	t.Fatal("the snapshot does not list next-task")
+}
+
 func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
 	// Arrange
 	handler, _ := startBoard(t, 3*gigabyte+gigabyte/10, &spawnRecorder{})

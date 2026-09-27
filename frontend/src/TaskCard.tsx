@@ -10,7 +10,8 @@ import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel
 // session has run or how long it has waited; the goblin's own words stay in
 // its panel. rank, when the card sits in an ordered list, is read out with it.
 // A queued card can carry a Start: prominent on the task the CFO starts next,
-// a play button on the others on hover or focus, and blocked with its reason.
+// a play button on the others on hover or focus, and blocked with its reason,
+// which a press shows under the card.
 export interface CardStart { blocked: string; problem: string; prominent: boolean; onStart: (source: HTMLElement) => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
@@ -49,8 +50,8 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     {!!task.generation && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>}
     {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" />{awaited.id}</button>}
     {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
-    {start && <button className={"card-start" + (start.prominent ? " primary" : " icon-button raised")} disabled={!!start.blocked}
-      aria-label={starting ? "Starting " + name : "Start " + name + " now"} data-tip={start.blocked || (start.prominent ? undefined : "Start now")} data-tip-align="end"
+    {start && <button className={"card-start" + (start.prominent ? " primary" : " icon-button raised")} aria-disabled={!!start.blocked || undefined}
+      aria-label={starting ? "Starting " + name : "Start " + name + " now" + (start.blocked ? ", unavailable: " + start.blocked : "")} data-tip={start.blocked || (start.prominent ? undefined : "Start now")} data-tip-align="end"
       onClick={(event) => start.onStart(event.currentTarget)}>{starting ? <span className="card-start-spinner" aria-hidden="true" /> : <Icon name="play" />}{start.prominent && (starting ? "Starting" : "Start now")}</button>}
     {start?.problem && <p className="card-start-problem" role="alert">{start.problem}</p>}
   </div>;

@@ -796,9 +796,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	s.starts.Lock()
 	for i := range out.Tasks {
-		if task := &out.Tasks[i]; task.Phase == "queued" {
+		task := &out.Tasks[i]
+		task.Starting = task.ID == s.starting
+		if task.Phase == "queued" {
 			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
-			task.Starting, task.StartError = task.ID == s.starting, s.startErrors[task.ID]
+			task.StartError = s.startErrors[task.ID]
 		}
 	}
 	s.starts.Unlock()
