@@ -100,7 +100,8 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, 
 // request's head as the merge's second parent; when none does, to the first
 // repository listed, the CFO home first. heads lists every pull request head
 // a repository's origin publishes in one call, and a listing is kept: it is
-// asked for again only for a pull request it does not list, and then at most
+// asked for again only for a pull request it does not list or lists with
+// another head, such as one listed while it was still open, and then at most
 // every pullHeadsRecheck, so a fork carrying a week of its upstream's merges
 // costs one call per repository, not one per merge.
 func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (map[string]string, error), now func() time.Time) func(context.Context, time.Time) ([]MergedPR, error) {
@@ -115,9 +116,9 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 	}
 	return func(ctx context.Context, since time.Time) ([]MergedPR, error) {
 		var errs error
-		headOf := func(repo, number string) string {
+		publishes := func(repo, number, head string) bool {
 			known, ok := listings[repo]
-			if _, listed := known.heads[number]; !ok || !listed && now().Sub(known.at) >= pullHeadsRecheck {
+			if !ok || known.heads[number] != head && now().Sub(known.at) >= pullHeadsRecheck {
 				fresh, err := heads(ctx, repo)
 				errs = errors.Join(errs, err)
 				if err == nil {
@@ -126,7 +127,7 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 				known.at = now()
 				listings[repo] = known
 			}
-			return known.heads[number]
+			return known.heads[number] == head
 		}
 		holders := map[string][]merge{}
 		var commits []string
@@ -174,7 +175,7 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 			chosen := candidates[0]
 			if len(candidates) > 1 {
 				for _, candidate := range candidates {
-					if headOf(candidate.pr.Project, candidate.number) == candidate.head {
+					if publishes(candidate.pr.Project, candidate.number, candidate.head) {
 						chosen = candidate
 						break
 					}

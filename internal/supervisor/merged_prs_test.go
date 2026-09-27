@@ -190,3 +190,41 @@ func TestGitMergedPRsAsksEachRepositoryOnceForAWeekOfSharedMerges(t *testing.T) 
 		t.Fatalf("after the recheck interval asked %v (error %v), want only the fork, whose listing lacks those pull requests", listings.asked, err)
 	}
 }
+
+// GitHub publishes a pull request's head when it is opened, so a listing
+// taken while it was still open names an older head than the one merged.
+func TestGitMergedPRsAsksAgainForAPullRequestListedWithAnOlderHead(t *testing.T) {
+	// Arrange
+	upstream, fork, heads := forkedRepos(t, 1)
+	listings := &pullListings{heads: map[string]map[string]string{"code-goblins": {"126": "0123456789abcdef0123456789abcdef01234567"}}}
+	clock := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	list := gitMergedPRs([]string{fork, upstream}, listings.list, func() time.Time { return clock })
+	merged, err := list(t.Context(), since20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"https://github.com/o/code-goblins-native/pull/1 in code-goblins-native",
+		"https://github.com/o/code-goblins-native/pull/126 in code-goblins-native",
+	}
+	if listed := listedPRs(merged); !slices.Equal(listed, want) {
+		t.Fatalf("with the open pull request's head Completed lists %v, want %v", listed, want)
+	}
+	listings.heads["code-goblins"]["126"] = heads["126"]
+	clock = clock.Add(pullHeadsRecheck)
+
+	// Act
+	merged, err = list(t.Context(), since20)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []string{
+		"https://github.com/o/code-goblins-native/pull/1 in code-goblins-native",
+		"https://github.com/o/code-goblins/pull/126 in code-goblins",
+	}
+	if listed := listedPRs(merged); !slices.Equal(listed, want) {
+		t.Fatalf("after the recheck interval Completed lists %v, want %v", listed, want)
+	}
+}
