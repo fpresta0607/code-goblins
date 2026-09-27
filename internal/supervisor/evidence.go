@@ -376,8 +376,8 @@ func queuedBriefs(h home.Home) []Task {
 	return tasks
 }
 
-// briefProject is the checkout a brief's Project section names, or empty
-// when it names none.
+// briefProject is the checkout a brief's Project section names, without a
+// trailing parenthetical note, or empty when it names none.
 func briefProject(path string) string {
 	lines, err := fsx.ReadLines(path)
 	if err != nil {
@@ -392,7 +392,8 @@ func briefProject(path string) string {
 				if strings.HasPrefix(next, "#") {
 					return ""
 				}
-				return next
+				checkout, _, _ := strings.Cut(next, " (")
+				return strings.TrimSpace(checkout)
 			}
 		}
 	}
