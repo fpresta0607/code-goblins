@@ -664,8 +664,8 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
-.send-decision { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; }
-.send-decision .icon { width: 20px; height: 20px; }
+.send-decision, .status-dismiss { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
+.send-decision .icon, .status-dismiss .icon { width: 20px; height: 20px; }
 /* Back, the card's place and Next lead a card's action row; its answer keeps
    the right edge. */
 .stack-pager { display: flex; align-items: center; gap: 8px; margin-right: auto; }

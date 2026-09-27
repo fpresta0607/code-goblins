@@ -50,7 +50,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     <div className="card-actions">
       {pager}
       {pending && !status && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Clear this item without answering" data-tip="Clear" onClick={onClear}><Icon name="close" /></button>}
-      {pending && status && <button type="button" className="primary" disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}
+      {pending && status && <button type="button" className="primary status-dismiss" disabled={!connected || draft.sending} onClick={onClear}><Icon name="check" />Dismiss</button>}
       {answersHere && <button className="primary send-decision" type="submit" disabled={!connected || !draft.written.trim() || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send answer"}</button>}
     </div>
   </form>;
