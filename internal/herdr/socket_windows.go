@@ -65,41 +65,48 @@ type SocketCache struct {
 func NewSocketCache() *SocketCache { return &SocketCache{sockets: map[string]Socket{}} }
 
 // cachedSocket is the session's socket, read from Herdr's status the first
-// time; without a cache, or when Herdr's status names none, it reports false.
-func (c *Client) cachedSocket(ctx context.Context) (Socket, bool) {
+// time; without a cache, it reads Herdr's status on every call.
+func (c *Client) cachedSocket(ctx context.Context) (Socket, error) {
 	if c.Sockets == nil {
-		return Socket{}, false
+		return c.Socket(ctx)
 	}
 	session := c.session()
 	c.Sockets.mu.Lock()
 	socket, ok := c.Sockets.sockets[session]
 	c.Sockets.mu.Unlock()
 	if ok {
-		return socket, true
+		return socket, nil
 	}
 	socket, err := c.Socket(ctx)
 	if err != nil {
-		return Socket{}, false
+		return Socket{}, err
 	}
 	c.Sockets.mu.Lock()
 	c.Sockets.sockets[session] = socket
 	c.Sockets.mu.Unlock()
-	return socket, true
+	return socket, nil
 }
 
 // socketRead answers a read on the session's socket, or reports false so the
-// caller reads through the herdr command; a socket that fails is forgotten,
-// so a restarted Herdr is found again through its status.
+// caller reads through the herdr command; a socket that cannot be reached is
+// forgotten, so a restarted Herdr is found again through its status, while a
+// socket whose Herdr answers with an error is kept.
 func (c *Client) socketRead(ctx context.Context, method string, params map[string]any) (json.RawMessage, bool) {
-	socket, ok := c.cachedSocket(ctx)
-	if !ok {
+	if c.Sockets == nil {
+		return nil, false
+	}
+	socket, err := c.cachedSocket(ctx)
+	if err != nil {
 		return nil, false
 	}
 	result, err := socket.request(ctx, method, params)
 	if err != nil {
-		c.Sockets.mu.Lock()
-		delete(c.Sockets.sockets, c.session())
-		c.Sockets.mu.Unlock()
+		var answered *answerError
+		if !errors.As(err, &answered) {
+			c.Sockets.mu.Lock()
+			delete(c.Sockets.sockets, c.session())
+			c.Sockets.mu.Unlock()
+		}
 		return nil, false
 	}
 	return result, true
@@ -117,10 +124,7 @@ type PaneInput interface {
 
 // PaneInput reaches the session's panes over its socket.
 func (c *Client) PaneInput(ctx context.Context) (PaneInput, error) {
-	if socket, ok := c.cachedSocket(ctx); ok {
-		return socket, nil
-	}
-	return c.Socket(ctx)
+	return c.cachedSocket(ctx)
 }
 
 // SendText types unsubmitted literal text into a pane, as pane send-text does.
@@ -195,11 +199,22 @@ func (s Socket) request(ctx context.Context, method string, params any) (json.Ra
 	case response.ID != method:
 		return nil, fmt.Errorf("herdr: %s: answer is for request %q", method, response.ID)
 	case response.Error != nil:
-		return nil, fmt.Errorf("herdr: %s: %s: %s", method, response.Error.Code, response.Error.Message)
+		return nil, &answerError{method: method, code: response.Error.Code, message: response.Error.Message}
 	case len(response.Result) == 0:
 		return nil, fmt.Errorf("herdr: %s: answer carries no result", method)
 	}
 	return response.Result, nil
+}
+
+// answerError is Herdr's error answer to a request: the socket was reached.
+type answerError struct {
+	method  string
+	code    string
+	message string
+}
+
+func (e *answerError) Error() string {
+	return fmt.Sprintf("herdr: %s: %s: %s", e.method, e.code, e.message)
 }
 
 // dial opens a connection, waiting while every instance of the pipe is busy
