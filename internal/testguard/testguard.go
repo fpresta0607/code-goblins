@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -68,7 +69,9 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		}
 		result.Commits++
 		commit := gateCommit{sha: sha[:min(len(sha), 8)], subject: subject}
-		tallySkips(diff, commit, tallies)
+		if err := tallySkips(ctx, git, dir, sha, diff, commit, tallies); err != nil {
+			return Result{}, err
+		}
 		for _, found := range Scan(diff) {
 			standing, err := stillStanding(ctx, git, dir, found)
 			if err != nil {
@@ -103,9 +106,14 @@ type skipTally struct {
 }
 
 // tallySkips adds one gate commit's diff to the tallies, carrying a file's
-// tally to its new path when the commit renames it.
-func tallySkips(diff string, commit gateCommit, tallies map[string]*skipTally) {
+// tally to its new path when the commit renames it. A removed or added line
+// counts only when it skips or narrows tests in code, judged on the file as
+// it stood before and after the commit (markerLines), so skip text inside a
+// string or comment literal is never a skip.
+func tallySkips(ctx context.Context, git execx.Runner, dir, sha, diff string, commit gateCommit, tallies map[string]*skipTally) error {
 	var tally *skipTally
+	var before, after map[int]bool
+	oldLine, newLine := 0, 0
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
@@ -118,17 +126,88 @@ func tallySkips(diff string, commit gateCommit, tallies map[string]*skipTally) {
 			delete(tallies, source)
 			tally.commit = commit
 			tallies[file] = tally
-		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
-		case strings.HasPrefix(line, "+") && marker(line[1:]) != "":
-			tally.count++
-			tally.added[strings.TrimSpace(line[1:])]++
-		case strings.HasPrefix(line, "-") && marker(line[1:]) != "":
-			tally.count--
-			if text := strings.TrimSpace(line[1:]); tally.added[text] > 0 {
-				tally.added[text]--
+			var err error
+			before, after = nil, nil
+			if isTestFile(source) {
+				if before, err = markedAt(ctx, git, dir, sha+"^", source); err != nil {
+					return err
+				}
 			}
+			if isTestFile(file) {
+				if after, err = markedAt(ctx, git, dir, sha, file); err != nil {
+					return err
+				}
+			}
+		case strings.HasPrefix(line, "@@ "):
+			oldLine, newLine = hunkStarts(line)
+		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
+		case strings.HasPrefix(line, "+"):
+			if after[newLine] {
+				tally.count++
+				tally.added[strings.TrimSpace(line[1:])]++
+			}
+			newLine++
+		case strings.HasPrefix(line, "-"):
+			if before[oldLine] {
+				tally.count--
+				if text := strings.TrimSpace(line[1:]); tally.added[text] > 0 {
+					tally.added[text]--
+				}
+			}
+			oldLine++
 		}
 	}
+	return nil
+}
+
+// markedAt is the set of line numbers in file at rev that skip or narrow
+// tests in code; a file rev does not have marks none.
+func markedAt(ctx context.Context, git execx.Runner, dir, rev, file string) (map[int]bool, error) {
+	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"-c", "core.quotePath=false", "show", rev + ":" + file}})
+	if err != nil {
+		return nil, fmt.Errorf("testguard: git show %s:%s: %w", rev, file, err)
+	}
+	marked := map[int]bool{}
+	if result.ExitCode != 0 {
+		return marked, nil
+	}
+	for _, line := range markerLines(file, string(result.Stdout)) {
+		marked[line.number] = true
+	}
+	return marked, nil
+}
+
+// hunkStarts reads the first old and new line numbers of a unified diff hunk
+// header, "@@ -a[,b] +c[,d] @@".
+func hunkStarts(header string) (int, int) {
+	var oldStart, newStart int
+	fields := strings.Fields(header)
+	if len(fields) >= 3 {
+		oldStart, _ = strconv.Atoi(strings.SplitN(strings.TrimPrefix(fields[1], "-"), ",", 2)[0])
+		newStart, _ = strconv.Atoi(strings.SplitN(strings.TrimPrefix(fields[2], "+"), ",", 2)[0])
+	}
+	return oldStart, newStart
+}
+
+// markedLine is one line that skips or narrows tests in code: its number,
+// its text trimmed, and what it does.
+type markedLine struct {
+	number int
+	text   string
+	what   string
+}
+
+// markerLines lists a file's lines that skip or narrow tests, judged on the
+// code alone (codeLines).
+func markerLines(file, content string) []markedLine {
+	original := strings.Split(content, "\n")
+	var marked []markedLine
+	for index, code := range codeLines(file, content) {
+		if what := marker(code); what != "" && index < len(original) {
+			marked = append(marked, markedLine{number: index + 1, text: strings.TrimSpace(original[index]), what: what})
+		}
+	}
+	return marked
 }
 
 // skipIncreases reports every test file whose gate commits added more lines
@@ -166,11 +245,10 @@ func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies ma
 		}
 		tally := tallies[file]
 		var standing []string
-		for _, line := range strings.Split(content, "\n") {
-			text := strings.TrimSpace(line)
-			if what := marker(line); what != "" && tally.added[text] > 0 {
-				tally.added[text]--
-				standing = append(standing, what+text)
+		for _, line := range markerLines(file, content) {
+			if tally.added[line.text] > 0 {
+				tally.added[line.text]--
+				standing = append(standing, line.what+line.text)
 			}
 		}
 		if len(standing) == 0 {
