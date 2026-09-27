@@ -6,6 +6,7 @@ import { TaskView } from "./Details";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import { ownsTaskSession } from "./lineageTree";
 import type { ReviewControls } from "./review";
+import { panelViews } from "./cards";
 
 export type PanelView = "task" | "terminal";
 
@@ -18,13 +19,14 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, on
   view: PanelView; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; leading?: ReactNode; trailing: ReactNode;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
+  const terminal = panelViews(task, node).includes("terminal");
   return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <div className="panel-top">
       <div className="panel-top-side">{leading}</div>
-      <div className="panel-pill" role="group" aria-label="Panel view">
+      {terminal ? <div className="panel-pill" role="group" aria-label="Panel view">
         <button aria-pressed={view === "task"} onClick={() => onView("task")}><Icon name="task" />Task</button>
         <button aria-pressed={view === "terminal"} onClick={() => onView("terminal")}><Icon name="terminal" />Terminal</button>
-      </div>
+      </div> : <div />}
       <div className="panel-top-side end">{trailing}</div>
     </div>
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
