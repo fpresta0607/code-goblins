@@ -782,6 +782,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
 .card-start:disabled { cursor: not-allowed; }
 .task-card-shell.has-start:not(.prominent-start) .task-card { padding-right: 46px; }
+/* The prominent Start sits in the card's bottom corner, in room the card
+   keeps for it, so it never covers the Next chip or the title; sharing the
+   card's grid cell keeps it there when a refusal shows under the card. */
+.task-card-shell.prominent-start { display: grid; }
+.task-card-shell.prominent-start > .task-card, .task-card-shell.prominent-start > .card-start { grid-area: 1 / 1; }
+.task-card-shell.prominent-start > .card-start { position: relative; top: auto; right: auto; align-self: end; justify-self: end; margin: 0 10px 10px 0; }
+.task-card-shell.prominent-start .task-card { padding-bottom: 52px; }
 @media (hover: hover) {
   .task-card-shell.has-start:not(.prominent-start) .card-start { opacity: 0; transition: opacity .12s; }
   .task-card-shell.has-start:hover .card-start, .task-card-shell.has-start:focus-within .card-start { opacity: 1; }
