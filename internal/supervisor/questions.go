@@ -244,19 +244,95 @@ type cfoAnswer struct {
 // choice the way cfo send types, its notify reads answered so cfo drain
 // retires it without --ack-blocking, and the supervisor records which choice
 // closed the question, that the CFO gave it, and when. Only the registered
-// primary CFO may answer. It returns the choice it delivered.
-func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (string, error) {
+// primary CFO may answer. It returns the choice it delivered, and whether the
+// goblin was working, so the answer waits in its input until its current turn
+// ends: that is a delivery, submitted once, and it is recorded like one, so
+// neither the CFO nor the board sends a second decision.
+func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
+	identity, release, err := c.CallerIdentity(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	defer release()
+	seq, err := questionSeq(ref)
+	if err != nil {
+		return "", false, err
+	}
+	unlock, err := answerLock(c.State, seq)
+	if err != nil {
+		return "", false, err
+	}
+	defer unlock()
+	pending, err := wake.Pending(c.State)
+	if err != nil {
+		return "", false, fmt.Errorf("read the wake queue: %w", err)
+	}
+	i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq })
+	if i < 0 {
+		return "", false, fmt.Errorf("notify %d is not waiting: it was never raised or the CFO already handled it", seq)
+	}
+	record := pending[i]
+	if record.Answered != "" {
+		return "", false, fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
+	}
+	_, options, ok := wake.Question(record)
+	if !ok || len(options) == 0 {
+		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
+	}
+	choices, _ := questionChoices(options)
+	if chosen, err = pickChoice(choices, option); err != nil {
+		return "", false, err
+	}
+	id := fmt.Sprintf("notify-%s-%d", record.Key, seq)
+	if ref != strconv.Itoa(seq) && ref != id {
+		return "", false, fmt.Errorf("%s is not the question of notify %d, which is %s", ref, seq, id)
+	}
+	q, err := readQuestion(c.State, id)
+	if err != nil {
+		return "", false, fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
+	}
+	if q.AnswerID != "" && q.Status != "failed" {
+		return "", false, fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
+	}
+	answer := withNote(chosen, note)
+	_, err = c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer))
+	queued = errors.Is(err, fleet.ErrQueuedBehindTurn)
+	if err != nil && !queued {
+		return "", false, err
+	}
+	var unrecorded []error
+	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
+		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
+	}
+	if err := c.recordAnswer(identity, q, id, chosen, answer); err != nil {
+		unrecorded = append(unrecorded, err)
+	}
+	if err := errors.Join(unrecorded...); err != nil {
+		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
+	}
+	return chosen, queued, nil
+}
+
+// RecordGoblinAnswer closes a goblin's question on the board with the choice
+// the CFO already gave it some other way, such as a cfo answer whose delivery
+// was left unconfirmed, and sends the goblin nothing. Only the registered
+// primary CFO may do it, and only once the CFO has handled the notify: it was
+// acknowledged, or it reads answered. A notify still waiting unanswered is
+// refused, since cfo answer is how that one is answered, and so is a
+// question the Overlord is answering on the board. id is the question's ID,
+// notify-<task>-<sequence>. It returns the choice it recorded.
+func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, id, option, note string) (string, error) {
 	identity, release, err := c.CallerIdentity(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer release()
-	seq, err := strconv.Atoi(ref)
-	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
-		seq, err = strconv.Atoi(ref[i+1:])
+	if !strings.HasPrefix(id, "notify-") {
+		return "", fmt.Errorf("--record-only takes the question's ID, notify-<task>-<sequence>, not %s", id)
 	}
-	if err != nil || seq <= 0 {
-		return "", fmt.Errorf("%s names neither a goblin question nor its notify's wake sequence", ref)
+	seq, err := questionSeq(id)
+	if err != nil {
+		return "", err
 	}
 	unlock, err := answerLock(c.State, seq)
 	if err != nil {
@@ -267,61 +343,75 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err != nil {
 		return "", fmt.Errorf("read the wake queue: %w", err)
 	}
-	i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq })
-	if i < 0 {
-		return "", fmt.Errorf("notify %d is not waiting: it was never raised or the CFO already handled it", seq)
+	if i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq }); i >= 0 && pending[i].Answered == "" {
+		return "", fmt.Errorf("notify %d is still waiting unanswered; answer it with cfo answer, which delivers it, or acknowledge it first if it was answered another way", seq)
+	} else if i < 0 {
+		acked, err := wake.Acked(c.State, seq)
+		if err != nil {
+			return "", fmt.Errorf("read the wake queue's ack floor: %w", err)
+		}
+		if !acked {
+			return "", fmt.Errorf("notify %d was never raised", seq)
+		}
 	}
-	record := pending[i]
-	if record.Answered != "" {
-		return "", fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
+	q, err := readQuestion(c.State, id)
+	if err != nil {
+		return "", fmt.Errorf("question %s is not on the board: %w", id, err)
 	}
-	_, options, ok := wake.Question(record)
-	if !ok || len(options) == 0 {
-		return "", fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
+	if q.AnswerID != "" && q.Status != "failed" {
+		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was recorded", q.ID, q.Status)
 	}
-	choices, _ := questionChoices(options)
+	if q.Status == "succeeded" {
+		return "", fmt.Errorf("%s is already answered: %s", q.ID, q.Answer)
+	}
+	choices, _ := questionChoices(q.Options)
 	chosen, err := pickChoice(choices, option)
 	if err != nil {
 		return "", err
 	}
-	id := fmt.Sprintf("notify-%s-%d", record.Key, seq)
-	if ref != strconv.Itoa(seq) && ref != id {
-		return "", fmt.Errorf("%s is not the question of notify %d, which is %s", ref, seq, id)
-	}
-	q, err := readQuestion(c.State, id)
-	if err != nil {
-		return "", fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
-	}
-	if q.AnswerID != "" && q.Status != "failed" {
-		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
-	}
-	answer := chosen
-	if note = strings.TrimSpace(note); note != "" {
-		answer += ". " + note
-	}
-	if _, err := c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer)); err != nil {
+	if err := c.recordAnswer(identity, q, q.ID, chosen, withNote(chosen, note)); err != nil {
 		return "", err
 	}
+	return chosen, nil
+}
+
+// recordAnswer tells the board which choice closed a goblin's question and
+// closes the goblin's waits on the Overlord up to it, since the goblin has
+// what it waited for; a later wait is its own request.
+func (c *CFOConnection) recordAnswer(identity string, q Question, id, chosen, answer string) error {
 	var unrecorded []error
 	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: chosen, Answer: answer, At: time.Now().UTC()}}); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("the board could not record it: %w", err))
 	}
-	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
-		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
-	}
-	// The goblin has what it waited for, so its waits on the Overlord up to
-	// this question close; a later one is its own request.
 	waiting := func(r Review) bool {
 		n, err := strconv.Atoi(strings.TrimPrefix(r.ID, "waiting-"+q.Task+"-"))
-		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= seq
+		return r.Task == q.Task && strings.HasPrefix(r.ID, "waiting-"+q.Task+"-") && err == nil && n <= q.Seq
 	}
 	if err := clearReviews(c.State, identity, "The CFO answered "+q.Task+"'s question.", waiting, false); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("its waits on the Overlord stay open: %w", err))
 	}
-	if err := errors.Join(unrecorded...); err != nil {
-		return chosen, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
+	return errors.Join(unrecorded...)
+}
+
+// questionSeq reads the wake sequence a goblin question reference names: the
+// sequence itself, or the question's ID, notify-<task>-<sequence>.
+func questionSeq(ref string) (int, error) {
+	seq, err := strconv.Atoi(ref)
+	if i := strings.LastIndexByte(ref, '-'); err != nil && strings.HasPrefix(ref, "notify-") && i > 0 {
+		seq, err = strconv.Atoi(ref[i+1:])
 	}
-	return chosen, nil
+	if err != nil || seq <= 0 {
+		return 0, fmt.Errorf("%s names neither a goblin question nor its notify's wake sequence", ref)
+	}
+	return seq, nil
+}
+
+// withNote is the answer a goblin receives: the choice, then the note.
+func withNote(chosen, note string) string {
+	if note = strings.TrimSpace(note); note != "" {
+		return chosen + ". " + note
+	}
+	return chosen
 }
 
 // answerLock serializes the two ways one goblin question is answered, cfo

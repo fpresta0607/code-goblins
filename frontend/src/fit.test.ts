@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, pageLabel, pageSizeFor, swipeStep, tallestCard } from "./fit.ts";
+import { availableHeight, clampPage, pageLabel, pageOf, pageSizeFor, swipeStep, tallestCard } from "./fit.ts";
 
 test("a page holds as many cards as fit the list's height, by rows of its grid", () => {
   assert.equal(pageSizeFor(500, 100, 16, 1), 4, "four 100 px cards and three gaps fit in 500 px, a fifth does not");
@@ -24,6 +24,13 @@ test("the page stays inside the list as cards come and go", () => {
   assert.equal(clampPage(4, 5, 18), 3);
   assert.equal(clampPage(2, 5, 0), 0);
   assert.equal(clampPage(-1, 5, 18), 0);
+});
+
+test("a card moved past its page's edge is shown on the page it moved to", () => {
+  assert.equal(pageOf(4, 5), 0, "the fifth card is on the first page of five");
+  assert.equal(pageOf(5, 5), 1, "one place further down carries the view to the second page");
+  assert.equal(pageOf(0, 5), 0);
+  assert.equal(pageOf(17, 5), 3);
 });
 
 test("the pager says which cards show, and a list that fits needs none", () => {
