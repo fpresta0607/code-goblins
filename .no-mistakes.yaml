@@ -44,7 +44,7 @@ auto_fix:
 # fails when the pipeline's own commits (subject no-mistakes(<step>): ...)
 # deleted or skipped a test that HEAD still lacks, which parks the run with an
 # ask-user finding: approve accepts the deletion, fix restores the test. A
-# gate commit already on a branch of origin, or a rebased copy of one, passed
+# gate commit already on origin/<its branch>, or a rebased copy of one, passed
 # this check when it was pushed and is not read again. It runs the installed
 # cfo, the trusted binary, so it works once the CFO installs a build that has
 # `cfo gate`.

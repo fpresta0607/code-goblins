@@ -44,7 +44,7 @@ type Result struct {
 }
 
 // Check reads the gate commits between the branch's merge base with the
-// default branch and HEAD in dir that are not yet on a branch of origin, and
+// default branch and HEAD in dir that are not yet on origin/<branch>, and
 // lists every test they deleted or skipped.
 func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	base, err := mergeBase(ctx, git, dir)
@@ -55,13 +55,14 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	log, err := run(ctx, git, dir, "log", "--reverse", "--format=%H%x1f%s", base+"..HEAD")
+	log, err := run(ctx, git, dir, "log", "--reverse", "--format=%H%x1f%s%x1f"+authorFormat, base+"..HEAD")
 	if err != nil {
 		return Result{}, err
 	}
 	result := Result{Base: base}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
-		sha, subject, ok := strings.Cut(line, "\x1f")
+		sha, rest, _ := strings.Cut(line, "\x1f")
+		subject, author, ok := strings.Cut(rest, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
 			continue
 		}
@@ -69,7 +70,7 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		if pushed[patchKey(diff)] {
+		if pushed[patchKey(author, diff)] {
 			continue
 		}
 		result.Commits++
@@ -88,30 +89,65 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 
 var diffFlags = []string{"--no-color", "--unified=0", "--find-renames"}
 
-// pushedPatches collects the patches of the gate commits already on a branch
-// of origin. Everything pushed passed this check, kept or approved, so such a
-// commit is not read again, nor is a rebased copy of one, which git cherry
-// would also count as the same change. A no-mistakes run worktree has a
-// detached HEAD, so origin's branches stand in for the one it came from.
+// authorFormat is the author and author date, which a rebase keeps.
+const authorFormat = "%an <%ae> %ai"
+
+// pushedPatches collects the patches of the gate commits already on
+// origin/<branch>, the branch HEAD is on. Everything pushed there passed this
+// check, kept or approved, so such a commit is not read again, nor is a
+// rebased copy of one, which git cherry would also count as the same change.
+// Another branch's commits are never counted: the same deletion approved
+// there is not approved here.
 func pushedPatches(ctx context.Context, git execx.Runner, dir, base string) (map[string]bool, error) {
-	log, err := run(ctx, git, dir, append([]string{"log", "--remotes=origin", "^" + base, "--no-merges", "--fixed-strings", "--grep=" + GateCommitPrefix, "--format=%x00%s", "-p"}, diffFlags...)...)
+	patches := map[string]bool{}
+	branch, err := currentBranch(ctx, git, dir, base)
+	if err != nil || branch == "" {
+		return patches, err
+	}
+	remote := "refs/remotes/origin/" + branch
+	exists, err := run(ctx, git, dir, "for-each-ref", "--format=%(refname)", remote)
+	if err != nil || strings.TrimSpace(exists) != remote {
+		return patches, err
+	}
+	log, err := run(ctx, git, dir, append([]string{"log", remote, "^" + base, "--no-merges", "--fixed-strings", "--grep=" + GateCommitPrefix, "--format=%x00%s%x1f" + authorFormat, "-p"}, diffFlags...)...)
 	if err != nil {
 		return nil, err
 	}
-	patches := map[string]bool{}
 	for _, commit := range strings.Split(log, "\x00")[1:] {
-		subject, diff, _ := strings.Cut(commit, "\n")
+		header, diff, _ := strings.Cut(commit, "\n")
+		subject, author, _ := strings.Cut(header, "\x1f")
 		if strings.HasPrefix(subject, GateCommitPrefix) {
-			patches[patchKey(diff)] = true
+			patches[patchKey(author, diff)] = true
 		}
 	}
 	return patches, nil
 }
 
-// patchKey is a commit's diff without what a rebase changes, its blob ids and
-// hunk line numbers, so a rebased copy has the key of its original.
-func patchKey(diff string) string {
+// currentBranch names the branch HEAD is on. A no-mistakes run worktree has
+// a detached HEAD, so there it is the one local branch whose tip HEAD
+// contains past base; it is empty when no single branch qualifies, and then
+// every gate commit is read.
+func currentBranch(ctx context.Context, git execx.Runner, dir, base string) (string, error) {
+	if name, err := run(ctx, git, dir, "symbolic-ref", "--short", "-q", "HEAD"); err == nil {
+		return strings.TrimSpace(name), nil
+	}
+	refs, err := run(ctx, git, dir, "for-each-ref", "--merged=HEAD", "--no-merged="+base, "--format=%(refname:short)", "refs/heads")
+	if err != nil {
+		return "", err
+	}
+	if names := strings.Fields(refs); len(names) == 1 {
+		return names[0], nil
+	}
+	return "", nil
+}
+
+// patchKey is a commit's author and diff without what a rebase changes, its
+// blob ids and hunk line numbers, so a rebased copy has the key of its
+// original while another commit making the same edit does not.
+func patchKey(author, diff string) string {
 	var b strings.Builder
+	b.WriteString(author)
+	b.WriteByte('\n')
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
@@ -127,25 +163,26 @@ func patchKey(diff string) string {
 }
 
 // stillStanding reports whether HEAD still lacks what a gate commit removed:
-// the deleted test file, the removed test anywhere in a test file, or still
-// carries the skip it added. A later commit that puts the test back, which
-// is what a fix turn on this gate does, resolves it.
+// the deleted test file, a test declared under the removed test's exact name
+// anywhere in a test file, or still carries the skip it added. A later commit
+// that puts the test back, which is what a fix turn on this gate does,
+// resolves it.
 func stillStanding(ctx context.Context, git execx.Runner, dir string, found Finding) (bool, error) {
 	switch {
 	case found.Test != "":
-		files, err := grep(ctx, git, dir, "-w", "-e", found.Test, "HEAD")
+		matches, err := grep(ctx, git, dir, "-e", found.Test, "HEAD")
 		if err != nil {
 			return false, err
 		}
-		for _, file := range files {
-			if isTestFile(file) {
+		for _, match := range matches {
+			if name, ok := testName(match.line); ok && name == found.Test && isTestFile(match.file) {
 				return false, nil
 			}
 		}
 		return true, nil
 	case found.Skip != "":
-		files, err := grep(ctx, git, dir, "-e", found.Skip, "HEAD", "--", found.File)
-		return len(files) > 0, err
+		matches, err := grep(ctx, git, dir, "-e", found.Skip, "HEAD", "--", found.File)
+		return len(matches) > 0, err
 	default:
 		result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"cat-file", "-e", "HEAD:" + found.File}})
 		if err != nil {
@@ -155,11 +192,16 @@ func stillStanding(ctx context.Context, git execx.Runner, dir string, found Find
 	}
 }
 
-// grep lists the files at HEAD that hold a fixed string: a removed test's
-// name as a whole word, or an added skip line. git grep exits 1 when nothing
-// matches, which is an answer rather than a failure.
-func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]string, error) {
-	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{"grep", "-l", "-F"}, args...)})
+type grepMatch struct {
+	file string
+	line string
+}
+
+// grep lists the lines at HEAD that hold a fixed string, a removed test's
+// name or an added skip line, with their files. git grep exits 1 when
+// nothing matches, which is an answer rather than a failure.
+func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]grepMatch, error) {
+	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{"grep", "-z", "-F"}, args...)})
 	if err != nil {
 		return nil, fmt.Errorf("testguard: git grep: %w", err)
 	}
@@ -170,13 +212,14 @@ func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]
 	default:
 		return nil, fmt.Errorf("testguard: git grep exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
-	var files []string
-	for _, line := range strings.Split(strings.TrimSpace(string(result.Stdout)), "\n") {
-		if file, ok := strings.CutPrefix(line, "HEAD:"); ok {
-			files = append(files, file)
+	var matches []grepMatch
+	for _, output := range strings.Split(strings.TrimSpace(string(result.Stdout)), "\n") {
+		path, line, ok := strings.Cut(output, "\x00")
+		if file, isHead := strings.CutPrefix(path, "HEAD:"); ok && isHead {
+			matches = append(matches, grepMatch{file: file, line: strings.TrimSuffix(line, "\r")})
 		}
 	}
-	return files, nil
+	return matches, nil
 }
 
 // mergeBase finds where the branch left the default branch: origin/HEAD
@@ -230,7 +273,12 @@ func Scan(diff string) []Finding {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
 		case strings.HasPrefix(line, "diff --git "):
-			file, deleted = diffTarget(line), false
+			var source string
+			source, file = diffPaths(line)
+			deleted = false
+			if isTestFile(source) && !isTestFile(file) {
+				findings = append(findings, Finding{File: source, What: "deleted the test file, renaming it to " + file})
+			}
 			continue
 		case strings.HasPrefix(line, "deleted file mode"):
 			deleted = true
@@ -356,13 +404,13 @@ func nameWords(name string) map[string]bool {
 	return words
 }
 
-// diffTarget reads the path a "diff --git a/<old> b/<new>" header names.
-func diffTarget(header string) string {
-	_, target, ok := strings.Cut(header, " b/")
+// diffPaths reads the two paths a "diff --git a/<old> b/<new>" header names.
+func diffPaths(header string) (string, string) {
+	source, target, ok := strings.Cut(strings.TrimPrefix(header, "diff --git a/"), " b/")
 	if !ok {
-		return ""
+		return "", ""
 	}
-	return target
+	return source, target
 }
 
 // isTestFile recognizes the test files of the languages the fleet writes:
