@@ -525,6 +525,49 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 	}
 }
 
+// All asks of one refresh share pullRequestBudget, so a GitHub that does not
+// answer holds the supervisor's loop only that long; what was not asked is
+// asked on the next refresh.
+func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
+	store, h := testStore(t)
+	for pr := 1; pr <= 3; pr++ {
+		if err := os.WriteFile(filepath.Join(h.State, fmt.Sprintf("slow-%d.status", pr)), []byte(fmt.Sprintf("done: PR https://github.com/o/r/pull/%d\n", pr)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var asked []string
+	blocking := true
+	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (string, error) {
+		asked = append(asked, url)
+		if blocking {
+			blocking = false
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return "OPEN", nil
+	}}}
+	now := time.Now().UTC()
+
+	started := time.Now()
+	err := service.refreshHistory(t.Context(), now)
+	elapsed := time.Since(started)
+
+	if elapsed > pullRequestBudget+3*time.Second {
+		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || len(asked) != 1 {
+		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and reported", err, asked)
+	}
+	blocked := asked[0]
+	asked = nil
+	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || slices.Contains(asked, blocked) {
+		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and not %s", asked, blocked)
+	}
+}
+
 type ghRunner struct {
 	result  execx.Result
 	err     error

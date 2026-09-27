@@ -33,6 +33,7 @@ const (
 	historyWindow      = 7 * 24 * time.Hour
 	historyLimit       = 20
 	pullRequestRecheck = 10 * time.Minute
+	pullRequestBudget  = 5 * time.Second
 )
 
 var (
@@ -336,11 +337,16 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 // that no fleet history shows merged, and marks it merged (a squash merge
 // leaves no merge commit) or closed without merging. A merged or closed pull
 // request is not asked about again; an open one, or one GitHub did not
-// answer for, waits pullRequestRecheck.
+// answer for, waits pullRequestRecheck. All asks of one refresh share
+// pullRequestBudget, so a slow GitHub never holds the supervisor's loop much
+// longer; a pull request not asked before it runs out is asked on the next
+// refresh.
 func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now time.Time) error {
 	if s.Options.PullRequestState == nil {
 		return nil
 	}
+	budget, cancel := context.WithTimeout(ctx, pullRequestBudget)
+	defer cancel()
 	if s.pullRequests == nil {
 		s.pullRequests = map[string]pullRequestState{}
 	}
@@ -354,7 +360,10 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 		shown[task.PR] = true
 		known, ok := s.pullRequests[task.PR]
 		if !ok || (known.state != "MERGED" && known.state != "CLOSED" && now.Sub(known.at) >= pullRequestRecheck) {
-			answer, err := s.Options.PullRequestState(ctx, task.PR)
+			if budget.Err() != nil {
+				continue
+			}
+			answer, err := s.Options.PullRequestState(budget, task.PR)
 			errs = errors.Join(errs, err)
 			known = pullRequestState{state: answer, at: now}
 			s.pullRequests[task.PR] = known

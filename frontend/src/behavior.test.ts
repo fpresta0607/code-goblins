@@ -185,6 +185,14 @@ test("a completed card says and shows what its pull request really did", () => {
   ]);
 });
 
+test("a live card whose gate saw its pull request merge wears the merge icon", () => {
+  const [merged, shipping] = parseSnapshot({healthy:true, tasks:[
+    {id:"landing", phase:"merged", verified:false, pr:"https://github.com/o/code-goblins/pull/33"},
+    {id:"shipping", phase:"ready", verified:false, pr:"https://github.com/o/code-goblins/pull/34"},
+  ]}).tasks;
+  assert.deepEqual([pullRequestIcon(merged), pullRequestIcon(shipping)], ["merge", "pull-request"]);
+});
+
 test("the board keeps the CFO registration state the supervisor reports", () => {
   const stale = "The CFO is not registered; run cfo register in the CFO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);

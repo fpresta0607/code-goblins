@@ -129,6 +129,7 @@ A history card is its pull request link, since it has no live worktree to review
 A finished task finds its merge among every merge of the week, not only the newest 20, so an older merge still marks it merged.
 A finished task's GitHub pull request that no merge commit shows is asked about with `gh pr view` on the once-a-minute history refresh: merged (a squash merge leaves no merge commit) reads Merged, closed without merging reads Closed, and open reads Finished.
 A merged or closed answer is kept; an open one, or an ask that failed, which the board reports as an error, is asked again after 10 minutes.
+The asks of one refresh share a 5-second budget, so a slow GitHub never holds up the supervisor; a pull request not asked before it runs out reads Finished and is asked on the next refresh, and an ask it cuts off counts as failed.
 The card wears GitHub's icons and colors: the purple merge icon for Merged, the red closed pull request icon for Closed, and the pull request icon otherwise.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane, and it is evaluated once a minute like any other.
 Each card shows a short title of at most two lines, then one muted line with the task's repo and status, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
