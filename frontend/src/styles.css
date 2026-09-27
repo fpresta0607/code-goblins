@@ -760,6 +760,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
 .task-card-shell.has-pr.has-clock:not(:has(.card-waiting)) .task-card { padding-bottom: 12px; }
+/* The CFO's Task view lists the queue below its workspace. */
+.cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
+.cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
+.cfo-queue .column-hint { margin: -6px 0 2px; }
 /* Free memory at the head of Tasks, against the mark at which the CFO starts
    the next task; the bar spans the machine's memory. */
 .memory { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: #0b141bcc; }

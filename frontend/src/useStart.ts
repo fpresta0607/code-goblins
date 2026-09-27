@@ -5,18 +5,23 @@ import type { CardStart } from "./TaskCard";
 import { message, request } from "./api";
 import { refusalStands, startBlock, startOutcome, type AcceptedStart, type Refusal } from "./start";
 
+export type CardStarter = (task: Task, index: number) => CardStart;
+
 // Start on a queued task: the supervisor dispatches it through cfo spawn, and
 // onStarted hears once it accepted the start, so the board can open the new
 // goblin's session when it is up. A refused start, or a press on a blocked
 // one, shows its reason on the card: one whose cause passes by itself until a
 // newer snapshot shows Start no longer blocked, any other until the card's
 // Start is pressed again. A spawn that failed shows the reason the supervisor
-// recorded, never the last Start's while this one is awaited.
-export function useStart(snapshot: Snapshot, awaited: AcceptedStart | null, onStarted: (accepted: AcceptedStart) => void) {
+// recorded, never the last Start's while this one is awaited. The board holds
+// one for every list of queued tasks, so each shows the same Start; there is
+// none before the first snapshot.
+export function useStart(snapshot: Snapshot | null, awaited: AcceptedStart | null, onStarted: (accepted: AcceptedStart) => void): CardStarter | null {
   const [refusals, setRefusals] = useState<Record<string, Refusal>>({});
   const [requesting, setRequesting] = useState("");
-  const revision = useRef(snapshot.revision);
-  useEffect(() => { revision.current = snapshot.revision; });
+  const revision = useRef(snapshot?.revision ?? 0);
+  useEffect(() => { revision.current = snapshot?.revision ?? 0; });
+  if (!snapshot) return null;
   const refuse = (id: string, refusal?: Refusal) => setRefusals((prior) =>
     refusal ? { ...prior, [id]: refusal } : Object.fromEntries(Object.entries(prior).filter(([other]) => other !== id)));
   const blockOf = (task: Task) => {
