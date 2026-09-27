@@ -160,6 +160,41 @@ func TestReorderQueuedRefusesAnOrderThatIsNotTheQueue(t *testing.T) {
 	}
 }
 
+func TestReorderQueuedRefusesABacklogThatQueuesATaskTwice(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	const content = "## Queued\n- **a** - A\n- **b** - B\n- **a** - A again\n"
+	path := writeBacklog(t, h.Data, content)
+
+	// Act
+	err := ReorderQueued(h, []string{"b", "a"}, nil)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "queues a twice") {
+		t.Fatalf("ReorderQueued = %v, want a refusal naming the repeated row", err)
+	}
+	if got := readFile(t, path); got != content {
+		t.Fatalf("a refused order changed backlog.md to %q", got)
+	}
+}
+
+func TestReorderQueuedOrdersRowsAcrossTwoQueuedSections(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	path := writeBacklog(t, h.Data, "## Queued\n- **a** - A\n\n## Done\n- **d** - D\n\n## Queued\n- **b** - B\n  detail: b\n")
+
+	// Act
+	err := ReorderQueued(h, []string{"b", "a"}, nil)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ReorderQueued: %v", err)
+	}
+	if got, want := readFile(t, path), "## Queued\n- **b** - B\n  detail: b\n\n## Done\n- **d** - D\n\n## Queued\n- **a** - A\n"; got != want {
+		t.Fatalf("backlog.md = %q, want %q", got, want)
+	}
+}
+
 func TestReorderQueuedAddsRowsToAQueueWithNone(t *testing.T) {
 	// Arrange
 	h := snapshotHome(t)
