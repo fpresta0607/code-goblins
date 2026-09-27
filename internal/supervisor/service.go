@@ -69,6 +69,8 @@ type Service struct {
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
+	// ordering saves one list order at a time.
+	ordering sync.Mutex
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -722,6 +724,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
+	}
+	// The goblins in progress run in the Overlord's attention order, and any
+	// he has not placed follow it.
+	if attention, err := fleet.ReadAttention(s.Store.Home); err != nil {
+		out.Issues = append(slices.Clone(out.Issues), "The In progress order cannot be read: "+err.Error())
+	} else {
+		fleet.SortByAttention(out.Tasks, attention, func(task Task) string { return task.ID })
 	}
 	backlog, err := fleet.ReadBacklog(s.Store.Home)
 	if err != nil {

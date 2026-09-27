@@ -199,6 +199,12 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
+
+**Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
+A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
+On a touch screen, drag a card by its number.
+Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
+A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
@@ -257,7 +263,7 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 A new review item or command appears in a banner at the bottom right for a few seconds and stays under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
+Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
 An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
