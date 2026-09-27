@@ -11,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
+func TestScanFindsDeletedTests(t *testing.T) {
 	cases := []struct {
 		name string
 		diff string
@@ -26,16 +26,6 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 			name: "the whole test file deleted",
 			diff: "diff --git a/app/tests/test_macros.py b/app/tests/test_macros.py\ndeleted file mode 100644\n--- a/app/tests/test_macros.py\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-def test_document_macros_are_disabled_during_real_index_update():\n-    assert disabled()\n",
 			want: []string{"app/tests/test_macros.py: deleted the test file"},
-		},
-		{
-			name: "a skip added",
-			diff: "diff --git a/src/board.test.ts b/src/board.test.ts\n--- a/src/board.test.ts\n+++ b/src/board.test.ts\n@@ -3 +3 @@\n-it(\"shows the card\", () => {\n+it.skip(\"shows the card\", () => {\n",
-			want: []string{`src/board.test.ts: added a skip: it.skip("shows the card", () => {`},
-		},
-		{
-			name: "a Go skip added",
-			diff: "diff --git a/x_test.go b/x_test.go\n--- a/x_test.go\n+++ b/x_test.go\n@@ -5,0 +6 @@\n+\tt.Skip(\"flaky under load\")\n",
-			want: []string{`x_test.go: added a skip: t.Skip("flaky under load")`},
 		},
 		{
 			name: "a test file renamed out of the runner's pattern is deleted",
@@ -70,11 +60,6 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "a skip removed is a test restored",
-			diff: "diff --git a/test_x.py b/test_x.py\n--- a/test_x.py\n+++ b/test_x.py\n@@ -1 +0,0 @@\n-@pytest.mark.skip(reason=\"later\")\n",
-			want: nil,
-		},
-		{
 			name: "tests that share only an acronym are not a rename",
 			diff: "diff --git a/pr_test.go b/pr_test.go\n--- a/pr_test.go\n+++ b/pr_test.go\n@@ -4 +4 @@\n-func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {\n+func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {\n",
 			want: []string{"pr_test.go: removed the test TestPRMergeNeverForwardsDeleteBranchToGH"},
@@ -88,21 +73,6 @@ func TestScanFindsDeletedAndSkippedTests(t *testing.T) {
 			name: "a Pester name holding an apostrophe is read whole",
 			diff: "diff --git a/a.Tests.ps1 b/a.Tests.ps1\n--- a/a.Tests.ps1\n+++ b/a.Tests.ps1\n@@ -3 +2,0 @@\n-    It \"doesn't write outside the worktree\" {\n",
 			want: []string{"a.Tests.ps1: removed the test doesn't write outside the worktree"},
-		},
-		{
-			name: "a skip reformatted in place is not a new skip",
-			diff: "diff --git a/src/b.test.ts b/src/b.test.ts\n--- a/src/b.test.ts\n+++ b/src/b.test.ts\n@@ -3 +3 @@\n-it.skip('x',()=>{\n+it.skip(\"x\", () => {\ndiff --git a/test_y.py b/test_y.py\n--- a/test_y.py\n+++ b/test_y.py\n@@ -1 +1 @@\n-@pytest.mark.skipif(sys.platform == \"win32\", reason=\"posix\")\n+@pytest.mark.skipif(os.name == \"nt\", reason=\"posix\")\n",
-			want: nil,
-		},
-		{
-			name: "a skip added beside an edited one is still a new skip",
-			diff: "diff --git a/src/b.test.ts b/src/b.test.ts\n--- a/src/b.test.ts\n+++ b/src/b.test.ts\n@@ -3 +3,2 @@\n-it.skip('x',()=>{\n+it.skip(\"x\", () => {\n+it.skip(\"y\", () => {\n",
-			want: []string{`src/b.test.ts: added a skip: it.skip("y", () => {`},
-		},
-		{
-			name: "an only is reported as focusing its file",
-			diff: "diff --git a/src/c.test.ts b/src/c.test.ts\n--- a/src/c.test.ts\n+++ b/src/c.test.ts\n@@ -3 +3 @@\n-it(\"loads\", () => {\n+it.only(\"loads\", () => {\n",
-			want: []string{`src/c.test.ts: focused the file on one test, which skips every other test in it: it.only("loads", () => {`},
 		},
 	}
 	for _, tc := range cases {
