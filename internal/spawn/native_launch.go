@@ -236,30 +236,53 @@ func (s Service) readNativeScreen(ctx context.Context, record host.Record) ([]st
 }
 
 // nativeProgram is the command line a native terminal starts the harness with.
-// CreateProcess runs only executables, so the npm .cmd shims codex and pi
-// install as run through cmd /c, which exits with the harness. cmd reads its
-// command line itself, so an argument it would interpret is refused.
+// A harness Herdr starts itself, rather than typing its launch, must be a
+// program: one found only as a script shim is refused. A typed launch runs
+// through cmd /c, which finds its program in the user environment the host
+// runs with.
 func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
-	if !launch.TypedLaunch {
-		path, err := exec.LookPath(string(kind))
-		if err != nil {
-			return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
-		}
-		if !strings.EqualFold(filepath.Ext(path), ".exe") {
-			return nil, fmt.Errorf("spawn: %s resolves to %s, which a native terminal cannot start without a shell", kind, path)
-		}
-		return append([]string{path}, launch.Args...), nil
+	if launch.TypedLaunch {
+		return cmdProgram(launch.Executable, launch.Args...)
 	}
-	for _, arg := range append([]string{launch.Executable}, launch.Args...) {
+	path, err := exec.LookPath(string(kind))
+	if err != nil {
+		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".exe") {
+		return nil, fmt.Errorf("spawn: %s resolves to %s, which a native terminal cannot start without a shell", kind, path)
+	}
+	return append([]string{path}, launch.Args...), nil
+}
+
+// NativeProgram is the command line a native terminal starts name with,
+// followed by args. CreateProcess runs only executables, so a .exe found on
+// PATH runs as itself, and anything else, such as the npm .cmd shims codex and
+// pi install, runs through cmd /c.
+func NativeProgram(name string, args ...string) ([]string, error) {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not on PATH: %w", name, err)
+	}
+	if strings.EqualFold(filepath.Ext(path), ".exe") {
+		return append([]string{path}, args...), nil
+	}
+	return cmdProgram(name, args...)
+}
+
+// cmdProgram runs name with args through cmd /c, which exits with it. cmd
+// reads its command line itself, so an argument it would interpret is
+// refused.
+func cmdProgram(name string, args ...string) ([]string, error) {
+	for _, arg := range append([]string{name}, args...) {
 		if arg == "" || strings.ContainsAny(arg, "\"&|<>^%!()\r\n") {
-			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", kind, arg)
+			return nil, fmt.Errorf("spawn: %s's argument %q is one cmd would read as more than text", name, arg)
 		}
 	}
 	shell := os.Getenv("ComSpec")
 	if shell == "" {
 		shell = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 	}
-	return append([]string{shell, "/c", launch.Executable}, launch.Args...), nil
+	return append([]string{shell, "/c", name}, args...), nil
 }
 
 // inheritedSessionVariables name what a session marks its own processes with

@@ -2,9 +2,11 @@ package host
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -26,6 +28,25 @@ type Record struct {
 
 func recordPath(stateDir, id string) string {
 	return filepath.Join(stateDir, "hosts", id+".json")
+}
+
+// RecordIDs lists the terminals that have a host record under stateDir, none
+// when no host ever recorded itself there.
+func RecordIDs(stateDir string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(stateDir, "hosts"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && !entry.IsDir() {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // ReadRecord reads the record of the host running terminal id.

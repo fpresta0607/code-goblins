@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -68,7 +69,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -126,8 +127,38 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
+	c.nativeHosts(&inv, &notes)
 
 	return inv, notes, nil
+}
+
+// nativeHosts reads every native terminal's host record. A record that cannot
+// be read is named, and its task held: whether that goblin still runs is
+// exactly what is unknown. A record gone since the listing is a host that has
+// just ended, which leaves nothing to read.
+func (c Collector) nativeHosts(inv *Inventory, notes *[]string) {
+	ids, err := host.RecordIDs(c.Home.State)
+	if err != nil {
+		*notes = append(*notes, fmt.Sprintf("state/hosts: UNREADABLE (%s); native goblins cannot be told alive, so their findings are held", err))
+		for _, task := range inv.Tasks {
+			if task.Meta.Backend == "native" {
+				inv.UnreadableHosts = append(inv.UnreadableHosts, task.ID)
+			}
+		}
+		return
+	}
+	for _, id := range ids {
+		record, err := host.ReadRecord(c.Home.State, id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			*notes = append(*notes, fmt.Sprintf("state/hosts/%s.json: UNREADABLE (%s)", id, err))
+			inv.UnreadableHosts = append(inv.UnreadableHosts, id)
+			continue
+		}
+		inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: record.ID, HostPID: record.HostPID, Started: record.Started})
+	}
 }
 
 func (c Collector) latestVerb(id string) string {
