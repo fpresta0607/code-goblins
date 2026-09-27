@@ -242,7 +242,9 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 			break
 		}
 	}
-	return bounded(activity, 300), pr
+	// The panel shows the whole line behind Show more, so only a runaway
+	// line is cut.
+	return bounded(activity, 4000), pr
 }
 
 // finishedTasks are tasks cfo cleanup finished within the history window,
@@ -370,10 +372,16 @@ func queuedBriefs(h home.Home) []Task {
 			if project != "" {
 				project = filepath.Base(project)
 			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: project, Dependencies: []string{}, Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			tasks = append(tasks, Task{ID: id, Title: id, Project: project, Dependencies: []string{}, Since: briefWritten(h, id), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks
+}
+
+// briefWritten is when data/<id>/brief.md was written, which is when its
+// task was queued, or zero without one.
+func briefWritten(h home.Home, id string) time.Time {
+	return fileCreated(filepath.Join(h.Data, id, "brief.md"))
 }
 
 // briefProject is the checkout a brief's Project section names, or empty

@@ -199,6 +199,8 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
+A title cut off after two lines shows in full in a tip on hover or keyboard focus.
+Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
@@ -215,7 +217,8 @@ The whole crew:
 ### The goblin panel
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
-A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+A long status line shows its first three lines with **Show more**, which opens the whole line, and **Show less** closes it again.
+A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued task has no terminal yet, so its panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The Terminal view is the goblin's live terminal, edge to edge.

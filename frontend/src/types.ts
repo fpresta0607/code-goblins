@@ -32,6 +32,9 @@ export interface Task extends Evaluation {
   gate_step: string;
   archived: boolean;
   merged: boolean;
+  // since is when a live task's session started, or when queued work's brief
+  // was written; empty when neither is known.
+  since: string;
 }
 export interface Session {
   runtime?: RuntimeEvidence;
@@ -317,6 +320,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
+        since: string(t.since),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

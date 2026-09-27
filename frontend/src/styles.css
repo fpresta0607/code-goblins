@@ -505,6 +505,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
 .panel-activity { color: #c4d4df; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* The goblin's own words open in full behind Show more, never an ellipsis. */
+.panel-activity.expanded { display: block; overflow: visible; }
+.show-more { display: grid; gap: 6px; justify-items: start; min-width: 0; margin-top: 4px; }
+.show-more .panel-activity { margin: 0; }
+.show-more-toggle { min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; color: var(--mint); font-size: .9375rem; font-weight: 700; }
+.show-more-toggle:hover { text-decoration: underline; }
 .panel-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .panel-header .workspace-outcome { grid-column: 1 / -1; margin: 0; }
 .pill-link { width: auto; min-width: 44px; padding: 0 14px 0 10px; border-radius: 999px; display: inline-flex; gap: 6px; color: #dff7ee; font-weight: 800; }
@@ -731,6 +737,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-sep { opacity: .5; }
 .card-meta .plain-status { flex: 0 .01 auto; min-width: 0; overflow: hidden; font-weight: 600; }
 .card-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A quiet clock under the status: how long a goblin's session has run, or
+   how long a queued task has waited, beside the pull request. */
+.card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
+.card-clock .icon { width: 14px; height: 14px; }
+.task-card-shell.has-pr.has-clock:not(:has(.card-waiting)) .task-card { padding-bottom: 12px; }
 /* Tasks and In progress are in priority order, top first: each card's
    number is its place and turns into a grip on hover or focus, and a dragged
    card lifts while the others slide aside. A finger drags by the number. */

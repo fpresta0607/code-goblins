@@ -562,6 +562,9 @@ type Task struct {
 	// that its pull request merged into a fleet repository.
 	Archived bool `json:"archived"`
 	Merged   bool `json:"merged"`
+	// Since is when a live task's session started, or when queued work's
+	// brief was written; zero when neither is known.
+	Since time.Time `json:"since"`
 	Evaluation
 }
 
@@ -720,7 +723,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: spawnTime(meta.SpawnGen), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -750,7 +753,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
-			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
+			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: briefWritten(s.Store.Home, row.ID), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home) {

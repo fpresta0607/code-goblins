@@ -7,6 +7,7 @@ import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { waitingItems, type Item } from "./commandQueue";
+import { ShowMore } from "./ShowMore";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The CFO drawn without a task has no worktree to open.
@@ -44,7 +45,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {!compact && task?.project && <p className="project-label">{task.project}</p>}
       <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
       {!compact && !owner && node && task && <p className="muted">Part of {task.title || task.id}</p>}
-      {!compact && owner && task.activity && <p className="panel-activity">{task.activity}</p>}
+      {!compact && owner && task.activity && <ShowMore text={task.activity} className="panel-activity" />}
     </div>
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
