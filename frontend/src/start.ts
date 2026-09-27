@@ -1,4 +1,4 @@
-import type { Memory, Task } from "./types";
+import type { Memory, Snapshot, Task } from "./types";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -25,6 +25,21 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   if (memory && memory.available < memory.floor) return `Under the ${gigabytes(memory.floor)} GB memory floor`;
   if (anotherStarting) return "Another task is starting";
   return "";
+}
+
+// A Start the supervisor accepted, and the revision from which every snapshot
+// shows it rather than a failure of the task's last Start.
+export interface AcceptedStart { id: string; revision: number }
+
+// What the board does about an accepted Start: open the goblin's terminal once
+// its session is up, stop waiting once a snapshot of this start shows it
+// failed, and otherwise wait, as for an older snapshot that still carries the
+// last Start's failure.
+export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open" | "failed" | "wait" {
+  const task = snapshot.tasks.find((candidate) => candidate.id === accepted.id);
+  if (task?.generation) return "open";
+  if (task?.start_error && snapshot.revision >= accepted.revision) return "failed";
+  return "wait";
 }
 
 // The chip on the top queued task, the one the CFO starts next.

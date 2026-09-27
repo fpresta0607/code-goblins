@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, meterState, nextChip, startBlock } from "./start.ts";
-import type { Memory, Task } from "./types.ts";
+import { freeGigabytes, meterState, nextChip, startBlock, startOutcome } from "./start.ts";
+import type { Memory, Snapshot, Task } from "./types.ts";
 
 const GB = 2 ** 30;
 const memory = (available: number): Memory => ({ available: available * GB, total: 32 * GB, floor: 3 * GB, next: 4 * GB });
@@ -33,4 +33,26 @@ test("the top queued task is marked next, waiting for 4 GB when memory is short"
   assert.equal(nextChip(memory(5)), "Next up");
   assert.equal(nextChip(memory(3.2)), "Next, at 4 GB free");
   assert.equal(nextChip(null), "Next up");
+});
+
+test("an accepted Start opens its goblin once its session is up, stops on a failure of this start, and otherwise waits", () => {
+  // Arrange
+  const snapshot = (revision: number, changes: Partial<Task>) => ({ revision, tasks: [task({ generation: "", ...changes })] }) as Snapshot;
+  const accepted = { id: "next-task", revision: 12 };
+  const cases: [string, Snapshot, "open" | "failed" | "wait"][] = [
+    ["its session is up", snapshot(13, { phase: "running", generation: "gen-1" }), "open"],
+    ["this start failed", snapshot(13, { start_error: "GITHUB_TOKEN is red" }), "failed"],
+    ["this start failed, in the snapshot the start answered", snapshot(12, { start_error: "GITHUB_TOKEN is red" }), "failed"],
+    ["a retry, where the older snapshot still shows the last start's failure", snapshot(11, { start_error: "GITHUB_TOKEN is red" }), "wait"],
+    ["it is still starting", snapshot(13, { starting: true }), "wait"],
+    ["the snapshot does not list it", { revision: 13, tasks: [] as Task[] } as Snapshot, "wait"],
+  ];
+
+  for (const [name, shown, want] of cases) {
+    // Act
+    const outcome = startOutcome(accepted, shown);
+
+    // Assert
+    assert.equal(outcome, want, name);
+  }
 });

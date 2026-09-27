@@ -3,7 +3,7 @@ import { CfoPin } from "./CfoPin";
 import { RankedCards } from "./RankedCards";
 import { TaskCard } from "./TaskCard";
 import { MemoryMeter } from "./MemoryMeter";
-import { nextChip } from "./start";
+import { nextChip, type AcceptedStart } from "./start";
 import { useStart } from "./useStart";
 import { taskColumn } from "./workflow";
 
@@ -13,17 +13,19 @@ const COLUMNS = [
   { name: "Completed", list: "", hint: "History, newest first.", empty: "Verified work will appear here" },
 ] as const;
 
-export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo, onStartCfo, onStarted, presentations }: {
+export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo, onStartCfo, awaitingStart, onStarted, presentations }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
   onStartCfo: () => void;
-  // onStarted hears that a queued task's Start was accepted.
-  onStarted: (id: string) => void;
+  // awaitingStart is the accepted Start the board waits on; onStarted hears
+  // that a queued task's Start was accepted.
+  awaitingStart: AcceptedStart | null;
+  onStarted: (accepted: AcceptedStart) => void;
 }) {
-  const cardStart = useStart(snapshot, onStarted);
+  const cardStart = useStart(snapshot, awaitingStart, onStarted);
   const memory = snapshot.memory;
   const card = (task: Task, rank?: string, index = -1) => {
     const queued = task.phase === "queued" && index >= 0;

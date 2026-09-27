@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
@@ -281,6 +282,47 @@ func TestStartShowsAFailedSpawnOnTheCardAndTellsTheCFO(t *testing.T) {
 	}
 	if _, blocking := wake.BlockingNotify(records[0]); blocking {
 		t.Fatal("a failed start reads as a goblin's blocking question")
+	}
+}
+
+func TestStartRetryAnswersARevisionFromWhichTheOldFailureIsGone(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{output: "cfo spawn: project auth preflight refused: GITHUB_TOKEN is red\n", err: errors.New("exit status 1")}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+	failed := waitStarted(t, handler, "next-task")
+	stale, err := handler.Service.Snapshot()
+	if err != nil || failed.StartError == "" {
+		t.Fatalf("first start = %+v, %v; want it failed", failed, err)
+	}
+	spawner.release = make(chan struct{})
+	t.Cleanup(func() {
+		close(spawner.release)
+		waitStarted(t, handler, "next-task")
+	})
+
+	// Act
+	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	var accepted struct {
+		Revision uint64 `json:"revision"`
+	}
+	if response.Code != 202 || json.Unmarshal(response.Body.Bytes(), &accepted) != nil {
+		t.Fatalf("retry = %d %s, want 202 with its revision", response.Code, response.Body)
+	}
+	if accepted.Revision <= stale.Revision {
+		t.Fatalf("retry revision = %d, want it newer than %d, whose snapshot still shows the old failure", accepted.Revision, stale.Revision)
+	}
+	if err != nil || snapshot.Revision < accepted.Revision {
+		t.Fatalf("snapshot revision = %d, %v; want at least %d", snapshot.Revision, err, accepted.Revision)
+	}
+	for _, task := range snapshot.Tasks {
+		if task.ID == "next-task" && (task.StartError != "" || !task.Starting) {
+			t.Fatalf("card = %+v, want it starting without the old failure", task)
+		}
 	}
 }
 

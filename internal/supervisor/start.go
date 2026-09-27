@@ -98,9 +98,15 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Service.notify()
+	// Every snapshot from this revision on shows this start, not a failure
+	// of the last one.
+	h.Service.mu.Lock()
+	revision := h.Service.revision
+	h.Service.mu.Unlock()
 	respond(w, http.StatusAccepted, struct {
-		Starting bool `json:"starting"`
-	}{true})
+		Starting bool   `json:"starting"`
+		Revision uint64 `json:"revision"`
+	}{true, revision})
 }
 
 // startTask checks that id can start now and starts cfo spawn for it; one
