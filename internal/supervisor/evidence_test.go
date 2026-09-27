@@ -252,6 +252,84 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 	}
 }
 
+// Each refresh ran up to five git processes per checkout, every one scanned
+// by Defender: about 33 git spawns a minute on the live home on 2026-09-27.
+// A checkout is read again only when a fetch or a remote change rewrites its
+// git files; otherwise the scan uses what it read last.
+func TestGitMergedPRsReadsACheckoutAgainOnlyWhenItsRefsMove(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "code-goblins")
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	merge := func(number int) {
+		t.Helper()
+		branch := fmt.Sprintf("fix/change-%d", number)
+		git("switch", "-q", "-c", branch)
+		git("commit", "-q", "--allow-empty", "-m", branch)
+		git("switch", "-q", "main")
+		git("merge", "-q", "--no-ff", branch, "-m", fmt.Sprintf("Merge pull request #%d from o/%s", number, branch))
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q", "--initial-branch=main")
+	git("config", "user.email", "t@t")
+	git("config", "user.name", "t")
+	git("remote", "add", "origin", "https://github.com/o/code-goblins.git")
+	git("commit", "-q", "--allow-empty", "-m", "base")
+	merge(1)
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	numbers := func(merged []MergedPR, err error) []string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var listed []string
+		for _, pr := range merged {
+			listed = append(listed, strings.TrimPrefix(pr.PR, "https://github.com/o/code-goblins/pull/"))
+		}
+		slices.Sort(listed)
+		return listed
+	}
+	list := GitMergedPRs([]string{repo})
+	since := time.Now().Add(-time.Hour)
+	if first := numbers(list(t.Context(), since)); !slices.Equal(first, []string{"1"}) {
+		t.Fatalf("first scan lists %v, want PR 1", first)
+	}
+
+	// Move origin's main to a new merge, then put the ref file's time back:
+	// to the scan nothing a fetch writes has changed.
+	ref := filepath.Join(repo, ".git", "refs", "remotes", "origin", "main")
+	before, err := os.Stat(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge(2)
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	if err := os.Chtimes(ref, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	held := numbers(list(t.Context(), since))
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(ref, later, later); err != nil {
+		t.Fatal(err)
+	}
+	moved := numbers(list(t.Context(), since))
+
+	if !slices.Equal(held, []string{"1"}) {
+		t.Fatalf("with its git files unchanged the scan lists %v, want what it read before (PR 1): it ran git again", held)
+	}
+	if !slices.Equal(moved, []string{"1", "2"}) {
+		t.Fatalf("after origin's main moved the scan lists %v, want PRs 1 and 2", moved)
+	}
+}
+
 func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "code-goblins")
@@ -405,6 +483,53 @@ func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
 	within("the merge the scan found never reached the board", func() bool {
 		return slices.ContainsFunc(snapshot().Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/7" })
 	})
+}
+
+// Completed is rebuilt when a task finishes or its gate sees it merge, not
+// only on the timer.
+func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
+	store, h := testStore(t)
+	scans := make(chan struct{}, 8)
+	s := &Service{Store: store, subscribers: map[chan struct{}]struct{}{}, Options: Options{MergedPRs: func(context.Context, time.Time) ([]MergedPR, error) {
+		scans <- struct{}{}
+		return nil, nil
+	}}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go s.keepHistory(ctx, time.Hour, 20*time.Millisecond)
+	scanned := func(why string) {
+		t.Helper()
+		select {
+		case <-scans:
+		case <-time.After(5 * time.Second):
+			t.Fatal(why)
+		}
+	}
+	quiet := func(why string) {
+		t.Helper()
+		select {
+		case <-scans:
+			t.Fatal(why)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	scanned("no rebuild at start")
+	quiet("rebuilt again with nothing changed and the hour not up")
+	if _, err := store.Queue(Action{ID: "evaluate-task-1", Kind: "evaluate", TaskID: "task-1", Generation: "g1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(t.Context(), func(context.Context, Action) (Evaluation, error) {
+		return Evaluation{Phase: "merged", Reason: "PR merged"}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scanned("no rebuild after the gate saw task-1 merge")
+	if err := os.Remove(filepath.Join(h.State, "task-1.meta")); err != nil {
+		t.Fatal(err)
+	}
+	scanned("no rebuild after task-1 was cleaned up")
+	quiet("rebuilt again with nothing changed since")
 }
 
 func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {

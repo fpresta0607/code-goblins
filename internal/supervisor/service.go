@@ -186,7 +186,7 @@ func (s *Service) run(ctx context.Context) {
 	historyDone := make(chan struct{})
 	go func() {
 		defer close(historyDone)
-		s.keepHistory(ctx, historyRefresh)
+		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
 	// A single inbox watcher, independent of task count. A timeout also
@@ -289,25 +289,55 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 }
 
-// keepHistory rebuilds the Completed column away from the loop, at start and
-// then every interval. Its merge scan reads every fleet repository with git,
-// and on the loop it took most of each minute while native events, the
-// heartbeat and every snapshot waited. Each rebuild reaches the board at once.
-func (s *Service) keepHistory(ctx context.Context, every time.Duration) {
-	ticker := time.NewTicker(every)
+// keepHistory rebuilds the Completed column away from the loop: at start,
+// whenever historyMark changes (a task finished, or its gate saw it merge),
+// which it checks every watch, and otherwise every interval. Its merge scan
+// reads fleet repositories with git, and on the loop it took most of each
+// minute while native events, the heartbeat and every snapshot waited. Each
+// rebuild reaches the board at once.
+func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
+	ticker := time.NewTicker(watch)
 	defer ticker.Stop()
+	var mark string
+	var rebuilt time.Time
 	for {
-		err := s.refreshHistory(ctx, time.Now().UTC())
-		s.mu.Lock()
-		s.historyErr = err
-		s.mu.Unlock()
-		s.notify()
+		if next := s.historyMark(); next != mark || time.Since(rebuilt) >= every {
+			mark, rebuilt = next, time.Now()
+			err := s.refreshHistory(ctx, time.Now().UTC())
+			s.mu.Lock()
+			s.historyErr = err
+			s.mu.Unlock()
+			s.notify()
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+// historyMark names what changes when Completed gains a card: the live task
+// records, which cleanup removes as a task finishes, and the tasks whose gate
+// saw their pull request merge.
+func (s *Service) historyMark() string {
+	var mark strings.Builder
+	if entries, err := os.ReadDir(s.Store.Home.State); err == nil {
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".meta") {
+				mark.WriteString(entry.Name() + ";")
+			}
+		}
+	}
+	var merged []string
+	for id, evaluation := range s.Store.Snapshot().Tasks {
+		if evaluation.Phase == "merged" || evaluation.Phase == "done" {
+			merged = append(merged, id+"@"+evaluation.Generation)
+		}
+	}
+	slices.Sort(merged)
+	mark.WriteString(strings.Join(merged, ";"))
+	return mark.String()
 }
 
 // refreshHistory rebuilds the Completed column: finished tasks, the pull
