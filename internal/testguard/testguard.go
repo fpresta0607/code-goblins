@@ -114,10 +114,12 @@ func tallySkips(ctx context.Context, git execx.Runner, dir, sha, diff string, co
 	var tally *skipTally
 	var before, after map[int]bool
 	oldLine, newLine := 0, 0
+	inHeader := false
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
 		case strings.HasPrefix(line, "diff --git "):
+			inHeader = true
 			source, file := diffPaths(line)
 			tally = tallies[source]
 			if tally == nil {
@@ -139,8 +141,9 @@ func tallySkips(ctx context.Context, git execx.Runner, dir, sha, diff string, co
 				}
 			}
 		case strings.HasPrefix(line, "@@ "):
+			inHeader = false
 			oldLine, newLine = hunkStarts(line)
-		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
+		case inHeader:
 		case strings.HasPrefix(line, "+"):
 			if after[newLine] {
 				tally.count++

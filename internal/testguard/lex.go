@@ -3,6 +3,7 @@ package testguard
 import (
 	"path"
 	"strings"
+	"unicode"
 )
 
 // codeLines is content split into lines with the inside of every string and
@@ -169,6 +170,8 @@ func lexJS(content string) string {
 		case b.at("/*"):
 			b.code(2)
 			b.blankUntil("*/", 0, false)
+		case b.at("/") && jsRegexStarts(b.out):
+			jsRegex(b)
 		case b.at(`"`) || b.at("'"):
 			quote := string(b.src[b.i])
 			b.code(1)
@@ -216,6 +219,57 @@ func jsTemplate(b *blanker) bool {
 		}
 	}
 	return false
+}
+
+// jsRegexKeywords are the words after which a slash starts a regular
+// expression rather than a division.
+var jsRegexKeywords = map[string]bool{
+	"return": true, "typeof": true, "case": true, "do": true, "else": true, "in": true, "of": true,
+	"new": true, "delete": true, "void": true, "throw": true, "yield": true, "await": true,
+}
+
+// jsRegexStarts reports whether a slash after the code blanked so far starts
+// a regular expression: at the start of the file, after an operator or an
+// opening bracket, or after a keyword; after a name, a number or a closing
+// bracket it is a division.
+func jsRegexStarts(out []rune) bool {
+	end := len(out)
+	for end > 0 && unicode.IsSpace(out[end-1]) {
+		end--
+	}
+	if end == 0 || strings.ContainsRune("(,=:[!&|?{};+-*%<>~^", out[end-1]) {
+		return true
+	}
+	start := end
+	for start > 0 && (unicode.IsLetter(out[start-1]) || unicode.IsDigit(out[start-1]) || out[start-1] == '_' || out[start-1] == '$') {
+		start--
+	}
+	return jsRegexKeywords[string(out[start:end])]
+}
+
+// jsRegex blanks a regular expression literal up to its closing slash, which
+// a slash inside a [...] class or after a backslash is not; its flags follow
+// as code. It never crosses a line break, so a division read as a regular
+// expression blanks at most the rest of its line.
+func jsRegex(b *blanker) {
+	b.code(1)
+	inClass, escaped := false, false
+	for !b.done() && b.src[b.i] != '\n' && b.src[b.i] != '\r' {
+		switch c := b.src[b.i]; {
+		case escaped:
+			escaped = false
+		case c == '\\':
+			escaped = true
+		case c == '[':
+			inClass = true
+		case c == ']':
+			inClass = false
+		case c == '/' && !inClass:
+			b.code(1)
+			return
+		}
+		b.blank(1)
+	}
 }
 
 func lexPowerShell(content string) string {
