@@ -333,12 +333,15 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // The wheel counts whole lines of the screen as drawn: up from the live
     // screen opens the history, and down at the history's bottom returns.
     let wheelRest = 0;
-    const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
+    const wheelStep = (fromHistory: boolean, event: WheelEvent) => {
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
       const row = screen && term.rows ? screen.offsetHeight / term.rows : 16;
       const { lines, rest } = wheelLines(wheelRest, event.deltaY, event.deltaMode, row, term.rows);
       wheelRest = rest;
-      const action = scrollAction(fromHistory, atBottom(), lines);
+      return { action: scrollAction(fromHistory, atBottom(), lines), lines };
+    };
+    const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
+      const { action, lines } = wheelStep(fromHistory, event);
       if (action === "history") return true;
       event.preventDefault();
       if (action === "open") void openHistory(Math.abs(lines));
@@ -347,6 +350,21 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     term.attachCustomWheelEventHandler(wheel(false));
     past.attachCustomWheelEventHandler(wheel(true));
+    // A screen fitted to the panel may fill only part of it, so the wheel
+    // works over the whole panel: what lands beside the screen scrolls as if
+    // it landed on it.
+    const wheelBeside = (fromHistory: boolean) => (event: WheelEvent) => {
+      const screen = fromHistory ? past : term;
+      if (screen.element?.contains(event.target as Node)) return;
+      const { action, lines } = wheelStep(fromHistory, event);
+      event.preventDefault();
+      if (action === "history") screen.scrollLines(lines);
+      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "close") closeHistory();
+    };
+    const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
+    element.addEventListener("wheel", liveBeside, { passive: false });
+    pastElement.addEventListener("wheel", historyBeside, { passive: false });
     const resize = new ResizeObserver(() => { if (active?.sized) resizeSized(); else fit(); });
     resize.observe(element);
     const focused = () => step("focus");
@@ -460,7 +478,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
