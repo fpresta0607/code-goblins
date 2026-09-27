@@ -231,7 +231,7 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
-A goblin still in Herdr shows its whole Herdr pane at the pane's own size, its text scaled to fit the panel with the input line at the bottom and no scroll bars, and the same full-pane state while it connects; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
+A goblin still in Herdr is sized to the panel while the board has the focus, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom; leaving the board for another window, such as a Herdr window, hands the pane back its Herdr size, and the board then shows the whole pane scaled to fit until you come back or type, with the same full-pane state while it connects; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
@@ -327,6 +327,7 @@ cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
 cfo pipeline recover <id>
 cfo gate tests-kept
+cfo gate test
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo cleanup <id>

@@ -5,18 +5,28 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, queueInput, scrollAction, typingHeldReason, wheelLines, type PaneCommand } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, sizeStep, typingHeldReason, wheelLines, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
+// A panel being dragged asks for its new size once it has held this long, so
+// the program redraws once, not per frame.
+const RESIZE_SETTLE_MS = 120;
 
-// The goblin's live Herdr pane cast into the board: a view stream whose frames
-// arrive at the pane's own size, fitted whole to the panel, and whose lease
-// takes typing straight away. Nothing here resizes the real pane. Herdr sends
-// only the live screen, so the wheel and Shift+PageUp open the pane's history,
-// read from Herdr into a terminal of its own over the screen; scrolling down
-// at its bottom, or typing, returns to the live screen.
+// One view stream of the pane: sized when it has taken the pane's control and
+// sized it to the panel, or else observing the pane at the pane's own size.
+type Connection = { sized: boolean; abort: AbortController; lease: string; frameSeq: number; full: boolean };
+
+// The goblin's live Herdr pane cast into the board. While the board's window
+// has the focus and shows the pane, the view takes the pane's control and
+// sizes the pane to the panel at the chosen text size (Ctrl+Plus and
+// Ctrl+Minus); otherwise it shows the pane at the size a Herdr window gives
+// it, fitted whole to the panel. Taking control sends the program nothing but
+// its size. Herdr sends only the live screen, so the wheel and Shift+PageUp
+// open the pane's history, read from Herdr into a terminal of its own over the
+// screen; scrolling down at its bottom, or typing, returns to the live screen.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
@@ -25,7 +35,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const history = useRef<Terminal | null>(null);
   const terminal = useRef<Terminal | null>(null);
   const shownValue = useRef(shown);
-  useEffect(() => { shownValue.current = shown; }, [shown]);
+  const shownChanged = useRef<((shown: boolean) => void) | null>(null);
+  useEffect(() => { shownValue.current = shown; shownChanged.current?.(shown); }, [shown]);
   // A switch to this terminal hands it the keyboard, at once or on its first
   // frame, giving it to the history while that is shown.
   const wantFocus = useRef(false);
@@ -80,38 +91,76 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     void document.fonts.load('15px "JetBrains Mono"').then(() => {
       if (abort.signal.aborted || !document.fonts.check('15px "JetBrains Mono"')) return;
       term.options.fontFamily = past.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT;
-      requestAnimationFrame(() => fit());
+      requestAnimationFrame(() => { if (active?.sized) resizeSized(); else fit(); });
     }, () => {});
     term.textarea?.setAttribute("aria-label", "Terminal input");
     term.parser.registerOscHandler(52, () => true);
-    let lease = "", seq = 0, frameSeq = 0, full = false, flushing = false;
+    let lease = "", seq = 0, flushing = false, identity = "";
     const queue: PaneCommand[] = [];
+    const idle: (() => void)[] = [];
     let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+    // The screen shows the active connection's frames and its lease takes
+    // typing. A switch to or from sizing the pane opens beside it and takes
+    // over on its first whole screen, so the screen never blanks.
+    let active: Connection | null = null, pending: Connection | null = null;
+    // held is whether another client took the pane from this view, or a
+    // sized view was refused; the view then shows the pane at its own size
+    // until the Overlord comes back to the board or types in it.
+    let held = false;
+    let font = storedFontSize();
     // The font is fitted from the cell measured on the screen xterm drew, then
     // checked on the screen it draws next: rows round to whole pixels, which
     // can add a row's height across a tall pane, so a screen that overflows
     // the panel steps down until it fits whole. Checking only ever shrinks.
     let checking = false;
+    // The room the screen has: the panel inside its even inset.
+    const room = () => {
+      const style = getComputedStyle(element);
+      return { width: element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), height: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) };
+    };
     const settle = () => {
       if (!checking) return;
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
       const current = term.options.fontSize || 15;
-      if (!screen || screen.offsetWidth <= element.clientWidth && screen.offsetHeight <= element.clientHeight || current <= 1) { checking = false; return; }
+      const { width, height } = room();
+      if (!screen || screen.offsetWidth <= width && screen.offsetHeight <= height || current <= 1) { checking = false; return; }
       term.options.fontSize = current - 0.5;
     };
-    term.onRender(() => {
-      settle();
-      if (past.options.fontSize !== term.options.fontSize) past.options.fontSize = term.options.fontSize;
-    });
-    const fit = () => {
+    const cell = () => {
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
       const current = term.options.fontSize || 15;
-      const cell = screen && screen.offsetWidth > 0 ? { width: screen.offsetWidth / term.cols / current, height: screen.offsetHeight / term.rows / current } : ESTIMATED_CELL;
-      const size = fittedFontSize(element.clientWidth, element.clientHeight, term.cols, term.rows, cell);
+      return screen && screen.offsetWidth > 0 && term.cols > 0 && term.rows > 0 ? { width: screen.offsetWidth / term.cols / current, height: screen.offsetHeight / term.rows / current } : ESTIMATED_CELL;
+    };
+    const fit = () => {
+      if (active?.sized) return;
+      const current = term.options.fontSize || 15;
+      const { width, height } = room();
+      const size = fittedFontSize(width, height, term.cols, term.rows, cell());
       if (size === null) return;
       checking = true;
       if (size === current) settle(); else term.options.fontSize = size;
     };
+    // A sized view keeps the pane filling the panel: a changed panel or text
+    // size, or a screen drawn larger than the panel, asks for the grid that
+    // fits once the panel has held still.
+    let regrid: ReturnType<typeof setTimeout> | undefined;
+    const resizeSized = () => {
+      clearTimeout(regrid);
+      regrid = setTimeout(() => {
+        if (!active?.sized || !lease || abort.signal.aborted) return;
+        const { width, height } = room();
+        const size = panelGrid(width, height, font, cell());
+        if (!size || size.cols === term.cols && size.rows === term.rows) return;
+        queue.push({ type: "terminal.resize", cols: size.cols, rows: size.rows });
+        void flush();
+      }, RESIZE_SETTLE_MS);
+    };
+    term.onRender(() => {
+      settle();
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      if (active?.sized && screen && (screen.offsetWidth > room().width || screen.offsetHeight > room().height)) resizeSized();
+      if (past.options.fontSize !== term.options.fontSize) past.options.fontSize = term.options.fontSize;
+    });
     const stop = (reason: string) => {
       lease = "";
       term.options.disableStdin = true;
@@ -136,6 +185,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         }
       }
       flushing = false;
+      for (const done of idle.splice(0)) done();
     };
     const closeHistory = () => {
       if (!showing) return;
@@ -168,10 +218,27 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
     };
     const atBottom = () => past.buffer.active.viewportY >= past.buffer.active.baseY;
+    // want switches the view to sizing the pane or to showing it at its own
+    // size, unless it is already there or on its way.
+    const want = (sized: boolean) => {
+      if (pending) {
+        if (pending.sized === sized) return;
+        pending.abort.abort();
+        pending = null;
+      }
+      if (active && active.sized !== sized) void connect(sized);
+    };
+    const step = (event: SizeEvent) => {
+      if (!active || abort.signal.aborted) return;
+      if (event === "focus" || event === "typed") held = false;
+      const action = sizeStep(event, { sized: pending ? pending.sized : active.sized, focused: document.hasFocus(), shown: shownValue.current, held });
+      if (action !== "stay") want(action === "take");
+    };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
       if (inputBytes(text) > maxInputBytes) { setError("Input exceeds 64 KiB. Use a smaller selection; nothing was sent."); return; }
       setError("");
+      step("typed");
       queueInput(queue, text);
       void flush();
     };
@@ -202,6 +269,23 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     element.addEventListener("pointerdown", startCopy);
     pastElement.addEventListener("pointerdown", startCopy);
     const focusPill = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+    // Ctrl+Plus, Ctrl+Minus and Ctrl+0 choose the text size a sized pane is
+    // drawn at, and choosing it takes the pane's size.
+    const zoom = (event: KeyboardEvent) => {
+      const size = event.ctrlKey && !event.altKey && !event.metaKey ? fontSizeFor(event.key, font) : null;
+      if (size === null) return false;
+      event.preventDefault();
+      if (event.type !== "keydown") return true;
+      font = size;
+      storeFontSize(size);
+      if (active?.sized) {
+        term.options.fontSize = size;
+        resizeSized();
+      } else {
+        step("typed");
+      }
+      return true;
+    };
     term.attachCustomKeyEventHandler((event) => {
       // Escape belongs to the pane, never the surrounding panel.
       event.stopPropagation();
@@ -217,6 +301,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         if (event.type === "keydown") copy();
         return false;
       }
+      if (zoom(event)) return false;
       // Shift+PageUp opens the pane's history a screen up.
       if (event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown")) {
         event.preventDefault();
@@ -248,12 +333,15 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // The wheel counts whole lines of the screen as drawn: up from the live
     // screen opens the history, and down at the history's bottom returns.
     let wheelRest = 0;
-    const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
+    const wheelStep = (fromHistory: boolean, event: WheelEvent) => {
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
       const row = screen && term.rows ? screen.offsetHeight / term.rows : 16;
       const { lines, rest } = wheelLines(wheelRest, event.deltaY, event.deltaMode, row, term.rows);
       wheelRest = rest;
-      const action = scrollAction(fromHistory, atBottom(), lines);
+      return { action: scrollAction(fromHistory, atBottom(), lines), lines };
+    };
+    const wheel = (fromHistory: boolean) => (event: WheelEvent) => {
+      const { action, lines } = wheelStep(fromHistory, event);
       if (action === "history") return true;
       event.preventDefault();
       if (action === "open") void openHistory(Math.abs(lines));
@@ -262,22 +350,95 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     term.attachCustomWheelEventHandler(wheel(false));
     past.attachCustomWheelEventHandler(wheel(true));
-    const resize = new ResizeObserver(() => fit());
+    // A screen fitted to the panel may fill only part of it, so the wheel
+    // works over the whole panel: what lands beside the screen scrolls as if
+    // it landed on it.
+    const wheelBeside = (fromHistory: boolean) => (event: WheelEvent) => {
+      const screen = fromHistory ? past : term;
+      if (screen.element?.contains(event.target as Node)) return;
+      const { action, lines } = wheelStep(fromHistory, event);
+      event.preventDefault();
+      if (action === "history") screen.scrollLines(lines);
+      if (action === "open") void openHistory(Math.abs(lines));
+      if (action === "close") closeHistory();
+    };
+    const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
+    element.addEventListener("wheel", liveBeside, { passive: false });
+    pastElement.addEventListener("wheel", historyBeside, { passive: false });
+    const resize = new ResizeObserver(() => { if (active?.sized) resizeSized(); else fit(); });
     resize.observe(element);
-    const read = async () => {
-      liveValue.current = false; setLive(false); setError(""); setStatus("Connecting");
+    const focused = () => step("focus");
+    const blurred = () => step("blur");
+    window.addEventListener("focus", focused);
+    window.addEventListener("blur", blurred);
+    shownChanged.current = (isShown) => step(isShown ? "shown" : "hidden");
+    // A connection takes the screen once no input is on its way through the
+    // one it replaces, so no key's outcome is lost in the switch. A sized view
+    // that ends, however it ends, has the supervisor return the pane to the
+    // size Herdr lays it out at. A sized view checks its grid once it lands,
+    // since the panel or text size may have changed while it was on its way.
+    const activate = async (connection: Connection) => {
+      while (flushing) await new Promise<void>((done) => idle.push(done));
+      if (connection.abort.signal.aborted || abort.signal.aborted) return false;
+      const previous = active;
+      active = connection;
+      if (pending === connection) pending = null;
+      lease = connection.lease;
+      seq = 0;
+      // A size asked of the connection it replaces means nothing to this one.
+      for (let index = queue.length - 1; index >= 0; index--) if (queue[index].type === "terminal.resize") queue.splice(index, 1);
+      previous?.abort.abort();
+      closeHistory();
+      checking = false;
+      if (connection.sized) {
+        term.options.fontSize = font;
+        resizeSized();
+      }
+      void flush();
+      return true;
+    };
+    // A connection that ends on its own is handled as endStep decides. A
+    // sized one that ends waits for the Overlord to come back to the board
+    // before sizing the pane again. Showing the pane afresh ends the
+    // connection on screen, and a switch already on its way takes the screen
+    // instead of a fresh connection.
+    const ended = (connection: Connection, reason: string) => {
+      if (connection.abort.signal.aborted) return;
+      if (pending === connection) pending = null;
+      const action = endStep({ sized: connection.sized, onScreen: connection === active, resized: /pane was resized/i.test(reason) }, active ? active.sized : null);
+      if (action === "stop") { stop(reason); return; }
+      if (connection.sized) held = true;
+      if (action === "keep") return;
+      if (active) {
+        active.abort.abort();
+        active = null;
+        lease = "";
+        term.options.disableStdin = true;
+        if (flushing || queue.some((command) => command.type === "terminal.input")) { stop("The pane changed while input was being sent, so that input's outcome is unknown and nothing was resent. Reconnect for a fresh screen."); return; }
+        queue.length = 0;
+      }
+      if (!pending) void connect(false);
+    };
+    const connect = async (sized: boolean) => {
+      const connection: Connection = { sized, abort: new AbortController(), lease: "", frameSeq: 0, full: false };
+      abort.signal.addEventListener("abort", () => connection.abort.abort(), { once: true });
+      pending = connection;
+      const replacing = !!active;
+      if (!replacing) { liveValue.current = false; setLive(false); setError(""); setStatus("Connecting"); }
+      const size = sized ? panelGrid(room().width, room().height, font, cell()) : null;
+      if (sized && !size) { if (pending === connection) pending = null; return; }
       try {
-        const response = await fetch("/api/terminal/stream", { signal: abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation }) });
+        const response = await fetch("/api/terminal/stream", { signal: connection.abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation, ...(size ? { control: true, identity, cols: size.cols, rows: size.rows } : {}) }) });
         if (!response.ok) {
           const failure = object(await response.json());
-          if (failure.code === "terminal_unavailable") setUnavailable(true);
-          if (failure.code === "registration_stale") { stop(string(failure.error)); setStatus("CFO registration stale"); return; }
+          if (!replacing && failure.code === "terminal_unavailable") setUnavailable(true);
+          if (!replacing && failure.code === "registration_stale") { stop(string(failure.error)); setStatus("CFO registration stale"); return; }
           throw new Error(string(failure.error));
         }
         if (!response.body) throw new Error("The pane's stream is unavailable.");
         const reader = response.body.getReader(), decoder = new TextDecoder();
         let buffer = "";
-        while (!abort.signal.aborted) {
+        while (!connection.abort.signal.aborted) {
           const next = await reader.read();
           if (next.done) throw new Error("The pane's view ended. Reconnect for a fresh screen.");
           buffer += decoder.decode(next.value, { stream: true });
@@ -285,40 +446,39 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
           let end: number;
           while ((end = buffer.indexOf("\n")) >= 0) {
             const frame = object(JSON.parse(buffer.slice(0, end))); buffer = buffer.slice(end + 1);
-            if (frame.type === "terminal.closed") {
-              // Herdr laid the pane out at a new size: open it again, whole, at that size.
-              if (/pane was resized/i.test(string(frame.reason))) {
-                lease = "";
-                term.options.disableStdin = true;
-                if (flushing || queue.length) { stop("The pane was resized while input was being sent, so that input's outcome is unknown and nothing was resent. Reconnect for a fresh screen."); return; }
-                setAttempt((prior) => prior + 1);
-                return;
-              }
-              throw new Error(string(frame.reason));
+            if (frame.type === "terminal.closed") { ended(connection, string(frame.reason)); return; }
+            if (frame.type === "terminal.ready") {
+              connection.lease = string(frame.lease);
+              if (!sized) identity = string(frame.identity);
+              continue;
             }
-            if (frame.type === "terminal.ready") { lease = string(frame.lease); continue; }
             if (frame.type !== "terminal.frame") continue;
-            if (!lease || frame.encoding !== "ansi" || typeof frame.seq !== "number" || (!full && frame.full !== true) || (full && frame.full !== true && frame.seq !== frameSeq + 1) || typeof frame.width !== "number" || typeof frame.height !== "number") throw new Error("The pane's screen fell out of step. Reconnect for a full screen.");
-            frameSeq = frame.seq;
+            if (!connection.lease || frame.encoding !== "ansi" || typeof frame.seq !== "number" || (!connection.full && frame.full !== true) || (connection.full && frame.full !== true && frame.seq !== connection.frameSeq + 1) || typeof frame.width !== "number" || typeof frame.height !== "number") throw new Error("The pane's screen fell out of step. Reconnect for a full screen.");
+            if (connection !== active && !(await activate(connection))) return;
+            connection.frameSeq = frame.seq;
             if (frame.full === true) term.reset();
             if (term.cols !== frame.width || term.rows !== frame.height) { term.resize(frame.width, frame.height); if (showing) past.resize(frame.width, frame.height); fit(); }
             const bytes = Uint8Array.from(atob(string(frame.bytes)), (character) => character.charCodeAt(0));
             await new Promise<void>((resolve) => term.write(bytes, resolve));
-            if (!full) {
-              full = true;
-              term.options.disableStdin = false;
+            if (connection.full) continue;
+            connection.full = true;
+            term.options.disableStdin = false;
+            if (!liveValue.current) {
               liveValue.current = true;
               setLive(true);
               setStatus("Live");
               if (shownValue.current && (wantFocus.current || element.closest(".context-pane")?.contains(document.activeElement))) (showing ? past : term).focus();
               wantFocus.current = false;
             }
+            if (sized) continue;
+            fit();
+            step("live");
           }
         }
-      } catch (e: unknown) { if (!abort.signal.aborted) stop(message(e)); }
+      } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
-    void read();
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); resize.disconnect(); element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    void connect(false);
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); window.removeEventListener("blur", blurred); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
