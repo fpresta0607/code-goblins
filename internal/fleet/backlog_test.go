@@ -234,3 +234,30 @@ func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
 		t.Errorf("done = %+v, want d1 alone", backlog.Done)
 	}
 }
+
+func TestReadBacklogReadsWhatARowNamesForItsSpawn(t *testing.T) {
+	// Arrange
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## Queued\n- **named** - Ship the board (repo: code-goblins, harness: codex, model: gpt-6-astra, effort: high, mode: direct-PR)\n- **alone** - Scout it (mode: local-only)\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	backlog, err := ReadBacklog(h)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, alone := backlog.Queued[0], backlog.Queued[1]
+	if named.Title != "Ship the board" || named.Harness != "codex" || named.Model != "gpt-6-astra" || named.Effort != "high" || named.Mode != "direct-PR" {
+		t.Errorf("named row = %+v, want its title and spawn settings apart", named)
+	}
+	if alone.Title != "Scout it" || alone.Mode != "local-only" || alone.Harness != "" {
+		t.Errorf("row naming only a mode = %+v", alone)
+	}
+}

@@ -211,6 +211,11 @@ On a touch screen, drag a card by its number.
 A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past the page's edge moves it on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
+
+The head of **Tasks** shows how much memory is free against the 4 GB mark at which the CFO starts the next task, and the top task is marked **Next**; the board itself starts nothing on its own.
+**Start now** starts a queued task at once, even below the 4 GB mark: a button on the next task, and a play button on any other on hover or focus.
+It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
+Start is refused, with the reason on the card, when less than 3 GB of memory is free, when the task has no brief yet, or while another task is starting; a start `cfo spawn` refuses shows its reason on the card too.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
