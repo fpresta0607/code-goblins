@@ -36,7 +36,7 @@ func appendAdopterHook(t *testing.T, path, event, command string) {
 func TestReinstallKeepsTheCFOHooksWhereTheyStand(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.install()
-	appendAdopterHook(t, f.user, cfoHookGroups()[0].event, "node added-later.js")
+	appendAdopterHook(t, f.user, cfoHookGroups(f.root)[0].event, "node added-later.js")
 	before := readFile(t, f.user)
 
 	output := f.install()

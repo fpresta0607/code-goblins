@@ -162,9 +162,7 @@ func hookCommands(t *testing.T, path string) []string {
 	}
 	var document struct {
 		Hooks map[string][]struct {
-			Hooks []struct {
-				Command string `json:"command"`
-			} `json:"hooks"`
+			Hooks []map[string]any `json:"hooks"`
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(raw, &document); err != nil {
@@ -174,12 +172,29 @@ func hookCommands(t *testing.T, path string) []string {
 	for _, groups := range document.Hooks {
 		for _, group := range groups {
 			for _, entry := range group.Hooks {
-				commands = append(commands, entry.Command)
+				commands = append(commands, commandLine(entry))
 			}
 		}
 	}
 	sort.Strings(commands)
 	return commands
+}
+
+// commandLine is a hook entry as the line it runs: its command, then its
+// args when Claude Code runs it without a shell.
+func commandLine(entry map[string]any) string {
+	line, _ := entry["command"].(string)
+	args, _ := entry["args"].([]any)
+	for _, arg := range args {
+		line += " " + arg.(string)
+	}
+	return line
+}
+
+// isCFOCommand reports whether a command line runs a CFO hook, in either
+// form an install has written.
+func isCFOCommand(line string) bool {
+	return strings.Contains(line, "cfo.exe hook ")
 }
 
 func count(values []string, want string) int {
@@ -202,9 +217,9 @@ func TestInstallMergesIntoAnAdoptersSettings(t *testing.T) {
 			t.Errorf("adopter hook %q appears %d times, want 1\n%s", foreign, count(commands, foreign), strings.Join(commands, "\n"))
 		}
 	}
-	for _, group := range cfoHookGroups() {
+	for _, group := range cfoHookGroups(f.root) {
 		for _, entry := range group.entries {
-			want := entry["command"].(string)
+			want := commandLine(entry)
 			if count(commands, want) != 1 {
 				t.Errorf("CFO hook %q appears %d times, want 1", want, count(commands, want))
 			}
@@ -292,7 +307,7 @@ func TestUninstallRestoresThePriorState(t *testing.T) {
 		}
 	}
 	for _, command := range commands {
-		if strings.HasPrefix(command, rootPrefix) {
+		if isCFOCommand(command) {
 			t.Errorf("CFO hook %q survived the uninstall", command)
 		}
 	}
@@ -434,7 +449,7 @@ func TestUninstallRefusingAMalformedNativeHooksFileLeavesTheEnvironmentForARerun
 		t.Errorf("PATH = %q after the rerun, want C:\\Windows", got)
 	}
 	for _, command := range hookCommands(t, f.user) {
-		if strings.HasPrefix(command, rootPrefix) {
+		if isCFOCommand(command) {
 			t.Errorf("CFO hook %q survived the rerun", command)
 		}
 	}
@@ -463,7 +478,7 @@ func TestUninstallBacksUpTheSharedClaudeSettingsAsTheyWereBeforeIt(t *testing.T)
 	}
 	commands := hookCommands(t, f.user)
 	for _, command := range commands {
-		if strings.HasPrefix(command, rootPrefix) || strings.Contains(command, "cfo-native-hook.ps1") {
+		if isCFOCommand(command) || strings.Contains(command, "cfo-native-hook.ps1") {
 			t.Errorf("CFO hook %q survived the uninstall", command)
 		}
 	}
@@ -491,33 +506,11 @@ func TestInstallWithNoUserSettingsFileCreatesOne(t *testing.T) {
 	f.install()
 
 	commands := hookCommands(t, f.user)
-	if len(commands) != 6 {
-		t.Fatalf("got %d hooks, want the 6 CFO hooks:\n%s", len(commands), strings.Join(commands, "\n"))
+	if len(commands) != 5 {
+		t.Fatalf("got %d hooks, want the 5 CFO hooks:\n%s", len(commands), strings.Join(commands, "\n"))
 	}
 	if _, err := os.Stat(f.user + backupSuffix); !os.IsNotExist(err) {
 		t.Errorf("a file that did not exist was backed up")
-	}
-}
-
-func TestEveryInstalledHookResolvesThroughCFOHome(t *testing.T) {
-	f := newFixture(t, adopterSettings, nil)
-	f.install()
-
-	installed := 0
-	for _, command := range hookCommands(t, f.user) {
-		if !strings.HasPrefix(command, rootPrefix) {
-			continue
-		}
-		installed++
-		// This is what lets a session opened in a different repository be
-		// supervised: CFO_HOME wins, and $CLAUDE_PROJECT_DIR is only the
-		// fallback for an adopter who has not run install yet.
-		if !strings.Contains(command, `${CFO_HOME:-$CLAUDE_PROJECT_DIR}`) {
-			t.Errorf("hook %q does not resolve through CFO_HOME", command)
-		}
-	}
-	if installed != 6 {
-		t.Errorf("installed %d CFO hooks, want 6", installed)
 	}
 }
 

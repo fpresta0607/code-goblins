@@ -4,10 +4,12 @@
 package home
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -121,34 +123,79 @@ func IsPrimary(h Home) bool {
 		fi, err := os.Stat(filepath.Join(h.Root, InstalledMarker))
 		return err == nil && fi.Mode().IsRegular()
 	}
-	return fsx.SamePath(gitDir, commonDir)
+	// gitPaths builds both from the same files, so a plain checkout's are
+	// one path and a linked worktree's two; comparing them needs no symlink
+	// resolution, which costs this hot path tens of milliseconds a call.
+	return strings.EqualFold(gitDir, commonDir)
 }
 
-// gitPaths reads --git-dir and --git-common-dir from a single `git rev-parse`
-// spawn instead of two: git prints one path per line, in the order the flags
-// were given, so the two lines are read positionally rather than by a second
-// invocation. Blank lines (a trailing newline, or a stray CRLF remnant) are
-// dropped before positional assignment, so the parser accepts LF and CRLF
-// output equally.
+// gitPaths finds the git directory and common directory of the repository
+// holding root from its files, as `git rev-parse --git-dir --git-common-dir`
+// would: the nearest .git at or above root, never climbing into a directory
+// GIT_CEILING_DIRECTORIES names. A .git directory (one with HEAD and objects)
+// is its own common directory. A .git file names the git directory, and a
+// linked worktree's git directory holds a commondir file naming the common
+// one, which a plain checkout's or a submodule's lacks. IsPrimary runs in the
+// CFO's hooks on every tool call they select, and starting git there cost
+// each one a process. GIT_DIR is not consulted: no session running the hooks
+// sets it.
 func gitPaths(root string) (gitDir, commonDir string, err error) {
-	out, err := exec.Command("git", "-C", root, "rev-parse", "--git-dir", "--git-common-dir").Output()
+	ceilings := filepath.SplitList(os.Getenv("GIT_CEILING_DIRECTORIES"))
+	for dir := filepath.Clean(root); ; {
+		dotGit := filepath.Join(dir, ".git")
+		info, statErr := os.Stat(dotGit)
+		switch {
+		case statErr == nil && info.IsDir() && isGitDir(dotGit):
+			return dotGit, dotGit, nil
+		case statErr == nil && info.Mode().IsRegular():
+			return linkedGitPaths(dir, dotGit)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir || slices.ContainsFunc(ceilings, func(ceiling string) bool { return fsx.SamePath(ceiling, parent) }) {
+			return "", "", fmt.Errorf("home: %s is in no git repository", root)
+		}
+		dir = parent
+	}
+}
+
+// isGitDir reports whether dir holds a repository, as git decides before it
+// accepts a .git directory.
+func isGitDir(dir string) bool {
+	head, err := os.Stat(filepath.Join(dir, "HEAD"))
+	if err != nil || !head.Mode().IsRegular() {
+		return false
+	}
+	objects, err := os.Stat(filepath.Join(dir, "objects"))
+	return err == nil && objects.IsDir()
+}
+
+// linkedGitPaths reads the git and common directories a .git file in dir
+// leads to.
+func linkedGitPaths(dir, dotGit string) (gitDir, commonDir string, err error) {
+	content, err := os.ReadFile(dotGit)
 	if err != nil {
 		return "", "", err
 	}
-	var lines []string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			lines = append(lines, line)
-		}
+	target, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !ok {
+		return "", "", fmt.Errorf("home: %s is not a gitdir file", dotGit)
 	}
-	if len(lines) != 2 {
-		return "", "", fmt.Errorf("home: expected 2 lines from git rev-parse --git-dir --git-common-dir, got %d", len(lines))
+	gitDir = cleanGitPath(dir, strings.TrimSpace(target))
+	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
+		return "", "", fmt.Errorf("home: %s names %s, which is not a directory", dotGit, gitDir)
 	}
-	return cleanGitPath(root, lines[0]), cleanGitPath(root, lines[1]), nil
+	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return gitDir, gitDir, nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return gitDir, cleanGitPath(gitDir, strings.TrimSpace(string(common))), nil
 }
 
 func cleanGitPath(root, p string) string {
+	p = filepath.FromSlash(p)
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(root, p)
 	}
