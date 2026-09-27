@@ -103,12 +103,9 @@ type skipTally struct {
 }
 
 // tallySkips adds one gate commit's diff to the tallies, carrying a file's
-// tally to its new path when the commit renames it. A skip line the commit
-// removed that no gate commit added was the branch's own, and the next skip
-// line the same hunk adds is taken as that line rewritten, not as a gate's.
+// tally to its new path when the commit renames it.
 func tallySkips(diff string, commit gateCommit, tallies map[string]*skipTally) {
 	var tally *skipTally
-	rewritten := 0
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		switch {
@@ -121,23 +118,14 @@ func tallySkips(diff string, commit gateCommit, tallies map[string]*skipTally) {
 			delete(tallies, source)
 			tally.commit = commit
 			tallies[file] = tally
-			rewritten = 0
-		case strings.HasPrefix(line, "@@"):
-			rewritten = 0
 		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
 		case strings.HasPrefix(line, "+") && marker(line[1:]) != "":
 			tally.count++
-			if rewritten > 0 {
-				rewritten--
-			} else {
-				tally.added[strings.TrimSpace(line[1:])]++
-			}
+			tally.added[strings.TrimSpace(line[1:])]++
 		case strings.HasPrefix(line, "-") && marker(line[1:]) != "":
 			tally.count--
 			if text := strings.TrimSpace(line[1:]); tally.added[text] > 0 {
 				tally.added[text]--
-			} else {
-				rewritten++
 			}
 		}
 	}

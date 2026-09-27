@@ -36,7 +36,8 @@ type skipStep struct {
 // moving the test file is the next way round. Skips are counted instead, from
 // each gate commit's own diff: per test file, the lines that skip or narrow
 // tests it added minus those it removed, carried along a rename. A file whose
-// total is positive while HEAD still has skip lines in it is reported. Merges
+// total is positive is reported only while HEAD still has skip lines gate
+// commits added in it. Merges
 // and the goblin's commits are never read, so main's changes never count.
 func TestCheckCountsTheSkipsGateCommitsLeaveInEachTestFile(t *testing.T) {
 	for _, test := range []struct {
@@ -109,7 +110,16 @@ func TestCheckCountsTheSkipsGateCommitsLeaveInEachTestFile(t *testing.T) {
 				{write: map[string]string{"b.test.ts": "it.skip('x',()=>{})\n"}, subject: "feat: park x"},
 				{write: map[string]string{"b.test.ts": "it.skip(\"x\", () => {})\nit.skip(\"y\", () => {})\n"}, subject: "no-mistakes(lint): format the tests"},
 			},
-			want: []string{`b.test.ts: gate commits added 1 more skip line than they removed, still at HEAD: added a skip: it.skip("y", () => {})`},
+			want: []string{`b.test.ts: gate commits added 1 more skip line than they removed, still at HEAD: added a skip: it.skip("x", () => {}); added a skip: it.skip("y", () => {})`},
+		},
+		{
+			name: "a skip added in the same hunk as a reworded existing one",
+			base: "package x\n",
+			steps: []skipStep{
+				{write: map[string]string{"d.test.ts": "it(\"saves\", () => {})\nit.skip(\"loads\", () => {})\n"}, subject: "feat: cover saving"},
+				{write: map[string]string{"d.test.ts": "it.skip(\"saves\", () => {})\nit.skip(\"loads, flaky\", () => {})\n"}, subject: "no-mistakes(test): park saving"},
+			},
+			want: []string{`d.test.ts: gate commits added 1 more skip line than they removed, still at HEAD: added a skip: it.skip("saves", () => {}); added a skip: it.skip("loads, flaky", () => {})`},
 		},
 		{
 			name: "an only",
