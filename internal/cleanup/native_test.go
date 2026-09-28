@@ -188,25 +188,6 @@ func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	}
 }
 
-// A native task is cleaned up with no Herdr backend configured at all, so a
-// machine without Herdr can retire its goblins; a Herdr task still needs one.
-func TestCleanupNeedsTheHerdrBackendOnlyForAHerdrTask(t *testing.T) {
-	fixture := nativeCleanupFixture(t, 0)
-	fixture.service.Terminal = nil
-
-	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
-		t.Fatalf("Cleanup of a native task without a Herdr backend: %v", err)
-	}
-
-	meta := state.TaskMeta{ID: "h1", Window: "fleet:w1", Worktree: fixture.worktree, Project: fixture.project, Harness: "claude", Kind: "ship", Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "w1", HerdrTabID: "t1", HerdrPaneID: "p1"}
-	if err := state.WriteTaskMeta(fixture.stateDir, meta); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.service.Cleanup(context.Background(), "h1"); err == nil || !strings.Contains(err.Error(), "Herdr") {
-		t.Errorf("Cleanup of a Herdr task without a Herdr backend = %v, want it refused naming Herdr", err)
-	}
-}
-
 // A native goblin waiting at its composer holds no turn in progress (CFO
 // decision 2339), so cleanup closes its terminal, which ends the harness, and
 // retires the task; --force-archive does the same for a worktree that will not

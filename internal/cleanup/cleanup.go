@@ -68,17 +68,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if s.Commands == nil {
 		return Result{}, errors.New("cleanup: command runner is required")
 	}
+	if s.Terminal == nil {
+		return Result{}, errors.New("cleanup: terminal backend is required")
+	}
 	meta, err := state.ReadTaskMeta(s.StateDir, id)
 	if err != nil {
 		return Result{}, fmt.Errorf("cleanup: read task metadata: %w", err)
 	}
 	if err := validateMeta(meta); err != nil {
 		return Result{}, err
-	}
-	// Only a Herdr task needs Herdr: a native one is proven idle and closed
-	// through its own host.
-	if meta.Backend == "herdr" && s.Terminal == nil {
-		return Result{}, errors.New("cleanup: a Herdr task needs the Herdr terminal backend")
 	}
 
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
