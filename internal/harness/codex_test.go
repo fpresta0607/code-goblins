@@ -2,6 +2,8 @@ package harness
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -97,5 +99,66 @@ func TestCodexStartsWithoutCheckingForAnUpdate(t *testing.T) {
 	}
 	if !slices.Contains(launch.Args, "check_for_update_on_startup=false") {
 		t.Errorf("Args = %q, want Codex's startup update check off", launch.Args)
+	}
+}
+
+// On 2026-09-28 every Codex goblin started the MCP servers of the operator's
+// own Codex configuration, qdrant's python and uv and a gcloud-mcp among them,
+// about 2.6 GB across three goblins for tools none of them used, while Claude
+// Code goblins start none (--strict-mcp-config). Each server the operator's
+// configuration defines is turned off for a goblin, on either backend.
+func TestCodexStartsNoneOfTheOperatorsMCPServers(t *testing.T) {
+	adapter, _ := DefaultRegistry().Get(Codex)
+
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, CodexMCPServers: []string{"qdrant", "gcloud", "node_repl"}})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"qdrant", "gcloud", "node_repl"} {
+		if !slices.Contains(launch.Args, "mcp_servers."+name+".enabled=false") {
+			t.Errorf("Args = %q, want MCP server %s turned off", launch.Args, name)
+		}
+	}
+}
+
+// A server name Codex's -c override cannot address stops the launch rather
+// than letting that server start.
+func TestCodexRefusesAnMCPServerItCannotTurnOff(t *testing.T) {
+	adapter, _ := DefaultRegistry().Get(Codex)
+
+	_, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, CodexMCPServers: []string{"my server.v2"}})
+
+	if err == nil || !strings.Contains(err.Error(), "my server.v2") {
+		t.Fatalf("Build error = %v, want the server named", err)
+	}
+}
+
+// The operator's MCP servers are read from Codex's own configuration: tables
+// under mcp_servers and inline entries in a bare [mcp_servers] table, from
+// CODEX_HOME when set.
+func TestCodexMCPServersAreReadFromTheOperatorsConfiguration(t *testing.T) {
+	home := t.TempDir()
+	config := "model = \"gpt-6-astra\"\n\n[mcp_servers.qdrant]\ncommand = \"powershell.exe\"\n\n[mcp_servers.qdrant.env]\nKEY = \"x\"\n\n[mcp_servers.gcloud]\ncommand = \"npx\"\n\n[mcp_servers]\nnode_repl = { command = \"node_repl.exe\" }\n\n[plugins.\"gmail@openai-curated\"]\nenabled = true\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", home)
+
+	names, err := CodexMCPServers()
+
+	if err != nil || !slices.Equal(names, []string{"gcloud", "node_repl", "qdrant"}) {
+		t.Errorf("CodexMCPServers = %q, %v; want gcloud, node_repl and qdrant", names, err)
+	}
+}
+
+// With no Codex configuration there is no server to turn off.
+func TestCodexMCPServersWithoutAConfiguration(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	names, err := CodexMCPServers()
+
+	if err != nil || len(names) != 0 {
+		t.Errorf("CodexMCPServers = %q, %v; want none", names, err)
 	}
 }
