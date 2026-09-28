@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -394,16 +395,166 @@ func TestCtrlCloseBracketLeavesTheTerminalInEitherEncoding(t *testing.T) {
 	}
 }
 
-// A CFO started from inside Herdr registers its native terminal, not the
-// pane goblins ran in: the pane's id is left out of its environment.
-func TestANativeCFOIsStartedWithoutTheLaunchersHerdrPane(t *testing.T) {
-	env := []string{"PATH=C:\\bin", "HERDR_PANE_ID=w1:p1", "herdr_pane_id=w1:p2", "HERDR_SESSION=fleet", "CFO_HOME=C:\\home"}
+// The CFO's terminal starts from the user's environment: a launcher's
+// session markers, billing keys and the home the user scope names are
+// replaced, the supervisor's own home and projects root are what the CFO
+// works in, and it keeps the launcher's Herdr session without its pane.
+func TestANativeCFOStartsFromTheUsersEnvironmentInThisHome(t *testing.T) {
+	userEnv := []string{
+		`Path=C:\bin`, "USERS_OWN_SETTING=kept", `CFO_HOME=C:\installed-home`, `cfo_projects_root=C:\dev`,
+		"CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "HERDR_PANE_ID=w1:p1", "HERDR_SESSION=users", "ANTHROPIC_API_KEY=sk-billed",
+	}
+	launcherEnv := []string{`Path=C:\launcher`, "CLAUDECODE=1", "HERDR_PANE_ID=w9:p0", "herdr_pane_id=w9:p1", "HERDR_SESSION=fleet"}
+	h := home.Home{Root: `C:\scratch\home`, State: `C:\scratch\home\state`}
 
-	got := nativeCFOEnvironment(env)
+	got := nativeCFOEnvironment(userEnv, launcherEnv, h, `C:\scratch\projects`)
 
-	want := []string{"PATH=C:\\bin", "HERDR_SESSION=fleet", "CFO_HOME=C:\\home"}
+	want := []string{
+		`Path=C:\bin`, "USERS_OWN_SETTING=kept", "HERDR_SESSION=fleet",
+		`CFO_HOME=C:\scratch\home`, `CFO_STATE_OVERRIDE=C:\scratch\home\state`, `CFO_PROJECTS_ROOT=C:\scratch\projects`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("nativeCFOEnvironment =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A supervisor with no projects root of its own leaves the user's setting in
+// place, and one run outside Herdr gives the CFO no Herdr session.
+func TestANativeCFOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
+	got := nativeCFOEnvironment([]string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, "HERDR_SESSION=users"}, []string{`Path=C:\launcher`}, home.Home{Root: `C:\home`, State: `C:\home\state`}, "")
+
+	want := []string{`Path=C:\bin`, `CFO_PROJECTS_ROOT=C:\dev`, `CFO_HOME=C:\home`, `CFO_STATE_OVERRIDE=C:\home\state`}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCFOEnvironment = %q, want %q", got, want)
+	}
+}
+
+// On 2026-09-26 a CFO the board's first-run page started, from a supervisor a
+// Claude Code session in a Herdr pane had started, ran as that session's
+// child: Claude Code said "Transcript saving is off - inherited
+// CLAUDE_CODE_CHILD_SESSION marker" and wrote no transcript, so it could
+// never be resumed. The CFO's program starts from the user's environment,
+// never from the launcher's, in this supervisor's home.
+func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
+	bin := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, self, filepath.Join(bin, "claude.exe"))
+	t.Setenv("PATH", bin)
+	launcher := map[string]string{
+		"CLAUDECODE":                "1",
+		"CLAUDE_CODE_CHILD_SESSION": "1",
+		"CLAUDE_CODE_SESSION_ID":    "the-launchers-session",
+		"HERDR_PANE_ID":             "w9:p0",
+		"HERDR_TAB_ID":              "w9:t0",
+		"A_LAUNCHER_ONLY_VARIABLE":  "the launcher's",
+	}
+	for name, value := range launcher {
+		t.Setenv(name, value)
+	}
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	project := t.TempDir()
+
+	if err := startNativeCFO(h, project, "claude"); err != nil {
+		t.Fatalf("startNativeCFO: %v", err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+
+	env := waitForFakeClaudeEnvironment(t, project)
+	for name := range launcher {
+		if value, ok := env[name]; ok {
+			t.Errorf("the CFO started with the launcher's %s = %q", name, value)
+		}
+	}
+	for name, want := range map[string]string{"CFO_HOME": h.Root, "CFO_STATE_OVERRIDE": h.State, install.ProjectsRootVariable: os.Getenv(install.ProjectsRootVariable), host.IDVariable: supervisor.NativeCFOTerminal} {
+		if env[name] != want {
+			t.Errorf("the CFO's %s = %q, want %q", name, env[name], want)
+		}
+	}
+	if env["USERPROFILE"] == "" {
+		t.Error("the CFO started without the user's USERPROFILE")
+	}
+}
+
+// fakeClaudeEnvironment is the file the test binary, run as claude.exe in a
+// native terminal, writes its environment to, in its working directory.
+const fakeClaudeEnvironment = "claude-environment.txt"
+
+// runFakeClaude is the test binary run as claude.exe: it records the
+// environment it started with and stays until its terminal closes, as a
+// harness does. One that ended at once could take its host with it before
+// the launcher saw the host serve.
+func runFakeClaude() int {
+	if err := os.WriteFile(fakeClaudeEnvironment, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	return 0
+}
+
+// closeNativeTerminal closes native terminal id and waits for its host to
+// end, so the host holds nothing in the test's folders when they are removed.
+func closeNativeTerminal(t *testing.T, stateDir, id string) {
+	t.Helper()
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		return
+	}
+	hostProcess, err := os.FindProcess(record.HostPID)
+	if err != nil {
+		t.Errorf("find host pid %d: %v", record.HostPID, err)
+		return
+	}
+	defer hostProcess.Release()
+	if client, err := host.Dial(record); err == nil {
+		_ = client.CloseTerminal()
+		_ = client.Close()
+	}
+	ended := make(chan struct{})
+	go func() {
+		_, _ = hostProcess.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(15 * time.Second):
+		_ = hostProcess.Kill()
+		t.Errorf("the host pid %d did not end after its terminal closed", record.HostPID)
+	}
+}
+
+func waitForFakeClaudeEnvironment(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	path := filepath.Join(dir, fakeClaudeEnvironment)
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		raw, err := os.ReadFile(path)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		env := map[string]string{}
+		for _, entry := range strings.Split(string(raw), "\n") {
+			if name, value, ok := strings.Cut(entry, "="); ok && name != "" {
+				env[strings.ToUpper(name)] = value
+			}
+		}
+		return env
+	}
+	t.Fatalf("the CFO's program wrote no %s within 15s", path)
+	return nil
+}
+
+func copyFile(t *testing.T, from, to string) {
+	t.Helper()
+	raw, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, raw, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -417,7 +568,7 @@ func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
 	t.Setenv("PATH", bin)
 	stateDir := t.TempDir()
 
-	err := startNativeCFO(stateDir, t.TempDir(), "claude")
+	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude")
 
 	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
 		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)
