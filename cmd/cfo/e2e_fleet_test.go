@@ -80,6 +80,7 @@ func TestSpawnDeliversTheBriefWhenTheHarnessCollapsesThePasteIntoAPlaceholder(t 
 		"--project", fixture.project,
 		"--brief", brief,
 		"--harness", "claude",
+		"--backend", "herdr",
 		"--mode", "local-only")
 	if !strings.Contains(stdout, "spawned claude ") || stderr != "" {
 		t.Fatalf("cfo spawn stdout=%q stderr=%q, want the goblin spawned", stdout, stderr)
@@ -343,6 +344,7 @@ func (f *fleetE2EFixture) Spawn(harnessName string) {
 		"--project", f.project,
 		"--brief", brief,
 		"--harness", harnessName,
+		"--backend", "herdr",
 		"--mode", "local-only")
 	if !strings.Contains(stdout, "spawned "+harnessName+" ") || stderr != "" {
 		f.t.Fatalf("spawn %s stdout=%q stderr=%q", harnessName, stdout, stderr)
@@ -1123,6 +1125,7 @@ func TestSpawnFailureLeavesTheIDRespawnableThroughTheCommand(t *testing.T) {
 		"--project", fixture.project,
 		"--brief", brief,
 		"--harness", "claude",
+		"--backend", "herdr",
 		"--mode", "local-only"}
 
 	var stdout, stderr bytes.Buffer

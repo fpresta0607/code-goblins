@@ -243,7 +243,7 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--mode", "local-only")
+	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--backend", "herdr", "--mode", "local-only")
 	if !strings.Contains(stdout, "spawned g-fresh1 ") || !strings.Contains(stdout, "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
 		t.Errorf("stdout = %q, want the goblin spawned on the project's own lane", stdout)
 	}

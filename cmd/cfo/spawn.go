@@ -48,7 +48,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "herdr", "herdr, or native for a terminal of the task's own")
+	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native unless the harness cannot run natively yet (kimi)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -72,8 +72,8 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
 		return 2
 	}
-	if *backend != "herdr" && *backend != "native" {
-		fmt.Fprintln(stderr, "cfo spawn: --backend must be herdr or native")
+	if *backend != "" && *backend != "herdr" && *backend != "native" {
+		fmt.Fprintln(stderr, "cfo spawn: --backend must be native or herdr")
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
@@ -151,6 +151,12 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			if headroom := report.Headroom(*harnessName, *model); headroom.Exhausted {
 				route += " quota=" + headroom.String() + "; explicit --harness wins"
 			}
+		}
+	}
+	if *backend == "" {
+		*backend = "native"
+		if _, ok := harness.NativeScreens(harness.Kind(*harnessName)); !ok {
+			*backend = "herdr"
 		}
 	}
 	if routed || *auto {

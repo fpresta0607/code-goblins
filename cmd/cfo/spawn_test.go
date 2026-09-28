@@ -101,17 +101,21 @@ func TestRunSpawnKeepsTheBacklogRowsTitle(t *testing.T) {
 	}
 }
 
-// cfo spawn passes --backend native on, spawns in Herdr without it, and
-// refuses any other backend without calling the spawn service.
+// cfo spawn starts a goblin in a native terminal of its own by default, in
+// Herdr only when asked or when its harness cannot run natively yet (kimi),
+// and refuses any other backend without calling the spawn service.
 func TestRunSpawnPassesTheBackend(t *testing.T) {
 	for name, test := range map[string]struct {
+		harness string
 		args    []string
 		exit    int
 		backend string
 	}{
-		"native":  {[]string{"--backend", "native"}, 0, "native"},
-		"default": {nil, 0, "herdr"},
-		"unknown": {[]string{"--backend", "tmux"}, 2, ""},
+		"default":          {"claude", nil, 0, "native"},
+		"native":           {"claude", []string{"--backend", "native"}, 0, "native"},
+		"herdr":            {"claude", []string{"--backend", "herdr"}, 0, "herdr"},
+		"default for kimi": {"kimi", nil, 0, "herdr"},
+		"unknown":          {"claude", []string{"--backend", "tmux"}, 2, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testCommandRuntime(t)
@@ -122,7 +126,7 @@ func TestRunSpawnPassesTheBackend(t *testing.T) {
 			}
 
 			var stdout, stderr bytes.Buffer
-			exit := runWithRuntime(append([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, test.args...), &stdout, &stderr, deps)
+			exit := runWithRuntime(append([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", test.harness}, test.args...), &stdout, &stderr, deps)
 
 			if exit != test.exit {
 				t.Fatalf("exit = %d, want %d; stderr=%s", exit, test.exit, stderr.String())
