@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
-import { availableHeight, clampPage, pageShowing, pageStarts, swipeStep } from "./fit";
+import { availableHeight, clampPage, listPageStarts, pageShowing, swipeStep } from "./fit";
 
 const columnsOf = (grid: HTMLElement) => {
   const value = getComputedStyle(grid).gridTemplateColumns;
@@ -13,10 +13,11 @@ interface Layout { width: number; available: number; gap: number; columns: numbe
 const sameLayout = (a: Layout, b: Layout) => a.width === b.width && a.available === b.available && a.gap === b.gap && a.columns === b.columns
   && a.heights.size === b.heights.size && [...a.heights].every(([key, height]) => b.heights.get(key) === height);
 
-// Fits a list's cards, keys in order, to the board's visible canvas: each page
-// holds as many of its own cards as fit below the list (see availableHeight
-// and pageStarts), and a sideways swipe turns it. Every card inside the frame
-// that carries its key in data-fit-key is measured, so the caller also renders
+// Fits a list's cards, keys in order, to the board's visible canvas: a list of
+// up to ten shows whole, and past that each page holds as many of its own
+// cards as fit below the list (see availableHeight and listPageStarts), and a
+// sideways swipe turns it. Every card inside the frame that carries its key
+// in data-fit-key is measured, so the caller also renders
 // the cards in unmeasured, those not measured yet at this width, in a hidden
 // container of no height beside the list: every page is then sized by its
 // cards' real heights without the list ever growing past its space. Until a
@@ -30,7 +31,7 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
   const [kept, setKept] = useState({ key: "", page: 0 });
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const tallest = layout.heights.size ? Math.max(...layout.heights.values()) : Number.POSITIVE_INFINITY;
-  const starts = pageStarts(keys.map((key) => layout.heights.get(key) ?? tallest), layout.available, layout.gap, layout.columns);
+  const starts = listPageStarts(keys.map((key) => layout.heights.get(key) ?? tallest), layout.available, layout.gap, layout.columns);
   const page = pageShowing(keys.indexOf(kept.key), kept.page, starts);
   if (page !== kept.page) setKept({ key: kept.key, page });
   const start = starts[page];

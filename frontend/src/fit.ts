@@ -1,6 +1,16 @@
-// A list that can grow long shows as many cards as fit the space it has, one
-// page at a time, with a pager and a sideways swipe for the rest, so the
-// board never becomes a long scroll. These are the pure steps of paging.
+// A list past ten cards shows as many as fit the space it has, one page at a
+// time, with a pager and a sideways swipe for the rest, so the board never
+// becomes a long scroll. These are the pure steps of paging.
+
+// Up to this many cards a list shows whole, with no pager, and the board
+// scrolls when they run past the screen.
+const PAGING_STARTS_PAST = 10;
+
+// Where each page of a list starts: one page for up to PAGING_STARTS_PAST
+// cards however tall, and past that the pages pageStarts fills.
+export function listPageStarts(heights: number[], available: number, gap: number, columns: number): number[] {
+  return heights.length > PAGING_STARTS_PAST ? pageStarts(heights, available, gap, columns) : [0];
+}
 
 // Where each page starts: from the first card on, a page takes rows of cards,
 // gap apart and each as tall as its tallest card, while they fit in available

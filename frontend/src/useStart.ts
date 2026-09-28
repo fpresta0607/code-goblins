@@ -5,7 +5,7 @@ import type { CardStart } from "./TaskCard";
 import { message, request } from "./api";
 import { refusalStands, startBlock, startOutcome, type AcceptedStart, type Refusal } from "./start";
 
-export type CardStarter = (task: Task, index: number) => CardStart;
+export type CardStarter = (task: Task) => CardStart;
 
 // Start on a queued task: the supervisor dispatches it through cfo spawn, and
 // onStarted hears once it accepted the start, so the board can open the new
@@ -46,12 +46,11 @@ export function useStart(snapshot: Snapshot | null, awaited: AcceptedStart | nul
       setRequesting("");
     }
   };
-  return (task: Task, index: number): CardStart => {
+  return (task: Task): CardStart => {
     const blocked = blockOf(task);
     return {
       blocked,
       problem: refusals[task.id]?.reason || (awaited?.id === task.id && startOutcome(awaited, snapshot) === "wait" ? "" : task.start_error),
-      prominent: index === 0,
       onStart: () => {
         if (!blocked) void start(task);
         else if (blocked !== "Starting") refuse(task.id, { reason: blocked, revision: snapshot.revision, passing: true });

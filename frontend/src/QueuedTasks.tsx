@@ -21,6 +21,6 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
     <RankedCards list="queued" tasks={queuedTasks(snapshot)} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank, index) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
         next={index === 0 ? { text: nextChip(memory), waiting: !!memory && memory.available < memory.next } : undefined}
-        start={cardStart(task, index)} onSelect={onSelect} onTerminal={onSelect} />} />
+        start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} />
   </>;
 }
