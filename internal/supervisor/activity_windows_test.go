@@ -58,6 +58,50 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	}
 }
 
+// A send to a native goblin, by its id or gb-<id>, leaves the board's message
+// receipt as a send to a Herdr goblin does.
+func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
+	for _, target := range []string{"task-1", "gb-task-1"} {
+		t.Run(target, func(t *testing.T) {
+			store, h := testStore(t)
+			_, _, _, cfo := primaryFixture(t, store)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Backend, meta.Window = "native", "native"
+			meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+
+			err = PrepareSendActivity(context.Background(), h, cfo.Terminals, target)()
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestActivity(); err != nil {
+				t.Fatal(err)
+			}
+			var receipts []BoardActivity
+			for _, a := range store.Snapshot().Activity {
+				if a.Kind == "message" {
+					receipts = append(receipts, a)
+				}
+			}
+			if len(receipts) != 1 || receipts[0].TaskID != "task-1" || receipts[0].Generation != meta.SpawnGen {
+				t.Fatalf("message receipts = %+v, want one for task-1 in its generation", receipts)
+			}
+		})
+	}
+}
+
 func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)

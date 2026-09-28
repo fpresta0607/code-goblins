@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -69,17 +68,6 @@ func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	}
 	fmt.Fprintf(stdout, "sent %s\n", target)
 	return 0
-}
-
-// nativeTask is the record of the native task target names, by its id or as
-// gb-<id>. Any other target is Herdr's to resolve.
-func nativeTask(stateDir, target string) (state.TaskMeta, bool) {
-	for _, id := range []string{target, strings.TrimPrefix(target, "gb-")} {
-		if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
-			return meta, meta.Backend == "native"
-		}
-	}
-	return state.TaskMeta{}, false
 }
 
 // nativePromptSince proves a native goblin took a prompt by its own hooks'

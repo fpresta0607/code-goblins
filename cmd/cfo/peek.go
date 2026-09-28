@@ -18,7 +18,7 @@ import (
 // its console holds it, or else the Herdr pane's tail.
 func peekTerminal(ctx context.Context, h home.Home, target string, lines int) (string, error) {
 	id := target
-	if meta, native := nativeTask(h.State, target); native {
+	if meta, native := fleet.NativeTask(h.State, target); native {
 		id = meta.ID
 	}
 	if record, err := host.ReadRecord(h.State, id); err == nil {

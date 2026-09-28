@@ -43,11 +43,15 @@ type Event struct {
 	// for a turn, the proof a delivery was accepted rather than left waiting
 	// in the composer.
 	Prompt bool `json:"prompt,omitempty"`
+	// HostID names the native terminal the harness runs in, so a delivery
+	// into that terminal can be proven by the harness's own prompt hook.
+	HostID string `json:"host_id,omitempty"`
 }
 
 type Context struct {
 	Harness, Role, TaskID, Generation             string
 	ParentSessionID, ParentHarness, RootSessionID string
+	HostID                                        string
 	Now                                           time.Time
 }
 
@@ -120,6 +124,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 	e.Prompt = p.Event == "UserPromptSubmit" || (c.Harness == "pi" && p.Event == "agent_start")
 	e.Model, e.AgentType = p.Model, p.AgentType
 	e.ParentSessionID, e.ParentHarness, e.RootSessionID = c.ParentSessionID, c.ParentHarness, c.RootSessionID
+	e.HostID = c.HostID
 	if e.ParentSessionID != "" {
 		e.Relation = "spawned"
 	}
