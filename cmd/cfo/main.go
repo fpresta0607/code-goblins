@@ -238,12 +238,12 @@ func defaultCommandRuntime() commandRuntime {
 			return spawn.AuthRefresher{
 				StateDir: h.State,
 				DataDir:  h.Data,
-				Panes:    spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}},
+				Panes:    spawn.BackendLiveness{StateDir: h.State, Herdr: spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}}},
 			}
 		},
 		peek: peekTerminal,
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
-			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(&herdr.Client{Commands: execx.OSRunner{}}))
+			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State, &herdr.Client{Commands: execx.OSRunner{}}))
 		},
 		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
 			commands := execx.OSRunner{}
