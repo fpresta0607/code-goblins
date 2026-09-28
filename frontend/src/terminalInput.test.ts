@@ -1,6 +1,6 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, clickJumps, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("while the panel is dragged the screen keeps its grid, scaled whole into the panel", () => {
   assert.equal(previewScale({ width: 600, height: 900 }, { width: 1200, height: 900 }), 0.5, "a narrower panel shrinks it by width");
@@ -178,19 +178,53 @@ test("the board counts the notches it scrolled a pane up, one a scroll whatever 
   }
 });
 
-test("a plain click on a pane the board scrolled up jumps it to the bottom; a selection or a pane at its bottom does not", () => {
+test("a plain click on a pane the board scrolled up and could scroll now jumps it to the bottom; a selection, a pane at its bottom or one it cannot scroll does not", () => {
   const click = { button: 0, moved: 0, selected: false };
-  const cases: [string, number, typeof click, boolean][] = [
-    ["a click on a pane scrolled up jumps", 12, click, true],
-    ["a click that shook a pixel or two still jumps", 12, { ...click, moved: 2 }, true],
-    ["a drag that selected text copies it instead", 12, { ...click, moved: 40, selected: true }, false],
-    ["a drag that selected nothing is not a click", 12, { ...click, moved: 40 }, false],
-    ["a click that left a selection keeps it", 12, { ...click, selected: true }, false],
-    ["another button does nothing", 12, { ...click, button: 2 }, false],
-    ["a pane at its bottom has nowhere to jump", 0, click, false],
+  const holds = { sized: true, refused: false };
+  const cases: [string, number, typeof click, typeof holds, boolean][] = [
+    ["a click on a pane scrolled up jumps", 12, click, holds, true],
+    ["a click that shook a pixel or two still jumps", 12, { ...click, moved: 3 }, holds, true],
+    ["a press and release 4 px apart is not a click", 12, { ...click, moved: 4 }, holds, false],
+    ["a drag that selected text copies it instead", 12, { ...click, moved: 40, selected: true }, holds, false],
+    ["a drag that selected nothing is not a click", 12, { ...click, moved: 40 }, holds, false],
+    ["a click that left a selection keeps it", 12, { ...click, selected: true }, holds, false],
+    ["another button does nothing", 12, { ...click, button: 2 }, holds, false],
+    ["a pane at its bottom has nowhere to jump", 0, click, holds, false],
+    ["a view that no longer sizes the pane, as when a review gate took it, does nothing", 12, click, { sized: false, refused: false }, false],
+    ["a view whose take was refused does nothing", 12, click, { sized: false, refused: true }, false],
+    ["a sized view with a refused take pending an answer does nothing", 12, click, { sized: true, refused: true }, false],
   ];
-  for (const [name, scrolled, pointer, want] of cases) assert.equal(clickJumps(scrolled, pointer), want, name);
-  assert.equal(JUMP_TO_BOTTOM, "\x1b[1;5F", "the jump is Ctrl+End, the key Claude Code names on its own note");
+  for (const [name, scrolled, pointer, view, want] of cases) assert.equal(clickJumps(scrolled, pointer, view), want, name);
+  assert.equal(JUMP_TO_BOTTOM, "[1;5F", "the jump is Ctrl+End, the key Claude Code names on its own note");
+});
+
+test("a click jumps only once the double-click interval passes with no further press, so a double or triple click selects what it aimed at", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let jumps = 0;
+    const jumper = clickJumper(() => { jumps++; });
+    jumper.released(() => true);
+    mock.timers.tick(CLICK_JUMP_WAIT_MS - 1);
+    assert.equal(jumps, 0, "a click waits out the double-click interval");
+    mock.timers.tick(1);
+    assert.equal(jumps, 1, "then jumps");
+
+    jumper.released(() => true);
+    mock.timers.tick(150);
+    jumper.cancel();
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "a second press in time cancels the jump");
+
+    jumper.released(() => false);
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "the jump is decided when it would go, not when the click ended");
+
+    jumper.released(() => true);
+    jumper.cancel();
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "stopping the view cancels a waiting jump");
+  } finally { mock.timers.reset(); }
+  assert.ok(CLICK_JUMP_WAIT_MS >= 300, "the wait covers a double click");
 });
 
 test("the wheel over a pane that scrolls itself never asks again for a take that was refused", () => {

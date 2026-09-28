@@ -52,11 +52,29 @@ export function scrolledUp(prior: number, command: PaneCommand): number {
 // carry no mouse modes, so a click never reaches the program and its "Jump to
 // bottom" note cannot be pressed. A plain click on a pane the board scrolled up
 // jumps it to the bottom instead; a drag, a selection or another button does
-// not. The count can run ahead of the pane, which stops at its top, and a jump
-// at the bottom only moves Claude Code's cursor to the end of its input.
+// not, and neither does a view that could not scroll the pane itself now, such
+// as one whose pane a review gate took, since typing there would ask for it.
+// The count can run ahead of the pane, which stops at its top, and a jump at
+// the bottom only moves Claude Code's cursor to the end of its input.
 const CLICK_SLOP = 4;
-export function clickJumps(scrolled: number, click: { button: number; moved: number; selected: boolean }): boolean {
-  return scrolled > 0 && click.button === 0 && click.moved <= CLICK_SLOP && !click.selected;
+export function clickJumps(scrolled: number, click: { button: number; moved: number; selected: boolean }, view: { sized: boolean; refused: boolean }): boolean {
+  return scrolled > 0 && click.button === 0 && click.moved < CLICK_SLOP && !click.selected && view.sized && !view.refused;
+}
+
+// A click's jump waits out the double-click interval and a further press
+// cancels it, so a double or triple click selects the word or line it aimed at
+// before the pane moves. Whether it jumps is decided when it would go.
+export const CLICK_JUMP_WAIT_MS = 300;
+export function clickJumper(jump: () => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => clearTimeout(timer);
+  return {
+    cancel,
+    released(jumps: () => boolean) {
+      cancel();
+      timer = setTimeout(() => { if (jumps()) jump(); }, CLICK_JUMP_WAIT_MS);
+    },
+  };
 }
 
 // Claude Code's fullscreen interface draws in the terminal's alternate
