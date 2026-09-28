@@ -1,6 +1,6 @@
-// A list that can grow long shows as many cards as fit the space it has, one
-// page at a time, with a pager and a sideways swipe for the rest, so the
-// board never becomes a long scroll. These are the pure steps of paging.
+// A list past ten cards shows as many as fit the space it has, one page at a
+// time, with a pager and a sideways swipe for the rest, so the board never
+// becomes a long scroll. These are the pure steps of paging.
 
 // Up to this many cards a list shows whole, with no pager, and the board
 // scrolls when they run past the screen.

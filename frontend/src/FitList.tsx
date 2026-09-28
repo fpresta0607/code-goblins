@@ -2,8 +2,9 @@ import { useRef, type ReactNode } from "react";
 import { Pager } from "./Pager";
 import { useFit } from "./useFit";
 
-// A list of cards in their order, newest first for history, showing as many
-// as fit the board's visible canvas and a pager for the rest.
+// A list of cards in their order, newest first for history, showing up to ten
+// whole and, past that, as many as fit the board's visible canvas and a pager
+// for the rest.
 export function FitList<T>({ items, keyOf, empty, renderItem }: { items: T[]; keyOf: (item: T) => string; empty: ReactNode; renderItem: (item: T) => ReactNode }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
