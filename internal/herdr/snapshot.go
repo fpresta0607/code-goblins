@@ -124,11 +124,24 @@ func decodeSnapshot(session string, raw json.RawMessage) (SessionSnapshot, error
 }
 
 // CaptureEvidence reads the bounded unwrapped recent terminal text the
-// structural monitor consumes. The session snapshot carries no terminal
-// contents, so each structurally valid task gets exactly one of these reads.
+// structural monitor consumes, on the session's socket when the client has a
+// cache (the socket calls the source recent_unwrapped). The session snapshot
+// carries no terminal contents, so each structurally valid task gets exactly
+// one of these reads.
 func (c *Client) CaptureEvidence(ctx context.Context, target Target) ([]byte, error) {
 	if err := validateTarget(target); err != nil {
 		return nil, err
+	}
+	var answer struct {
+		Read *struct {
+			Text *string `json:"text"`
+		} `json:"read"`
+	}
+	scoped := *c
+	scoped.Session = target.Session
+	raw, ok := scoped.socketRead(ctx, "pane.read", map[string]any{"pane_id": target.Pane, "source": "recent_unwrapped", "lines": captureFloor})
+	if ok && decodeRaw(raw, &answer) == nil && answer.Read != nil && answer.Read.Text != nil && *answer.Read.Text != "" {
+		return []byte(*answer.Read.Text), nil
 	}
 	result, err := c.required(ctx, target.Session, target, "pane read", "pane", "read", target.Pane, "--source", "recent-unwrapped", "--lines", fmt.Sprint(captureFloor))
 	if err != nil {
@@ -140,22 +153,26 @@ func (c *Client) CaptureEvidence(ctx context.Context, target Target) ([]byte, er
 	return result.Stdout, nil
 }
 
-// AgentList reads every registered agent's native state through
-// `herdr agent list` (socket API, JSON): agent_status (working | idle | done)
+// AgentList reads every registered agent's native state on the session's
+// socket when the client has a cache, or else through `herdr agent list`
+// (socket API, JSON): agent_status (working | idle | done)
 // plus interactive_ready, revision, and state_change_seq. This is the primary
 // supervision signal for both claude and pi panes, unlike pane-text diffing.
 func (c *Client) AgentList(ctx context.Context) ([]AgentRecord, error) {
 	session := c.session()
-	result, err := c.required(ctx, session, Target{}, "agent list", "agent", "list")
-	if err != nil {
-		return nil, err
-	}
 	var response struct {
 		Type   string        `json:"type"`
 		Agents []AgentRecord `json:"agents"`
 	}
-	if err := decodeResult(result.Stdout, &response); err != nil {
-		return nil, fmt.Errorf("herdr: decode agent list response for session %q: %w", session, err)
+	raw, ok := c.socketRead(ctx, "agent.list", map[string]any{})
+	if !ok || decodeRaw(raw, &response) != nil {
+		result, err := c.required(ctx, session, Target{}, "agent list", "agent", "list")
+		if err != nil {
+			return nil, err
+		}
+		if err := decodeResult(result.Stdout, &response); err != nil {
+			return nil, fmt.Errorf("herdr: decode agent list response for session %q: %w", session, err)
+		}
 	}
 	if response.Type != "agent_list" {
 		return nil, fmt.Errorf("herdr: agent list for session %q returned type %q", session, response.Type)

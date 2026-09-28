@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -66,6 +67,56 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 		return sample, err
 	}
 	return parseGateStatus(string(out), sample), nil
+}
+
+// gateProbeEvery is how long one reading of a worktree's gate stands for. The
+// monitor asks a goblin's gate once a minute once it has been busy past
+// busyTurnMax, and each `no-mistakes axi status` starts about ten git
+// processes, so a reading stands for five minutes: a gate step wedged past
+// the hour-long budget is named at most five minutes later.
+const gateProbeEvery = 5 * time.Minute
+
+// RecentGateProber reads each worktree's gate through Probe at most once per
+// gateProbeEvery. Within the period it answers the last reading, with the
+// active step's age moved on by the time since it was read.
+type RecentGateProber struct {
+	Probe GateProber
+	// Now is the clock; nil means time.Now.
+	Now func() time.Time
+
+	mu       sync.Mutex
+	readings map[string]gateReading
+}
+
+type gateReading struct {
+	at     time.Time
+	sample GateSample
+	err    error
+}
+
+func (p *RecentGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error) {
+	now := time.Now()
+	if p.Now != nil {
+		now = p.Now()
+	}
+	p.mu.Lock()
+	reading, ok := p.readings[meta.Worktree]
+	p.mu.Unlock()
+	if !ok || now.Sub(reading.at) >= gateProbeEvery {
+		sample, err := p.Probe.InspectGate(ctx, meta)
+		reading = gateReading{at: now, sample: sample, err: err}
+		p.mu.Lock()
+		if p.readings == nil {
+			p.readings = map[string]gateReading{}
+		}
+		p.readings[meta.Worktree] = reading
+		p.mu.Unlock()
+	}
+	sample := reading.sample
+	if sample.Active {
+		sample.ActiveFor += now.Sub(reading.at)
+	}
+	return sample, reading.err
 }
 
 // parseGateStatus reads the active_steps row out of `axi status`. Only the
