@@ -23,6 +23,12 @@ type InterruptedRun struct {
 	Worktree string `json:"worktree"`
 }
 
+// IsTerminal reports whether the run has finished, so nothing is left to
+// interrupt.
+func (run InterruptedRun) IsTerminal() bool {
+	return terminalRunStatus[run.Status]
+}
+
 var gateIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
 var gateCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
