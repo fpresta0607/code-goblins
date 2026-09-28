@@ -292,7 +292,7 @@ Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
-An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own pane, each exactly once; no answer approves a gate or merges anything.
+An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
 A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; the card then shows its exit code and output.
 
