@@ -501,7 +501,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
 		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+			return Evaluation{Reason: "Submitted to the registered CFO while it was working; it takes the answer when its current turn ends."}, nil
 		}
 		return result, err
 	}

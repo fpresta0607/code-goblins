@@ -18,8 +18,29 @@ import (
 // its session as the supervisor recorded it. A harness without native hooks
 // never does.
 func NativePromptSince(stateDir, taskID, generation string, since time.Time) (bool, error) {
+	return promptSince(stateDir, since, func(e nativehook.Event) bool {
+		return e.TaskID == taskID && e.Generation == generation
+	}, func(s Session) bool {
+		return s.TaskID == taskID && s.Generation == generation
+	})
+}
+
+// NativeHostPromptSince reports whether a harness in native terminal hostID
+// reported through its native hooks taking a prompt at or after since, the
+// proof a delivery typed into that terminal was taken.
+func NativeHostPromptSince(stateDir, hostID string, since time.Time) (bool, error) {
+	return promptSince(stateDir, since, func(e nativehook.Event) bool {
+		return e.HostID == hostID
+	}, func(s Session) bool {
+		return s.HostID == hostID
+	})
+}
+
+// promptSince finds a prompt taken at or after since by a harness whose event
+// or recorded session is ours.
+func promptSince(stateDir string, since time.Time, ours func(nativehook.Event) bool, oursSession func(Session) bool) (bool, error) {
 	matches := func(e nativehook.Event) bool {
-		return e.Prompt && e.TaskID == taskID && e.Generation == generation && !e.OccurredAt.Before(since)
+		return e.Prompt && ours(e) && !e.OccurredAt.Before(since)
 	}
 	dir := nativehook.SpoolDir(stateDir)
 	entries, err := os.ReadDir(dir)
@@ -58,7 +79,7 @@ func NativePromptSince(stateDir, taskID, generation string, since time.Time) (bo
 		return false, err
 	}
 	for _, session := range db.Sessions {
-		if session.TaskID == taskID && session.Generation == generation && !session.PromptAt.IsZero() && !session.PromptAt.Before(since) {
+		if oursSession(session) && !session.PromptAt.IsZero() && !session.PromptAt.Before(since) {
 			return true, nil
 		}
 	}

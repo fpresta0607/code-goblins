@@ -48,6 +48,7 @@ type Session struct {
 	LastEventID  string          `json:"last_event_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
+	HostID       string          `json:"host_id,omitempty"`  // the native terminal the session runs in
 	Runtime      RuntimeEvidence `json:"runtime"`
 }
 
@@ -363,7 +364,7 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return fmt.Errorf("%w: %v", ErrDeferred, err)
 		}
 	}
-	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, TurnID: e.TurnID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
+	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, TurnID: e.TurnID, HostID: e.HostID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
 	if node.Model == "" {
 		node.Model = prior.Model
 	}
