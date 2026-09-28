@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -209,5 +211,84 @@ func TestResumeRetryCompletesAnExistingLaunchBelowTheMemoryThreshold(t *testing.
 				t.Fatal("new launch bypassed the memory threshold")
 			}
 		})
+	}
+}
+
+func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	isGateOpen := true
+	service.Operations.Checkpoint = func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
+		if isGateOpen {
+			record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
+		}
+		return nil
+	}
+	var resumedWith []string
+	service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+		resumedWith = append(resumedWith, prior.GateRun)
+		if len(resumedWith) == 1 {
+			return errors.New("harness failed to start")
+		}
+		return nil
+	}
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+	if err == nil || failed.Phase != "failed" || failed.GateRun != "run-1" {
+		t.Fatalf("failed resume lost its interrupted gate: %+v %v", failed, err)
+	}
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"}); err != nil {
+		t.Fatal(err)
+	}
+	isGateOpen = false
+	paused, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-2", Action: "pause"})
+	if err != nil || paused.GateRun != "" || paused.GateIntent != "" || paused.GateHead != "" {
+		t.Fatalf("pause without an open gate kept stale restart instructions: %+v %v", paused, err)
+	}
+	if !reflect.DeepEqual(resumedWith, []string{"run-1", "run-1"}) {
+		t.Fatalf("resume gates = %v", resumedWith)
+	}
+}
+
+func TestLifecycleOutcomesNeverHideTheTasksOwnReport(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	if err := state.AppendStatus(service.StateDir, meta.ID, "needs-decision: pick a schema"); err != nil {
+		t.Fatal(err)
+	}
+	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
+		return errors.New("harness failed to start")
+	}
+	for _, request := range []Request{{Operation: "pause-1", Action: "pause"}, {Operation: "resume-1", Action: "resume"}} {
+		request.ID, request.Generation = meta.ID, meta.SpawnGen
+		_, _ = service.Run(t.Context(), request)
+		lines, err := state.TailStatus(service.StateDir, meta.ID, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if verb, _ := crewstate.LatestVerb(lines); verb != "needs-decision" {
+			t.Fatalf("after %s the task's latest report reads %q: %v", request.Action, verb, lines)
+		}
+	}
+	if err := state.AppendStatus(service.StateDir, meta.ID, "failed: build broke"); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := state.TailStatus(service.StateDir, meta.ID, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verb, _ := crewstate.LatestVerb(lines); verb != "failed" {
+		t.Fatalf("the task's own failure report is hidden: %q", verb)
+	}
+}
+
+func TestPauseInstructionPublishesTheHandoffAfterThePush(t *testing.T) {
+	handoff := filepath.Join(t.TempDir(), "pause-1.md")
+	instruction := PauseInstruction(handoff)
+	push := strings.Index(instruction, "push your branch")
+	draft := strings.Index(instruction, handoff+".partial")
+	publish := strings.LastIndex(instruction, "rename it to "+handoff)
+	if push < 0 || draft < push || publish < draft {
+		t.Fatalf("handoff is not published last, after the push: %q", instruction)
 	}
 }

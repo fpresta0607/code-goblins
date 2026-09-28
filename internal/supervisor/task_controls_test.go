@@ -371,3 +371,29 @@ func TestInterruptedResumeRemainsAvailableAfterPublishingAReplacementGeneration(
 	}
 	t.Fatalf("interrupted Resume cannot be retried: %+v", snapshot.Tasks)
 }
+
+func TestRequeuedTaskRegainsQueueControlsAfterAnEarlierQueuedStop(t *testing.T) {
+	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+	backlog := "## Queued\n- **queued-task** - Retire this task (repo: project)\n"
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), backlog)
+	writeFile(t, filepath.Join(h.Data, "queued-task", "brief.md"), "# Brief queued-task\n\n## Task\n\nRetire this task.\n")
+	queued, err := fleet.ReadQueuedTask(h, "queued-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.StopQueued(h, lifecycle.Request{ID: queued.Row.ID, Operation: "stop-1", Action: "stop"}, queued.Revision); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), backlog)
+	snapshot, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == queued.Row.ID })
+	if index < 0 {
+		t.Fatalf("requeued task is missing: %+v", snapshot.Tasks)
+	}
+	if task := snapshot.Tasks[index]; task.Phase != "queued" || task.Archived || task.Lifecycle != nil || task.QueueRevision == "" || !task.Brief {
+		t.Fatalf("requeued task lost its queue controls or brief: %+v", task)
+	}
+}
