@@ -32,7 +32,6 @@ const (
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
 	instructionTries   = 60
-	harnessStartTries  = 20
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -581,6 +580,10 @@ func (s Service) startHarness(ctx context.Context, client terminal.Backend, targ
 		launch.Env["CFO_STATE_OVERRIDE"] = s.StateDir
 	}
 	if launch.TypedLaunch {
+		screens, ok := harness.NativeScreens(plan.Harness)
+		if !ok {
+			return false, fmt.Errorf("spawn: %s launches typed but has no screen a spawn can read", plan.Harness)
+		}
 		line, err := launch.PowerShellTypedLine()
 		if err != nil {
 			return false, fmt.Errorf("spawn: render typed harness launch: %w", err)
@@ -600,13 +603,13 @@ func (s Service) startHarness(ctx context.Context, client terminal.Backend, targ
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 		}
-		if err := s.awaitTypedHarness(ctx, client, target, plan.Harness); err != nil {
+		if err := s.awaitPaneComposer(ctx, client, target, plan.Harness, screens, launch); err != nil {
 			return true, err
 		}
 		if _, err := s.reportUndetectedHarness(ctx, client, target, plan); err != nil {
 			return true, err
 		}
-		if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
+		if err := s.deliverTypedInstruction(ctx, client, target, plan.Harness, screens, launch); err != nil {
 			return true, err
 		}
 		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
@@ -935,6 +938,108 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 	return nil
 }
 
+// awaitPaneComposer waits until a typed launch's harness shows its composer
+// in the pane, read with the harness's own screen markers as a native spawn
+// reads its terminal. A shell never shows a composer, so a harness that never
+// started, or left at once, stops the spawn here with the pane's screen
+// instead of having its brief run as shell commands. A dialog the launch
+// confirms (the trust prompt) is confirmed again should it show late; any
+// other dialog the harness is known to show stops the spawn, since a brief
+// typed into a dialog is lost or taken as its answer.
+func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
+	var screen []string
+	var readErr error
+	for attempt := 0; attempt < int(nativeStartup/nativePoll); attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, nativePoll); err != nil {
+				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
+			}
+		}
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
+			}
+			readErr = err
+			continue
+		}
+		screen, readErr = read, nil
+		if containsMarker(strings.Join(screen, "\n"), launch.ConfirmMarkers) {
+			for _, key := range launch.ConfirmKeys {
+				if err := client.SendKey(ctx, target, key); err != nil {
+					return fmt.Errorf("spawn: confirm %s's startup dialog: %w", kind, err)
+				}
+			}
+			continue
+		}
+		if dialog, found := screens.Dialog(screen); found {
+			return fmt.Errorf("spawn: %s shows %s where its composer should be, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
+		}
+		if screens.IsReady(screen) {
+			return nil
+		}
+	}
+	if readErr != nil {
+		return fmt.Errorf("spawn: %s's pane could not be read within %s, so its brief was not typed: %w", kind, nativeStartup, readErr)
+	}
+	return fmt.Errorf("spawn: %s never showed its composer within %s, so its brief was not typed; its screen ends:\n%s", kind, nativeStartup, host.ScreenTail(screen, 8))
+}
+
+// deliverTypedInstruction submits a typed launch's brief through Herdr and
+// proves the harness took it as a native spawn proves it: the harness's
+// native hooks report a prompt taken since the submit, or its pane shows it
+// working. Herdr's own counters move on any redraw, so they prove nothing
+// here. A harness that reads the typed brief as a paste can take the Enter
+// that ends it as part of the paste, which leaves the brief in its composer:
+// the brief still showing is submitted with one more Enter, which cannot hand
+// it over twice, since a submitted brief leaves the composer.
+func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
+	instruction := launch.PromptInstruction()
+	submitted := time.Now()
+	if err := client.AgentPrompt(ctx, target, instruction); err != nil {
+		return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+	}
+	pressed := false
+	var screen []string
+	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+		}
+		if s.PromptSince != nil {
+			if taken, err := s.PromptSince(launch.Env["CFO_TASK_ID"], launch.Env["CFO_SPAWN_GEN"], submitted); err == nil && taken {
+				return nil
+			}
+		}
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+			}
+			continue
+		}
+		screen = read
+		if screens.IsWorking(screen) {
+			return nil
+		}
+		if !pressed && screens.Shows(screen, instruction) {
+			if err := client.SendKey(ctx, target, "Enter"); err != nil {
+				return fmt.Errorf("spawn: submit %s's brief left in its composer: %w", kind, err)
+			}
+			pressed = true
+		}
+	}
+	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
+}
+
+// readPane reads the pane's recent screen as rows.
+func readPane(ctx context.Context, client terminal.Backend, target herdr.Target) ([]string, error) {
+	capture, err := client.Capture(ctx, target, 60, false)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n"), nil
+}
+
 // reportUndetectedHarness registers the launched harness with Herdr when
 // Herdr holds no agent for the pane but the operating system shows the pane
 // running something other than its shell. That pairing is the whole test: no
@@ -957,43 +1062,6 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // A pane Herdr cannot answer for is left alone. Reporting on a maybe would
 // turn this into a launch that always succeeds, which is the one thing the
 // readiness gate exists to prevent.
-// awaitTypedHarness waits until a typed launch's harness holds the pane,
-// which it does once the pane's foreground is no longer its own shell. A
-// harness that never started, or left at once, leaves the pane at its shell,
-// where a brief typed in would run as shell commands, so the spawn stops with
-// the pane's screen instead. An unreadable pane proves nothing either way,
-// and the brief's own acceptance proof still guards it.
-func (s Service) awaitTypedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind) error {
-	atShell := false
-	for attempt := 0; attempt < harnessStartTries; attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
-				return fmt.Errorf("spawn: wait for %s to start: %w", kind, err)
-			}
-		}
-		running, err := client.HarnessRunning(ctx, target)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: wait for %s to start: %w", kind, err)
-			}
-			atShell = false
-			continue
-		}
-		if running {
-			return nil
-		}
-		atShell = true
-	}
-	if !atShell {
-		return nil
-	}
-	screen, err := client.Capture(ctx, target, 20, false)
-	if err != nil {
-		screen = fmt.Sprintf("(unreadable: %v)", err)
-	}
-	return fmt.Errorf("spawn: %s did not start within %ds: the pane is back at its shell, so the brief was not typed there; its screen:\n%s", kind, int(launchConfirmPoll.Seconds()*harnessStartTries), screen)
-}
-
 func (s Service) reportUndetectedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (bool, error) {
 	status, err := client.AgentStatus(ctx, target)
 	if err != nil || status != herdr.AgentDead {
