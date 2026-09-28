@@ -139,10 +139,9 @@ const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with as
 // prove recovery is under way will eventually run its own escalation ladder
 // to the hard ceiling on every blocked turn instead of the auto-arm ever
 // recovering the watcher. Presence-only: it does not parse which hook event
-// either command is registered under, only that each appears in some string
-// value of the parsed settings. Each hook is recognized in both the exact
-// command `cfo install` writes (taken from install.Hooks, never a second
-// hand-kept copy) and the hand-written `cfo hook <name>` form.
+// either hook is registered under, only that each is registered somewhere in
+// the parsed settings. Each hook is recognized both as an entry `cfo install`
+// writes (install.HookName) and in the hand-written `cfo hook <name>` form.
 //
 // Both scopes are read, because `cfo install` moves the CFO hooks to the
 // user settings and a check that only ever looked in the checkout would go
@@ -160,6 +159,7 @@ func checkHookPairing() Check {
 		paths = append(paths, userSettings)
 	}
 	values := []string{}
+	installed := map[string]bool{}
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -170,9 +170,10 @@ func checkHookPairing() Check {
 			continue
 		}
 		values = append(values, jsonStrings(parsed)...)
+		installedHookNames(parsed, installed)
 	}
-	hasGuard := registersHook(values, "turnend-guard")
-	hasAutoarm := registersHook(values, "stop-autoarm")
+	hasGuard := installed["turnend-guard"] || registersHook(values, "turnend-guard")
+	hasAutoarm := installed["stop-autoarm"] || registersHook(values, "stop-autoarm")
 	if hasGuard && !hasAutoarm {
 		return Check{
 			Name: "hook-pairing",
@@ -207,21 +208,31 @@ func jsonStrings(node any) []string {
 	return nil
 }
 
-// registersHook reports whether any settings string invokes `cfo hook <name>`,
-// either as the exact command `cfo install` writes or in the hand-written
-// `cfo hook <name>` form.
-func registersHook(values []string, name string) bool {
-	needles := []string{"cfo hook " + name}
-	for _, hook := range install.Hooks() {
-		if hook.Name == name {
-			needles = append(needles, hook.Command)
+// installedHookNames adds to names every `cfo hook <name>` a hook entry that
+// `cfo install` wrote runs, recognised as the installer recognises its own
+// (install.HookName), never by a second hand-kept copy of its form.
+func installedHookNames(node any, names map[string]bool) {
+	switch value := node.(type) {
+	case []any:
+		for _, item := range value {
+			installedHookNames(item, names)
+		}
+	case map[string]any:
+		if name, ok := install.HookName(value); ok {
+			names[name] = true
+		}
+		for _, item := range value {
+			installedHookNames(item, names)
 		}
 	}
+}
+
+// registersHook reports whether any settings string invokes `cfo hook <name>`
+// in the hand-written form.
+func registersHook(values []string, name string) bool {
 	for _, value := range values {
-		for _, needle := range needles {
-			if strings.Contains(value, needle) {
-				return true
-			}
+		if strings.Contains(value, "cfo hook "+name) {
+			return true
 		}
 	}
 	return false

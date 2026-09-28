@@ -418,6 +418,11 @@ func stopHookSettings(t *testing.T, commands ...string) string {
 	for _, command := range commands {
 		entries = append(entries, map[string]any{"type": "command", "command": command})
 	}
+	return stopHookEntries(t, entries...)
+}
+
+func stopHookEntries(t *testing.T, entries ...any) string {
+	t.Helper()
 	data, err := json.Marshal(map[string]any{"hooks": map[string]any{"Stop": []any{map[string]any{"hooks": entries}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -426,26 +431,45 @@ func stopHookSettings(t *testing.T, commands ...string) string {
 }
 
 // TestHookPairingRecognizesInstalledCommands drives the check with the exact
-// command strings `cfo install` writes, whose quotes arrive JSON-escaped in
-// the raw file text: a check that only knew the hand-written `cfo hook
-// <name>` form, or that scanned raw text, stays silent on exactly the wiring
-// the installer produces.
+// entries `cfo install` writes: the home's cfo.exe run with args hook and a
+// name, which no settings string spells as `cfo hook <name>`. A check that
+// only knew the hand-written form stays silent on exactly the wiring the
+// installer produces.
 func TestHookPairingRecognizesInstalledCommands(t *testing.T) {
-	commands := map[string]string{}
-	for _, hook := range install.Hooks() {
-		commands[hook.Name] = hook.Command
-	}
 	dir := t.TempDir()
 	t.Setenv("CFO_HOME", dir)
-
-	writeSettings(t, dir, stopHookSettings(t, commands["turnend-guard"]))
-	if c := checkHookPairing(); c.Err == "" {
-		t.Error("Err = empty, want non-empty with the installed guard command registered alone")
+	entries := map[string]any{}
+	for _, hook := range install.Hooks(dir) {
+		entries[hook.Name] = map[string]any{"type": "command", "command": hook.Command, "args": hook.Args}
 	}
 
-	writeSettings(t, dir, stopHookSettings(t, commands["turnend-guard"], commands["stop-autoarm"]))
+	writeSettings(t, dir, stopHookEntries(t, entries["turnend-guard"]))
+	if c := checkHookPairing(); c.Err == "" {
+		t.Error("Err = empty, want non-empty with the installed guard registered alone")
+	}
+
+	writeSettings(t, dir, stopHookEntries(t, entries["turnend-guard"], entries["stop-autoarm"]))
 	if c := checkHookPairing(); c.Err != "" {
-		t.Errorf("Err = %q, want empty with both installed commands registered", c.Err)
+		t.Errorf("Err = %q, want empty with both installed hooks registered", c.Err)
+	}
+}
+
+// A machine not yet installed again still holds the shell-form commands an
+// earlier install wrote, whose quotes arrive JSON-escaped in the raw file
+// text; the check reads them as the installer does.
+func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CFO_HOME", dir)
+	shellForm := `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$CFO_ROOT"/cfo.exe ] || exit 0; "$CFO_ROOT"/cfo.exe hook `
+
+	writeSettings(t, dir, stopHookSettings(t, shellForm+"turnend-guard"))
+	if c := checkHookPairing(); c.Err == "" {
+		t.Error("Err = empty, want non-empty with the shell-form guard registered alone")
+	}
+
+	writeSettings(t, dir, stopHookSettings(t, shellForm+"turnend-guard", shellForm+"stop-autoarm"))
+	if c := checkHookPairing(); c.Err != "" {
+		t.Errorf("Err = %q, want empty with both shell-form hooks registered", c.Err)
 	}
 }
 
