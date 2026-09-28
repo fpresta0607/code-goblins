@@ -32,6 +32,13 @@ func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
 	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != ""}
 }
 
+type taskChangeError struct {
+	Message    string
+	Generation string
+	Operation  string
+	Updated    time.Time
+}
+
 func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Task       string `json:"task"`
@@ -70,6 +77,11 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, "The task session changed; refresh its card")
 		return
 	}
+	prior, priorErr := state.ReadLifecycle(s.Store.Home.State, input.Task)
+	if priorErr != nil && !errors.Is(priorErr, os.ErrNotExist) {
+		apiError(w, 500, priorErr.Error())
+		return
+	}
 	if input.Action == "resume" {
 		if s.starting != "" {
 			apiError(w, 409, "Another task is starting; resume once it is up")
@@ -81,9 +93,8 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		prior, err := state.ReadLifecycle(s.Store.Home.State, input.Task)
 		isInterruptedResume := prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
-		if err != nil || prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
+		if priorErr != nil || prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 			apiError(w, 409, "Only a paused task can resume")
 			return
 		}
@@ -99,7 +110,7 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.changing == nil {
 		s.changing = map[string]string{}
-		s.changeErrors = map[string]string{}
+		s.changeErrors = map[string]taskChangeError{}
 	}
 	s.changing[input.Task] = input.Action
 	delete(s.changeErrors, input.Task)
@@ -108,12 +119,23 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		command = "kill"
 	}
 	args := []string{command, input.Task, "--generation", input.Generation, "--revision", input.Revision, "--operation", input.Operation, "--reason", "Requested from the board"}
+	requestGeneration := input.Generation
+	if requestGeneration == "" {
+		requestGeneration = "queued"
+	}
 	go func() {
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
 		s.starts.Lock()
 		delete(s.changing, input.Task)
 		if err != nil {
-			s.changeErrors[input.Task] = spawnFailure(output, err)
+			failure := taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}
+			if record, readErr := state.ReadLifecycle(s.Store.Home.State, input.Task); readErr == nil && record.Operation == input.Operation && record.RequestGeneration == requestGeneration {
+				failure.Generation, failure.Operation, failure.Updated = record.Generation, record.Operation, record.Updated
+				if failure.Generation == "queued" {
+					failure.Generation = ""
+				}
+			}
+			s.changeErrors[input.Task] = failure
 		}
 		s.starts.Unlock()
 		s.notify()
