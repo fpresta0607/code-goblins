@@ -216,9 +216,9 @@ func TestABoardAnswerToABusyAskerIsDeliveredNotUnconfirmed(t *testing.T) {
 	}
 }
 
-// Only the board's own answer actions count a busy asker as delivered. The
-// shared senders keep reporting it unconfirmed, so cfo answer, run results
-// and review requests read exactly what they read before.
+// The shared senders keep reporting a busy asker unconfirmed, so run results
+// and review requests read exactly what they read before; only the answer
+// paths, the board's and cfo answer's, count it as delivered themselves.
 func TestASendToABusyAskerOutsideABoardAnswerStaysUnconfirmed(t *testing.T) {
 	for _, asker := range []string{"goblin", "cfo"} {
 		t.Run(asker, func(t *testing.T) {
@@ -628,7 +628,7 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	meta, record, runner, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
-	chosen, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "keep it local")
+	chosen, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "keep it local")
 	if err != nil || chosen != "SQLite" {
 		t.Fatalf("answer = %q, %v; want SQLite, chosen by its first word", chosen, err)
 	}
@@ -636,7 +636,7 @@ func TestCFOAnswerDeliversOnceAndTheBoardRecordsIt(t *testing.T) {
 	if len(runner.prompts) != 1 || runner.prompts[0] != want {
 		t.Fatalf("goblin prompts = %q, want %q once", runner.prompts, want)
 	}
-	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "Postgres", ""); err == nil || len(runner.prompts) != 1 {
+	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "Postgres", ""); err == nil || len(runner.prompts) != 1 {
 		t.Fatalf("a second answer = %v with %d prompts, want refused and nothing sent", err, len(runner.prompts))
 	}
 	pending, err := wake.Pending(h.State)
@@ -723,7 +723,7 @@ func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 			if c.before != nil {
 				c.before(t, store, meta, record)
 			}
-			_, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), c.option, "")
+			_, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), c.option, "")
 			if err == nil || !strings.Contains(err.Error(), c.refusal) || len(runner.prompts) != 0 {
 				t.Fatalf("answer = %v with %d prompts, want refused (%q) with nothing sent", err, len(runner.prompts), c.refusal)
 			}
@@ -748,7 +748,7 @@ func TestCFOAnswerStandsWhenTheBoardAnswerIsRefused(t *testing.T) {
 	if err := os.MkdirAll(nativehook.SpoolDir(h.State), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
@@ -789,7 +789,7 @@ func TestBoardAnswerWaitsForAnInFlightCFOAnswer(t *testing.T) {
 		go func() { done <- store.ProcessOne(context.Background(), service.execute) }()
 		time.Sleep(500 * time.Millisecond)
 	}
-	if _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-done; err != nil {
@@ -847,7 +847,7 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 		}
 		boardErr = store.ProcessOne(context.Background(), service.execute)
 	}
-	if _, err := connectionA.AnswerGoblin(context.Background(), fmt.Sprint(recordA.Seq), "SQLite", ""); err != nil {
+	if _, _, err := connectionA.AnswerGoblin(context.Background(), fmt.Sprint(recordA.Seq), "SQLite", ""); err != nil {
 		t.Fatal(err)
 	}
 	if boardErr != nil {

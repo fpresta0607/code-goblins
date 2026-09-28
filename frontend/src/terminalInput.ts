@@ -2,10 +2,46 @@ export const maxInputBytes = 64 * 1024;
 export const inputBytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
 // A command for a view of a pane: typing, or, for a view that sizes the pane,
-// a new size.
+// a new size or a turn of the wheel.
 export type PaneCommand =
   | { type: "terminal.input"; text: string }
-  | { type: "terminal.resize"; cols: number; rows: number };
+  | { type: "terminal.resize"; cols: number; rows: number }
+  | { type: "terminal.scroll"; direction: "up" | "down"; lines: number; source: "wheel" };
+
+// The most lines one turn of the wheel scrolls a pane that scrolls itself.
+export const MAX_WHEEL_LINES = 50;
+
+// The only thing the wheel ever sends a pane: Herdr's own wheel scroll, which
+// Herdr hands the program as a Herdr window does. It carries no text, so it
+// can never type, edit or submit anything. Lines up are negative.
+export function wheelScroll(lines: number): PaneCommand | null {
+  if (lines === 0) return null;
+  return { type: "terminal.scroll", direction: lines < 0 ? "up" : "down", lines: Math.min(Math.abs(lines), MAX_WHEEL_LINES), source: "wheel" };
+}
+
+// Claude Code's fullscreen interface draws in the terminal's alternate
+// screen, so its pane keeps no scrollback: Herdr's history holds no more
+// lines than the screen. Such a pane scrolls its own transcript on the wheel;
+// every other pane's history is read.
+export function scrollsItself(history: string, rows: number, agent: string): boolean {
+  return agent === "claude" && history.replace(/(\r?\n)+$/, "").split(/\r?\n/).length <= rows;
+}
+
+// A Claude Code pane with no scrollback now may build some later, as one not
+// drawn fullscreen does once its output passes a screen, so the view trusts
+// that a pane scrolls itself only this long after it last read its history.
+export const SELF_SCROLL_FRESH_MS = 30_000;
+export function selfScrollFresh(checkedAt: number, now: number): boolean {
+  return now - checkedAt < SELF_SCROLL_FRESH_MS;
+}
+
+// What a turn of the wheel does to a pane that scrolls itself: a view that
+// sizes the pane scrolls it, and one that does not takes the pane first,
+// unless its last take was refused, when it says why instead of asking again.
+export function wheelTurn(view: { sized: boolean; refused: boolean }): "scroll" | "take" | "refused" {
+  if (view.sized) return "scroll";
+  return view.refused ? "refused" : "take";
+}
 
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.
@@ -80,19 +116,27 @@ export function panelGrid(width: number, height: number, fontSize: number, cell:
   return cols >= 20 && rows >= 5 ? { cols, rows } : null;
 }
 
-// What happens to a pane's size in the board. The most recent interaction
-// wins: while the board's window has the focus and shows the pane, the board
-// sizes the pane to its panel; leaving for another window, such as a Herdr
-// window, or moving to another view hands the size back. Herdr says nothing
-// when a Herdr window is typed into, so leaving the board is the sign. Once
+// The grid a sized view asks for: the panel's grid whenever it differs from
+// the size the pane will have, which is the size last asked for once one has
+// been, since its frame may still be on its way, and else the pane's size.
+// Null asks nothing.
+type Grid = { cols: number; rows: number };
+export function gridToAsk(panel: Grid | null, current: Grid, asked: Grid | null): Grid | null {
+  const target = asked || current;
+  return !panel || panel.cols === target.cols && panel.rows === target.rows ? null : panel;
+}
+
+// What happens to a pane's size in the board. A view that is open keeps the
+// pane sized to its panel and live, whether or not the board's window has the
+// focus: a Herdr window shows the pane at the board's size, and only closing
+// the view hands the size back. A view takes the size once it is shown. Once
 // another client takes the pane (held), the board waits for the Overlord to
 // come back to it or type in it before taking the pane again.
-export type SizeEvent = "live" | "focus" | "blur" | "shown" | "hidden" | "typed";
-export function sizeStep(event: SizeEvent, view: { sized: boolean; focused: boolean; shown: boolean; held: boolean }): "take" | "give" | "stay" {
-  if (event === "blur" || event === "hidden") return view.sized ? "give" : "stay";
+export type SizeEvent = "live" | "focus" | "shown" | "typed";
+export function sizeStep(event: SizeEvent, view: { sized: boolean; shown: boolean; held: boolean }): "take" | "stay" {
   if (view.sized || !view.shown) return "stay";
   if (event === "focus" || event === "typed") return "take";
-  return view.focused && !view.held ? "take" : "stay";
+  return view.held ? "stay" : "take";
 }
 
 // What a view does when one of its connections ends on its own: stop with the
@@ -108,7 +152,15 @@ export function endStep(ended: { sized: boolean; onScreen: boolean; resized: boo
 }
 
 // Why an input was refused, in the Overlord's words.
+const GATE_CUSTODY = /pipeline owns this task|pipeline custody has not been returned/i;
 export function typingHeldReason(raw: string): string {
-  if (/pipeline owns this task|pipeline custody has not been returned/i.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
+  if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. Reconnect to watch the screen.";
   return raw;
+}
+
+// Why the wheel cannot scroll a pane whose take was refused, in the
+// Overlord's words.
+export function scrollHeldReason(raw: string): string {
+  if (GATE_CUSTODY.test(raw)) return "A review gate owns this goblin's pane now; scroll it in Herdr.";
+  return "The wheel cannot scroll this pane: " + raw;
 }

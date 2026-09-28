@@ -21,6 +21,12 @@ export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
 
+// Every queued task, in the order the supervisor ranks them: the Tasks column
+// and the CFO's Task tab list the same queue.
+export function queuedTasks(snapshot: Snapshot): Task[] {
+  return snapshot.tasks.filter((task) => taskColumn(task) === "Tasks");
+}
+
 export function personaFor(task?: Task, node?: Session): Persona {
   if (node?.role === "cfo") return "cfo";
   if (task?.archived || task && ownsTaskSession(node, task) && taskColumn(task) === "Completed") return "finisher";
@@ -63,6 +69,13 @@ const stablePersonas: Persona[] = ["builder", "reviewer", "tester", "planner", "
 export function pullRequestLabel(url: string): string {
   const match = /\/([^/]+)\/pull\/(\d+)/.exec(url);
   return match ? match[1] + " #" + match[2] : "Pull request";
+}
+
+// A pull request wears GitHub's icon for what it really did: merged, which a
+// live task's gate proves with its merged phase and then its verified
+// delivery, closed without merging, or neither yet.
+export function pullRequestIcon(task: Task): "merge" | "pull-request-closed" | "pull-request" {
+  return task.merged || task.phase === "merged" || (task.phase === "done" && task.verified) ? "merge" : task.closed ? "pull-request-closed" : "pull-request";
 }
 
 // Only a real GitHub pull request wears the GitHub mark and its bare number;
@@ -122,7 +135,7 @@ const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint"
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
-  if (node.task?.archived) return node.task.merged ? "Merged" : "Finished";
+  if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
     if (asking) return "Waiting on the CFO";

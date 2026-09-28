@@ -3,18 +3,23 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
-import { asksOverlord, nodeStatus, personaFor, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
-// A task's card on the board: a short title of at most two lines, then one
-// muted line with the repo and the status, and a quiet clock of how long its
+// A task's card on the board: its title, then a muted line with the repo and
+// the status, both wrapping onto further lines, and a quiet clock of how long its
 // session has run or how long it has waited; the goblin's own words stay in
 // its panel. rank, when the card sits in an ordered list, is read out with it.
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, onSelect, onTerminal }: {
+// A queued card can carry a Start: prominent on the task the CFO starts next,
+// a play button on the others on hover or focus, and blocked with its reason,
+// which a press shows under the card.
+export interface CardStart { blocked: string; problem: string; prominent: boolean; onStart: (source: HTMLElement) => void }
+export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
+  next?: { text: string; waiting: boolean }; start?: CardStart;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
-  // A title cut off after two lines shows in full in a tip on hover or focus.
+  // A title still shortened shows in full in a tip on hover or focus.
   const [clipped, setClipped] = useState(false);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
@@ -22,27 +27,32 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, o
   };
   const name = task.title || task.id;
   const tip = clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
-  const pr = safePullRequest(task.pr), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
+  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
   const waiting = task.phase === "queued";
   const clock = taskColumn(task) === "Completed" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}<strong className="card-title">{name}</strong>
+    <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.waiting ? " waiting" : "")}>{next.text}</span>}<strong className="card-title">{name}</strong>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <><span className="card-repo">{task.project}</span><span className="card-sep" aria-hidden="true">·</span></>}<span className={"plain-status phase-" + task.phase}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + task.phase + (task.archived ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
       {clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>}
     </span>
   </>;
   // Completed history has no live worktree to review, so its card is its
   // pull request.
   if (task.archived) return pr
-    ? <a className="task-card history" href={pr} target="_blank" rel="noreferrer" onPointerEnter={measure} onFocus={measure} {...tip}>{content}<span className="card-pr"><Icon name="pull-request" />{pullRequestLabel(pr)}</span></a>
+    ? <a className="task-card history" href={pr} target="_blank" rel="noreferrer" onPointerEnter={measure} onFocus={measure} {...tip}>{content}<span className={"card-pr pr-" + icon}><Icon name={icon} />{pullRequestLabel(pr)}</span></a>
     : <div className="task-card history" onPointerEnter={measure} {...tip}>{content}</div>;
-  return <div className={"task-card-shell" + (pr || awaited ? " has-pr" : "") + (clock ? " has-clock" : "")}>
+  const starting = start?.blocked === "Starting";
+  return <div className={"task-card-shell" + (pr || awaited ? " has-pr" : "") + (clock ? " has-clock" : "") + (start ? start.prominent ? " has-start prominent-start" : " has-start" : "")}>
     <button className={"task-card" + (selected ? " selected" : "")}
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {!!task.generation && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>}
     {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" />{awaited.id}</button>}
-    {pr && <a className="card-pr" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name="pull-request" />{pullRequestLabel(pr)}</a>}
+    {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
+    {start && <button className={"card-start" + (start.prominent ? " primary" : " icon-button raised")} aria-disabled={!!start.blocked || undefined}
+      aria-label={starting ? "Starting " + name : "Start " + name + " now" + (start.blocked ? ", unavailable: " + start.blocked : "")} data-tip={start.blocked || (start.prominent ? undefined : "Start now")} data-tip-align="end"
+      onClick={(event) => start.onStart(event.currentTarget)}>{starting ? <span className="card-start-spinner" aria-hidden="true" /> : <Icon name="play" />}{start.prominent && (starting ? "Starting" : "Start now")}</button>}
+    {start?.problem && <p className="card-start-problem" role="alert">{start.problem}</p>}
   </div>;
 }

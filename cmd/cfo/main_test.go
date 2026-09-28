@@ -97,6 +97,9 @@ func TestMain(m *testing.M) {
 	if report := os.Getenv(consoleProbeVariable); report != "" {
 		os.Exit(probeConsole(report))
 	}
+	if report := os.Getenv(environmentReportVariable); report != "" {
+		os.Exit(reportEnvironment(report))
+	}
 	if len(os.Args) > 1 && os.Args[1] == attachTestTerminal {
 		attachTestProgram()
 		os.Exit(0)

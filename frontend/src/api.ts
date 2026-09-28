@@ -11,6 +11,7 @@ export async function request(
   if (!response.ok)
     throw new Error(
       string(object(value).error) || `Request failed (${response.status})`,
+      { cause: value },
     );
   return value;
 }

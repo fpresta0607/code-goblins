@@ -192,22 +192,30 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
-- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
+- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed, each pull request once, under the repository it was opened in, even when a fork carries its upstream's merges; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
   <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
-Each card shows the task's short title on at most two lines and one muted line with its repo and status; the goblin's own words are in its panel.
-A title cut off after two lines shows in full in a tip on hover or keyboard focus.
+Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
+On a narrow screen the columns stack and a card's name, repo and status wrap onto more lines rather than end in an ellipsis, so nothing is cut off or scrolls sideways; anything still shortened shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
+Each list shows only the cards that fit the visible board, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
+A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 On a touch screen, drag a card by its number.
+A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past the page's edge moves it on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
+
+The head of **Tasks** shows how much memory is free against the 4 GB mark at which the CFO starts the next task, and the top task is marked **Next**; the board itself starts nothing on its own.
+**Start now** starts a queued task at once, even below the 4 GB mark: a button on the next task, and a play button on any other on hover or focus.
+It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
+Start is refused, with the reason on the card, when less than 3 GB of memory is free, when the task has no brief yet, or while another task is starting; a start `cfo spawn` refuses shows its reason on the card too.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
@@ -222,6 +230,7 @@ A long status line shows its first three lines with **Show more**, which opens t
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued task has no terminal yet, so its panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
+The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
@@ -230,7 +239,8 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
-A goblin still in Herdr is sized to the panel while the board has the focus, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom; leaving the board for another window, such as a Herdr window, hands the pane back its Herdr size, and the board then shows the whole pane scaled to fit until you come back or type, with the same full-pane state while it connects; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
+A goblin still in Herdr stays live and sized to the panel while its view is open, focused or not, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom, and follows the panel as it changes size; a Herdr window shows it at the board's size, and closing the view hands the pane back its Herdr size; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
+A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, unless a review gate owns the goblin, when the board says to scroll it in Herdr.
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
@@ -328,6 +338,7 @@ cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
 cfo pipeline recover <id>
 cfo gate tests-kept
+cfo gate test
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo cleanup <id>
@@ -336,6 +347,7 @@ cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
+cfo answer <question-id> --option <choice> [--note "<text>"] --record-only
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]

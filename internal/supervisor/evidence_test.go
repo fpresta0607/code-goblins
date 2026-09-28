@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -268,6 +270,84 @@ func TestReportKindNamesTheKindOfAGoblinsLatestReport(t *testing.T) {
 	}
 }
 
+// Each refresh ran up to five git processes per checkout, every one scanned
+// by Defender: about 33 git spawns a minute on the live home on 2026-09-27.
+// A checkout is read again only when a fetch or a remote change rewrites its
+// git files; otherwise the scan uses what it read last.
+func TestGitMergedPRsReadsACheckoutAgainOnlyWhenItsRefsMove(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "code-goblins")
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	merge := func(number int) {
+		t.Helper()
+		branch := fmt.Sprintf("fix/change-%d", number)
+		git("switch", "-q", "-c", branch)
+		git("commit", "-q", "--allow-empty", "-m", branch)
+		git("switch", "-q", "main")
+		git("merge", "-q", "--no-ff", branch, "-m", fmt.Sprintf("Merge pull request #%d from o/%s", number, branch))
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q", "--initial-branch=main")
+	git("config", "user.email", "t@t")
+	git("config", "user.name", "t")
+	git("remote", "add", "origin", "https://github.com/o/code-goblins.git")
+	git("commit", "-q", "--allow-empty", "-m", "base")
+	merge(1)
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	numbers := func(merged []MergedPR, err error) []string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var listed []string
+		for _, pr := range merged {
+			listed = append(listed, strings.TrimPrefix(pr.PR, "https://github.com/o/code-goblins/pull/"))
+		}
+		slices.Sort(listed)
+		return listed
+	}
+	list := GitMergedPRs([]string{repo})
+	since := time.Now().Add(-time.Hour)
+	if first := numbers(list(t.Context(), since)); !slices.Equal(first, []string{"1"}) {
+		t.Fatalf("first scan lists %v, want PR 1", first)
+	}
+
+	// Move origin's main to a new merge, then put the ref file's time back:
+	// to the scan nothing a fetch writes has changed.
+	ref := filepath.Join(repo, ".git", "refs", "remotes", "origin", "main")
+	before, err := os.Stat(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge(2)
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	if err := os.Chtimes(ref, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	held := numbers(list(t.Context(), since))
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(ref, later, later); err != nil {
+		t.Fatal(err)
+	}
+	moved := numbers(list(t.Context(), since))
+
+	if !slices.Equal(held, []string{"1"}) {
+		t.Fatalf("with its git files unchanged the scan lists %v, want what it read before (PR 1): it ran git again", held)
+	}
+	if !slices.Equal(moved, []string{"1", "2"}) {
+		t.Fatalf("after origin's main moved the scan lists %v, want PRs 1 and 2", moved)
+	}
+}
+
 func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "code-goblins")
@@ -316,14 +396,14 @@ func TestGitMergedPRsReadsMergeCommitsOfEachFleetRepository(t *testing.T) {
 	if len(repos) != 3 {
 		t.Fatalf("repos = %v, want the home once and the other two checkouts", repos)
 	}
-	merged, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), 10)
+	merged, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(merged) != 1 || merged[0].PR != "https://github.com/o/code-goblins/pull/31" || merged[0].Branch != "fix/wake" || merged[0].At != time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC).Unix() {
 		t.Fatalf("merged = %+v, want only the merge commit of PR 31", merged)
 	}
-	if later, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC), 10); err != nil || len(later) != 0 {
+	if later, err := GitMergedPRs(repos)(t.Context(), time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)); err != nil || len(later) != 0 {
 		t.Fatalf("merges before the window = %+v, %v; want none", later, err)
 	}
 }
@@ -371,13 +451,112 @@ func TestSnapshotReadsOnlyTheStatusLinesOfTheTasksOwnGeneration(t *testing.T) {
 	}
 }
 
+// The merge scan reads every fleet repository with git, which took 47 to 50 s
+// of each minute on 2026-09-27 while it ran on the supervisor's only loop:
+// native events, the heartbeat and every snapshot waited behind it, and the
+// board read the supervisor as unhealthy. The loop must never wait for it.
+func TestTheSupervisorLoopDoesNotWaitForTheMergeScan(t *testing.T) {
+	_, h := testStore(t)
+	scanning, release := make(chan struct{}, 1), make(chan struct{})
+	s, err := Start(context.Background(), h, Options{MergedPRs: func(ctx context.Context, _ time.Time) ([]MergedPR, error) {
+		select {
+		case scanning <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return []MergedPR{{PR: "https://github.com/o/r/pull/7", Branch: "fix/late", Project: "r", At: time.Now().Unix()}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	within := func(what string, done func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal(what)
+			}
+		}
+	}
+	snapshot := func() Snapshot {
+		t.Helper()
+		view, err := s.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view
+	}
+
+	select {
+	case <-scanning:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the merge scan never started")
+	}
+
+	within("the loop waited for the merge scan: no recovery cycle finished while it ran", func() bool { return !snapshot().Reconciled.IsZero() })
+	close(release)
+	within("the merge the scan found never reached the board", func() bool {
+		return slices.ContainsFunc(snapshot().Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/7" })
+	})
+}
+
+// Completed is rebuilt when a task finishes or its gate sees it merge, not
+// only on the timer.
+func TestHistoryIsRebuiltWhenATaskFinishesOrMerges(t *testing.T) {
+	store, h := testStore(t)
+	scans := make(chan struct{}, 8)
+	s := &Service{Store: store, subscribers: map[chan struct{}]struct{}{}, Options: Options{MergedPRs: func(context.Context, time.Time) ([]MergedPR, error) {
+		scans <- struct{}{}
+		return nil, nil
+	}}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go s.keepHistory(ctx, time.Hour, 20*time.Millisecond)
+	scanned := func(why string) {
+		t.Helper()
+		select {
+		case <-scans:
+		case <-time.After(5 * time.Second):
+			t.Fatal(why)
+		}
+	}
+	quiet := func(why string) {
+		t.Helper()
+		select {
+		case <-scans:
+			t.Fatal(why)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	scanned("no rebuild at start")
+	quiet("rebuilt again with nothing changed and the hour not up")
+	if _, err := store.Queue(Action{ID: "evaluate-task-1", Kind: "evaluate", TaskID: "task-1", Generation: "g1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(t.Context(), func(context.Context, Action) (Evaluation, error) {
+		return Evaluation{Phase: "merged", Reason: "PR merged"}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scanned("no rebuild after the gate saw task-1 merge")
+	if err := os.Remove(filepath.Join(h.State, "task-1.meta")); err != nil {
+		t.Fatal(err)
+	}
+	scanned("no rebuild after task-1 was cleaned up")
+	quiet("rebuilt again with nothing changed since")
+}
+
 func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	store, _ := testStore(t)
 	failure := errors.New("git log failed in one repository")
-	service := &Service{Store: store, Options: Options{MergedPRs: func(context.Context, time.Time, int) ([]MergedPR, error) {
+	service := &Service{Store: store, Options: Options{MergedPRs: func(context.Context, time.Time) ([]MergedPR, error) {
 		return []MergedPR{{PR: "https://github.com/o/r/pull/32", Branch: "fix/b", Project: "r", At: time.Now().Unix()}}, failure
 	}}}
-	if err := service.refreshHistory(t.Context()); !errors.Is(err, failure) {
+	if err := service.refreshHistory(t.Context(), time.Now().UTC()); !errors.Is(err, failure) {
 		t.Fatalf("refreshHistory error = %v, want the failing repository reported", err)
 	}
 	view, err := service.Snapshot()
@@ -386,6 +565,243 @@ func TestHistoryKeepsHealthyMergesWhenARepositoryFails(t *testing.T) {
 	}
 	if !slices.ContainsFunc(view.Tasks, func(task Task) bool { return task.ID == "merged:https://github.com/o/r/pull/32" }) {
 		t.Fatalf("tasks = %+v, want the healthy repository's merge", view.Tasks)
+	}
+}
+
+// The Completed column shows the newest twenty entries, but a finished task
+// finds its merge among every merge in the window: pd-cost-cuts-resume read
+// Finished while its merged PR sat behind 38 newer fleet merges.
+func TestAFinishedTaskFindsItsMergeBehindTwentyNewerMerges(t *testing.T) {
+	store, h := testStore(t)
+	repo := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+	now := time.Now().UTC()
+	var stream strings.Builder
+	committer := func(minute int) string {
+		return fmt.Sprintf("committer t <t@t> %d +0000\n", now.Add(time.Duration(minute-60)*time.Minute).Unix())
+	}
+	fmt.Fprintf(&stream, "commit refs/heads/side\nmark :1\n%sdata 4\nside\n", committer(0))
+	fmt.Fprintf(&stream, "commit refs/heads/main\n%sdata 4\nbase\n", committer(0))
+	for pr := 1; pr <= 21; pr++ {
+		subject := fmt.Sprintf("Merge pull request #%d from o/fix/pr-%d", pr, pr)
+		fmt.Fprintf(&stream, "commit refs/heads/main\n%sdata %d\n%s\nmerge :1\n", committer(pr), len(subject), subject)
+	}
+	git := func(stdin string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Stdin = strings.NewReader(stdin)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("", "init", "-q", "--initial-branch=main")
+	git(stream.String(), "fast-import", "--quiet")
+	git("", "remote", "add", "origin", "https://github.com/o/PrecisionDocs-AI.git")
+	git("", "update-ref", "refs/remotes/origin/main", "refs/heads/main")
+	if err := os.WriteFile(filepath.Join(h.State, "pd-cost-cuts-resume.status"), []byte("done: PR https://github.com/o/PrecisionDocs-AI/pull/1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Options: Options{MergedPRs: GitMergedPRs([]string{repo})}}
+
+	if err := service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:pd-cost-cuts-resume" })
+	if index < 0 {
+		t.Fatal("Completed has no card for the finished task")
+	}
+	if !view.Tasks[index].Merged {
+		t.Fatalf("finished task = %+v, want it to carry its merge", view.Tasks[index])
+	}
+	if completed := slices.DeleteFunc(slices.Clone(view.Tasks), func(task Task) bool { return !task.Archived }); len(completed) != historyLimit {
+		t.Fatalf("Completed lists %d entries, want the newest %d", len(completed), historyLimit)
+	}
+}
+
+// A squash merge leaves no merge commit and a closed pull request leaves
+// nothing in git, so a finished task's pull request no fleet history shows
+// merged is asked about on GitHub; a final answer is not asked for again.
+func TestAFinishedTaskReadsItsPullRequestStateFromGitHub(t *testing.T) {
+	store, h := testStore(t)
+	for id, pr := range map[string]string{
+		"squashed":  "https://github.com/o/r/pull/1",
+		"dropped":   "https://github.com/o/r/pull/2",
+		"open":      "https://github.com/o/r/pull/3",
+		"landed":    "https://github.com/o/r/pull/4",
+		"elsewhere": "https://gitlab.com/o/r/-/merge_requests/5",
+	} {
+		if err := os.WriteFile(filepath.Join(h.State, id+".status"), []byte("done: PR "+pr+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answers := map[string]string{"https://github.com/o/r/pull/1": "MERGED", "https://github.com/o/r/pull/2": "CLOSED", "https://github.com/o/r/pull/3": "OPEN"}
+	var asked []string
+	service := &Service{Store: store, Options: Options{
+		MergedPRs: func(context.Context, time.Time) ([]MergedPR, error) {
+			return []MergedPR{{PR: "https://github.com/o/r/pull/4", Branch: "fix/landed", Project: "r", At: time.Now().Unix()}}, nil
+		},
+		PullRequestState: func(_ context.Context, url string) (string, error) {
+			asked = append(asked, url)
+			return answers[url], nil
+		},
+	}}
+	now := time.Now().UTC()
+	refresh := func(at time.Time) []string {
+		t.Helper()
+		asked = nil
+		if err := service.refreshHistory(t.Context(), at); err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(asked)
+		return asked
+	}
+
+	first := refresh(now)
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2", "https://github.com/o/r/pull/3"}; !slices.Equal(first, want) {
+		t.Fatalf("asked GitHub about %v, want only the GitHub pull requests no merge commit shows: %v", first, want)
+	}
+	for id, want := range map[string][2]bool{"squashed": {true, false}, "dropped": {false, true}, "open": {false, false}, "landed": {true, false}, "elsewhere": {false, false}} {
+		index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:"+id })
+		if index < 0 || view.Tasks[index].Merged != want[0] || view.Tasks[index].Closed != want[1] {
+			t.Fatalf("finished:%s in %+v, want merged %v and closed %v", id, view.Tasks, want[0], want[1])
+		}
+	}
+	if again := refresh(now.Add(time.Minute)); len(again) != 0 {
+		t.Fatalf("a minute later asked about %v, want nothing", again)
+	}
+	if later := refresh(now.Add(pullRequestRecheck)); !slices.Equal(later, []string{"https://github.com/o/r/pull/3"}) {
+		t.Fatalf("after the recheck interval asked about %v, want only the open pull request", later)
+	}
+}
+
+func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) {
+	store, h := testStore(t)
+	if err := os.WriteFile(filepath.Join(h.State, "unread.status"), []byte("done: PR https://github.com/o/r/pull/7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("gh is not signed in")
+	asks := 0
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (string, error) {
+		asks++
+		return "", failure
+	}}}
+	now := time.Now().UTC()
+
+	err := service.refreshHistory(t.Context(), now)
+	view, snapshotErr := service.Snapshot()
+	if snapshotErr != nil {
+		t.Fatal(snapshotErr)
+	}
+
+	if !errors.Is(err, failure) {
+		t.Fatalf("refreshHistory error = %v, want GitHub's failure reported", err)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:unread" })
+	if index < 0 || view.Tasks[index].Merged || view.Tasks[index].Closed {
+		t.Fatalf("tasks = %+v, want the unread pull request to read Finished", view.Tasks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil || asks != 1 {
+		t.Fatalf("a minute later: error %v after %d asks, want no new ask", err, asks)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(pullRequestRecheck)); !errors.Is(err, failure) || asks != 2 {
+		t.Fatalf("after the recheck interval: error %v after %d asks, want one more ask", err, asks)
+	}
+}
+
+// All asks of one refresh share pullRequestBudget, so a GitHub that does not
+// answer holds the supervisor's loop only that long; what was not asked is
+// asked on the next refresh.
+func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
+	store, h := testStore(t)
+	for pr := 1; pr <= 3; pr++ {
+		if err := os.WriteFile(filepath.Join(h.State, fmt.Sprintf("slow-%d.status", pr)), []byte(fmt.Sprintf("done: PR https://github.com/o/r/pull/%d\n", pr)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var asked []string
+	blocking := true
+	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (string, error) {
+		asked = append(asked, url)
+		if blocking {
+			blocking = false
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return "OPEN", nil
+	}}}
+	now := time.Now().UTC()
+
+	started := time.Now()
+	err := service.refreshHistory(t.Context(), now)
+	elapsed := time.Since(started)
+
+	if elapsed > pullRequestBudget+3*time.Second {
+		t.Fatalf("the refresh took %v, want it to end soon after the %v budget", elapsed, pullRequestBudget)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || len(asked) != 1 {
+		t.Fatalf("first refresh: error %v after asking %v, want one ask cut off by the budget and reported", err, asked)
+	}
+	blocked := asked[0]
+	asked = nil
+	if err := service.refreshHistory(t.Context(), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 || slices.Contains(asked, blocked) {
+		t.Fatalf("next refresh asked %v, want the two pull requests the budget left and not %s", asked, blocked)
+	}
+}
+
+type ghRunner struct {
+	result  execx.Result
+	err     error
+	request execx.Request
+}
+
+func (r *ghRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	r.request = req
+	return r.result, r.err
+}
+
+func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
+	const url = "https://github.com/o/r/pull/9"
+	for _, c := range []struct {
+		name   string
+		result execx.Result
+		err    error
+		want   string
+	}{
+		{"merged", execx.Result{Stdout: []byte("MERGED\n")}, nil, "MERGED"},
+		{"closed", execx.Result{Stdout: []byte("CLOSED\n")}, nil, "CLOSED"},
+		{"open", execx.Result{Stdout: []byte("OPEN\n")}, nil, "OPEN"},
+		{"unknown answer", execx.Result{Stdout: []byte("DRAFT\n")}, nil, ""},
+		{"empty answer", execx.Result{}, nil, ""},
+		{"gh refused", execx.Result{ExitCode: 1, Stderr: []byte("no pull requests found")}, nil, ""},
+		{"gh missing", execx.Result{}, errors.New("executable file not found"), ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			runner := &ghRunner{result: c.result, err: c.err}
+
+			got, err := GitHubPullRequestState(runner)(t.Context(), url)
+
+			if got != c.want || (err == nil) != (c.want != "") {
+				t.Fatalf("state = %q, %v; want %q", got, err, c.want)
+			}
+			if want := []string{"pr", "view", url, "--json", "state", "--jq", ".state"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
+				t.Fatalf("ran %s %v, want gh %v", runner.request.Name, runner.request.Args, want)
+			}
+		})
 	}
 }
 

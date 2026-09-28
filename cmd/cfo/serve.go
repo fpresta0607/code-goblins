@@ -31,6 +31,21 @@ import (
 const defaultBoardAddress = "127.0.0.1:4310"
 
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	// Serve does not care where it was started. Started from a Herdr pane,
+	// such as the CFO's own, it would hand that pane's variables to every
+	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
+	// HERDR_TAB_ID, HERDR_WORKSPACE_ID, HERDR_STARTUP_CWD, HERDR_SOCKET_PATH
+	// and HERDR_BIN_PATH), and herdr refuses to start inside what they name
+	// as another Herdr, so it forgets them first. HERDR_SESSION and
+	// configuration such as HERDR_CONFIG_PATH are not the pane's and are kept.
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) {
+			if err := os.Unsetenv(name); err != nil {
+				fmt.Fprintf(stderr, "cfo serve: forget the Herdr pane's %s: %v\n", name, err)
+				return 1
+			}
+		}
+	}
 	f := flag.NewFlagSet("serve", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	address := f.String("listen", defaultBoardAddress, "loopback address for the native board")
@@ -95,15 +110,17 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot)
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
-		Example:        *example,
-		CFO:            &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})},
-		Gate:           pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
-		MergedPRs:      supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
-		Reconcile:      func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
-		VerifyDelivery: (supervisor.Git{}).VerifyDelivery,
-		Runs:           supervisor.OSRunLauncher{},
-		PollPage:       (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
-		FirstRun:       firstRun,
+		Example:          *example,
+		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
+		Gate:             pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
+		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
+		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
+		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
+		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
+		Runs:             supervisor.OSRunLauncher{},
+		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
+		FirstRun:         firstRun,
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Spawn: spawnFromBoard},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -157,4 +174,19 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
 		StartCFO: func(project string) error { return startNativeCFO(h.State, project, "claude") },
 	}
+}
+
+// spawnFromBoard runs this cfo binary with args, as a queued task's Start
+// dispatches it through cfo spawn, and returns everything it printed.
+func spawnFromBoard(ctx context.Context, args []string) (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	result, err := (execx.OSRunner{}).Run(ctx, execx.Request{Name: self, Args: args})
+	output := string(result.Stdout) + string(result.Stderr)
+	if err == nil && result.ExitCode != 0 {
+		err = fmt.Errorf("cfo spawn exited %d", result.ExitCode)
+	}
+	return output, err
 }

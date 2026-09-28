@@ -129,6 +129,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.action(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
+	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
+		h.startTask(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":

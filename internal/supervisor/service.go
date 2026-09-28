@@ -38,9 +38,12 @@ type Options struct {
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
 	VerifyDelivery func(context.Context, state.TaskMeta, string, string, string) (string, error)
-	// MergedPRs lists, newest first, at most limit pull requests merged since
-	// a time.
-	MergedPRs func(ctx context.Context, since time.Time, limit int) ([]MergedPR, error)
+	// MergedPRs lists every pull request merged since a time.
+	MergedPRs func(ctx context.Context, since time.Time) ([]MergedPR, error)
+	// PullRequestState asks the forge whether a pull request is OPEN, CLOSED
+	// or MERGED; without it a finished task whose merge no fleet history
+	// shows reads Finished.
+	PullRequestState func(ctx context.Context, url string) (string, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -49,6 +52,9 @@ type Options struct {
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
+	// Dispatch is what a queued task's Start reads and runs; without it the
+	// board starts no goblin.
+	Dispatch *Dispatch
 }
 
 type Service struct {
@@ -66,11 +72,22 @@ type Service struct {
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
+	// pullRequests is what GitHub last said about each finished task's pull
+	// request the history shows; only keepHistory touches it.
+	pullRequests map[string]pullRequestState
+	// historyErr is what the last history refresh met; the loop reports it
+	// with its next recovery cycle.
+	historyErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
+	// starts guards starting, the task a Start is running cfo spawn for, and
+	// startErrors, why each task's last Start failed.
+	starts      sync.Mutex
+	starting    string
+	startErrors map[string]string
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -166,6 +183,12 @@ func (s *Service) run(ctx context.Context) {
 	}()
 	defer func() { s.cancel(); <-pipeDone }()
 	defer func() { s.cancel(); s.pageWork.Wait() }()
+	historyDone := make(chan struct{})
+	go func() {
+		defer close(historyDone)
+		s.keepHistory(ctx, historyRefresh, historyWatch)
+	}()
+	defer func() { s.cancel(); <-historyDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -247,7 +270,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration(ctx)
-		reconcileErr = errors.Join(reconcileErr, s.refreshHistory(ctx))
+		s.mu.Lock()
+		reconcileErr = errors.Join(reconcileErr, s.historyErr)
+		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
 		s.mu.Lock()
@@ -264,17 +289,69 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 }
 
-// refreshHistory rebuilds the Completed column on the once-a-minute recovery
-// cycle: finished tasks, and the pull requests merged into fleet repositories.
-func (s *Service) refreshHistory(ctx context.Context) error {
-	now := time.Now().UTC()
+// keepHistory rebuilds the Completed column away from the loop: at start,
+// whenever historyMark changes (a task finished, or its gate saw it merge),
+// which it checks every watch, and otherwise every interval. Its merge scan
+// reads fleet repositories with git, and on the loop it took most of each
+// minute while native events, the heartbeat and every snapshot waited. Each
+// rebuild reaches the board at once.
+func (s *Service) keepHistory(ctx context.Context, every, watch time.Duration) {
+	ticker := time.NewTicker(watch)
+	defer ticker.Stop()
+	var mark string
+	var rebuilt time.Time
+	for {
+		if next := s.historyMark(); next != mark || time.Since(rebuilt) >= every {
+			mark, rebuilt = next, time.Now()
+			err := s.refreshHistory(ctx, time.Now().UTC())
+			s.mu.Lock()
+			s.historyErr = err
+			s.mu.Unlock()
+			s.notify()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// historyMark names what changes when Completed gains a card: the live task
+// records, which cleanup removes as a task finishes, and the tasks whose gate
+// saw their pull request merge.
+func (s *Service) historyMark() string {
+	var mark strings.Builder
+	if entries, err := os.ReadDir(s.Store.Home.State); err == nil {
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".meta") {
+				mark.WriteString(entry.Name() + ";")
+			}
+		}
+	}
+	var merged []string
+	for id, evaluation := range s.Store.Snapshot().Tasks {
+		if evaluation.Phase == "merged" || evaluation.Phase == "done" {
+			merged = append(merged, id+"@"+evaluation.Generation)
+		}
+	}
+	slices.Sort(merged)
+	mark.WriteString(strings.Join(merged, ";"))
+	return mark.String()
+}
+
+// refreshHistory rebuilds the Completed column: finished tasks, the pull
+// requests merged into fleet repositories, and what GitHub says of the
+// finished tasks' other pull requests.
+func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	history := finishedTasks(s.Store.Home.State, now)
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
-		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow), historyLimit)
+		merged, err = s.Options.MergedPRs(ctx, now.Add(-historyWindow))
 		history = withMergedPRs(history, merged)
 	}
+	err = errors.Join(err, s.withPullRequestStates(ctx, history, now))
 	s.mu.Lock()
 	s.history = history
 	s.mu.Unlock()
@@ -560,13 +637,21 @@ type Task struct {
 	// its latest report.
 	Activity string `json:"activity"`
 	Report   string `json:"report"`
-	// Archived marks completed history rather than a live task, and Merged
-	// that its pull request merged into a fleet repository.
+	// Archived marks completed history rather than a live task, Merged that
+	// its pull request merged into its base, and Closed that GitHub closed it
+	// without merging.
 	Archived bool `json:"archived"`
 	Merged   bool `json:"merged"`
+	Closed   bool `json:"closed"`
 	// Since is when a live task's session started, or when queued work's
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
+	// Brief says queued work has its brief, which a Start needs; Starting
+	// that its Start runs cfo spawn now, and StartError why its last Start
+	// failed.
+	Brief      bool   `json:"brief"`
+	Starting   bool   `json:"starting"`
+	StartError string `json:"start_error"`
 	Evaluation
 }
 
@@ -610,6 +695,9 @@ type Snapshot struct {
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// Memory is the machine's free memory for the Tasks meter, absent on a
+	// board that cannot start goblins or cannot read it.
+	Memory *Memory `json:"memory,omitempty"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -768,6 +856,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
 		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
+		}
+	}
+	s.starts.Lock()
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		task.Starting = task.ID == s.starting
+		if task.Phase == "queued" {
+			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+			task.StartError = s.startErrors[task.ID]
+		}
+	}
+	s.starts.Unlock()
+	if dispatch := s.Options.Dispatch; dispatch != nil {
+		if available, total, err := dispatch.Memory(); err == nil {
+			out.Memory = &Memory{Available: available, Total: total, Floor: memoryFloor, Next: memoryNext}
 		}
 	}
 	for _, done := range history {

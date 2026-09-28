@@ -148,12 +148,16 @@ func ConfigFromEnv(h home.Home) Config {
 	// A home that cannot be read only costs the transcript half of the
 	// progress evidence; the process half still reads.
 	userHome, _ := os.UserHomeDir()
+	// Every Herdr read the monitor and the sweep make goes over the session's
+	// socket, found once through Herdr's status, rather than starting a
+	// herdr process each time.
+	sockets := herdr.NewSocketCache()
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
-		Probe:    monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session}),
-		Gate:     monitor.ExecGateProber{},
+		Probe:    monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
+		Gate:     &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
 		Progress: monitor.HostProgress{
-			Panes: &herdr.Client{Commands: execx.OSRunner{}, Session: session},
+			Panes: &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 			Home:  userHome,
 		},
 		Polls:        monitor.ProcessPolls{},
@@ -170,7 +174,7 @@ func ConfigFromEnv(h home.Home) Config {
 		Inventory: reap.Collector{
 			Home:      h,
 			Session:   session,
-			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session},
+			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
 			Commands:  execx.OSRunner{},
 

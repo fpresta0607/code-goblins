@@ -12,6 +12,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -56,34 +57,219 @@ func Check(ctx context.Context, git execx.Runner, dir string) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{Base: base}
+	tallies := map[string]*skipTally{}
 	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
 		sha, subject, ok := strings.Cut(line, "\x1f")
 		if !ok || !strings.HasPrefix(subject, GateCommitPrefix) {
 			continue
 		}
-		diff, err := run(ctx, git, dir, "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
+		diff, err := run(ctx, git, dir, "-c", "core.quotePath=false", "show", "--format=", "--no-color", "--unified=0", "--find-renames", sha)
 		if err != nil {
 			return Result{}, err
 		}
 		result.Commits++
+		commit := gateCommit{sha: sha[:min(len(sha), 8)], subject: subject}
+		if err := tallySkips(ctx, git, dir, sha, diff, commit, tallies); err != nil {
+			return Result{}, err
+		}
 		for _, found := range Scan(diff) {
 			standing, err := stillStanding(ctx, git, dir, found)
 			if err != nil {
 				return Result{}, err
 			}
 			if standing {
-				result.Removals = append(result.Removals, Removal{Commit: sha[:min(len(sha), 8)], Subject: subject, File: found.File, What: found.What})
+				result.Removals = append(result.Removals, Removal{Commit: commit.sha, Subject: subject, File: found.File, What: found.What})
 			}
 		}
 	}
+	skips, err := skipIncreases(ctx, git, dir, tallies)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Removals = append(result.Removals, skips...)
 	return result, nil
 }
 
+// gateCommit names the gate commit that last touched a file.
+type gateCommit struct {
+	sha     string
+	subject string
+}
+
+// skipTally is the lines that skip or narrow tests the gate commits added
+// to one file minus those they removed, the texts of the ones they added and
+// did not take out again, and the last gate commit that touched the file.
+type skipTally struct {
+	count  int
+	added  map[string]int
+	commit gateCommit
+}
+
+// tallySkips adds one gate commit's diff to the tallies, carrying a file's
+// tally to its new path when the commit renames it. A removed or added line
+// counts only when it skips or narrows tests in code, judged on the file as
+// it stood before and after the commit (markerLines), so skip text inside a
+// string or comment literal is never a skip.
+func tallySkips(ctx context.Context, git execx.Runner, dir, sha, diff string, commit gateCommit, tallies map[string]*skipTally) error {
+	var tally *skipTally
+	var before, after map[int]bool
+	oldLine, newLine := 0, 0
+	inHeader := false
+	for _, line := range strings.Split(diff, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			inHeader = true
+			source, file := diffPaths(line)
+			tally = tallies[source]
+			if tally == nil {
+				tally = &skipTally{added: map[string]int{}}
+			}
+			delete(tallies, source)
+			tally.commit = commit
+			tallies[file] = tally
+			var err error
+			before, after = nil, nil
+			if isTestFile(source) {
+				if before, err = markedAt(ctx, git, dir, sha+"^", source); err != nil {
+					return err
+				}
+			}
+			if isTestFile(file) {
+				if after, err = markedAt(ctx, git, dir, sha, file); err != nil {
+					return err
+				}
+			}
+		case strings.HasPrefix(line, "@@ "):
+			inHeader = false
+			oldLine, newLine = hunkStarts(line)
+		case inHeader:
+		case strings.HasPrefix(line, "+"):
+			if after[newLine] {
+				tally.count++
+				tally.added[strings.TrimSpace(line[1:])]++
+			}
+			newLine++
+		case strings.HasPrefix(line, "-"):
+			if before[oldLine] {
+				tally.count--
+				if text := strings.TrimSpace(line[1:]); tally.added[text] > 0 {
+					tally.added[text]--
+				}
+			}
+			oldLine++
+		}
+	}
+	return nil
+}
+
+// markedAt is the set of line numbers in file at rev that skip or narrow
+// tests in code; a file rev does not have marks none.
+func markedAt(ctx context.Context, git execx.Runner, dir, rev, file string) (map[int]bool, error) {
+	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"-c", "core.quotePath=false", "show", rev + ":" + file}})
+	if err != nil {
+		return nil, fmt.Errorf("testguard: git show %s:%s: %w", rev, file, err)
+	}
+	marked := map[int]bool{}
+	if result.ExitCode != 0 {
+		return marked, nil
+	}
+	for _, line := range markerLines(file, string(result.Stdout)) {
+		marked[line.number] = true
+	}
+	return marked, nil
+}
+
+// hunkStarts reads the first old and new line numbers of a unified diff hunk
+// header, "@@ -a[,b] +c[,d] @@".
+func hunkStarts(header string) (int, int) {
+	var oldStart, newStart int
+	fields := strings.Fields(header)
+	if len(fields) >= 3 {
+		oldStart, _ = strconv.Atoi(strings.SplitN(strings.TrimPrefix(fields[1], "-"), ",", 2)[0])
+		newStart, _ = strconv.Atoi(strings.SplitN(strings.TrimPrefix(fields[2], "+"), ",", 2)[0])
+	}
+	return oldStart, newStart
+}
+
+// markedLine is one line that skips or narrows tests in code: its number,
+// its text trimmed, and what it does.
+type markedLine struct {
+	number int
+	text   string
+	what   string
+}
+
+// markerLines lists a file's lines that skip or narrow tests, judged on the
+// code alone (codeLines).
+func markerLines(file, content string) []markedLine {
+	original := strings.Split(content, "\n")
+	var marked []markedLine
+	for index, code := range codeLines(file, content) {
+		if what := marker(code); what != "" && index < len(original) {
+			marked = append(marked, markedLine{number: index + 1, text: strings.TrimSpace(original[index]), what: what})
+		}
+	}
+	return marked
+}
+
+// skipIncreases reports every test file whose gate commits added more lines
+// that skip or narrow tests than they removed while HEAD still has some of
+// the skip lines they added, listing those. It counts each gate commit's own
+// diff rather than matching the lines a gate commit added because the
+// adversary is the gate's own fixer: a later gate commit can reword a skip an
+// earlier one added, or move its file, and neither leaves the added line at
+// HEAD. Merges and the goblin's commits are never read, so a skip main or the
+// goblin added or removed is its author's call. Two limits are accepted: a
+// gate commit that removes an existing skip and adds its own in the same file
+// nets zero and is not reported, and a gate-touched file that a goblin commit
+// or a merge moves is not followed, since only gate commits are read and the
+// fixer cannot cause it.
+func skipIncreases(ctx context.Context, git execx.Runner, dir string, tallies map[string]*skipTally) ([]Removal, error) {
+	files := make([]string, 0, len(tallies))
+	for file, tally := range tallies {
+		if tally.count > 0 && isTestFile(file) {
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
+	var removals []Removal
+	for _, file := range files {
+		exists, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"cat-file", "-e", "HEAD:" + file}})
+		if err != nil {
+			return nil, fmt.Errorf("testguard: git cat-file: %w", err)
+		}
+		if exists.ExitCode != 0 {
+			continue
+		}
+		content, err := run(ctx, git, dir, "show", "HEAD:"+file)
+		if err != nil {
+			return nil, err
+		}
+		tally := tallies[file]
+		var standing []string
+		for _, line := range markerLines(file, content) {
+			if tally.added[line.text] > 0 {
+				tally.added[line.text]--
+				standing = append(standing, line.what+line.text)
+			}
+		}
+		if len(standing) == 0 {
+			continue
+		}
+		lines := "lines"
+		if tally.count == 1 {
+			lines = "line"
+		}
+		removals = append(removals, Removal{Commit: tally.commit.sha, Subject: tally.commit.subject, File: file, What: fmt.Sprintf("gate commits added %d more skip %s than they removed, still at HEAD: %s", tally.count, lines, strings.Join(standing, "; "))})
+	}
+	return removals, nil
+}
+
 // stillStanding reports whether HEAD still lacks what a gate commit removed:
-// the deleted test file, a test declared under the removed test's exact name
-// anywhere in a test file, or still carries the skip it added. A later commit
-// that puts the test back, which is what a fix turn on this gate does,
-// resolves it.
+// the deleted test file, or a test declared under the removed test's exact
+// name anywhere in a test file. A later commit that puts the test back, which
+// is what a fix turn on this gate does, resolves it.
 func stillStanding(ctx context.Context, git execx.Runner, dir string, found Finding) (bool, error) {
 	switch {
 	case found.Test != "":
@@ -97,9 +283,6 @@ func stillStanding(ctx context.Context, git execx.Runner, dir string, found Find
 			}
 		}
 		return true, nil
-	case found.Skip != "":
-		matches, err := grep(ctx, git, dir, "-e", found.Skip, "HEAD", "--", found.File)
-		return len(matches) > 0, err
 	default:
 		result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: []string{"cat-file", "-e", "HEAD:" + found.File}})
 		if err != nil {
@@ -114,8 +297,8 @@ type grepMatch struct {
 	line string
 }
 
-// grep lists the lines at HEAD that hold a fixed string, a removed test's
-// name or an added skip line, with their files. git grep exits 1 when
+// grep lists the lines at HEAD that hold a removed test's name, with their
+// files. git grep exits 1 when
 // nothing matches, which is an answer rather than a failure.
 func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]grepMatch, error) {
 	result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: append([]string{"grep", "-z", "-F"}, args...)})
@@ -161,30 +344,24 @@ func run(ctx context.Context, git execx.Runner, dir string, args ...string) (str
 	return string(result.Stdout), nil
 }
 
-// Finding is one deleted or skipped test in a diff. Test is the removed
-// test's name and Skip the skip or only line added, whichever applies; a
-// deleted test file carries neither.
+// Finding is one deleted test or test file in a diff. Test is the removed
+// test's name; a deleted test file carries none.
 type Finding struct {
 	File string
 	What string
 	Test string
-	Skip string
 }
 
 // Scan reads one commit's unified diff and reports the test files it
-// deleted, the tests it removed without adding back under the same name
+// deleted, and the tests it removed without adding back under the same name
 // anywhere in the commit (so a test moved or reordered is not a removal) or
-// under a new name in the same file, and the skips it added beyond those it
-// removed from the same file, so an edited skip is not a new one.
+// under a new name in the same file. Skips are counted across the gate
+// commits instead (skipIncreases), since a later commit can reword one.
 func Scan(diff string) []Finding {
 	var findings []Finding
 	removed := map[string]string{}
 	added := map[string]bool{}
 	addedIn := map[string][]string{}
-	type markerKey struct{ file, what string }
-	var markerOrder []markerKey
-	addedMarkers := map[markerKey][]Finding{}
-	removedMarkers := map[markerKey]int{}
 	file, deleted := "", false
 	for _, line := range strings.Split(diff, "\n") {
 		line = strings.TrimSuffix(line, "\r")
@@ -214,27 +391,12 @@ func Scan(diff string) []Finding {
 			if name, ok := testName(line[1:]); ok && !deleted {
 				removed[name] = file
 			}
-			if what := marker(line[1:]); what != "" {
-				removedMarkers[markerKey{file, what}]++
-			}
 		case strings.HasPrefix(line, "+"):
 			if name, ok := testName(line[1:]); ok {
 				added[name] = true
 				addedIn[file] = append(addedIn[file], name)
 			}
-			if what := marker(line[1:]); what != "" {
-				key := markerKey{file, what}
-				if len(addedMarkers[key]) == 0 {
-					markerOrder = append(markerOrder, key)
-				}
-				skip := strings.TrimSpace(line[1:])
-				addedMarkers[key] = append(addedMarkers[key], Finding{File: file, What: what + skip, Skip: skip})
-			}
 		}
-	}
-	for _, key := range markerOrder {
-		markers := addedMarkers[key]
-		findings = append(findings, markers[min(removedMarkers[key], len(markers)):]...)
 	}
 	// A test that is gone under its name was renamed rather than deleted when
 	// its file gained a new test whose name shares at least half the words of
