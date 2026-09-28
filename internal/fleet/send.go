@@ -236,6 +236,7 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 // read the pane at all or refuses an Enter, so either is reported as an
 // unconfirmed delivery, never as one that sent nothing.
 func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string, wasWorking bool) error {
+	var lastReadErr error
 	for press := 1; press <= submitRetries; press++ {
 		if err := s.sleep(ctx, time.Duration(press)*time.Second); err != nil {
 			return fmt.Errorf("%w; the wait before reading %s's composer ended: %w", unconfirmed(target, herdr.SubmitPending), target, err)
@@ -245,8 +246,10 @@ func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, s
 			if herdr.WaitError(ctx, err) {
 				return fmt.Errorf("%w; %s's composer could not be read: %w", unconfirmed(target, herdr.SubmitPending), target, err)
 			}
+			lastReadErr = err
 			continue
 		}
+		lastReadErr = nil
 		screen := strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n")
 		if !wasWorking && screens.IsWorking(screen) {
 			return nil
@@ -257,6 +260,9 @@ func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, s
 		if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
 			return fmt.Errorf("%w; submitting the text left in %s's composer was refused: %w", unconfirmed(target, herdr.SubmitPending), target, err)
 		}
+	}
+	if lastReadErr != nil {
+		return fmt.Errorf("%w; %s's composer could not be read: %w", unconfirmed(target, herdr.SubmitPending), target, lastReadErr)
 	}
 	return nil
 }
