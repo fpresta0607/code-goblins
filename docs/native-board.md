@@ -219,7 +219,7 @@ An unchanged submitted payload keeps its request ID after an ambiguous HTTP fail
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
 A goblin panel's Terminal view shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
-A panel with no terminal to show says why without opening any view: No CFO is running while no CFO is registered, This task has not started yet for a queued task, and This child has no separate terminal, with **Open owning task**, for a child session.
+A panel with no terminal to show says why without opening any view: No CFO is running while no CFO runs (the snapshot's `cfo_runs`), This task has not started yet for a queued task, and This child has no separate terminal, with **Open owning task**, for a child session.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
 The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
 A goblin panel's Terminal view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
