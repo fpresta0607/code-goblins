@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -32,6 +33,7 @@ var (
 	ntQuerySystemInformation      = ntdll.NewProc("NtQuerySystemInformation")
 	procCreateJobObjectW          = kernel32.NewProc("CreateJobObjectW")
 	procQueryInformationJobObject = kernel32.NewProc("QueryInformationJobObject")
+	procIsProcessInJob            = kernel32.NewProc("IsProcessInJob")
 )
 
 // JobProcesses returns the live processes in the job objects holderPID holds
@@ -87,24 +89,46 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 			return nil, fmt.Errorf("proc: read a job process %d holds: %w", holderPID, err)
 		}
 		ids, err := jobProcessIDs(job)
-		syscall.CloseHandle(job)
 		if err != nil {
+			syscall.CloseHandle(job)
 			return nil, err
 		}
 		if slices.Contains(ids, uint32(holderPID)) {
+			syscall.CloseHandle(job)
 			continue
 		}
 		for _, id := range ids {
-			start, alive := StartTime(int(id))
+			start, alive := jobProcessStart(job, id)
 			if seen[id] || !alive {
 				continue
 			}
 			seen[id] = true
 			jobbed = append(jobbed, Entry{PID: int(id), ParentPID: int(processes[id].parentPID), ExeBase: processes[id].exeBase, Start: start})
 		}
+		syscall.CloseHandle(job)
 	}
 	sort.Slice(jobbed, func(i, j int) bool { return jobbed[i].PID < jobbed[j].PID })
 	return jobbed, nil
+}
+
+func jobProcessStart(job syscall.Handle, id uint32) (time.Time, bool) {
+	process, err := syscall.OpenProcess(processQueryLimitedInformation, false, id)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer syscall.CloseHandle(process)
+	// Keep one process handle for membership and birth, so PID reuse between
+	// the job snapshot and this read cannot authorize an unrelated process.
+	var isMember int32
+	ok, _, _ := procIsProcessInJob.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&isMember)))
+	if ok == 0 || isMember == 0 {
+		return time.Time{}, false
+	}
+	var creation, exit, kernel, user syscall.Filetime
+	if err := syscall.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(0, creation.Nanoseconds()).UTC(), true
 }
 
 // handleEntry is one open handle on the system.

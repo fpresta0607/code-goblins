@@ -44,7 +44,7 @@ type Options struct {
 	// PullRequestState asks the forge whether a pull request is OPEN, CLOSED
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
-	PullRequestState func(ctx context.Context, url string) (string, error)
+	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -88,9 +88,11 @@ type Service struct {
 	ordering sync.Mutex
 	// starts guards starting, the task a Start is running cfo spawn for, and
 	// startErrors, why each task's last Start failed.
-	starts      sync.Mutex
-	starting    string
-	startErrors map[string]string
+	starts       sync.Mutex
+	starting     string
+	startErrors  map[string]string
+	changing     map[string]string
+	changeErrors map[string]string
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -341,6 +343,15 @@ func (s *Service) historyMark() string {
 			}
 		}
 	}
+	for _, directory := range []string{"outcomes", "lifecycle"} {
+		if entries, err := os.ReadDir(filepath.Join(s.Store.Home.State, directory)); err == nil {
+			for _, entry := range entries {
+				if info, err := entry.Info(); err == nil && !info.IsDir() {
+					fmt.Fprintf(&mark, "%s/%s@%d;", directory, entry.Name(), info.ModTime().UnixNano())
+				}
+			}
+		}
+	}
 	var merged []string
 	for id, evaluation := range s.Store.Snapshot().Tasks {
 		if evaluation.Phase == "merged" || evaluation.Phase == "done" {
@@ -356,7 +367,23 @@ func (s *Service) historyMark() string {
 // requests merged into fleet repositories, and what GitHub says of the
 // finished tasks' other pull requests.
 func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
-	history := finishedTasks(s.Store.Home.State, now)
+	history := finishedTasks(s.Store.Home, now)
+	for id, evaluation := range s.Store.Snapshot().Tasks {
+		if evaluation.Phase != "done" && evaluation.Phase != "merged" {
+			continue
+		}
+		meta, err := state.ReadTaskMeta(s.Store.Home.State, id)
+		if err != nil || evaluation.Generation != meta.SpawnGen {
+			continue
+		}
+		if evaluation.PR == "" {
+			lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+			_, evaluation.PR = statusActivity(lines, spawnTime(meta.SpawnGen))
+		}
+		if evaluation.PR != "" {
+			history = append(history, Task{ID: id, Title: meta.Title, Project: filepath.Base(meta.Project), Evaluation: evaluation})
+		}
+	}
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
@@ -399,6 +426,9 @@ func (s *Service) reconcileTasks(now time.Time) error {
 			continue // Retired task metadata is not reconstructed from old events.
 		}
 		prior := d.Tasks[task]
+		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+			continue
+		}
 		if prior.Generation == meta.SpawnGen && prior.Phase == "done" && !node.UpdatedAt.After(prior.At) {
 			continue
 		}
@@ -432,6 +462,9 @@ func (s *Service) reconcileTasks(now time.Time) error {
 			continue
 		}
 		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" || evaluationPending(d.Actions, task) {
+			continue
+		}
+		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 			continue
 		}
 		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
@@ -527,6 +560,12 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if meta.SpawnGen != a.Generation {
 		return Evaluation{}, fmt.Errorf("%w: task restarted or was replaced; refresh the board", ErrRejected)
+	}
+	if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+		if a.Kind != "evaluate" {
+			return Evaluation{}, fmt.Errorf("task is %s", record.Phase)
+		}
+		return Evaluation{Phase: record.Phase, Reason: record.Reason, Generation: meta.SpawnGen, At: record.Updated}, nil
 	}
 	if a.Kind == "review" {
 		return s.deliverReview(ctx, meta, a)
@@ -639,6 +678,7 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 type Task struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
+	Branch       string          `json:"branch,omitempty"`
 	Project      string          `json:"project"`
 	Harness      string          `json:"harness"`
 	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
@@ -665,9 +705,14 @@ type Task struct {
 	// Brief says queued work has its brief, which a Start needs; Starting
 	// that its Start runs cfo spawn now, and StartError why its last Start
 	// failed.
-	Brief      bool   `json:"brief"`
-	Starting   bool   `json:"starting"`
-	StartError string `json:"start_error"`
+	Brief         bool             `json:"brief"`
+	Starting      bool             `json:"starting"`
+	StartError    string           `json:"start_error"`
+	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
+	ActionError   string           `json:"action_error,omitempty"`
+	QueueRevision string           `json:"queue_revision,omitempty"`
+	Detail        string           `json:"detail,omitempty"`
+	Notes         []string         `json:"notes,omitempty"`
 	Evaluation
 }
 
@@ -764,6 +809,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
 			if meta, err := state.ReadTaskMeta(s.Store.Home.State, node.TaskID); err == nil {
 				node.Runtime = s.runtimeEvidence(meta, node, out.At)
+				if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+					node.Phase = record.Phase
+				}
 			}
 		}
 		out.Sessions = append(out.Sessions, node)
@@ -879,8 +927,38 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == s.starting
 		if task.Phase == "queued" {
+			if queued, err := fleet.ReadQueuedTask(s.Store.Home, task.ID); err == nil {
+				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				if queued.IsBriefOnly {
+					task.Title = queued.Row.Title
+				}
+			}
+			for _, record := range out.Decisions {
+				if record.Key == task.ID && strings.HasPrefix(record.Detail, "task note: ") {
+					task.Notes = append(task.Notes, strings.TrimPrefix(record.Detail, "task note: "))
+				}
+			}
 			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.StartError = s.startErrors[task.ID]
+		}
+		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
+		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued"
+		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
+			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
+			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
+		}
+		if lifecycleErr == nil && isCurrent && record.Phase != "running" {
+			task.Lifecycle = lifecycleStatus(record)
+			if record.SuppressesMonitoring(s.Store.Home.State) {
+				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
+			}
+			if record.Phase == "stopped" {
+				task.Archived = true
+			}
+		}
+		task.ActionError = s.changeErrors[task.ID]
+		if action := s.changing[task.ID]; action != "" {
+			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 		}
 	}
 	s.starts.Unlock()
@@ -890,6 +968,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	for _, done := range history {
+		if !done.Archived {
+			for i := range out.Tasks {
+				task := &out.Tasks[i]
+				if task.ID == done.ID && task.PR == done.PR && (task.Phase == "done" || task.Phase == "merged") {
+					task.Title, task.Project, task.Branch = done.Title, done.Project, done.Branch
+					task.Merged, task.Closed = done.Merged, done.Closed
+				}
+			}
+			continue
+		}
 		if strings.HasPrefix(done.ID, "merged:") && slices.ContainsFunc(out.Tasks, func(t Task) bool {
 			return t.PR == done.PR && (t.Phase == "merged" || t.Phase == "done")
 		}) {

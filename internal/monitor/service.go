@@ -123,6 +123,34 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		if err != nil || (meta.Backend != "herdr" && meta.Backend != "native") {
 			continue
 		}
+		if lifecycle, lifecycleErr := state.ReadLifecycle(s.StateDir, id); lifecycleErr == nil {
+			if lifecycle.Generation == meta.SpawnGen && lifecycle.SuppressesMonitoring(s.StateDir) {
+				health := HealthParked
+				if lifecycle.Phase == "paused" || lifecycle.Phase == "pausing" {
+					health = HealthPaused
+				}
+				if lifecycle.Phase == "resuming" {
+					health = HealthLaunching
+				}
+				observation := Observation{Schema: Schema, TaskID: id, Endpoint: endpointString(meta), EndpointVerdict: ProbeUnknown, LastObserved: now, Health: health, Reason: LifecycleOperation}
+				if err := WriteObservation(s.StateDir, observation); err != nil {
+					return ScanResult{}, err
+				}
+				result.Observations = append(result.Observations, observation)
+				if result.Event != nil && result.Event.TaskID == id {
+					result.Event = nil
+				}
+				if heartbeat.PendingEvent != nil && heartbeat.PendingEvent.TaskID == id {
+					heartbeat.PendingEvent = nil
+				}
+				if polls.PendingEvent != nil && polls.PendingEvent.TaskID == id {
+					polls.PendingEvent = nil
+				}
+				continue
+			}
+		} else if !errors.Is(lifecycleErr, os.ErrNotExist) {
+			return ScanResult{}, fmt.Errorf("monitor: read lifecycle %s: %w", id, lifecycleErr)
+		}
 
 		prior, priorErr := ReadObservation(s.StateDir, id)
 		if priorErr != nil && !errors.Is(priorErr, os.ErrNotExist) {

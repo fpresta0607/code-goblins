@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 )
 
 // RenderJSON writes the complete typed snapshot. It does not inspect files,
@@ -39,8 +41,24 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error {
 	if err := writeLine(w, "## Under Way"); err != nil {
 		return err
 	}
-	if err := renderTasks(w, snapshot.Tasks); err != nil {
+	var active, paused []TaskRow
+	for _, task := range snapshot.Tasks {
+		if task.Current.State == crewstate.Paused || task.Current.State == crewstate.Pausing || task.Current.State == crewstate.Resuming {
+			paused = append(paused, task)
+		} else {
+			active = append(active, task)
+		}
+	}
+	if err := renderTasks(w, active); err != nil {
 		return err
+	}
+	if len(paused) > 0 {
+		if err := writeLine(w, "\n## Paused"); err != nil {
+			return err
+		}
+		if err := renderTasks(w, paused); err != nil {
+			return err
+		}
 	}
 	if err := writeLine(w, ""); err != nil {
 		return err
@@ -59,6 +77,20 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error {
 	}
 	if err := renderBacklogRows(w, snapshot.Backlog.Done, "No done backlog records found."); err != nil {
 		return err
+	}
+	if len(snapshot.Completed) > 0 {
+		if err := writeLine(w, "\n## Completed\n\n| Task | Title | Repository | State | Reason |\n| --- | --- | --- | --- | --- |"); err != nil {
+			return err
+		}
+		for _, outcome := range snapshot.Completed {
+			phase := "Stopped"
+			if outcome.Phase == "done" {
+				phase = "Finished"
+			}
+			if err := writeLine(w, "| "+strings.Join(markdownFields([]string{outcome.ID, outcome.Title, outcome.Project, phase, outcome.Reason}), " | ")+" |"); err != nil {
+				return err
+			}
+		}
 	}
 	if err := writeLine(w, ""); err != nil {
 		return err
@@ -80,6 +112,10 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 		return err
 	}
 	for _, task := range tasks {
+		endpoint := endpointText(task.Endpoint)
+		if task.Current.State == crewstate.Paused {
+			endpoint = "released"
+		}
 		fields := []string{
 			task.ID,
 			currentText(task),
@@ -91,7 +127,7 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 			task.Kind,
 			task.Project,
 			task.Backend,
-			endpointText(task.Endpoint),
+			endpoint,
 			task.Artifact,
 			task.Path,
 			task.Actions.Peek,

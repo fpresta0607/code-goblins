@@ -31,10 +31,14 @@ export function meterScale(memory: Memory): { fill: number; floor: number; next:
 // supervisor checks all of it again; this only saves a refused click.
 export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean): string {
   if (task.starting) return "Starting";
-  if (!task.brief) return "No brief yet: the CFO writes one before it can start";
-  if (memory && memory.available < memory.floor) return `Under the ${gigabytes(memory.floor)} GB memory floor`;
+  if (queueBlock(task)) return queueBlock(task);
+  if (memory && memory.available < memory.next) return `Needs ${gigabytes(memory.next)} GB free to keep the ${gigabytes(memory.floor)} GB floor`;
   if (anotherStarting) return "Another task is starting";
   return "";
+}
+
+export function queueBlock(task: Task): string {
+  return task.phase === "queued" && task.dependencies.length ? task.reason || "Waiting on " + task.dependencies.join(", ") : "";
 }
 
 // A Start's refusal on its card, the snapshot revision it arrived at, and

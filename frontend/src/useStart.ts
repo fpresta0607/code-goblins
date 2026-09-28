@@ -25,7 +25,7 @@ export function useStart(snapshot: Snapshot | null, awaited: AcceptedStart | nul
   const refuse = (id: string, refusal?: Refusal) => setRefusals((prior) =>
     refusal ? { ...prior, [id]: refusal } : Object.fromEntries(Object.entries(prior).filter(([other]) => other !== id)));
   const blockOf = (task: Task) => {
-    const another = requesting !== "" && requesting !== task.id || snapshot.tasks.some((other) => other.starting && other.id !== task.id);
+    const another = requesting !== "" && requesting !== task.id || snapshot.tasks.some((other) => (other.starting || other.phase === "resuming") && other.id !== task.id);
     return requesting === task.id ? "Starting" : startBlock(task, snapshot.memory, another);
   };
   for (const [id, refusal] of Object.entries(refusals)) {

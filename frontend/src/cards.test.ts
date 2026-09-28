@@ -39,3 +39,9 @@ test("a queued task with no terminal has a Task view only; a started one and the
   assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CFO");
   assert.deepEqual(panelViews(task(""), { id: "child" } as Session), ["task", "terminal"], "a reported child session has its own terminal view");
 });
+
+test("pausing or stopping switches an open terminal back to task details", () => {
+  for (const phase of ["pausing", "paused", "stopping", "stopped"]) {
+    assert.deepEqual(panelViews({ id: "t", generation: "s1", phase } as Task), ["task"]);
+  }
+});
