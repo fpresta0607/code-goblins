@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -193,7 +192,7 @@ func (f *settingsFile) pruneCFOHooks() (map[string]int, error) {
 // and after every group of an event that held none, leaving every other
 // group in place. A rerun that changes no CFO hook therefore changes nothing,
 // whatever the adopter or another installer added after them.
-func (f *settingsFile) addCFOHooks(stood map[string]int) error {
+func (f *settingsFile) addCFOHooks(root string, stood map[string]int) error {
 	events, err := f.hookEvents()
 	if err != nil {
 		return err
@@ -202,7 +201,7 @@ func (f *settingsFile) addCFOHooks(stood map[string]int) error {
 		events = map[string]any{}
 		f.values["hooks"] = events
 	}
-	for _, group := range cfoHookGroups() {
+	for _, group := range cfoHookGroups(root) {
 		existing, ok := events[group.event].([]any)
 		if !ok && events[group.event] != nil {
 			return fmt.Errorf("install: %s has a %q hook list that is not an array", f.path, group.event)
@@ -258,12 +257,13 @@ func (f *settingsFile) foreignHookCount() int {
 	return count
 }
 
-// isCFOEntry reports whether one hook entry is one this package wrote.
+// isCFOEntry reports whether one hook entry is one this package wrote, in
+// either form (HookName).
 func isCFOEntry(raw any) bool {
 	entry, ok := raw.(map[string]any)
 	if !ok {
 		return false
 	}
-	command, ok := entry["command"].(string)
-	return ok && strings.HasPrefix(command, rootPrefix)
+	_, ok = HookName(entry)
+	return ok
 }

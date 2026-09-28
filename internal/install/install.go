@@ -236,18 +236,19 @@ func (s Service) finish(report *reporter, idleLine string) error {
 	return nil
 }
 
-// warnMissingBinary is the loud counterpart of the hooks' quiet `|| exit 0`
-// guard. Installing before the binary is built is a supported flow, so this
-// warns rather than refuses - but without it, `cfo install` would bless with
-// a success message the exact silent-inertness this package exists to kill.
+// warnMissingBinary says loudly what a missing binary means before the first
+// session finds out. Installing before the binary is built is a supported
+// flow, so this warns rather than refuses - but without it, `cfo install`
+// would bless with a success message the exact unsupervised session this
+// package exists to prevent.
 func (s Service) warnMissingBinary(out io.Writer) {
 	binary := filepath.Join(s.Root, "cfo.exe")
 	if _, err := os.Stat(binary); err == nil {
 		return
 	}
 	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
-	fmt.Fprintln(out, "Every installed hook checks for that binary and exits 0 when it is missing,")
-	fmt.Fprintln(out, "so sessions will run UNSUPERVISED with nothing announcing it.")
+	fmt.Fprintln(out, "Every installed hook runs that binary, so until it exists each one fails to start,")
+	fmt.Fprintln(out, "Claude Code reports a non-blocking hook error, and sessions run UNSUPERVISED.")
 	fmt.Fprintln(out, "Build it from the checkout: go build ./cmd/cfo")
 }
 
@@ -417,7 +418,7 @@ func (s Service) writeUserHooks(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	if err := file.addCFOHooks(stood); err != nil {
+	if err := file.addCFOHooks(s.Root, stood); err != nil {
 		return err
 	}
 	changed, backup, err := file.save()
@@ -425,7 +426,7 @@ func (s Service) writeUserHooks(report *reporter) error {
 		return err
 	}
 	if changed {
-		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups()), s.UserSettings))
+		report.change("user hooks", fmt.Sprintf("wrote %d CFO hook groups into %s", len(cfoHookGroups(s.Root)), s.UserSettings))
 		if backup != "" {
 			report.detail("backed up the previous file to " + backup)
 		}

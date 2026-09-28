@@ -4,7 +4,10 @@
 // SendMessage, and the rest) instead of the fleet dispatch path.
 package guard
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // observeOnlyTools and planOnlyTools are exact-name allowlists checked
 // before the delegation-stem substring match. Observe-only tools only read
@@ -63,4 +66,28 @@ func ClassifySubagent(tool string) (stem string, deny bool) {
 		}
 	}
 	return "", false
+}
+
+// HookMatcher is the Claude Code matcher that runs the pretool-subagent hook:
+// every tool name holding a delegation stem or naming a native question
+// prompt, in any case and with any separators between its letters, the
+// spellings ClassifySubagent and ClassifyNativePrompt normalize away. Claude
+// Code tests it as an unanchored JavaScript regular expression. A pre-tool
+// hook costs every tool call it matches a process start, so the guard runs
+// for the tools it can refuse and for no other.
+func HookMatcher() string {
+	prompts := make([]string, 0, len(nativePromptTools))
+	for tool := range nativePromptTools {
+		prompts = append(prompts, tool)
+	}
+	slices.Sort(prompts)
+	var words []string
+	for _, word := range append(slices.Clone(delegationStems), prompts...) {
+		letters := make([]string, 0, len(word))
+		for _, letter := range word {
+			letters = append(letters, "["+strings.ToUpper(string(letter))+string(letter)+"]")
+		}
+		words = append(words, strings.Join(letters, `[\W_]*`))
+	}
+	return strings.Join(words, "|")
 }

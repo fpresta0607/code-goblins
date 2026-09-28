@@ -94,7 +94,7 @@ commands:
   cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
   cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
-  hook <name>  claude code hook entry points (session-start, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
+  hook <name>  claude code hook entry points (session-start, pretool-bash, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
 func main() {
