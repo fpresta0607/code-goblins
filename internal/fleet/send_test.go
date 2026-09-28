@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -62,6 +63,11 @@ type agentFake struct {
 	// revisionOnly moves revision without state_change_seq and without
 	// leaving idle. This is the observed kimi shape, not a hypothetical.
 	revisionOnly bool
+	// agent is the harness Herdr names for the pane, claude when empty;
+	// screen is what the pane shows; keys are the keys sent to it.
+	agent  string
+	screen string
+	keys   []string
 
 	probing         bool
 	accepted        bool
@@ -88,7 +94,12 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		f.probing = true
 		return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"` + args[2] + `"}}}`)}, nil
 	case len(args) >= 4 && args[0] == "pane" && (args[1] == "send-text" || args[1] == "send-keys"):
+		if args[1] == "send-keys" {
+			f.keys = append(f.keys, args[3])
+		}
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
+	case len(args) >= 3 && args[0] == "pane" && args[1] == "read":
+		return execx.Result{Stdout: []byte(f.screen)}, nil
 	case len(args) >= 3 && args[0] == "agent" && args[1] == "prompt":
 		f.promptCalls++
 		if f.promptRefusals > 0 {
@@ -145,7 +156,11 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		if status == "" {
 			status = "idle"
 		}
-		body := `{"result":{"agent":{"agent":"claude","agent_status":"` + status +
+		agent := f.agent
+		if agent == "" {
+			agent = "claude"
+		}
+		body := `{"result":{"agent":{"agent":"` + agent + `","agent_status":"` + status +
 			`","state_change_seq":` + strconv.FormatInt(f.seq, 10) +
 			`,"revision":` + strconv.FormatInt(f.revision, 10) + `}}}`
 		return execx.Result{Stdout: []byte(body)}, nil
@@ -187,6 +202,23 @@ func newAgentSender(f *agentFake) Sender {
 // which carries no task metadata.
 func newExplicitPaneSender(f *agentFake) Sender {
 	return senderFor(f, &fakeResolver{target: fakeTarget})
+}
+
+// On 2026-09-28 a board answer to a Codex goblin, submitted through Herdr's
+// agent prompt, sat in Codex's composer: Codex read the typing as a paste and
+// took the Enter that ended it as part of the paste. A message still showing
+// on a Codex pane after the prompt is submitted with one more Enter.
+func TestSenderTextSubmitsAMessageCodexLeftInItsComposer(t *testing.T) {
+	fake := newAgentFake(agentFake{agent: "codex", screen: "› CFO: ship it\n\n  tab to queue message    100% context left\n"})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+	if err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	if fake.promptCalls != 1 || !slices.Equal(fake.keys, []string{"enter"}) {
+		t.Errorf("prompts %d, keys %q; want one prompt and one Enter for the message left in the composer", fake.promptCalls, fake.keys)
+	}
 }
 
 // The message goes through the native agent channel and nothing is typed into
