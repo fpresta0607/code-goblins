@@ -92,7 +92,7 @@ type Service struct {
 	starting     string
 	startErrors  map[string]string
 	changing     map[string]string
-	changeErrors map[string]string
+	changeErrors map[string]taskChangeError
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -951,12 +951,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Lifecycle = lifecycleStatus(record)
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
+				task.Activity = record.Reason
 			}
 			if record.Phase == "stopped" {
 				task.Archived = true
 			}
 		}
-		task.ActionError = s.changeErrors[task.ID]
+		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+			task.ActionError = failure.Message
+		}
 		if action := s.changing[task.ID]; action != "" {
 			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 		}
