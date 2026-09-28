@@ -116,9 +116,17 @@ func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.
 		}
 		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "get" {
 			if r.alive {
-				return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"kimi","agent_status":"working","interactive_ready":false,"state_change_seq":%d,"revision":%d}}}`, r.prompts+1, r.prompts+1))}, nil
+				return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"codex","agent_status":"working","interactive_ready":false,"state_change_seq":%d,"revision":%d}}}`, r.prompts+1, r.prompts+1))}, nil
 			}
 			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
+		}
+		// The switched-to Codex shows its composer once it runs, and a turn
+		// once the switch's prompt reached it.
+		if len(q.Args) >= 2 && q.Args[0] == "pane" && q.Args[1] == "read" {
+			if r.prompts > 0 {
+				return execx.Result{Stdout: []byte("• Working (1s • esc to interrupt)\n  100% context left\n")}, nil
+			}
+			return execx.Result{Stdout: []byte("› Ask Codex to do anything\n  100% context left\n")}, nil
 		}
 		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "prompt" {
 			r.prompts++
@@ -905,14 +913,14 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 		Worktrees: worktree.Service{Commands: switchRunner, Git: pipelineSwitchGit{worktree: wt}, DataDir: h.Data},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: pipelineSwitchAdapter{kind: harness.Claude},
-			harness.Kimi:   pipelineSwitchAdapter{kind: harness.Kimi},
+			harness.Codex:  pipelineSwitchAdapter{kind: harness.Codex},
 		}},
 		Commands: switchRunner,
 		StateDir: h.State,
 	}
 	switchDone := make(chan error, 1)
 	go func() {
-		_, err := switchService.Switch(context.Background(), spawn.SwitchRequest{ID: meta.ID, Harness: harness.Kimi, Session: "fleet"})
+		_, err := switchService.Switch(context.Background(), spawn.SwitchRequest{ID: meta.ID, Harness: harness.Codex, Session: "fleet"})
 		switchDone <- err
 	}()
 	<-switchRunner.statusReady
@@ -953,7 +961,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.PipelineHash != want.Hash || updated.PipelineClass != want.Class || updated.Harness != string(harness.Kimi) {
+	if updated.PipelineHash != want.Hash || updated.PipelineClass != want.Class || updated.Harness != string(harness.Codex) {
 		t.Fatalf("metadata lost migration or switch update: %+v", updated)
 	}
 	if _, err := os.Stat(filepath.Join(tmp, policyMigrationJournalName)); !errors.Is(err, os.ErrNotExist) {
