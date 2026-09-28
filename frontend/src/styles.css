@@ -748,8 +748,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* Each board list shows as many cards as fit the visible board, and a pager
-   under it turns to the rest; a sideways swipe does the same. */
+/* A board list of up to ten cards shows them all; past ten it shows as many
+   as fit the visible board, and a pager under it turns to the rest; a
+   sideways swipe does the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
 /* Cards not measured yet are laid out here, on the list's grid, to learn their
    heights; it takes no room and shows nothing. */
