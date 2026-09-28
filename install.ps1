@@ -317,7 +317,7 @@
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "claude";              Kind = "npm";        Cmd = "npm.cmd install -g @anthropic-ai/claude-code" },
+        @{ Name = "claude";              Kind = "powershell"; Cmd = "irm https://claude.ai/install.ps1 | iex" },
         @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
@@ -373,6 +373,22 @@
         catch {
             Write-Host ("WARN     {0,-20} install failed: {1}" -f $tool.Name, $_.Exception.Message)
             $failedInstalls += $tool.Name
+        }
+    }
+
+    # Claude Code's native installer puts claude.exe, the build a native
+    # terminal starts, in ~\.local\bin and may leave that off PATH. The user
+    # PATH keeps its registry kind, as cfo install keeps it, so its %VARIABLE%
+    # entries survive.
+    $claudeBin = Join-Path $env:USERPROFILE ".local\bin"
+    if (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe")) {
+        $environment = Get-Item -LiteralPath "HKCU:\Environment"
+        $userPath = [string]$environment.GetValue("Path", "", "DoNotExpandEnvironmentNames")
+        if (-not (@($userPath -split ';') -contains $claudeBin)) {
+            $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
+            Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $claudeBin) -join ';') -Type $kind
+            Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
+            $installedAny = $true
         }
     }
 

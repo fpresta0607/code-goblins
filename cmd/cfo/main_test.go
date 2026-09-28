@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,11 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
+	// fakeDoctorTool's claude.exe is this binary answering --version.
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+		fmt.Println("claude 1.0.0")
+		os.Exit(0)
+	}
 	if report := os.Getenv(consoleProbeVariable); report != "" {
 		os.Exit(probeConsole(report))
 	}
