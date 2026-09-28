@@ -114,7 +114,10 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
-	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, GateRun: prior.GateRun, GateIntent: prior.GateIntent, GateHead: prior.GateHead}
+	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session}
+	if prior.Phase != "running" {
+		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
+	}
 	if request.Session != "" {
 		result.Session = request.Session
 	}
@@ -186,6 +189,13 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	return finished, errors.Join(err, finishErr)
 }
 
+// PauseInstruction asks the task to reach its stopping point. The handoff's
+// appearance ends the pause wait, so it is published last, after any push,
+// and by rename so a partly written file never counts.
+func PauseInstruction(handoff string) string {
+	return "Pause requested. You have five seconds to reach a stopping point: finish the step in hand, then push your branch if its mode allows. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Retain all work and never bypass a gate."
+}
+
 func (service Service) save(record *state.Lifecycle) error {
 	record.Updated = time.Now().UTC()
 	return state.WriteLifecycle(service.StateDir, *record)
@@ -203,7 +213,7 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 			return record, err
 		}
 	}
-	detail := record.Phase + ": " + state.NormalizeStatusDetail(strings.Join(append([]string{record.Reason}, record.Kept...), "; "))
+	detail := "lifecycle-" + record.Phase + ": " + state.NormalizeStatusDetail(strings.Join(append([]string{record.Reason}, record.Kept...), "; "))
 	if err := state.AppendStatus(service.StateDir, record.ID, detail); err != nil {
 		return record, err
 	}

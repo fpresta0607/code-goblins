@@ -109,7 +109,7 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 	if err != nil {
 		return resources, err
 	}
-	if resources.Gate.Status == "completed" {
+	if resources.Gate.IsTerminal() {
 		resources.Gate = pipeline.InterruptedRun{}
 		return resources, nil
 	}
