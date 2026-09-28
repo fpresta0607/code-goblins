@@ -143,10 +143,7 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 		}
 		return own
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && (len(requested()) != 1 || requested()[0].Status != "succeeded") {
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForAction(t, s, "request-1")
 	if actions := requested(); len(actions) != 1 || actions[0].Status != "succeeded" {
 		t.Fatalf("idempotent evaluation was not processed once: %+v", actions)
 	}

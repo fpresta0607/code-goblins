@@ -435,6 +435,10 @@ func evaluationPending(actions []Action, task string) bool {
 	})
 }
 
+// actionTimeout bounds one action's run, so an evaluation or delivery that
+// never returns cannot hold the queue.
+const actionTimeout = 45 * time.Second
+
 func (s *Service) process(ctx context.Context) {
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
 		d := s.Store.Snapshot()
@@ -448,7 +452,7 @@ func (s *Service) process(ctx context.Context) {
 		if !pending {
 			break
 		}
-		boundedCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)
 		err := s.Store.ProcessOne(boundedCtx, s.execute)
 		cancel()
 		if err != nil {

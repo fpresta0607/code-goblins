@@ -282,12 +282,8 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 	}
 	// The startup reconciliation may evaluate the task before its native
 	// events arrive, so wait for the Stop event's own evaluation.
-	evaluated := func() bool {
-		return slices.ContainsFunc(s.Store.Snapshot().Actions, func(a Action) bool { return a.ID == "eval-"+stop.ID && a.Status == "succeeded" })
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for !evaluated() && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
+	if evaluation := waitForAction(t, s, "eval-"+stop.ID); evaluation.Status != "succeeded" {
+		t.Fatalf("the Stop event's evaluation = %+v, want it succeeded", evaluation)
 	}
 	if got := s.Store.Snapshot().Tasks["task-1"]; got.Phase != "review" || got.Verified {
 		t.Fatalf("Stop cannot prove completion: %+v", got)
@@ -311,6 +307,36 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 		}
 	}
 	t.Fatal("original completed evaluation not recovered")
+}
+
+// waitForAction waits until the running service has finished the action id,
+// which may not be queued yet, and returns it. An evaluation reads the task
+// with git, which on a loaded machine takes longer than any guess, so the
+// wait is on the service's own notices. It gives up only after every action
+// already waiting and this one could each have used all of actionTimeout.
+func waitForAction(t *testing.T, s *Service, id string) Action {
+	t.Helper()
+	changed, unsubscribe := s.subscribe()
+	defer unsubscribe()
+	ahead := 0
+	for _, action := range s.Store.Snapshot().Actions {
+		if action.Status == "queued" || action.Status == "running" {
+			ahead++
+		}
+	}
+	expired := time.After(time.Duration(ahead+1) * actionTimeout)
+	for {
+		for _, action := range s.Store.Snapshot().Actions {
+			if action.ID == id && action.Status != "queued" && action.Status != "running" {
+				return action
+			}
+		}
+		select {
+		case <-changed:
+		case <-expired:
+			t.Fatalf("the service did not finish action %s within %s: %+v", id, time.Duration(ahead+1)*actionTimeout, s.Store.Snapshot().Actions)
+		}
+	}
 }
 
 func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
