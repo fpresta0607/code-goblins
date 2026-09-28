@@ -22,7 +22,7 @@ func TestConfigFromEnvReadsHerdrOverOneSocketCache(t *testing.T) {
 	}
 
 	// Assert
-	probe := cfg.Monitor.Probe.(*monitor.HerdrProber).Client.(*herdr.Client)
+	probe := cfg.Monitor.Probe.(monitor.BackendProber).Herdr.(*monitor.HerdrProber).Client.(*herdr.Client)
 	progress := cfg.Monitor.Progress.(monitor.HostProgress).Panes.(*herdr.Client)
 	sweep := cfg.Reap.Inventory.(reap.Collector).Panes.(*herdr.Client)
 	if probe.Sockets == nil || progress.Sockets != probe.Sockets || sweep.Sockets != probe.Sockets {
