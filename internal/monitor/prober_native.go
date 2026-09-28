@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+)
+
+// screenReads is how many times a native screen is read before a failed read
+// counts, screenReread apart.
+const (
+	screenReads  = 3
+	screenReread = 250 * time.Millisecond
 )
 
 // NativeProber reads a native task's terminal: its host's record says whether
@@ -48,7 +56,14 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	if read == nil {
 		read = host.ReadScreen
 	}
+	// A read attaches a process of its own to the terminal's console, and
+	// one can fail while the terminal is alive and working, so a failed read
+	// is read again before anything is concluded from it.
 	screen, err := read(record)
+	for attempt := 1; err != nil && attempt < screenReads; attempt++ {
+		time.Sleep(screenReread)
+		screen, err = read(record)
+	}
 	if err != nil {
 		// A host that was killed leaves its record behind, so only an answer
 		// on its pipe says the terminal still runs.

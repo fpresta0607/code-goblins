@@ -78,6 +78,22 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}
 }
 
+// On 2026-09-28 the monitor woke the CFO with "agent turn ended; waiting on
+// input" for a native Claude Code goblin 29 minutes into one turn. Claude
+// Code 2.1.283 draws its spinner from one of three glyph lists, one of them
+// "·✢*✶✻✽", and a turn sampled on its "*" frame read as over, since the
+// composer's footer shows throughout a turn. Every frame of every list reads
+// as a turn in progress.
+func TestAClaudeTurnReadsAsWorkingOnEverySpinnerFrame(t *testing.T) {
+	screens, _ := NativeScreens(Claude)
+	for _, glyph := range []string{"·", "✢", "✳", "*", "✶", "✻", "✽"} {
+		screen := []string{glyph + " Churning… (29m 30s · ↓ 12.4k tokens · esc to interrupt)", "", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+		if !screens.IsWorking(screen) || screens.IsReady(screen) {
+			t.Errorf("a turn on the %q frame reads as working %v, ready %v; want working", glyph, screens.IsWorking(screen), screens.IsReady(screen))
+		}
+	}
+}
+
 // Typed text shows in a composer by its end, however the composer wraps it,
 // or as a paste's placeholder.
 func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
