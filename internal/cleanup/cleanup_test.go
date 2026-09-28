@@ -232,7 +232,7 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	if err != nil || len(status) != 1 {
 		t.Fatalf("status = %v, %v; want one done line recording the returned worktree", status, err)
 	}
-	if _, event := state.SplitStatus(status[0]); event != "done: returned worktree "+fixture.worktree+" via cfo cleanup" {
+	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via cfo cleanup" {
 		t.Fatalf("status = %v; want one done line recording the returned worktree", status)
 	}
 	fixture.assertOnlyTabCloseLifecycle(t)

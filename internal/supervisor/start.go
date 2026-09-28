@@ -15,16 +15,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
 	// memoryFloor is the free memory the fleet keeps: nothing starts under it.
-	memoryFloor = 3 << 30
+	memoryFloor = 4 << 30
 	// memoryNext is the free memory at which the CFO starts the next queued
 	// task: the floor and about 1 GB for the new session.
-	memoryNext = 4 << 30
+	memoryNext = 5 << 30
 )
 
 // The fleet's defaults for a goblin whose backlog row and brief name none.
@@ -63,6 +64,7 @@ type Memory struct {
 // startPlan is the cfo spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
+	briefBody                                        string
 }
 
 func (p startPlan) args() []string {
@@ -128,6 +130,26 @@ func (s *Service) startTask(id string) error {
 	if s.starting != "" {
 		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
 	}
+	for task, action := range s.changing {
+		if action == "resume" {
+			return StartRefusal{Reason: task + " is resuming; start another once it is up", Passing: true}
+		}
+	}
+	if s.changing[id] != "" {
+		return StartRefusal{Reason: "This task is being changed", Passing: true}
+	}
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
+		return StartRefusal{Reason: "This queued task is being changed; try again", Passing: true}
+	}
+	isStarting := false
+	defer func() {
+		if !isStarting {
+			if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
+				s.publish(err)
+			}
+		}
+	}()
 	plan, err := planStart(s.Store.Home, id)
 	if err != nil {
 		return err
@@ -136,11 +158,27 @@ func (s *Service) startTask(id string) error {
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
-	if available < memoryFloor {
-		// Rounded down, so memory just under the floor never reads as 3.0 GB.
-		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 3 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
+	if available < memoryNext {
+		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free; Start needs 5 GB to keep the 4 GB floor", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
+	}
+	if plan.briefBody != "" {
+		if err := os.MkdirAll(filepath.Dir(plan.brief), 0o700); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(plan.brief, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString(plan.briefBody)
+		if err := errors.Join(writeErr, file.Close()); err != nil {
+			return errors.Join(err, os.Remove(plan.brief))
+		}
+		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CFO can amend it"); err != nil {
+			return err
+		}
 	}
 	s.starting = id
+	isStarting = true
 	delete(s.startErrors, id)
 	go s.runStart(dispatch, plan)
 	return nil
@@ -151,6 +189,11 @@ func (s *Service) startTask(id string) error {
 // Either way the CFO is told through the wake queue, as a notify tells it,
 // before the card stops showing the start.
 func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
+	defer func() {
+		if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, ".queued-"+plan.id+".lock"); err != nil {
+			s.publish(err)
+		}
+	}()
 	output, err := dispatch.Spawn(context.Background(), plan.args())
 	failure := ""
 	if err != nil {
@@ -218,10 +261,13 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	switch {
 	case slices.ContainsFunc(backlog.Parked, listed) || !row.Structured && briefErr != nil:
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
-	case briefErr != nil:
-		return startPlan{}, StartRefusal{Reason: id + " has no brief at data\\" + id + "\\brief.md yet; the CFO writes one before it can start"}
+	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
+		return startPlan{}, briefErr
 	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
+	}
+	if len(row.BlockedByIDs) > 0 {
+		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
 	if plan.project == "" {
@@ -255,6 +301,21 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names mode " + plan.mode + ", which cfo spawn does not run"}
 	case plan.model != "" && !spawnValue.MatchString(plan.model), plan.effort != "" && !spawnValue.MatchString(plan.effort):
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
+	}
+	if errors.Is(briefErr, os.ErrNotExist) {
+		queued, err := fleet.ReadQueuedTask(h, id)
+		if err != nil {
+			return startPlan{}, err
+		}
+		mode := plan.mode
+		if mode == "" {
+			mode = "no-mistakes"
+		}
+		kind := row.Kind
+		if kind == "" {
+			kind = "ship"
+		}
+		plan.briefBody = fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", id, plan.project, row.Title, queued.Detail, kind, mode, plan.harness, plan.model, plan.effort)
 	}
 	return plan, nil
 }

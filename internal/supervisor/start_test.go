@@ -158,9 +158,9 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		want      string
 		passing   bool
 	}{
-		{name: "memory just under the 3 GB floor reads under it", available: 3*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 2.9 GB of memory is free", passing: true},
-		{name: "memory under the 3 GB floor", available: 2*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "2.5 GB of memory is free, under the fleet's 3 GB floor", passing: true},
-		{name: "no brief", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "has no brief"},
+		{name: "memory just under the 5 GB start mark reads under it", available: 5*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 4.9 GB of memory is free", passing: true},
+		{name: "memory under the 4 GB floor", available: 3*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "3.5 GB of memory is free; Start needs 5 GB to keep the 4 GB floor", passing: true},
+		{name: "no brief or project", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "names no project"},
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
 		{name: "a task nothing queued", available: 16 * gigabyte, row: "- **other** - Other", body: `{"task":"next-task"}`, want: "is not queued"},
 		{name: "a brief that names no project", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: "# Brief\n\n## Task\n\nShip it.\n", body: `{"task":"next-task"}`, want: "names no project"},
@@ -409,7 +409,7 @@ func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &Memory{Available: 3*gigabyte + gigabyte/10, Total: 32 * gigabyte, Floor: 3 * gigabyte, Next: 4 * gigabyte}
+	want := &Memory{Available: 3*gigabyte + gigabyte/10, Total: 32 * gigabyte, Floor: 4 * gigabyte, Next: 5 * gigabyte}
 	if !reflect.DeepEqual(snapshot.Memory, want) {
 		t.Fatalf("memory = %+v, want %+v", snapshot.Memory, want)
 	}

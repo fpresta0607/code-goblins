@@ -184,10 +184,10 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	finished := finishedTasks(stateDir, now)
+	finished := finishedTasks(home.Home{State: stateDir, Data: t.TempDir()}, now)
 	got := map[string]string{}
 	for _, task := range finished {
-		if !task.Archived || task.Phase != "done" {
+		if !task.Archived || task.PR != "" && task.Phase != "done" || task.PR == "" && task.Phase != "stopped" {
 			t.Fatalf("finished task %+v is not archived history", task)
 		}
 		got[task.Title] = task.PR
@@ -206,13 +206,38 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 	}
 }
 
+func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing.T) {
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Done\n- **launch-check** - Check launch behavior (repo: example)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "launch-check.status"), []byte("done: returned worktree via cfo cleanup\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Title: "Delivered title", Project: "example", Phase: "stopped", PR: "https://github.com/owner/example/pull/42", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "delivered", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: "Delivered title", Project: "example", Updated: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := finishedTasks(h, time.Now())
+	if len(tasks) != 2 {
+		t.Fatalf("Completed=%+v", tasks)
+	}
+	for _, task := range tasks {
+		if task.Phase != "stopped" || task.Project != "example" || task.Title == strings.TrimPrefix(task.ID, "finished:") || task.ID == "finished:delivered" && task.PR == "" {
+			t.Fatalf("inconsistent Completed card: %+v", task)
+		}
+	}
+}
+
 func TestMergedPullRequestsJoinTheTaskThatReportedThem(t *testing.T) {
 	at := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	history := withMergedPRs([]Task{{ID: "finished:a", Title: "a", Archived: true, Evaluation: Evaluation{Phase: "done", PR: "https://example/pr/1", At: at}}}, []MergedPR{
 		{PR: "https://example/pr/1", Branch: "fix/a", Project: `C:\dev\code-goblins`, At: at.Unix()},
 		{PR: "https://example/pr/2", Branch: "fix/b", Project: `C:\dev\code-goblins`, At: at.Add(time.Hour).Unix()},
 	})
-	if len(history) != 2 || history[0].ID != "merged:https://example/pr/2" || history[0].Title != "fix/b" || history[0].Project != "code-goblins" || !history[0].Merged {
+	if len(history) != 2 || history[0].ID != "merged:https://example/pr/2" || history[0].Branch != "fix/b" || history[0].Title == "fix/b" || history[0].Project != "code-goblins" || !history[0].Merged {
 		t.Fatalf("history = %+v, want the unclaimed merge first as its own entry", history)
 	}
 	if !history[1].Merged || history[1].ID != "finished:a" {
@@ -740,15 +765,15 @@ func TestAFinishedTaskReadsItsPullRequestStateFromGitHub(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	answers := map[string]string{"https://github.com/o/r/pull/1": "MERGED", "https://github.com/o/r/pull/2": "CLOSED", "https://github.com/o/r/pull/3": "OPEN"}
+	answers := map[string]string{"https://github.com/o/r/pull/1": "MERGED", "https://github.com/o/r/pull/2": "CLOSED", "https://github.com/o/r/pull/3": "OPEN", "https://github.com/o/r/pull/4": "MERGED"}
 	var asked []string
 	service := &Service{Store: store, Options: Options{
 		MergedPRs: func(context.Context, time.Time) ([]MergedPR, error) {
 			return []MergedPR{{PR: "https://github.com/o/r/pull/4", Branch: "fix/landed", Project: "r", At: time.Now().Unix()}}, nil
 		},
-		PullRequestState: func(_ context.Context, url string) (string, error) {
+		PullRequestState: func(_ context.Context, url string) (PullRequestInfo, error) {
 			asked = append(asked, url)
-			return answers[url], nil
+			return PullRequestInfo{State: answers[url], Title: "The PR title"}, nil
 		},
 	}}
 	now := time.Now().UTC()
@@ -768,13 +793,16 @@ func TestAFinishedTaskReadsItsPullRequestStateFromGitHub(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2", "https://github.com/o/r/pull/3"}; !slices.Equal(first, want) {
+	if want := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2", "https://github.com/o/r/pull/3", "https://github.com/o/r/pull/4"}; !slices.Equal(first, want) {
 		t.Fatalf("asked GitHub about %v, want only the GitHub pull requests no merge commit shows: %v", first, want)
 	}
 	for id, want := range map[string][2]bool{"squashed": {true, false}, "dropped": {false, true}, "open": {false, false}, "landed": {true, false}, "elsewhere": {false, false}} {
 		index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:"+id })
 		if index < 0 || view.Tasks[index].Merged != want[0] || view.Tasks[index].Closed != want[1] {
 			t.Fatalf("finished:%s in %+v, want merged %v and closed %v", id, view.Tasks, want[0], want[1])
+		}
+		if id != "elsewhere" && (view.Tasks[index].Title != "The PR title" || view.Tasks[index].Project != "r") {
+			t.Fatalf("inconsistent Completed card: %+v", view.Tasks[index])
 		}
 	}
 	if again := refresh(now.Add(time.Minute)); len(again) != 0 {
@@ -792,9 +820,9 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 	}
 	failure := errors.New("gh is not signed in")
 	asks := 0
-	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (string, error) {
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
 		asks++
-		return "", failure
+		return PullRequestInfo{}, failure
 	}}}
 	now := time.Now().UTC()
 
@@ -831,14 +859,14 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	}
 	var asked []string
 	blocking := true
-	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (string, error) {
+	service := &Service{Store: store, Options: Options{PullRequestState: func(ctx context.Context, url string) (PullRequestInfo, error) {
 		asked = append(asked, url)
 		if blocking {
 			blocking = false
 			<-ctx.Done()
-			return "", ctx.Err()
+			return PullRequestInfo{}, ctx.Err()
 		}
-		return "OPEN", nil
+		return PullRequestInfo{State: "OPEN", Title: "Task title"}, nil
 	}}}
 	now := time.Now().UTC()
 
@@ -881,10 +909,10 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 		err    error
 		want   string
 	}{
-		{"merged", execx.Result{Stdout: []byte("MERGED\n")}, nil, "MERGED"},
-		{"closed", execx.Result{Stdout: []byte("CLOSED\n")}, nil, "CLOSED"},
-		{"open", execx.Result{Stdout: []byte("OPEN\n")}, nil, "OPEN"},
-		{"unknown answer", execx.Result{Stdout: []byte("DRAFT\n")}, nil, ""},
+		{"merged", execx.Result{Stdout: []byte(`{"state":"MERGED","title":"Task title"}`)}, nil, "MERGED"},
+		{"closed", execx.Result{Stdout: []byte(`{"state":"CLOSED","title":"Task title"}`)}, nil, "CLOSED"},
+		{"open", execx.Result{Stdout: []byte(`{"state":"OPEN","title":"Task title"}`)}, nil, "OPEN"},
+		{"unknown answer", execx.Result{Stdout: []byte(`{"state":"DRAFT","title":"Task title"}`)}, nil, ""},
 		{"empty answer", execx.Result{}, nil, ""},
 		{"gh refused", execx.Result{ExitCode: 1, Stderr: []byte("no pull requests found")}, nil, ""},
 		{"gh missing", execx.Result{}, errors.New("executable file not found"), ""},
@@ -894,10 +922,10 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 
 			got, err := GitHubPullRequestState(runner)(t.Context(), url)
 
-			if got != c.want || (err == nil) != (c.want != "") {
+			if got.State != c.want || (err == nil) != (c.want != "") {
 				t.Fatalf("state = %q, %v; want %q", got, err, c.want)
 			}
-			if want := []string{"pr", "view", url, "--json", "state", "--jq", ".state"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
+			if want := []string{"pr", "view", url, "--json", "state,title"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
 				t.Fatalf("ran %s %v, want gh %v", runner.request.Name, runner.request.Args, want)
 			}
 		})
@@ -935,5 +963,30 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 				t.Fatalf("merged card listed = %v, want %v for a live task in phase %q", isListed, c.isListed, c.phase)
 			}
 		})
+	}
+}
+
+func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
+	store, h := testStore(t)
+	store.db.Tasks["task-1"] = Evaluation{Phase: "done", Generation: "g1", PR: "https://github.com/owner/repository/pull/7", At: time.Now()}
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		return PullRequestInfo{State: "MERGED", Title: "Make task completion consistent"}, nil
+	}}}
+	if err := service.refreshHistory(t.Context(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Tasks) != 1 || view.Tasks[0].Title != "Make task completion consistent" || view.Tasks[0].Project != "repository" || !view.Tasks[0].Merged {
+		t.Fatalf("completed card metadata=%+v", view.Tasks)
+	}
+	before := service.historyMark()
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "queued-stop", Phase: "stopped", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if before == service.historyMark() {
+		t.Fatal("stopping an undispatched task did not invalidate Completed")
 	}
 }

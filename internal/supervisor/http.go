@@ -131,6 +131,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.order(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
+	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
+		h.lifecycleTask(w, r)
+	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
+		h.adjustTask(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":

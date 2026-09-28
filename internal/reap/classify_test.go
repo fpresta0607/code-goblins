@@ -32,6 +32,21 @@ func task(id, worktree, pane, verb string) Task {
 	}
 }
 
+func TestPausedTaskIsRetainedWithoutOrphanWorktreeOrMetadataFindings(t *testing.T) {
+	paused := task("paused", `C:\dev\proj\.worktrees\gb-paused`, "gone", "paused")
+	paused.IsPaused = true
+	for _, hasDirectory := range []bool{true, false} {
+		inventory := Inventory{Tasks: []Task{paused}}
+		if hasDirectory {
+			inventory.Worktrees = []WorktreeDir{{TaskID: paused.ID, Path: paused.Meta.Worktree, Project: paused.Meta.Project, Registration: RegistrationListed}}
+		}
+		findings := Classify(inventory)
+		if len(classOf(findings, OrphanWorktree)) != 0 || len(classOf(findings, OrphanMeta)) != 0 {
+			t.Fatalf("paused task treated as abandoned: %+v", findings)
+		}
+	}
+}
+
 func classOf(findings []Finding, class Class) []Finding {
 	var out []Finding
 	for _, finding := range findings {
