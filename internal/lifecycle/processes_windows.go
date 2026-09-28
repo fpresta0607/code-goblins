@@ -8,8 +8,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const exitWaitMilliseconds = 5000
-
 var ErrIdentityChanged = errors.New("process identity changed; left untouched")
 
 func Terminate(identity Identity) error {
@@ -38,14 +36,11 @@ func terminate(identity Identity, stop func(windows.Handle, uint32) error) error
 	if result, err := windows.WaitForSingleObject(handle, 0); err == nil && result == windows.WAIT_OBJECT_0 {
 		return nil
 	}
-	// TerminateProcess only starts the exit, and Windows refuses a second call
-	// with Access denied while a process (such as headless Chrome) is exiting.
-	stopErr := stop(handle, 1)
-	if result, err := windows.WaitForSingleObject(handle, exitWaitMilliseconds); err == nil && result == windows.WAIT_OBJECT_0 {
-		return nil
+	if err := stop(handle, 1); err != nil {
+		if result, waitErr := windows.WaitForSingleObject(handle, 250); waitErr == nil && result == windows.WAIT_OBJECT_0 {
+			return nil
+		}
+		return fmt.Errorf("terminate process %d: %w", identity.PID, err)
 	}
-	if stopErr != nil {
-		return fmt.Errorf("terminate process %d: %w", identity.PID, stopErr)
-	}
-	return fmt.Errorf("process %d did not exit after it was terminated", identity.PID)
+	return nil
 }

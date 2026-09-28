@@ -64,7 +64,7 @@ type Memory struct {
 // startPlan is the cfo spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
-	missingBrief                                     *fleet.QueuedTask
+	briefBody                                        string
 }
 
 func (p startPlan) args() []string {
@@ -161,9 +161,17 @@ func (s *Service) startTask(id string) error {
 	if available < memoryNext {
 		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free; Start needs 5 GB to keep the 4 GB floor", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
 	}
-	if plan.missingBrief != nil {
-		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
+	if plan.briefBody != "" {
+		if err := os.MkdirAll(filepath.Dir(plan.brief), 0o700); err != nil {
 			return err
+		}
+		file, err := os.OpenFile(plan.brief, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString(plan.briefBody)
+		if err := errors.Join(writeErr, file.Close()); err != nil {
+			return errors.Join(err, os.Remove(plan.brief))
 		}
 		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CFO can amend it"); err != nil {
 			return err
@@ -299,8 +307,15 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		if err != nil {
 			return startPlan{}, err
 		}
-		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
-		plan.missingBrief = &queued
+		mode := plan.mode
+		if mode == "" {
+			mode = "no-mistakes"
+		}
+		kind := row.Kind
+		if kind == "" {
+			kind = "ship"
+		}
+		plan.briefBody = fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", id, plan.project, row.Title, queued.Detail, kind, mode, plan.harness, plan.model, plan.effort)
 	}
 	return plan, nil
 }

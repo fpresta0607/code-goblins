@@ -92,7 +92,7 @@ type Service struct {
 	starting     string
 	startErrors  map[string]string
 	changing     map[string]string
-	changeErrors map[string]taskChangeError
+	changeErrors map[string]string
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -942,7 +942,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.StartError = s.startErrors[task.ID]
 		}
 		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
-		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
+		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued"
 		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
 			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
@@ -951,15 +951,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Lifecycle = lifecycleStatus(record)
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
-				task.Activity = record.Reason
 			}
 			if record.Phase == "stopped" {
 				task.Archived = true
 			}
 		}
-		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
-			task.ActionError = failure.Message
-		}
+		task.ActionError = s.changeErrors[task.ID]
 		if action := s.changing[task.ID]; action != "" {
 			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 		}

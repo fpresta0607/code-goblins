@@ -23,12 +23,6 @@ type InterruptedRun struct {
 	Worktree string `json:"worktree"`
 }
 
-// IsTerminal reports whether the run has finished, so nothing is left to
-// interrupt.
-func (run InterruptedRun) IsTerminal() bool {
-	return terminalRunStatus[run.Status]
-}
-
 var gateIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
 var gateCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
@@ -192,7 +186,7 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 		return err
 	}
 	if current.ID != prior.ID {
-		if current.Intent == prior.Intent {
+		if current.Intent == prior.Intent && (!terminalRunStatus[current.Status] || current.Status == "completed") {
 			return nil
 		}
 		return errors.New("another validation run owns the branch; inspect it before resuming")
@@ -209,7 +203,7 @@ func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree s
 	result, runErr := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "run", "--intent", prior.Intent, "--wait", "45s"}})
 	current, err = reader.Interruption(bounded, project, prior.Branch)
 	// A bounded AXI wait exits nonzero while the accepted run keeps working.
-	if err == nil && current.ID != prior.ID && current.Intent == prior.Intent {
+	if err == nil && current.ID != prior.ID && current.Intent == prior.Intent && (!terminalRunStatus[current.Status] || current.Status == "completed") {
 		return nil
 	}
 	return fmt.Errorf("validation did not restart: %w", errors.Join(runErr, err, errors.New(strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))))
