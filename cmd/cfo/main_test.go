@@ -122,6 +122,11 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", configDir); err != nil {
 		panic(err)
 	}
+	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
+	// config.toml, which is never this machine's own.
+	if err := os.Setenv("CODEX_HOME", configDir); err != nil {
+		panic(err)
+	}
 	// The process value answers before the user scope is read, so pinning it
 	// keeps every test that runs a real command off this machine's registry,
 	// and off whichever checkouts its operator happens to keep.

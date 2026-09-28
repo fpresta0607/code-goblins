@@ -152,6 +152,72 @@ func TestCodexMCPServersAreReadFromTheOperatorsConfiguration(t *testing.T) {
 	}
 }
 
+// Every form TOML allows for defining a server is found, and a quoted name
+// comes back without its quotes, so a quoted name that is a plain key is
+// turned off like any other.
+func TestCodexMCPServersFindEveryFormOfDefinition(t *testing.T) {
+	for name, test := range map[string]struct {
+		config string
+		want   []string
+	}{
+		"table":                        {"[mcp_servers.qdrant]\ncommand = \"uv\"\n", []string{"qdrant"}},
+		"quoted table":                 {"[mcp_servers.\"qdrant\"]\ncommand = \"uv\"\n", []string{"qdrant"}},
+		"literal quoted table":         {"[ mcp_servers . 'qdrant' ]\ncommand = \"uv\"\n", []string{"qdrant"}},
+		"quoted table with a dot":      {"[mcp_servers.\"my.server\".env]\nKEY = \"x\"\n", []string{"my.server"}},
+		"inline entry":                 {"[mcp_servers]\nnode_repl = { command = \"node\" }\n", []string{"node_repl"}},
+		"quoted inline entry":          {"[mcp_servers]\n\"node_repl\" = { command = \"node\" }\n", []string{"node_repl"}},
+		"dotted entry":                 {"[mcp_servers]\nqdrant.command = \"uv\"\nqdrant.args = [\"x\"]\n", []string{"qdrant"}},
+		"quoted dotted entry":          {"[mcp_servers]\n\"qdrant\" . command = \"uv\"\n", []string{"qdrant"}},
+		"top-level dotted key":         {"model = \"gpt\"\nmcp_servers.qdrant.command = \"uv\"\n", []string{"qdrant"}},
+		"top-level quoted dotted key":  {"mcp_servers.\"gcloud\".command = \"npx\"\n", []string{"gcloud"}},
+		"top-level inline entry":       {"mcp_servers.qdrant = { command = \"uv\" }\n", []string{"qdrant"}},
+		"key of another table":         {"[profiles.work]\nmcp_servers.qdrant.command = \"uv\"\n", nil},
+		"key of a server's subtable":   {"[mcp_servers.qdrant.env]\nKEY = \"x\"\n", []string{"qdrant"}},
+		"commented out":                {"# [mcp_servers.qdrant]\n[mcp_servers]\n# gcloud = { command = \"npx\" }\n", nil},
+		"another table named likewise": {"[mcp_servers_extra.qdrant]\ncommand = \"uv\"\n", nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(test.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CODEX_HOME", home)
+
+			names, err := CodexMCPServers()
+
+			if err != nil || !slices.Equal(names, test.want) {
+				t.Errorf("CodexMCPServers = %q, %v; want %q", names, err, test.want)
+			}
+		})
+	}
+}
+
+// A quoted server name that is a plain key is turned off; one that really
+// needs its quotes still stops the launch.
+func TestCodexTurnsOffAQuotedServerNameItCanAddress(t *testing.T) {
+	home := t.TempDir()
+	config := "[mcp_servers.\"qdrant\"]\ncommand = \"uv\"\n\n[mcp_servers.\"my server\"]\ncommand = \"npx\"\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", home)
+	adapter, _ := DefaultRegistry().Get(Codex)
+	servers, err := CodexMCPServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, CodexMCPServers: servers})
+	plain, plainErr := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, CodexMCPServers: servers[1:]})
+
+	if err == nil || !strings.Contains(err.Error(), `"my server"`) {
+		t.Errorf("Build error = %v, want the server that needs quotes named", err)
+	}
+	if plainErr != nil || !slices.Contains(plain.Args, "mcp_servers.qdrant.enabled=false") {
+		t.Errorf("Build = %q, %v; want qdrant turned off", plain.Args, plainErr)
+	}
+}
+
 // With no Codex configuration there is no server to turn off.
 func TestCodexMCPServersWithoutAConfiguration(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())

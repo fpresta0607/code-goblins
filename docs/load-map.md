@@ -92,7 +92,8 @@ A hook runs only when its hash is trusted in the user configuration (review it i
 
 **MCP.**
 Servers come only from `[mcp_servers]` in the `config.toml` layers; a project `.mcp.json` is never read.
-A Codex goblin therefore uses the operator's own Codex servers, not the filtered project configuration spawn prepares.
+A Codex goblin therefore starts none of them: spawn and switch read each server the operator's `config.toml` (in `CODEX_HOME`, or `~/.codex`) defines and turn it off with `-c mcp_servers.<name>.enabled=false`.
+It gets neither the operator's own Codex servers nor the filtered project configuration spawn prepares.
 
 **Trust.**
 Project `.codex` configuration and hooks load only for a trusted project.
