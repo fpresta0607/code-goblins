@@ -418,7 +418,7 @@ func Question(rec Record) (string, []string, bool) {
 //
 // The options convention is one literal "options:" marker in the question,
 // with the choices separated by "|", which is what
-// `cfo notify <id> --blocked "<question> options: a | b"` produces. A question
+// `cfo notify <id> --blocked "<question> options: <answer> | <answer>"` produces. A question
 // with no marker offered no options, and the rendering says so rather than
 // inventing choices the goblin never named.
 func decision(rec Record) (verb, question string, options []string, ok bool) {

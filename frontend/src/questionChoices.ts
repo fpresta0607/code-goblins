@@ -10,8 +10,9 @@ export function questionSelection(question: Question, draft?: {selection:string;
 // A goblin's own leading letter: "A) ", "b. ", "(c) " or "D: ".
 const OWN_LETTER = /^\s*\(?([A-Ha-h])[).:]\s+/;
 
-// The goblin's own letters are dropped only when every option carries one and
-// they run A, B, C in the goblin's order; otherwise they mean something.
+// Each choice shows only its answer, as a plain list rather than a lettered
+// test. The goblin's own letters are dropped only when every option carries
+// one and they run A, B, C in the goblin's order; otherwise they mean something.
 function optionTexts(options: string[]): Map<string, string> {
   const inOrder = options.every((option, i) => option.match(OWN_LETTER)?.[1].toUpperCase() === String.fromCharCode(65 + i));
   return new Map(options.map((option) => [option, inOrder ? option.replace(OWN_LETTER, "") : option]));
@@ -25,7 +26,7 @@ export function questionChoices(question: Question) {
   // Moving the recommendation first reorders the choices, so each keeps the
   // image the goblin attached to it by its original position. The value stays
   // the goblin's option word for word; only its shown text loses the letter.
-  return options.map((value, i) => ({ value, text: texts.get(value) || value, label: String.fromCharCode(65 + i), recommended: value === question.recommended, image: question.image_count ? "/api/questions/" + encodeURIComponent(question.id) + "/images/" + question.options.indexOf(value) : "" }));
+  return options.map((value) => ({ value, text: texts.get(value) || value, recommended: value === question.recommended, image: question.image_count ? "/api/questions/" + encodeURIComponent(question.id) + "/images/" + question.options.indexOf(value) : "" }));
 }
 
 export function questionAnswer(question: Question, selection: string, written: string) {
