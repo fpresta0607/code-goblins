@@ -964,8 +964,9 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // reads its terminal. A shell never shows a composer, so a harness that never
 // started, or left at once, stops the spawn here with the pane's screen
 // instead of having its brief run as shell commands. A dialog a spawn never
-// answers (Codex's hook review) stops the spawn before any key is pressed. A
-// dialog the launch confirms (the trust prompt) is confirmed again should it
+// answers (Codex's hook review) stops the spawn before any key is pressed,
+// unless the launch itself confirms it (pi's trust prompt, which its screens
+// never answer). A dialog the launch confirms is confirmed again should it
 // show late, paced as confirmHarnessDialogs paces it, and pressed again only
 // once a later screen that has changed still shows it, so a frame not yet
 // redrawn never takes a second key. Any other dialog the harness is known to
@@ -992,7 +993,7 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 		}
 		screen, readErr = read, nil
 		dialog, found := screens.Dialog(screen)
-		if found && dialog.Accept == "" {
+		if found && dialog.Accept == "" && !containsMarker(strings.Join(dialog.Markers, "\n"), launch.ConfirmMarkers) {
 			return fmt.Errorf("spawn: %s shows %s, which a spawn never answers, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
 		}
 		if containsMarker(strings.Join(screen, "\n"), launch.ConfirmMarkers) {
