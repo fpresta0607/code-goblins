@@ -4,6 +4,7 @@
 Use `--listen 127.0.0.1:0` for an ephemeral port; the command prints its actual URL.
 Node, Vite, Docker, and a browser are not runtime dependencies of the supervisor.
 Docker remains an optional project environment managed by the existing worktree profiles.
+`serve` does not care where it was started: started from a Herdr pane, such as the CFO's own, it first drops that pane's variables (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_STARTUP_CWD`, `HERDR_SOCKET_PATH` and `HERDR_BIN_PATH`) and keeps every other `HERDR_` variable, such as `HERDR_SESSION` and the user's configuration in `HERDR_CONFIG_PATH`, so a terminal it opens, or any other program it runs, is not refused by herdr as nested inside that pane.
 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
@@ -117,7 +118,8 @@ Board groups actual tasks into Tasks, In progress and Completed.
 The three columns sit side by side while each has room for a 260 px card, and stack one above the other below that, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
-Tasks, In progress and Completed each show as many of their cards as fit, Completed its newest: with the columns side by side, the visible canvas below the list, and with them stacked, one screen below the column's heading, less room for the pager; a page holds as many rows of the tallest card seen at that width as fit, times the columns its grid lays out.
+Tasks, In progress and Completed each show as many of their cards as fit, Completed its newest: with the columns side by side, the visible canvas below the list, and with them stacked, one screen below the column's heading, less room for the pager; each page holds as many of its own cards as fit, row by row with each row as tall as its tallest card, and starts where the page before it ended, so a tall card shortens only its own page.
+A card's height is measured at the list's width, those not shown yet in a hidden container of no height beside the list, so the pages come from real heights without the list ever growing past its space.
 A pager under a list, when one page does not hold it all, says which cards show, 1–5 of 18, with earlier and next buttons, and a sideways touch swipe of at least 48 px turns the page while a vertical one scrolls; in Tasks and In progress a swipe that starts on a card's rank is a drag, not a page turn.
 A drag places a card among the cards of its page, and a keyboard move past the page's edge carries the page with the card, keeping its focus.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
@@ -307,7 +309,7 @@ The registration then names that terminal instead of a pane, and it stays valid 
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
-`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's Herdr pane variables, the same ones `serve` drops.
 `goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
 The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
