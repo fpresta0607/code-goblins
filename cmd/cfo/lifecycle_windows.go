@@ -51,7 +51,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	var resources lifecycle.Resources
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
-			return runtime.sendText(ctx, h, meta.ID, "Pause requested. You have five seconds to reach a stopping point, write a handoff to "+handoff+", and push your branch if its mode allows. Your session and processes will then stop; retain all work and never bypass a gate.")
+			return runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff))
 		},
 		Stop: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
 			bounded, cancel := context.WithTimeout(ctx, 12*time.Second)
