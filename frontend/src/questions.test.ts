@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { questionChoices, questionAnswer, questionSelection } from "./questionChoices.ts";
 import { parseSnapshot, parseAction } from "./types.ts";
 
-test("recommendation moves first without changing answer identity; Other stays explicit", () => {
+test("each choice is the answer itself with no letter; the recommendation moves first without changing answer identity; Other stays explicit", () => {
   const q = parseSnapshot({ healthy:true, questions: [{id:"question-1", identity:"cfo-1", options:["Stay", "Isolate", "Wait"], recommended:"Isolate"}] }).questions![0];
-  assert.deepEqual(questionChoices(q).map(c=>[c.label,c.value,c.recommended]), [["A", "Isolate",true],["B","Stay",false],["C","Wait",false]]);
+  assert.deepEqual(questionChoices(q), [
+    {value:"Isolate", text:"Isolate", recommended:true, image:""},
+    {value:"Stay", text:"Stay", recommended:false, image:""},
+    {value:"Wait", text:"Wait", recommended:false, image:""},
+  ]);
   assert.equal(questionChoices({...q, recommended:""}).some(c=>c.recommended), false);
   assert.equal(questionAnswer(q, "", ""), null);
   assert.equal(questionAnswer(q, "other", "  "), null);
@@ -20,9 +24,9 @@ test("each choice keeps the image the goblin attached to it after the recommenda
   assert.equal(questionChoices({...q, image_count:0}).some(c=>c.image), false);
 });
 
-test("a goblin's own option letters are dropped when they run in order, so each option shows one letter", () => {
+test("a goblin's own option letters are dropped when they run in order, so each option shows only its answer", () => {
   const q = parseSnapshot({ healthy:true, questions: [{id:"notify-gb-x-8", identity:"goblin-1", task:"gb-x", options:["A) US survey feet", "B) International feet", "C) Meters"], recommended:"B) International feet"}] }).questions![0];
-  assert.deepEqual(questionChoices(q).map(c=>[c.label,c.text,c.value]), [["A","International feet","B) International feet"],["B","US survey feet","A) US survey feet"],["C","Meters","C) Meters"]]);
+  assert.deepEqual(questionChoices(q).map(c=>[c.text,c.value]), [["International feet","B) International feet"],["US survey feet","A) US survey feet"],["Meters","C) Meters"]]);
   assert.equal(questionAnswer(q, "option:B) International feet", "")?.text, "B) International feet", "the answer is still the goblin's option word for word");
   const shapes: [string[], string[]][] = [
     [["a. Keep", "b. Drop"], ["Keep", "Drop"]],

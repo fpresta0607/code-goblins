@@ -206,8 +206,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" ? [] : item.kind === "question"
-    ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, label: choice.label, value: choice.value, text: choice.text }))
-    : reviewImages(item.review).map((src, n) => ({ src, label: String(n + 1), value: "Image " + (n + 1), text: "Image " + (n + 1) }));
+    ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
+    : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
   const notices = presentations.filter((event) => !background.has(event.id)).slice(-4).reverse();
   const settled = settledItems(snapshot).slice(0, 20);
   return <>

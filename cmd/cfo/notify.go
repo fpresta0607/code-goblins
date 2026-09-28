@@ -27,7 +27,7 @@ import (
 //
 //	cfo notify <task-id> --done --pr <url>
 //	cfo notify <task-id> --blocked "<question>"
-//	cfo notify <task-id> --blocked "<question> options: a | b" --image a.png --image b.png
+//	cfo notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
 //	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
@@ -109,6 +109,12 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]
+	}
+	if _, options, asked := wake.Question(wake.Record{Kind: "notify", Detail: verb + ": " + detail}); asked {
+		if err := choicesAreAnswers(options); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: "+err.Error())
+			return 2
+		}
 	}
 	// The page is checked and opened before anything is recorded, so a page
 	// that cannot be shown fails the notify instead of leaving a wait on a
