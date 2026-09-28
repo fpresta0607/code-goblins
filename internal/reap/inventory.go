@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -95,13 +96,30 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
+	var processes []Process
+	listed := false
 	if c.Panes != nil {
-		panes, unresolved, unplaced, err := c.readPanes(ctx)
-		if err != nil {
+		panes, unresolved, unplaced, paneErr := c.readPanes(ctx)
+		if paneErr != nil {
 			// Every pane reads as gone when Herdr is unreadable, which would
 			// classify the whole live fleet as orphaned. Refuse instead: a
-			// sweep that cannot see panes has no business reporting orphans.
-			return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", err)
+			// sweep that cannot see panes has no business reporting orphans,
+			// unless no Herdr server runs for this session, when no pane can
+			// exist and a fleet of native terminals is swept on its own
+			// evidence. Another session's server is a test fixture, and a
+			// Herdr CLI call is no server.
+			if c.Processes == nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
+			}
+			var err error
+			if processes, err = c.Processes.List(ctx); err != nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+			}
+			listed = true
+			if slices.ContainsFunc(processes, c.runsSessionServer) {
+				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
+			}
+			notes = append(notes, "no Herdr server runs for session "+c.Session+", so there are no panes; native terminals and processes decide")
 		}
 		inv.Panes = panes
 		inv.UnresolvedPanes = unresolved
@@ -117,9 +135,11 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	}
 
 	if c.Processes != nil {
-		processes, err := c.Processes.List(ctx)
-		if err != nil {
-			return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+		if !listed {
+			var err error
+			if processes, err = c.Processes.List(ctx); err != nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+			}
 		}
 		inv.Processes = processes
 		inv.FleetRootPIDs = herdrRoots(processes)
@@ -130,6 +150,12 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	c.nativeHosts(&inv, &notes)
 
 	return inv, notes, nil
+}
+
+// runsSessionServer reports whether process is the Herdr server of the
+// collector's session.
+func (c Collector) runsSessionServer(process Process) bool {
+	return isHerdrServer(process) && strings.EqualFold(herdrSession(process.CommandLine), c.Session)
 }
 
 // nativeHosts reads every native terminal's host record. A record that cannot

@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // cfo peek reads a native terminal's screen as its console holds it: the rows
@@ -51,6 +52,32 @@ func TestPeekReadsANativeTerminalsScreen(t *testing.T) {
 	}
 	if lastErr != nil || last != "got hello\n" {
 		t.Errorf("peek t1 1 = %q, %v; want the last row written", last, lastErr)
+	}
+}
+
+// cfo peek gb-<id>, the form fleet-view suggests, reads a native task's
+// terminal as cfo peek <id> does, never asking Herdr for it.
+func TestPeekByTheGoblinsNameReadsANativeTasksTerminal(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, "t1")
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "t1", Window: "native", Worktree: t.TempDir(), Harness: "claude", Kind: "ship", Backend: "native"}); err != nil {
+		t.Fatal(err)
+	}
+	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+	// The terminal's program prints ready once it has started; read it by id
+	// until it has, so both names are asked of the same screen.
+	byID := ""
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(byID, "ready"); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed ready: %q", byID)
+		}
+		byID, _ = peekTerminal(context.Background(), h, "t1", 0)
+	}
+
+	screen, err := peekTerminal(context.Background(), h, "gb-t1", 0)
+
+	if err != nil || screen != byID {
+		t.Errorf("peek gb-t1 = %q, %v; want the screen peek t1 reads, %q", screen, err, byID)
 	}
 }
 

@@ -344,6 +344,7 @@ After Start the board shows at once with the CFO's terminal open. A quiet link, 
 Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
+`cfo peek gb-<id>`, the form fleet-view suggests, reads a native task's terminal as `cfo peek <id>` does.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
 `cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.
@@ -369,6 +370,8 @@ The monitor supervises a native goblin as it does a Herdr one: its host's record
 Its progress evidence is the processes its terminal's program started; its transcript is not located yet, since no Herdr session names it, so only those processes count as progress before a stale wake.
 The board's runtime line for a native task names its terminal instead of Herdr.
 `cfo cleanup` returns a native task whose terminal has ended, or whose harness waits at its ready composer with no working marker, in which case it closes the terminal, which ends the harness (decision 2339); any other screen, a screen or host record that cannot be read, and a harness whose screens cfo cannot read are refused with or without `--force-archive`.
+It asks nothing of Herdr for a native task, so a machine without Herdr retires its native goblins; only a Herdr task needs Herdr.
+The orphan sweep (`cfo reap` and the watcher's) refuses when a running Herdr server for its session cannot be read, since every goblin in it would read as an orphan, and sweeps on the native hosts and the process table alone when no Herdr server runs for its session, so no pane can exist; a test fixture's server for another session or a Herdr CLI call does not stop it.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
 On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
 Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
