@@ -3,8 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
-import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
+import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
@@ -32,7 +32,7 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // the live screen.
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
-export function NativeTerminal({ task, node, instance, visible, shown, focus = 0, onOwner }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number; onOwner?: () => void }) {
+export function NativeTerminal({ task, node, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; instance: string; visible: boolean; shown: boolean; focus?: number }) {
   const host = useRef<HTMLDivElement>(null);
   const pastHost = useRef<HTMLDivElement>(null);
   const history = useRef<Terminal | null>(null);
@@ -69,11 +69,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
-  const shared = !!node && !ownsTaskSession(node, task);
-  const queued = !!task && !task.generation;
-  const missing = !cfo && (shared || queued) || unavailable;
   useEffect(() => {
-    if (!host.current || !pastHost.current || !visible || missing) return;
+    if (!host.current || !pastHost.current || !visible || unavailable) return;
     const element = host.current, pastElement = pastHost.current;
     const abort = new AbortController();
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
@@ -563,8 +560,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     void connect(false);
     return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
-  }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
-  if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
+  }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate]);
+  if (unavailable) return <TerminalEmpty text={error} />;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
     <div className={"terminal-surface terminal-history" + (inHistory && live ? "" : " away")} ref={pastHost} aria-hidden={!(inHistory && live)} />

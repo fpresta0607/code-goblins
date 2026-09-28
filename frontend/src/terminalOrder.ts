@@ -1,4 +1,4 @@
-import type { Task } from "./types.ts";
+import type { Session, Snapshot, Task } from "./types.ts";
 
 // The terminal deck: every goblin terminal the Overlord opened stays live
 // while the board is open, so switching only shows another terminal. The
@@ -39,6 +39,26 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
   const at = order.findIndex((entry) => entry.key === current);
   if (at < 0) return order[0];
   return order[(at + key.step + order.length) % order.length];
+}
+
+// A deck slot shows a native terminal from its host, Herdr's view of a
+// terminal still in Herdr, or an empty state that belongs to no backend.
+export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { kind: "empty"; text: string };
+
+// A registered CFO with no native terminal is the live CFO still in Herdr.
+export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs">): DeckView {
+  if (snapshot.cfo_terminal) return { kind: "host", query: "cfo=" + encodeURIComponent(snapshot.cfo_terminal) };
+  return snapshot.cfo_runs ? { kind: "herdr" } : { kind: "empty", text: "No CFO is running." };
+}
+
+export function goblinView(task: Task): DeckView {
+  return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
+}
+
+// A queued task or a child session has no terminal of its own.
+export function idleView(task?: Task, node?: Session): Extract<DeckView, { kind: "empty" }> {
+  if (task && !task.generation) return { kind: "empty", text: "This task has not started yet." };
+  return { kind: "empty", text: node ? "This child has no separate terminal." : "Select a goblin to see its terminal." };
 }
 
 // keepLive puts key first among the live terminals, most recent first, and
