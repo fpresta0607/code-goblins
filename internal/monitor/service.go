@@ -245,8 +245,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// A native task publishes its metadata before its host starts, and the
 	// harness then shows the trust dialog and its composer before the brief is
 	// submitted. Within the launch budget anything short of a turn in progress
-	// is still launching, unless the provider is refusing the harness.
-	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && now.Before(s.launchDeadline(meta)) {
+	// is still launching, unless the provider is refusing the harness or the
+	// goblin has already been seen alive.
+	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
 		if _, _, refused := routing.Detect(string(sample.Capture)); !refused {
 			return launchingObservation(observation, now)
 		}
