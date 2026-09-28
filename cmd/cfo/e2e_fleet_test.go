@@ -714,6 +714,12 @@ type fleetE2ERunner struct {
 	// where the instruction was never submitted.
 	prompts        map[string][]string
 	stateChangeSeq map[string]int64
+	// typedHarness is the typed harness the last launch line started,
+	// typedBrief the text typed after it, and typedBriefEnters the Enters
+	// pressed after that.
+	typedHarness     string
+	typedBrief       string
+	typedBriefEnters int
 	// collapsePastes models Claude Code rendering text it treats as a paste
 	// as a collapsed placeholder, so the pane never shows the instruction.
 	collapsePastes bool
@@ -806,8 +812,24 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, fmt.Errorf("pane send-text is incomplete: %v", args)
 		}
 		r.lastText = args[3]
+		// A launch line names the harness it starts: a typed Codex or pi
+		// takes the text typed after it as its brief.
+		switch {
+		case strings.Contains(args[3], "Set-Location"):
+			r.typedHarness, r.typedBrief, r.typedBriefEnters = "", "", 0
+			if strings.Contains(args[3], "& 'codex'") {
+				r.typedHarness = "codex"
+			} else if strings.Contains(args[3], "& 'pi'") {
+				r.typedHarness = "pi"
+			}
+		case r.typedHarness != "":
+			r.typedBrief = args[3]
+		}
 		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "pane", "send-keys"):
+		if len(args) >= 4 && args[3] == "enter" && r.typedBrief != "" {
+			r.typedBriefEnters++
+		}
 		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "pane", "read"):
 		if hasArgument(args, "--format") {
@@ -818,17 +840,24 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			// replaced by a placeholder that names nothing it contained.
 			return result("> [Pasted text #1]\n  paste again to expand\n"), nil
 		}
-		// A harness launched typed shows its composer once it runs, and a
-		// turn once a prompt reached it, as live Codex 0.154.0 and pi do.
-		if typed := strings.Contains(r.lastText, "& 'codex'"); typed || strings.Contains(r.lastText, "& 'pi'") {
+		// A harness launched typed shows its composer once it runs, its brief
+		// once typed, and a turn once Enter submits it or a later prompt
+		// reached it, as live Codex 0.154.0 and pi do.
+		if r.typedHarness != "" {
 			composer, working := "› Ask Codex to do anything\n  100% context left", "• Working (1s • esc to interrupt)"
-			if !typed {
+			if r.typedHarness == "pi" {
 				composer, working = "0.0%/1.0M (auto)", "── ⠸ Working ──"
 			}
 			if len(args) >= 3 {
 				if prompts := r.prompts[args[2]]; len(prompts) > 0 {
 					return result(prompts[len(prompts)-1] + "\n" + working + "\n"), nil
 				}
+			}
+			switch {
+			case r.typedBriefEnters > 0:
+				return result(r.typedBrief + "\n" + working + "\n"), nil
+			case r.typedBrief != "":
+				return result("› " + r.typedBrief + "\n" + composer + "\n"), nil
 			}
 			return result(composer + "\n"), nil
 		}

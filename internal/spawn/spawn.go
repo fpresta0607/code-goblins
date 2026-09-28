@@ -32,6 +32,9 @@ const (
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
 	instructionTries   = 60
+	// submitRetries is how many more times a typed brief still in its
+	// composer is submitted after the first Enter.
+	submitRetries = 3
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -985,40 +988,42 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 	return fmt.Errorf("spawn: %s never showed its composer within %s, so its brief was not typed; its screen ends:\n%s", kind, nativeStartup, host.ScreenTail(screen, 8))
 }
 
-// deliverTypedInstruction submits a typed launch's brief through Herdr and
-// proves the harness took it as a native spawn proves it: the harness's
-// native hooks report a prompt taken since the submit, or its pane shows it
-// working. Herdr's own counters move on any redraw, so they prove nothing
-// here. A harness that reads the typed brief as a paste can take the Enter
-// that ends it as part of the paste, which leaves the brief in its composer:
-// the brief still showing is submitted with one more Enter, which cannot hand
-// it over twice, since a submitted brief leaves the composer. A submit Herdr
-// refuses is retried across the same budget, and only while it is refused:
-// `agent prompt` submits on success, so a re-send would brief it twice.
+// deliverTypedInstruction types a typed launch's brief into its harness's
+// composer and proves the harness took it as a native spawn proves it: the
+// harness's native hooks report a prompt taken since the submit, or its pane
+// shows it working. Herdr's own counters move on any redraw, so they prove
+// nothing here.
+//
+// The brief is typed as pane text, never through Herdr's agent prompt, so it
+// needs no agent Herdr has registered: a Codex that Herdr had not registered
+// yet refused one live with agent_not_found. A write Herdr refuses is written
+// again only while the composer shows none of the brief, so it is never typed
+// twice, and Enter is pressed only once the composer shows it.
+//
+// A harness that reads fast typing as a paste can take the Enter that ends it
+// as part of the paste and leave the brief in its composer, so while the brief
+// still shows and no turn has started, Enter is pressed again, further apart
+// each time, up to submitRetries more times. An Enter on an empty composer
+// submits nothing, so the brief is never handed over twice.
 func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
 	instruction := launch.PromptInstruction()
-	var submitted time.Time
-	var submitErr error
-	pressed := false
-	var screen []string
+	screen, err := s.typeIntoComposer(ctx, client, target, kind, screens, instruction)
+	if err != nil {
+		return err
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return fmt.Errorf("spawn: wait before submitting %s's brief: %w", kind, err)
+	}
+	submitted := time.Now()
+	if err := client.SendKey(ctx, target, "Enter"); err != nil {
+		return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+	}
+	presses, sincePress := 1, 0
 	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, nativePoll); err != nil {
-				return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
-			}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
 		}
-		if submitted.IsZero() {
-			at := time.Now()
-			if err := client.AgentPrompt(ctx, target, instruction); err != nil {
-				if herdr.WaitError(ctx, err) {
-					return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
-				}
-				submitErr = err
-				continue
-			}
-			submitted = at
-			continue
-		}
+		sincePress++
 		if s.PromptSince != nil {
 			if taken, err := s.PromptSince(launch.Env["CFO_TASK_ID"], launch.Env["CFO_SPAWN_GEN"], submitted); err == nil && taken {
 				return nil
@@ -1035,17 +1040,57 @@ func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Ba
 		if screens.IsWorking(screen) {
 			return nil
 		}
-		if !pressed && screens.Shows(screen, instruction) {
+		if presses <= submitRetries && sincePress >= presses*int(time.Second/nativePoll) && screens.Shows(screen, instruction) {
 			if err := client.SendKey(ctx, target, "Enter"); err != nil {
 				return fmt.Errorf("spawn: submit %s's brief left in its composer: %w", kind, err)
 			}
-			pressed = true
+			presses, sincePress = presses+1, 0
 		}
 	}
-	if submitted.IsZero() {
-		return fmt.Errorf("spawn: could not submit %s's brief within %s: %w", kind, nativeAccepted, submitErr)
-	}
 	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
+}
+
+// typeIntoComposer types text into the harness's composer and returns once
+// the composer shows it. A write Herdr refuses typed nothing, so it is written
+// again, but only while the composer shows none of the text.
+func (s Service) typeIntoComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, text string) ([]string, error) {
+	var screen []string
+	var writeErr error
+	typed := false
+	for attempt := 0; attempt < int(nativeKeyEffect/nativePoll); attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, nativePoll); err != nil {
+				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
+			}
+		}
+		if !typed {
+			if err := client.SendLiteral(ctx, target, text); err != nil {
+				if herdr.WaitError(ctx, err) {
+					return nil, fmt.Errorf("spawn: type %s's brief: %w", kind, err)
+				}
+				writeErr = err
+			} else {
+				typed = true
+			}
+		}
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
+			}
+			continue
+		}
+		screen = read
+		if screens.Shows(screen, text) {
+			return screen, nil
+		}
+		// A refused write that typed after all shows in the composer and is
+		// never written again.
+	}
+	if !typed {
+		return nil, fmt.Errorf("spawn: could not type %s's brief within %s: %w", kind, nativeKeyEffect, writeErr)
+	}
+	return nil, fmt.Errorf("spawn: the brief typed into %s's composer never showed there within %s, so it was not submitted; its screen ends:\n%s", kind, nativeKeyEffect, host.ScreenTail(screen, 8))
 }
 
 // readPane reads only the rows the pane shows now, so the screen a harness
