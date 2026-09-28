@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { asksPermission, boardAlerts, notifies } from "./alertRules.ts";
+import { arrive, asksPermission, boardAlerts, notifies, type BoardAlert } from "./alertRules.ts";
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
-const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", generation: id + "-1", ...extra }) as Task;
+const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
 const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "a", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
 const review = (id: string): Review => ({ id, title: "Review the plan", state: "open", task: "a", created_at: "2026-09-27T01:00:00Z" }) as Review;
 const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the board", state, created_at: "2026-09-27T01:00:00Z" }) as Run;
@@ -56,6 +56,42 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
 test("a goblin's own failure says what it reported", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke", reason: "Manual task mode" })] }));
   assert.equal(alert.text, "The build broke");
+});
+
+test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
+  const pr = "https://github.com/o/r/pull/7";
+  const working = snapshot({ tasks: [task("a", "working")] });
+  const done = snapshot({ tasks: [task("a", "review", { report: "done", pr })] });
+  const finished = task("finished:a", "done", { archived: true, pr, title: "a" });
+  const merged = task("merged:" + pr, "done", { archived: true, merged: true, pr, title: "feat/a" });
+  assert.deepEqual(boardAlerts(working, done).map((alert) => alert.key), ["task:a:a-1:done"]);
+  const cases: [string, Snapshot, Snapshot][] = [
+    ["a finished entry appearing", working, snapshot({ tasks: [task("a", "working"), finished] })],
+    ["a merged entry appearing", working, snapshot({ tasks: [task("a", "working"), merged] })],
+    ["the live goblin leaving for its finished entry", done, snapshot({ tasks: [finished] })],
+    ["a merged entry beside the live goblin still in review", done, snapshot({ tasks: [task("a", "review", { report: "done", pr }), merged] })],
+    ["history returning after a restart", snapshot({ tasks: [] }), snapshot({ tasks: [finished, merged] })],
+  ];
+  for (const [name, before, next] of cases) assert.deepEqual(boardAlerts(before, next), [], name);
+});
+
+test("a goblin's own failure drops the verb its report line starts with", () => {
+  const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "working", { report: "failed", activity: "failed: spawn refused: no harness" })] }));
+  assert.equal(alert.text, "spawn refused: no harness");
+});
+
+test("each arrival gets its own identity, so a replacement toast starts afresh and outlives the old one's dismissal", () => {
+  const alert = (key: string) => ({ key, tone: "failed", title: key, text: "", task: "a", target: { kind: "task", id: "a" } }) as BoardAlert;
+  const first = arrive([], [alert("task:a:a-1:failed"), alert("question:q1")]);
+  assert.deepEqual(first.map((toast) => toast.alert.key), ["task:a:a-1:failed", "question:q1"]);
+  assert.equal(new Set(first.map((toast) => toast.id)).size, 2);
+  const replaced = arrive(first, [alert("task:a:a-1:failed")]);
+  assert.deepEqual(replaced.map((toast) => toast.alert.key), ["question:q1", "task:a:a-1:failed"]);
+  const [old] = first;
+  assert.ok(!replaced.some((toast) => toast.id === old.id), "the replacement has a new identity");
+  assert.deepEqual(replaced.filter((toast) => toast.id !== old.id), replaced, "dismissing the old arrival keeps the new one");
+  const full = arrive(replaced, ["r1", "r2", "r3"].map((key) => alert("review:" + key)));
+  assert.deepEqual(full.map((toast) => toast.alert.key), ["task:a:a-1:failed", "review:r1", "review:r2", "review:r3"], "at most four, the oldest leaving first");
 });
 
 test("an alert names who asks and what, in a few words", () => {
