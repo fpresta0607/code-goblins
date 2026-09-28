@@ -573,7 +573,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .host-terminal .terminal-surface { position: relative; overflow: hidden; }
 /* One connection's xterm: staged out of sight until its screen is whole. */
 .terminal-view { position: absolute; inset: 0; }
-.terminal-view .xterm { height: 100%; padding: 6px 0 0 10px; }
+/* The view pads its grid evenly to the panel, with the input line at the
+   bottom; see panelFit. */
+.terminal-view .xterm { height: 100%; box-sizing: border-box; }
 .terminal-view, .terminal-view .xterm-viewport { background: #071015 !important; }
 .terminal-view.staged { visibility: hidden; }
 .terminal-reconnecting { position: absolute; top: 10px; right: 12px; z-index: 2; }
