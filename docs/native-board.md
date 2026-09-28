@@ -123,6 +123,7 @@ Past ten, Tasks, In progress and Completed each show as many of their cards as f
 A card's height is measured at the list's width, those not shown yet in a hidden container of no height beside the list, so the pages come from real heights without the list ever growing past its space.
 A pager under a list, when one page does not hold it all, says which cards show, 1–5 of 18, with earlier and next buttons, and a sideways touch swipe of at least 48 px turns the page while a vertical one scrolls; in Tasks and In progress a swipe that starts on a card's rank is a drag, not a page turn.
 A drag places a card among the cards of its page, and a keyboard move past the page's edge carries the page with the card, keeping its focus.
+A card or list that fails to render shows a warning in its place, This card could not be shown or This list could not be shown, with an icon-only Retry, while the rest of the board stays usable.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
 Dragging a card, or Alt+Up and Alt+Down on a focused one, sends the whole list's new order to `POST /api/order` with the board's token, which the Host, Origin and token checks guard like every other change.
 A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, the row of a task with a live task record (which In progress lists) and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
@@ -645,6 +646,8 @@ npm ci
 npm run typecheck
 npm run lint
 npm test
+npx playwright install chromium --only-shell
+npm run test:browser
 npm run build
 cd ..
 go build -o cfo.exe ./cmd/cfo

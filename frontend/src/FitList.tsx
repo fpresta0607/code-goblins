@@ -1,5 +1,6 @@
 import { useRef, type ReactNode } from "react";
 import { Pager } from "./Pager";
+import { RenderBoundary } from "./render-boundary";
 import { useFit } from "./useFit";
 
 // A list of cards in their order, newest first for history, showing up to ten
@@ -12,11 +13,11 @@ export function FitList<T>({ items, keyOf, empty, renderItem }: { items: T[]; ke
   return <>
     <div ref={frameRef} className="fit-list" onPointerDown={fit.onPointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards">
-        {items.slice(fit.start, fit.end).map((item) => <div key={keyOf(item)} className="fit-item" data-fit-key={keyOf(item)}>{renderItem(item)}</div>)}
+        {items.slice(fit.start, fit.end).map((item) => <div key={keyOf(item)} className="fit-item" data-fit-key={keyOf(item)}><RenderBoundary scope="card">{renderItem(item)}</RenderBoundary></div>)}
         {!items.length && empty}
       </div>
       {fit.unmeasured.length > 0 && <div className="task-cards fit-measure" aria-hidden="true" inert>
-        {items.filter((item) => fit.unmeasured.includes(keyOf(item))).map((item) => <div key={keyOf(item)} className="fit-item" data-fit-key={keyOf(item)}>{renderItem(item)}</div>)}
+        {items.filter((item) => fit.unmeasured.includes(keyOf(item))).map((item) => <div key={keyOf(item)} className="fit-item" data-fit-key={keyOf(item)}><RenderBoundary scope="card">{renderItem(item)}</RenderBoundary></div>)}
       </div>}
     </div>
     <Pager start={fit.start} end={fit.end} count={items.length} onTurn={fit.turn} />

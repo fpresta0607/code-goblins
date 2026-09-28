@@ -1,0 +1,147 @@
+﻿{
+    "instance":  "pagination-fixture",
+    "revision":  1,
+    "healthy":  true,
+    "example":  true,
+    "cfo_runs":  false,
+    "memory":  {
+                   "next":  5368709120,
+                   "floor":  4294967296,
+                   "total":  34359738368,
+                   "available":  6442450944
+               },
+    "tasks":  [
+                  {
+                      "id":  "cg-goblins-quickstart",
+                      "title":  "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO\u0027s agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "memory"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-review-editor-sync",
+                      "title":  "Answers given in a review page\u0027s editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "memory"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-hidden-windows",
+                      "title":  "Console windows flash on the Overlord\u0027s desktop while the fleet works: find every source and start them hidden",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "memory"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-install-no-mistakes-pinned",
+                      "title":  "Keep no-mistakes required, but install it from a pinned, checksummed release download with a retry, so CI\u0027s install test stops failing on GitHub\u0027s rate limit",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "priority"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-board-unreadable-folder",
+                      "title":  "One unreadable state folder takes the whole board down until serve restarts",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "priority"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-board-update",
+                      "title":  "An update banner at the top of the board with one-click Update from the published releases (checksum-verified, safe swap and rollback, goblins untouched)",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "priority"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-hardening-followups",
+                      "title":  "The already-pushed skip design for tests-kept and the other open hardening items",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "priority"
+                                       ]
+                  },
+                  {
+                      "id":  "cg-helper-goblins",
+                      "title":  "Goblins start helper goblins through the supervisor: memory admission, one helper per goblin, no helpers of helpers, the parent merges, stop and pause reach helpers",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "cg-board-kill"
+                                       ]
+                  },
+                  {
+                      "id":  "cfo-no-mistakes-update",
+                      "title":  "Update no-mistakes from v1.75.1 to v1.79.0 in a quiet window",
+                      "project":  "code-goblins",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "time"
+                                       ]
+                  },
+                  {
+                      "id":  "pd-land-pr-1265",
+                      "title":  "Land PR 1265, refuse production vendor keys outside production",
+                      "project":  "PrecisionDocs-AI",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "the"
+                                       ]
+                  },
+                  {
+                      "id":  "pd-agent-api-v2-later",
+                      "title":  "The agent API rows left after area A: row 26 and row 27",
+                      "project":  "PrecisionDocs-AI",
+                      "phase":  "queued",
+                      "brief":  true,
+                      "verified":  false,
+                      "since":  "2026-09-28T11:00:00Z",
+                      "dependencies":  [
+                                           "time"
+                                       ]
+                  }
+              ]
+}

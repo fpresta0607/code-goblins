@@ -22,6 +22,7 @@ config/
 /cfo.exe.*.old
 /goblins.exe.*.old
 /frontend/node_modules/
+/frontend/test-results/
 
 # The skill junction install.cmd -Dev creates (points at .agents/skills);
 # /.codex/skills/ is the one earlier bootstraps also made.

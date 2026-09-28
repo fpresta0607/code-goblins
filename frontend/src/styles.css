@@ -318,6 +318,9 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid #2f6b58; border-radius: 14px; background: #10251f; color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
 .error-box button { display: block; margin-top: 10px; }
+.render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
+.render-error span { flex: 1; }
+.render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
 .decision p { white-space: pre-wrap; }
@@ -538,7 +541,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
 .panel-header.compact h2 { font-size: 1.375rem; }
 .panel-header.compact .panel-actions { grid-column: auto; }
-.panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; }
+.panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; scrollbar-gutter: stable; }
 .panel-content { padding: 0 28px 30px; }
 .panel-content > .disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; margin: 0; }
 .panel-content > .disclosure > summary { padding: 22px 0; font-size: 1.25rem; }
@@ -824,7 +827,7 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .ranked-item { position: relative; min-width: 0; }
 .ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
-.ranked-item .task-card { padding-left: 44px; }
+.ranked-item .task-card, .ranked-item .render-error { padding-left: 44px; }
 .ranked-item .card-waiting { left: 100px; }
 @media (hover: hover) and (pointer: fine) {
   .ranked-item .task-card { cursor: grab; }

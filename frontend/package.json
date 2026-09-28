@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src tests playwright.config.ts",
     "test": "node --experimental-strip-types --test src/*.test.ts",
+    "test:browser": "playwright test",
     "build": "tsc --noEmit && vite build"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@types/node": "26.6.2",
     "@types/prismjs": "1.26.6",
     "@types/react": "19.3.0",
