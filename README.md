@@ -62,7 +62,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions in [Herdr](https://herdr.dev), avoiding a shell-script orchestration layer on the hot path.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions, each in a native terminal of its own (a pseudo console that outlives every window), or in [Herdr](https://herdr.dev) when asked, avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
