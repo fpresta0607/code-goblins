@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 // environmentReportVariable makes this test binary, started as a stand-in
@@ -123,7 +124,7 @@ func TestANativeCFOStartedFromAHerdrPaneCarriesNoneOfIt(t *testing.T) {
 	}
 
 	// Act
-	kept := nativeCFOEnvironment(env)
+	kept := nativeCFOEnvironment(nil, env, home.Home{Root: `C:\home`, State: `C:\home\state`}, "")
 
 	// Assert
 	for _, entry := range kept {

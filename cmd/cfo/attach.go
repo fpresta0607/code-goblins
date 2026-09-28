@@ -7,14 +7,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -216,9 +220,9 @@ func detachAt(keys []byte) int {
 	return -1
 }
 
-// startNativeCFO starts harness as the CFO in native terminal cfo, in
-// project, in a host of its own that outlives this console.
-func startNativeCFO(stateDir, project, harness string) error {
+// startNativeCFO starts harness as the CFO of home h in native terminal cfo,
+// in project, in a host of its own that outlives this console.
+func startNativeCFO(h home.Home, project, harness string) error {
 	program, err := nativeCFOProgram(harness)
 	if err != nil {
 		return err
@@ -227,7 +231,14 @@ func startNativeCFO(stateDir, project, harness string) error {
 	if err != nil {
 		return err
 	}
-	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
+	userEnv, err := spawn.UserEnvironment()
+	if err != nil {
+		return fmt.Errorf("read the user's environment: %w", err)
+	}
+	// An unresolvable projects root leaves the user's own setting in place.
+	projects, _ := install.MachineProjectsRoot()
+	env := nativeCFOEnvironment(userEnv, os.Environ(), h, projects)
+	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
 	return err
 }
 
@@ -247,9 +258,34 @@ func nativeCFOProgram(harness string) ([]string, error) {
 	return spawn.NativeProgram(harness)
 }
 
-// nativeCFOEnvironment is env without the Herdr pane a launcher run inside
-// Herdr has, so the CFO registers its native terminal rather than that pane
-// and a herdr it starts is not refused as nested inside that pane.
-func nativeCFOEnvironment(env []string) []string {
-	return herdr.WithoutPane(env)
+// nativeCFOEnvironment is the environment the CFO's native terminal starts
+// with: userEnv, the one Windows gives a new process of this user, never the
+// launcher's own, since whatever ran goblins or the supervisor, such as a
+// Claude Code session in a Herdr pane, marks its processes as its own, and
+// Claude Code started with those marks runs as its child and saves no
+// transcript. The session markers and the harness billing keys are dropped
+// from it all the same. The CFO is placed in home h with this supervisor's
+// projects root, where it has one, and the launcher's Herdr session and
+// configuration without its pane, so the CFO registers its native terminal
+// and a herdr it starts is not refused as nested inside that pane. Names
+// compare without case, as Windows compares them.
+func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRoot string) []string {
+	pinned := [][2]string{{"CFO_HOME", h.Root}, {"CFO_STATE_OVERRIDE", h.State}}
+	if projectsRoot != "" {
+		pinned = append(pinned, [2]string{install.ProjectsRootVariable, projectsRoot})
+	}
+	env := slices.DeleteFunc(slices.Clone(userEnv), func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		overridden := slices.ContainsFunc(pinned, func(pin [2]string) bool { return strings.EqualFold(pin[0], name) })
+		return name == "" || overridden || spawn.IsSessionMarker(name) || auth.IsHarnessBillingKey(name)
+	})
+	for _, entry := range herdr.WithoutPane(launcherEnv) {
+		if strings.HasPrefix(strings.ToUpper(entry), "HERDR_") {
+			env = append(env, entry)
+		}
+	}
+	for _, pin := range pinned {
+		env = append(env, pin[0]+"="+pin[1])
+	}
+	return env
 }

@@ -113,6 +113,14 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
 	}
+	// The native CFO test starts this binary as cfo host, and as the
+	// claude.exe its terminal runs.
+	if len(os.Args) > 1 && os.Args[1] == "host" {
+		os.Exit(runHost(os.Args[2:], os.Stderr))
+	}
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+		os.Exit(runFakeClaude())
+	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a
 	// test home's CFO.
