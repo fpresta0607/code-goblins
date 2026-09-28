@@ -373,13 +373,18 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
+	codexServers, err := codexMCPServers(req.Harness)
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: %w", err))
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: req.BriefPath,
-		TaskTmp:   taskTmp,
-		GoTmp:     goTmp,
-		Model:     req.Model,
-		Effort:    req.Effort,
-		MCPConfig: provision.MCPConfig,
+		BriefPath:       req.BriefPath,
+		TaskTmp:         taskTmp,
+		GoTmp:           goTmp,
+		Model:           req.Model,
+		Effort:          req.Effort,
+		MCPConfig:       provision.MCPConfig,
+		CodexMCPServers: codexServers,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
@@ -473,6 +478,15 @@ func goblinMCPConfig(taskTmp string) string {
 		return ""
 	}
 	return path
+}
+
+// codexMCPServers names the operator's Codex MCP servers a Codex goblin turns
+// off; any other harness has none to turn off.
+func codexMCPServers(kind harness.Kind) ([]string, error) {
+	if kind != harness.Codex {
+		return nil, nil
+	}
+	return harness.CodexMCPServers()
 }
 
 // reservedLaunchEnv names the environment the launch contract owns. It is
