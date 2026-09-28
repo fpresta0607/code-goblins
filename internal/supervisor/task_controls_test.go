@@ -1,14 +1,19 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -129,7 +134,10 @@ func TestPausedTaskSurvivesSnapshotRestartWithoutAnUnavailableState(t *testing.T
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", GateRun: "run-1", Updated: time.Now()}); err != nil {
+	if _, err := wake.AppendOnce(h.State, "old-failure", "notify", meta.ID, "failed: old launch failure"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "Requested from the board", GateRun: "run-1", Updated: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	for turn := 0; turn < 2; turn++ {
@@ -141,7 +149,7 @@ func TestPausedTaskSurvivesSnapshotRestartWithoutAnUnavailableState(t *testing.T
 		for _, task := range snapshot.Tasks {
 			if task.ID == meta.ID {
 				found = true
-				if task.Phase != "paused" || task.Lifecycle == nil || !task.Lifecycle.ValidationRestarts {
+				if task.Phase != "paused" || task.Lifecycle == nil || !task.Lifecycle.ValidationRestarts || task.Activity != "Requested from the board" {
 					t.Fatalf("task=%+v", task)
 				}
 			}
@@ -154,6 +162,164 @@ func TestPausedTaskSurvivesSnapshotRestartWithoutAnUnavailableState(t *testing.T
 			t.Fatal(err)
 		}
 		handler.Service.Store = store
+	}
+}
+
+func TestSuccessfulCLIActionClearsAnEarlierBoardFailure(t *testing.T) {
+	for _, hasPrior := range []bool{false, true} {
+		name := "no prior lifecycle"
+		if hasPrior {
+			name = "same operation recovered"
+		}
+		t.Run(name, func(t *testing.T) {
+			spawner := &spawnRecorder{output: "fixture command failed", err: errors.New("exit 1")}
+			handler, h := startBoard(t, 5*gigabyte, spawner)
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "failed", Updated: time.Now().Add(-time.Minute)}
+			if hasPrior {
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": record.Operation, "action": "pause"})
+			if response.Code != 202 {
+				t.Fatalf("pause=%d %s", response.Code, response.Body)
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				handler.Service.starts.Lock()
+				_, isFailed := handler.Service.changeErrors[meta.ID]
+				handler.Service.starts.Unlock()
+				if isFailed {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			for _, isRecovered := range []bool{false, true} {
+				if isRecovered {
+					record.Phase, record.Updated = "paused", time.Now()
+					if err := state.WriteLifecycle(h.State, record); err != nil {
+						t.Fatal(err)
+					}
+				}
+				snapshot, err := handler.Service.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
+				if index < 0 {
+					t.Fatalf("tasks=%+v", snapshot.Tasks)
+				}
+				message := snapshot.Tasks[index].ActionError
+				if isRecovered && message != "" || !isRecovered && !strings.Contains(message, "fixture command failed") {
+					t.Fatalf("recovered=%t error=%q", isRecovered, message)
+				}
+			}
+		})
+	}
+}
+
+func TestBoardFailureFollowsItsOwnResumeButNotALaterSuccessfulAction(t *testing.T) {
+	for _, isLaterAction := range []bool{false, true} {
+		name := "failed replacement generation"
+		if isLaterAction {
+			name = "later action in same generation"
+		}
+		t.Run(name, func(t *testing.T) {
+			handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+			meta := state.TaskMeta{ID: "task", SpawnGen: "original", Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			prior := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Updated: time.Now().Add(-time.Minute)}
+			if err := state.WriteLifecycle(h.State, prior); err != nil {
+				t.Fatal(err)
+			}
+			handler.Service.Options.Dispatch.Spawn = func(context.Context, []string) (string, error) {
+				record := prior
+				record.Action, record.Phase, record.Operation, record.Generation = "resume", "failed", "resume-1", "replacement"
+				if isLaterAction {
+					record.Action, record.Phase, record.Operation, record.Generation = "pause", "paused", "external-pause", meta.SpawnGen
+				}
+				record.Updated = time.Now()
+				meta.SpawnGen = record.Generation
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					return "", err
+				}
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					return "", err
+				}
+				return "fixture command failed", errors.New("exit 1")
+			}
+			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"})
+			if response.Code != 202 {
+				t.Fatalf("resume=%d %s", response.Code, response.Body)
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				handler.Service.starts.Lock()
+				_, isFailed := handler.Service.changeErrors["task"]
+				handler.Service.starts.Unlock()
+				if isFailed {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			snapshot, err := handler.Service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task" })
+			if index < 0 {
+				t.Fatalf("tasks=%+v", snapshot.Tasks)
+			}
+			message := snapshot.Tasks[index].ActionError
+			if isLaterAction && message != "" || !isLaterAction && message != "fixture command failed" {
+				t.Fatalf("later action=%t error=%q", isLaterAction, message)
+			}
+		})
+	}
+}
+
+func TestQueuedStopShowsFailureAfterWritingItsLifecycle(t *testing.T) {
+	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **queued-task** - Retire this task (repo: project)\n")
+	queued, err := fleet.ReadQueuedTask(h, "queued-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(h.State, ".backlog.lock") })
+	handler.Service.Options.Dispatch.Spawn = func(context.Context, []string) (string, error) {
+		_, err := lifecycle.StopQueued(h, lifecycle.Request{ID: queued.Row.ID, Operation: "stop-1", Action: "stop"}, queued.Revision)
+		return "", err
+	}
+	response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": queued.Row.ID, "revision": queued.Revision, "operation": "stop-1", "action": "stop"})
+	if response.Code != 202 {
+		t.Fatalf("stop=%d %s", response.Code, response.Body)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		handler.Service.starts.Lock()
+		_, isFailed := handler.Service.changeErrors[queued.Row.ID]
+		handler.Service.starts.Unlock()
+		if isFailed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == queued.Row.ID })
+	if index < 0 || snapshot.Tasks[index].ActionError == "" || snapshot.Tasks[index].Phase != "queued" {
+		t.Fatalf("failed Stop is not visible: %+v", snapshot.Tasks)
 	}
 }
 
