@@ -268,7 +268,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.review.document
               ? <DocumentCard key={item.key} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
-                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onImage={setGallery} pager={pager} />}
+                onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
       </>}
     </dialog>

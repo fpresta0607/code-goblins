@@ -271,7 +271,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped, so each choice shows one letter.
-Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with one **Dismiss** and no answer box.
+Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
