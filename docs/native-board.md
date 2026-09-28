@@ -363,6 +363,7 @@ Codex's composer and working texts are its known ones, not yet seen in a capture
 A native spawn that fails closes the terminal it started, which ends the harness and everything it started, and retires the task as a Herdr spawn does; a terminal that already ran under the task's id refuses the spawn's host and is left running.
 If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
 `cfo send` reaches a native task by its id or `gb-<id>` through its own terminal, never through Herdr: text is typed into the composer and submitted once the composer shows it, as the spawn delivers its instruction, and `--key` writes the key straight to the terminal.
+Once delivered, a send to a native task leaves the board's message receipt as a send to a Herdr task does.
 The text is delivered once the harness's own native hooks report it took a prompt after the submit (Claude Code's and Codex's `UserPromptSubmit`, Pi's `agent_start`, marked `prompt` in their events), or, where no hook has reported, once its screen shows it working when it was not working before.
 Text sent while the harness is already in a turn waits in its composer until that turn ends, so without a hook report within a few seconds the send says it waits behind the turn, as a Herdr send does, rather than calling it delivered; a board answer in that case reads submitted while the goblin was working.
 `cfo switch` changes a native task's harness, model or effort in place as it does a Herdr one: the harness exits on its own command, its terminal is closed if it will not, which ends it and everything it started, and the new harness starts in a new terminal under the same id with the task's credentials in its environment.
@@ -597,7 +598,7 @@ cfo present --id browser-walkthrough-001 --task task-id --kind browser --url htt
 A goblin proves itself the way it does for a question: the command must run under the task's own Herdr pane or native terminal, so no native hook is needed and a goblin spawned while serve runs can present at once.
 Its report names no native session, and the board treats it as live while the task's own runtime evidence is fresh.
 `--generation` is optional and refused when it is no longer the task's current generation.
-Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry.
+Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in a Herdr pane or a native terminal as it does for a question.
 A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
 The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
 For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
