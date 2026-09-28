@@ -26,6 +26,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -58,6 +59,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// typed after it a turn in progress, so a native delivery can type into
 	// it the way it types into Claude Code.
 	harness := false
+	// hooked raises a native prompt hook for every line taken, as a harness
+	// with native hooks does, naming the terminal it runs in.
+	hooked := false
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := lines.Text()
@@ -65,6 +69,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "harness":
 			harness = true
 			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+		case line == "hooked":
+			hooked = true
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(context.Background(), args[2], nil, strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())
@@ -111,6 +117,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 			record(line)
 			if harness {
 				fmt.Println("✽ Pondering… (esc to interrupt)")
+			}
+			if hooked {
+				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
+				event, err := nativehook.Normalize(strings.NewReader(string(input)), nativehook.Context{Harness: "claude", HostID: os.Getenv(host.IDVariable)})
+				if err == nil {
+					err = nativehook.Spool(args[2], event)
+				}
+				if err != nil {
+					record("hook error: " + err.Error())
+				}
 			}
 		}
 	}

@@ -399,7 +399,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if evaluationPending(d.Actions, task) {
 			continue
 		}
-		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
 			return err
 		}
 	}
@@ -422,7 +422,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" || evaluationPending(d.Actions, task) {
 			continue
 		}
-		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
 			return err
 		}
 	}
@@ -501,7 +501,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
 		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+			return Evaluation{Reason: "Submitted to the registered CFO while it was working; it takes the answer when its current turn ends."}, nil
 		}
 		return result, err
 	}

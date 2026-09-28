@@ -48,6 +48,7 @@ type Session struct {
 	LastEventID  string          `json:"last_event_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
+	HostID       string          `json:"host_id,omitempty"`  // the native terminal the session runs in
 	Runtime      RuntimeEvidence `json:"runtime"`
 }
 
@@ -363,7 +364,7 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return fmt.Errorf("%w: %v", ErrDeferred, err)
 		}
 	}
-	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, TurnID: e.TurnID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
+	node := Session{ID: key, NativeID: e.SessionID, Harness: e.Harness, Role: e.Role, TaskID: e.TaskID, Generation: e.Generation, Parent: parent, ReportedRoot: e.RootSessionID, Relation: e.Relation, Model: e.Model, AgentType: e.AgentType, Phase: e.Kind, TurnID: e.TurnID, HostID: e.HostID, LastEventID: e.ID, UpdatedAt: e.OccurredAt}
 	if node.Model == "" {
 		node.Model = prior.Model
 	}
@@ -407,6 +408,23 @@ func (s *Store) Queue(a Action) (Action, error) {
 		return Action{}, err
 	}
 	return queued, s.save()
+}
+
+// queueUnlessEvaluating queues a reconcile's evaluation only while no
+// evaluation of its task is queued or running. It is the second of two
+// checks: the reconcile's snapshot catches an evaluation that finishes while
+// the reconcile reads, and this one, under the store lock, catches one queued
+// since the snapshot.
+func (s *Store) queueUnlessEvaluating(a Action) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if evaluationPending(s.db.Actions, a.TaskID) {
+		return nil
+	}
+	if _, err := s.queue(a); err != nil {
+		return err
+	}
+	return s.save()
 }
 
 // QueueReview admits a review only for a CFO the verifier proves live, and

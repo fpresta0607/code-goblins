@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -180,8 +181,8 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 }
 
 // A delivery to a native CFO is typed into its terminal and submitted once,
-// and reported delivered once its host confirms it wrote both into the
-// terminal's input.
+// and reported delivered once the CFO's own prompt hook, naming the terminal
+// it runs in, reports taking it.
 func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
@@ -190,11 +191,12 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
+	cfo.typeLine(t, "hooked")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
-		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
+	if err != nil || !strings.Contains(result.Reason, "its hook reported") {
+		t.Errorf("Send = %+v, %v; want it delivered once the CFO's hook reported taking it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
@@ -212,11 +214,12 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[0], "registered ") || lines[1] != "spilled" {
 		t.Fatalf("the program recorded %q, want its registration and then the spill", lines)
 	}
+	cfo.typeLine(t, "hooked")
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || !strings.Contains(result.Reason, "native terminal took") {
-		t.Errorf("Send = %+v, %v; want it delivered once the host wrote it", result, err)
+	if err != nil || !strings.Contains(result.Reason, "its hook reported") {
+		t.Errorf("Send = %+v, %v; want it delivered once the CFO's hook reported taking it", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration, the spill and then the message once", typed)
@@ -245,6 +248,75 @@ func TestANativeCFOPresentsWithoutATask(t *testing.T) {
 	}
 	if activity := store.Snapshot().Activity; len(activity) != 1 || activity[0].ID != "cfo-walkthrough" || activity[0].TaskID != "" || activity[0].Target != "primary-cfo" {
 		t.Fatalf("activity = %+v, want the CFO's own walkthrough, borrowing no task", activity)
+	}
+}
+
+// A delivery to a native CFO whose screen turns to work but whose prompt hook
+// never reports taking it is unconfirmed, not delivered, since Enter may have
+// chosen a dialog's option instead.
+func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsUnconfirmed(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, stateDir, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "harness")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+
+	if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "check") {
+		t.Errorf("Send = %v, want it unconfirmed, naming what to check before sending again", err)
+	}
+	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
+		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
+	}
+}
+
+// A delivery to a native CFO already in a turn waits behind that turn: it is
+// typed and submitted once and reported queued, not delivered, when no hook
+// reports it taken.
+func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, stateDir, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "harness")
+	cfo.typeLine(t, "busy")
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "busy" {
+		t.Fatalf("the program recorded %q, want its registration and then a turn under way", lines)
+	}
+
+	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+
+	if !errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		t.Errorf("Send = %v, want it queued behind the CFO's turn", err)
+	}
+	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
+		t.Errorf("the terminal received %q, want the message typed once", typed)
+	}
+}
+
+// A delivery the native CFO's hook never reports taking is typed
+// and submitted once and reported unconfirmed, never delivered and never
+// typed again.
+func TestADeliveryANativeCFONeverShowsTakingIsUnconfirmed(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, stateDir, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+
+	if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "check") {
+		t.Errorf("Send = %v, want it unconfirmed, naming what to check before sending again", err)
+	}
+	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
+		t.Errorf("the terminal received %q, want the message typed once", typed)
 	}
 }
 
