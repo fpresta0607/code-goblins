@@ -74,11 +74,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 				return err
 			}
 			record.GateHead = preserved.Head
-			outcome := "validation restarts on Resume"
-			if record.Action == "stop" {
-				outcome = "validation run aborted"
-			}
-			record.Kept = append(record.Kept, "gate commits "+preserved.Head+"; "+outcome)
+			record.Kept = append(record.Kept, "gate commits "+preserved.Head+"; validation restarts on Resume")
 			record.Stopped = append(record.Stopped, "validation run "+preserved.ID)
 			return nil
 		},
