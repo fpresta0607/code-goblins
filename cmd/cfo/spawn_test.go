@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
@@ -275,4 +277,26 @@ func testCommandRuntimeForHome(h home.Home) commandRuntime {
 	return commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 	}
+}
+
+// Through the real spawn service, a kimi goblin that asks for a native
+// terminal is refused before any terminal opens, because kimi has no native
+// screens; only a spawn that names no backend falls back to Herdr for it.
+func TestRunSpawnRefusesANativeKimiGoblin(t *testing.T) {
+	fixture := newFleetE2EFixture(t)
+	brief := filepath.Join(fixture.home.Root, "kimi.brief.md")
+	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"spawn", "kimi-native", "--project", fixture.project, "--brief", brief, "--harness", "kimi", "--backend", "native", "--mode", "local-only"}, &stdout, &stderr, fixture.runtime)
+
+	if exit == 0 || !strings.Contains(stderr.String(), "kimi cannot run in a native terminal yet") {
+		t.Fatalf("native kimi exit=%d stdout=%q stderr=%q, want it refused", exit, stdout.String(), stderr.String())
+	}
+	if _, err := state.ReadTaskMeta(fixture.home.State, "kimi-native"); err == nil {
+		t.Error("a refused native kimi spawn left task metadata behind")
+	}
+	t.Logf("native kimi refused: %s", strings.TrimSpace(stderr.String()))
 }

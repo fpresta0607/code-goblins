@@ -407,3 +407,32 @@ func TestRunSpawnRefusesALaneNamingAnUnknownHarness(t *testing.T) {
 		t.Errorf("exit = %d called = %v stderr = %q", exit, called, stderr.String())
 	}
 }
+
+// A routed spawn that names no backend takes it from the harness the lane
+// table chose, so a lane that routes to codex, pi or kimi starts in Herdr
+// while a Claude lane starts natively.
+func TestRunSpawnTakesTheDefaultBackendFromTheRoutedHarness(t *testing.T) {
+	for harnessName, wantBackend := range map[string]string{
+		"claude": "native",
+		"codex":  "herdr",
+		"pi":     "herdr",
+		"kimi":   "herdr",
+	} {
+		t.Run(harnessName, func(t *testing.T) {
+			table := `{"rules":[],"default_lane":"only","escalate_to":"only","lanes":{"only":{"harness":"` + harnessName + `","model":"m","effort":"high"}}}`
+			_, deps := routedRuntime(t, table)
+			got := captureSpawn(&deps, "spawned g30")
+			brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
+
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime([]string{"spawn", "g30", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
+
+			if exit != 0 {
+				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+			}
+			if string(got.Harness) != harnessName || got.Backend != wantBackend {
+				t.Errorf("request harness %q backend %q, want %q in %q", got.Harness, got.Backend, harnessName, wantBackend)
+			}
+		})
+	}
+}
