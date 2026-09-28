@@ -396,10 +396,7 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if (node.Phase == "active" || node.Phase == "started") && s.runtimeEvidence(meta, node, now).working() {
 			continue
 		}
-		if evaluationPending(d.Actions, task) {
-			continue
-		}
-		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Session: id, EventID: node.LastEventID, Generation: meta.SpawnGen}); err != nil {
 			return err
 		}
 	}
@@ -419,20 +416,14 @@ func (s *Service) reconcileTasks(now time.Time) error {
 		if err != nil {
 			continue
 		}
-		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" || evaluationPending(d.Actions, task) {
+		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" {
 			continue
 		}
-		if _, err := s.Store.Queue(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
+		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func evaluationPending(actions []Action, task string) bool {
-	return slices.ContainsFunc(actions, func(a Action) bool {
-		return a.TaskID == task && a.Kind == "evaluate" && (a.Status == "queued" || a.Status == "running")
-	})
 }
 
 func (s *Service) process(ctx context.Context) {

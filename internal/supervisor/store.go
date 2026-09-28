@@ -409,6 +409,23 @@ func (s *Store) Queue(a Action) (Action, error) {
 	return queued, s.save()
 }
 
+// queueUnlessEvaluating queues a reconcile's evaluation only while no
+// evaluation of its task is queued or running. It decides under the store
+// lock, so one queued since the reconcile took its snapshot counts.
+func (s *Store) queueUnlessEvaluating(a Action) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.ContainsFunc(s.db.Actions, func(existing Action) bool {
+		return existing.TaskID == a.TaskID && existing.Kind == "evaluate" && (existing.Status == "queued" || existing.Status == "running")
+	}) {
+		return nil
+	}
+	if _, err := s.queue(a); err != nil {
+		return err
+	}
+	return s.save()
+}
+
 // QueueReview admits a review only for a CFO the verifier proves live, and
 // pins that registration as its recipient. An identical retry answers from
 // its durable record before any probe, so a replacement registration can
