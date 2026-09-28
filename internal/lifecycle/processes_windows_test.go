@@ -73,9 +73,21 @@ func TestLifecycleProcessFixture(t *testing.T) {
 	time.Sleep(time.Minute)
 }
 
-func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testing.T) {
-	for _, exits := range []bool{false, true} {
-		t.Run(map[bool]string{false: "still alive", true: "exited concurrently"}[exits], func(t *testing.T) {
+func TestTerminateWaitsForATerminatedOrExitingProcessToExit(t *testing.T) {
+	cases := []struct {
+		name       string
+		stopErr    error
+		exitDelay  time.Duration
+		isExiting  bool
+		shouldFail bool
+	}{
+		{name: "access denied and still alive", stopErr: windows.ERROR_ACCESS_DENIED, shouldFail: true},
+		{name: "access denied while exiting concurrently", stopErr: windows.ERROR_ACCESS_DENIED, isExiting: true},
+		{name: "access denied while exiting slowly", stopErr: windows.ERROR_ACCESS_DENIED, isExiting: true, exitDelay: time.Second},
+		{name: "terminated but exiting slowly", isExiting: true, exitDelay: time.Second},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
 			child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 			child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
 			if err := child.Start(); err != nil {
@@ -86,16 +98,33 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 			if !exists {
 				t.Fatal("fixture did not start")
 			}
-			err := terminate(Identity{PID: child.Process.Pid, Started: started}, func(handle windows.Handle, exitCode uint32) error {
-				if exits {
-					if err := windows.TerminateProcess(handle, exitCode); err != nil {
-						t.Fatal(err)
-					}
+			exitFailures := make(chan error, 1)
+			err := terminate(Identity{PID: child.Process.Pid, Started: started}, func(windows.Handle, uint32) error {
+				if testCase.isExiting {
+					go func() {
+						time.Sleep(testCase.exitDelay)
+						exitFailures <- child.Process.Kill()
+					}()
 				}
-				return windows.ERROR_ACCESS_DENIED
+				return testCase.stopErr
 			})
-			if (err == nil) != exits {
-				t.Fatalf("concurrent exit=%t: %v", exits, err)
+			if (err != nil) != testCase.shouldFail {
+				t.Fatalf("expected failure=%t: %v", testCase.shouldFail, err)
+			}
+			if testCase.isExiting {
+				if exitErr := <-exitFailures; exitErr != nil {
+					t.Fatal(exitErr)
+				}
+			}
+			if !testCase.shouldFail {
+				handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(child.Process.Pid))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer windows.CloseHandle(handle)
+				if result, err := windows.WaitForSingleObject(handle, 0); err != nil || result != windows.WAIT_OBJECT_0 {
+					t.Fatal("terminate reported success while the process was still running")
+				}
 			}
 		})
 	}
