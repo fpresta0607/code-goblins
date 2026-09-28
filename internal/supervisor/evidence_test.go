@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -253,6 +254,42 @@ func TestReconcileEvaluatesTasksNoHookReported(t *testing.T) {
 	actions := store.Snapshot().Actions
 	if len(actions) != 1 || actions[0].Kind != "evaluate" || actions[0].TaskID != "task-1" || actions[0].Session != "" {
 		t.Fatalf("actions = %+v, want one evaluation of the task no hook reported", actions)
+	}
+}
+
+// The reconcile leaves a task alone while an evaluation of it is pending, and
+// that holds for one queued while the reconcile reads the task's metadata:
+// deciding from the snapshot it took first queued a second evaluation behind
+// a board request (TestAPIOriginIdempotencySafePathsAndReconnect on CI).
+func TestReconcileNeverQueuesAnEvaluationBehindOnePending(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		// Arrange
+		store, _ := testStore(t)
+		service := &Service{Store: store}
+		start := make(chan struct{})
+		var both sync.WaitGroup
+		both.Add(2)
+		// Act
+		go func() {
+			defer both.Done()
+			<-start
+			if err := service.reconcileTasks(time.Now()); err != nil {
+				t.Error(err)
+			}
+		}()
+		go func() {
+			defer both.Done()
+			<-start
+			if _, err := store.Queue(Action{ID: "request", Kind: "evaluate", TaskID: "task-1", Generation: "g1"}); err != nil {
+				t.Error(err)
+			}
+		}()
+		close(start)
+		both.Wait()
+		// Assert
+		if actions := store.Snapshot().Actions; len(actions) > 1 && actions[0].ID == "request" {
+			t.Fatalf("round %d: the reconcile queued %s behind the pending request", round, actions[1].ID)
+		}
 	}
 }
 
