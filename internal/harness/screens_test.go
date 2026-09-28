@@ -113,6 +113,18 @@ func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 	}
 }
 
+// After its first turn pi's footer leads with the session's token counts and
+// cost, so its context meter is found anywhere in the row, as seen live on pi
+// 0.85.1.
+func TestPisComposerIsReadyAfterItsFirstTurn(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	ready := []string{"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)                                   (openrouter) z-ai/glm-5.3-flash • high"}
+
+	if !screens.IsReady(ready) {
+		t.Errorf("%q reads as not ready; want ready", ready)
+	}
+}
+
 // Typed text shows in a composer by its end, however the composer wraps it,
 // or as a paste's placeholder.
 func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
