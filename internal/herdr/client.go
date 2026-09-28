@@ -443,6 +443,17 @@ func (c *Client) Capture(ctx context.Context, target Target, lines int, ansi boo
 	return tail(string(result.Stdout), lines), nil
 }
 
+// VisibleScreen reads only the rows the pane shows now, without the
+// scrollback Capture includes, so an earlier program's screen cannot pass for
+// what runs in the pane.
+func (c *Client) VisibleScreen(ctx context.Context, target Target) (string, error) {
+	result, err := c.required(ctx, target.Session, target, "pane read", "pane", "read", target.Pane, "--source", "visible")
+	if err != nil {
+		return "", err
+	}
+	return string(result.Stdout), nil
+}
+
 // AgentStatus distinguishes structural pane absence, agent absence, live
 // registration, and unreadable Herdr responses without relying on exit codes.
 func (c *Client) AgentStatus(ctx context.Context, target Target) (AgentStatus, error) {

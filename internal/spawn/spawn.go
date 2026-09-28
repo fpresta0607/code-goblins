@@ -995,18 +995,32 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 // here. A harness that reads the typed brief as a paste can take the Enter
 // that ends it as part of the paste, which leaves the brief in its composer:
 // the brief still showing is submitted with one more Enter, which cannot hand
-// it over twice, since a submitted brief leaves the composer.
+// it over twice, since a submitted brief leaves the composer. A submit Herdr
+// refuses is retried across the same budget, and only while it is refused:
+// `agent prompt` submits on success, so a re-send would brief it twice.
 func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
 	instruction := launch.PromptInstruction()
-	submitted := time.Now()
-	if err := client.AgentPrompt(ctx, target, instruction); err != nil {
-		return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
-	}
+	var submitted time.Time
+	var submitErr error
 	pressed := false
 	var screen []string
 	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
-		if err := s.sleep(ctx, nativePoll); err != nil {
-			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+		if attempt > 0 {
+			if err := s.sleep(ctx, nativePoll); err != nil {
+				return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+			}
+		}
+		if submitted.IsZero() {
+			at := time.Now()
+			if err := client.AgentPrompt(ctx, target, instruction); err != nil {
+				if herdr.WaitError(ctx, err) {
+					return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+				}
+				submitErr = err
+				continue
+			}
+			submitted = at
+			continue
 		}
 		if s.PromptSince != nil {
 			if taken, err := s.PromptSince(launch.Env["CFO_TASK_ID"], launch.Env["CFO_SPAWN_GEN"], submitted); err == nil && taken {
@@ -1031,12 +1045,17 @@ func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Ba
 			pressed = true
 		}
 	}
+	if submitted.IsZero() {
+		return fmt.Errorf("spawn: could not submit %s's brief within %s: %w", kind, nativeAccepted, submitErr)
+	}
 	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
 }
 
-// readPane reads the pane's recent screen as rows.
+// readPane reads only the rows the pane shows now, so the screen a harness
+// that ran in the pane before left in its scrollback cannot pass for the one
+// just launched.
 func readPane(ctx context.Context, client terminal.Backend, target herdr.Target) ([]string, error) {
-	capture, err := client.Capture(ctx, target, 60, false)
+	capture, err := client.VisibleScreen(ctx, target)
 	if err != nil {
 		return nil, err
 	}

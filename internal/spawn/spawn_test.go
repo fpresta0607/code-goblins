@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -610,6 +611,7 @@ func TestSpawnRegistersAHarnessHerdrCannotDetect(t *testing.T) {
 	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
 		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
 	}
+	typedScreens(fixture.runner, harness.Pi)
 	fixture.runner.agentNotFound = true
 	fixture.runner.harnessRunning = true
 
@@ -888,6 +890,76 @@ func TestATypedBriefIsNotReportedTakenUntilItsHarnessWorksOnIt(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "codex never showed it took its brief") {
 		t.Fatalf("Spawn error = %v, want the brief no turn took reported", err)
+	}
+}
+
+// A same-harness switch quits the old Codex in its pane and types the new
+// one's launch there, so the old Codex's composer footer is still in the
+// pane's recent rows while the pane shows only its shell. That footer is not
+// the new harness's composer: the relaunch is not handed its brief.
+func TestATypedRelaunchIsNotHandedItsBriefOnTheOldHarnesssComposer(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.runner.scrollback = codexComposer
+	fixture.runner.composerScreen = "PS C:\\work> \n"
+	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
+		TypedLaunch: true, Resumed: true, Executable: "codex", Args: []string{"resume", "--last"},
+		Instruction: "Resume task-7 and continue from the handoff.",
+		Dir:         fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
+	}}
+
+	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
+
+	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") {
+		t.Fatalf("startHarness error = %v, want the relaunch that never showed its composer named", err)
+	}
+	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.prompt != "" {
+		t.Errorf("events = %v, prompt %q: the brief was typed on the old harness's leftover screen", fixture.events, fixture.runner.prompt)
+	}
+}
+
+// Herdr briefly busy refuses an `agent prompt` and delivers nothing, so a
+// refused submit is tried again, and the brief still reaches the harness
+// exactly once.
+func TestARefusedTypedBriefIsSubmittedAgainAndDeliveredOnce(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	typedScreens(fixture.runner, harness.Codex)
+	fixture.runner.failPrompts = 2
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if fixture.runner.promptCalls != 3 {
+		t.Errorf("prompt submissions = %d, want two refused and one taken", fixture.runner.promptCalls)
+	}
+	if fixture.runner.prompt != spawnInstruction(fixture.brief, fixture.request.ID) {
+		t.Errorf("prompt = %q, want the brief delivered", fixture.runner.prompt)
+	}
+}
+
+// A submit Herdr refuses for the whole budget fails the spawn with Herdr's
+// own refusal rather than a claim that the harness ignored its brief.
+func TestATypedBriefHerdrKeepsRefusingFailsWithTheRefusal(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	typedScreens(fixture.runner, harness.Codex)
+	fixture.runner.failPrompts = math.MaxInt
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err == nil || !strings.Contains(err.Error(), "could not submit codex's brief") || !strings.Contains(err.Error(), "pane busy") {
+		t.Fatalf("Spawn error = %v, want Herdr's refusal of the brief", err)
+	}
+	if fixture.runner.prompt != "" {
+		t.Errorf("prompt = %q, want none delivered", fixture.runner.prompt)
 	}
 }
 
@@ -1638,14 +1710,17 @@ type herdrRunner struct {
 	promptedScreen     string
 	enteredScreen      string
 	enteredAfterPrompt bool
-	reportedAgent      []string
-	sendTextCount      int
-	failSendTextAt     int
-	failSendTexts      int
-	failCtrlUs         int
-	installer          string
-	installerStderr    string
-	mcpTracked         bool
+	// scrollback is what an earlier program left above those screens: a
+	// recent read includes it, and a read of the visible screen does not.
+	scrollback      string
+	reportedAgent   []string
+	sendTextCount   int
+	failSendTextAt  int
+	failSendTexts   int
+	failCtrlUs      int
+	installer       string
+	installerStderr string
+	mcpTracked      bool
 	// worktreesUncovered models a checkout whose own .gitignore says nothing
 	// about .worktrees/, so only the clone's info/exclude hides it.
 	worktreesUncovered bool
@@ -1833,13 +1908,20 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 			}
 			return execx.Result{Stdout: []byte(text)}, nil
 		}
+		screen := ""
 		switch {
 		case r.prompt != "" && r.enteredAfterPrompt && r.enteredScreen != "":
-			return execx.Result{Stdout: []byte(r.enteredScreen)}, nil
+			screen = r.enteredScreen
 		case r.prompt != "" && r.promptedScreen != "":
-			return execx.Result{Stdout: []byte(r.promptedScreen)}, nil
+			screen = r.promptedScreen
 		case r.composerScreen != "":
-			return execx.Result{Stdout: []byte(r.composerScreen)}, nil
+			screen = r.composerScreen
+		}
+		if screen != "" {
+			if !slices.Contains(args, "visible") {
+				screen = r.scrollback + screen
+			}
+			return execx.Result{Stdout: []byte(screen)}, nil
 		}
 		if r.literal != "" {
 			if r.corruptCaptureAt > 0 && r.captureCount >= r.corruptCaptureAt && r.captureCount < r.corruptCaptureAt+max(1, r.corruptCaptures) {
