@@ -2,6 +2,7 @@ import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import type { Task } from "./types";
 import { message, request } from "./api";
 import { object } from "./types";
+import { fitKey } from "./fit";
 import { Pager } from "./Pager";
 import { orderShown, pendingSettled, rankLabel } from "./priority";
 import { useFit } from "./useFit";
@@ -29,7 +30,8 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const listed = orderShown(tasks, pending?.order || null);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const fit = useFit(listed.map((task) => task.id), frameRef, listRef);
+  const fitKeys = (order: string[]) => order.map(fitKey);
+  const fit = useFit(fitKeys(listed.map((task) => task.id)), frameRef, listRef);
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
     const title = listed[before]?.title || moved;
@@ -37,7 +39,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
-    fit.show(fit.pageAt(order, order.indexOf(moved)));
+    fit.show(fit.pageAt(fitKeys(order), order.indexOf(moved)));
     try {
       const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ list, order }) }));
       if (latest.current !== order) return;
@@ -46,7 +48,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       if (latest.current !== order) return;
       setPending(null);
       setError(message(failure));
-      fit.show(fit.pageAt(listed.map((task) => task.id), before));
+      fit.show(fit.pageAt(fitKeys(listed.map((task) => task.id)), before));
     }
   };
   const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef);
@@ -64,16 +66,16 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   return <>
     <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards ranked">
-        {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={task.id} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
+        {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={fitKey(task.id, index)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
           {rank(index)}
           {renderCard(task, rankLabel(index, shown.length), index)}
         </div>; })}
         {!shown.length && empty}
       </div>
       {fit.unmeasured.length > 0 && <div className="task-cards ranked fit-measure" aria-hidden="true" inert>
-        {shown.map((task, index) => fit.unmeasured.includes(task.id) && <div key={task.id} className="ranked-item" data-fit-key={task.id}>
+        {listed.map((task, index) => fit.unmeasured.includes(fitKey(task.id, index)) && <div key={task.id} className="ranked-item" data-fit-key={fitKey(task.id, index)}>
           {rank(index)}
-          {renderCard(task, rankLabel(index, shown.length), index)}
+          {renderCard(task, rankLabel(index, listed.length), index)}
         </div>)}
       </div>}
     </div>

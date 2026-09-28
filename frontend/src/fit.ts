@@ -32,6 +32,13 @@ export function availableHeight({ view, top, heading, stacked, reserve }: { view
   return Math.max(0, (stacked ? view - heading : view - top) - reserve);
 }
 
+// The key a ranked card's height is kept by: the first card renders
+// differently from the rest (the top queued card carries the Next chip), so a
+// card moved to or from the top is measured again in its new place.
+export function fitKey(id: string, index: number): string {
+  return index === 0 ? `${id}#first` : id;
+}
+
 export function clampPage(page: number, pages: number): number {
   return Math.min(Math.max(0, page), Math.max(1, pages) - 1);
 }

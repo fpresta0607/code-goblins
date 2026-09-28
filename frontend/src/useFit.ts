@@ -75,8 +75,8 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
     };
   }, [watched, frameRef, listRef]);
 
-  const show = (next: number) => setChosen(clampPage(next, starts.length));
-  const turn = (step: number) => show(page + step);
+  const show = (next: number) => setChosen(Math.max(0, next));
+  const turn = (step: number) => show(clampPage(page + step, starts.length));
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     swipe.current = event.pointerType === "touch" ? { x: event.clientX, y: event.clientY } : null;
   };

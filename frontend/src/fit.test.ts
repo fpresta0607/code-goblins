@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, pageLabel, pageOf, pageStarts, swipeStep } from "./fit.ts";
+import { availableHeight, clampPage, fitKey, pageLabel, pageOf, pageStarts, swipeStep } from "./fit.ts";
 
 test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
   assert.deepEqual(pageStarts([195, 120, 150], 370, 16, 1), [0, 2], "the live Tasks column at 1160 px: two cards fit on the first page, where sizing every page by its 195 px tallest card showed one");
@@ -13,6 +13,12 @@ test("a page holds as many of its own cards as fit, so a tall card shortens only
 
 test("in a grid, rows of cards fill the page, each row as tall as its tallest card", () => {
   assert.deepEqual(pageStarts([100, 150, 100, 100, 200, 50], 300, 16, 2), [0, 4], "rows of 150 and 100 px fit in 300 px; the 200 px row starts the next page");
+});
+
+test("a ranked card is measured apart at the top of its list, where it renders differently", () => {
+  assert.equal(fitKey("task-a", 0), "task-a#first");
+  assert.equal(fitKey("task-a", 1), "task-a");
+  assert.equal(fitKey("task-a", 7), "task-a");
 });
 
 test("the page stays inside the list as cards come and go", () => {
