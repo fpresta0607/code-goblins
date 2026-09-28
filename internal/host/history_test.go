@@ -7,31 +7,50 @@ import (
 	"testing"
 )
 
-// A viewer that stops reading is dropped rather than waited on, and the
-// others keep receiving.
+// A viewer that stops reading is dropped once it is further behind than a
+// replay reaches, rather than waited on, and the others keep receiving.
 func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
 	output := newHistory()
 	_, stalled, _ := output.attach()
 	_, reading, _ := output.attach()
+	chunk := []byte(strings.Repeat("x", 64<<10))
 	received := 0
+	for i := 0; i < 2*historyLimit/len(chunk); i++ {
+		output.write(chunk)
+		taken, _ := reading.next()
+		received += len(taken)
+	}
+
+	output.mu.Lock()
+	dropped, held := stalled.ended, len(stalled.pending)
+	output.mu.Unlock()
+
+	if !dropped || held > historyLimit {
+		t.Errorf("the stalled viewer is dropped %v holding %d bytes, want it dropped holding at most %d", dropped, held, historyLimit)
+	}
+	if received != 2*historyLimit {
+		t.Errorf("the reading viewer got %d bytes, want all %d", received, 2*historyLimit)
+	}
+}
+
+// A viewer still reading through a burst of output is not dropped, however
+// many writes the burst came in: ConPTY writes about one chunk per line.
+func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
+	output := newHistory()
+	_, viewer, _ := output.attach()
+	line := []byte(strings.Repeat("s", 100) + "\r\n")
 	for i := 0; i < 2000; i++ {
-		output.write([]byte("x"))
-		for len(reading) > 0 {
-			<-reading
-			received++
-		}
+		output.write(line)
+	}
+	output.end()
+
+	received := 0
+	for taken, open := viewer.next(); open; taken, open = viewer.next() {
+		received += len(taken)
 	}
 
-	drained := 0
-	for range stalled {
-		drained++
-	}
-
-	if drained >= 2000 {
-		t.Errorf("the stalled viewer got all %d chunks, want it dropped", drained)
-	}
-	if received != 2000 {
-		t.Errorf("the reading viewer got %d chunks, want all 2000", received)
+	if received != 2000*len(line) {
+		t.Errorf("the viewer received %d of %d bytes, want the whole burst", received, 2000*len(line))
 	}
 }
 
@@ -96,8 +115,8 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 	})
 }
 
-// A viewer that attaches after the terminal ended gets the history and a
-// closed feed.
+// A viewer that attaches after the terminal ended gets the history and an
+// ended feed.
 func TestHistoryAfterTheEndStillReplays(t *testing.T) {
 	output := newHistory()
 	output.write([]byte("last words"))
@@ -108,7 +127,7 @@ func TestHistoryAfterTheEndStillReplays(t *testing.T) {
 	if string(past) != "last words" {
 		t.Errorf("history = %q, want the last words", past)
 	}
-	if _, open := <-feed; open {
+	if _, open := feed.next(); open {
 		t.Error("the feed of an ended terminal is still open")
 	}
 }
