@@ -9,12 +9,14 @@ const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tas
 
 test("the meter says when the CFO starts the next task, and never that one starts by itself", () => {
   assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
-  assert.deepEqual(meterState(memory(4.1)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
-  assert.deepEqual(meterState(memory(3.9)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
+  assert.deepEqual(meterState(memory(4)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
+  assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The CFO starts the next task at 5 GB free." });
+  assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+  assert.deepEqual(meterState(memory(3.99)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
 });
 
 test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {
-  assert.deepEqual(meterScale(memory(4.5)), { fill: 45, floor: 40, next: 50 });
+  assert.deepEqual(meterScale(memory(4.5)), { fill: 45, floor: 40, next: 50 }, "the 4 GB floor and 5 GB next mark span a 10 GB bar");
   assert.deepEqual(meterScale(memory(20)), { fill: 100, floor: 40, next: 50 }, "memory well past the mark fills the bar");
   assert.deepEqual(meterScale(memory(0)), { fill: 0, floor: 40, next: 50 });
   assert.deepEqual(meterScale({ ...memory(2), total: 5 * GB }), { fill: 40, floor: 80, next: 100 }, "a machine with less memory than that spans its own");
@@ -32,6 +34,7 @@ test("Start is offered while a queued task can start, and otherwise says why not
 
 test("free memory rounds down, so just under the floor or start mark never reads as ready", () => {
   assert.equal(freeGigabytes(3.97 * GB), "3.9");
+  assert.equal(freeGigabytes(4 * GB), "4.0");
   assert.equal(freeGigabytes(4.99 * GB), "4.9");
   assert.equal(freeGigabytes(5.26 * GB), "5.2");
 });

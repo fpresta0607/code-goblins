@@ -123,17 +123,18 @@ Past ten, Tasks, In progress and Completed each show as many of their cards as f
 A card's height is measured at the list's width, those not shown yet in a hidden container of no height beside the list, so the pages come from real heights without the list ever growing past its space.
 A pager under a list, when one page does not hold it all, says which cards show, 1–5 of 18, with earlier and next buttons, and a sideways touch swipe of at least 48 px turns the page while a vertical one scrolls; in Tasks and In progress a swipe that starts on a card's rank is a drag, not a page turn.
 A drag places a card among the cards of its page, and a keyboard move past the page's edge carries the page with the card, keeping its focus.
+A card or list that fails to render shows a warning in its place, This card could not be shown or This list could not be shown, with an icon-only Retry, while the rest of the board stays usable.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
 Dragging a card, or Alt+Up and Alt+Down on a focused one, sends the whole list's new order to `POST /api/order` with the board's token, which the Host, Origin and token checks guard like every other change.
 A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, the row of a task with a live task record (which In progress lists) and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
 An order that is not exactly the queue the file holds, because a row was added, removed or renamed after the board showed it, is refused with 409 and changes nothing; an In progress order naming a goblin with no live task record is refused the same way.
 The board shows the dropped order until a snapshot from the revision the save answered with arrives, and a refused order goes back with the reason under its column.
-The snapshot's `memory` is the machine's available physical memory, the standby list included, read with `GlobalMemoryStatusEx`, beside the fleet's 3 GB floor and the 4 GB mark at which the CFO starts the next queued task; the meter at the head of Tasks shows it as a number and a bar spanning twice the 4 GB mark, or the machine's memory if that is less, marked at the floor and at the mark, whose fill turns amber under the mark and red under the floor, and the top queued task is marked Next.
+The snapshot's `memory` is the machine's available physical memory, the standby list included, read with `GlobalMemoryStatusEx`, beside the fleet's 4 GB floor and the 5 GB mark at which the CFO starts the next queued task; the meter at the head of Tasks shows it as a number and a bar spanning twice the 5 GB mark, or the machine's memory if that is less, marked at the floor and at the mark, whose fill turns amber under the mark and red under the floor, and the top queued task is marked Next.
 Every queued card carries the same Start, a play button in its top corner.
 The board starts nothing on its own: the CFO dispatches queued work in the Tasks order.
 Start on a queued card sends `POST /api/tasks/start` with the task's ID, guarded by the Host, Origin and token checks like every other change, and the supervisor dispatches it through `cfo spawn <id> --project <p> --brief <data/<id>/brief.md> --harness <h> [--model <m>] [--effort <e>] [--mode <m>]`, the same binary the CFO runs.
 The project is the brief's `## Project` line, or the backlog row's repo; harness, model, effort and mode are what the backlog row names, such as `(harness: codex, model: gpt-6-astra)`, then what the brief names on lines of their own, such as `mode: direct-PR` under its Delivery heading, then the fleet's defaults, `claude` on `claude-opus-5-5` at `xhigh` (the default model and effort apply to Claude Code only).
-It is refused with 409 and the reason, before anything runs, when the task already has a live task record, is not queued, has no brief, names no project or a harness, mode, model or effort `cfo spawn` cannot take, when less than 3 GB of memory is free, or while another Start runs; a board started without a dispatcher, such as a test fixture's, refuses every Start.
+It is refused with 409 and the reason, before anything runs, when the task already has a live task record, is not queued, has no brief, names no project or a harness, mode, model or effort `cfo spawn` cannot take, when less than 4 GB of memory is free, or while another Start runs; a board started without a dispatcher, such as a test fixture's, refuses every Start.
 The answer's `passing` is true for a cause that passes by itself, memory under the floor or another Start running, and the card drops that reason once a newer snapshot shows Start unblocked; any other reason stays on the card until its Start is pressed again.
 The supervisor waits for `cfo spawn` to end, which confirms the goblin works before it returns, and never cuts it short, since a killed spawn strands its task; the card shows Starting meanwhile.
 Then it tells the CFO through the wake queue, as `cfo notify` does, with a notify keyed by the task: `started: the Overlord started this from the board, ...` after which the task goes to the top of the attention order, or `start failed: <the last line cfo spawn printed>`, which the card also shows; neither is a question.
@@ -645,6 +646,8 @@ npm ci
 npm run typecheck
 npm run lint
 npm test
+npx playwright install chromium --only-shell
+npm run test:browser
 npm run build
 cd ..
 go build -o cfo.exe ./cmd/cfo

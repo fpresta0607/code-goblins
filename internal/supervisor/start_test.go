@@ -159,6 +159,7 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		passing   bool
 	}{
 		{name: "memory just under the 5 GB start mark reads under it", available: 5*gigabyte - gigabyte/40, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 4.9 GB of memory is free", passing: true},
+		{name: "memory just under the 4 GB floor reads under it", available: 4*gigabyte - 1, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "Only 3.9 GB of memory is free", passing: true},
 		{name: "memory under the 4 GB floor", available: 3*gigabyte + gigabyte/2, row: "- **next-task** - Ship it", brief: plainBrief, body: `{"task":"next-task"}`, want: "3.5 GB of memory is free; Start needs 5 GB to keep the 4 GB floor", passing: true},
 		{name: "no brief or project", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "names no project"},
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
@@ -400,7 +401,7 @@ func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T)
 
 func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
 	// Arrange
-	handler, _ := startBoard(t, 3*gigabyte+gigabyte/10, &spawnRecorder{})
+	handler, _ := startBoard(t, 4*gigabyte+gigabyte/10, &spawnRecorder{})
 
 	// Act
 	snapshot, err := handler.Service.Snapshot()
@@ -409,7 +410,7 @@ func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &Memory{Available: 3*gigabyte + gigabyte/10, Total: 32 * gigabyte, Floor: 4 * gigabyte, Next: 5 * gigabyte}
+	want := &Memory{Available: 4*gigabyte + gigabyte/10, Total: 32 * gigabyte, Floor: 4 * gigabyte, Next: 5 * gigabyte}
 	if !reflect.DeepEqual(snapshot.Memory, want) {
 		t.Fatalf("memory = %+v, want %+v", snapshot.Memory, want)
 	}
