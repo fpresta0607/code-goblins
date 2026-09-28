@@ -91,6 +91,10 @@ type pipelineSwitchRunner struct {
 	statusRelease chan struct{}
 	alive         bool
 	prompts       int
+	launched      bool
+	brief         string
+	briefs        int
+	briefEnters   int
 }
 
 func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
@@ -120,11 +124,14 @@ func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.
 			}
 			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
 		}
-		// The switched-to Codex shows its composer once it runs, and a turn
-		// once the switch's prompt reached it.
+		// The switched-to Codex shows its composer once it runs, the brief in
+		// it once typed, and a turn once Enter submits it.
 		if len(q.Args) >= 2 && q.Args[0] == "pane" && q.Args[1] == "read" {
-			if r.prompts > 0 {
+			switch {
+			case r.briefEnters > 0:
 				return execx.Result{Stdout: []byte("• Working (1s • esc to interrupt)\n  100% context left\n")}, nil
+			case r.brief != "":
+				return execx.Result{Stdout: []byte("› " + r.brief + "\n  100% context left\n")}, nil
 			}
 			return execx.Result{Stdout: []byte("› Ask Codex to do anything\n  100% context left\n")}, nil
 		}
@@ -133,11 +140,22 @@ func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.
 			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 		}
 		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-text" {
+			// The typed launch line starts Codex; the text typed after it is
+			// its brief.
+			if strings.Contains(q.Args[3], "& '") {
+				r.launched = true
+			} else if r.launched {
+				r.brief = q.Args[3]
+				r.briefs++
+			}
 			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 		}
 		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-keys" {
 			if q.Args[3] == "enter" {
 				r.alive = true
+				if r.brief != "" {
+					r.briefEnters++
+				}
 			}
 			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 		}
@@ -942,8 +960,8 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	if err := <-switchDone; err != nil {
 		t.Fatalf("switch: %v", err)
 	}
-	if switchRunner.prompts != 1 {
-		t.Fatalf("switch delivered %d prompts, want one", switchRunner.prompts)
+	if switchRunner.briefs != 1 || switchRunner.prompts != 0 {
+		t.Fatalf("switch typed its brief %d times and prompted %d times, want the brief typed once", switchRunner.briefs, switchRunner.prompts)
 	}
 	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", meta.ID}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("retry migration: %v", err)

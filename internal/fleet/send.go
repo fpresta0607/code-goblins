@@ -30,6 +30,9 @@ const (
 	// every harness measured, with room for a loaded host.
 	confirmBudget = 5 * time.Second
 	confirmPolls  = 10
+	// submitRetries is how many more times a message a harness left in its
+	// composer is submitted.
+	submitRetries = 3
 
 	// typeSettle lets a pane take typed text before Enter submits it, and
 	// completionSettle is the longer wait a message that opens a harness
@@ -116,7 +119,7 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 	}
 	if screens, ok := harness.NativeScreens(harness.Kind(before.Agent)); ok && screens.PasteTakesEnter {
-		if err := s.submitLeftInComposer(ctx, target, screens, message); err != nil {
+		if err := s.submitLeftInComposer(ctx, target, screens, message, before.Status == herdr.AgentWorking); err != nil {
 			return err
 		}
 	}
@@ -218,29 +221,37 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 	return zero, lastErr
 }
 
-// submitLeftInComposer presses Enter once when the message still shows on the
-// pane a moment after `agent prompt` returned, which is how a harness that
-// took the ending Enter as part of a paste leaves it. The harness is the one
-// Herdr names for the pane, never a recorded one. The Enter cannot deliver
-// the message twice: a submitted message leaves the composer, and an Enter on
-// an empty composer submits nothing. An unreadable pane is left to the
-// counters' confirmation below.
-func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string) error {
-	if err := s.sleep(ctx, confirmBudget/confirmPolls); err != nil {
-		return fmt.Errorf("fleet: wait before reading %s's composer: %w", target, err)
-	}
-	capture, err := s.Terminal.VisibleScreen(ctx, target)
-	if err != nil {
-		if herdr.WaitError(ctx, err) {
-			return fmt.Errorf("fleet: read %s's composer: %w", target, err)
+// submitLeftInComposer presses Enter again while the message still shows on
+// the pane after `agent prompt` returned, which is how a harness that took the
+// ending Enter as part of a paste leaves it, whether it was idle or mid-turn:
+// one, two and three seconds apart, at most submitRetries times. A goblin that
+// was idle has taken the message once it shows a turn. The harness is the one
+// Herdr names for the pane, never a recorded one. No Enter can deliver the
+// message twice: a submitted message leaves the composer, and an Enter on an
+// empty composer submits nothing. An unreadable pane is left to the counters'
+// confirmation below.
+func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string, wasWorking bool) error {
+	for press := 1; press <= submitRetries; press++ {
+		if err := s.sleep(ctx, time.Duration(press)*time.Second); err != nil {
+			return fmt.Errorf("fleet: wait before reading %s's composer: %w", target, err)
 		}
-		return nil
-	}
-	if !screens.Shows(strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n"), message) {
-		return nil
-	}
-	if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
-		return fmt.Errorf("fleet: submit the text left in %s's composer: %w", target, err)
+		capture, err := s.Terminal.VisibleScreen(ctx, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("fleet: read %s's composer: %w", target, err)
+			}
+			continue
+		}
+		screen := strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n")
+		if !wasWorking && screens.IsWorking(screen) {
+			return nil
+		}
+		if !screens.Shows(screen, message) {
+			return nil
+		}
+		if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
+			return fmt.Errorf("fleet: submit the text left in %s's composer: %w", target, err)
+		}
 	}
 	return nil
 }

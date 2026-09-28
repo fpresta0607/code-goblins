@@ -64,10 +64,11 @@ type agentFake struct {
 	// leaving idle. This is the observed kimi shape, not a hypothetical.
 	revisionOnly bool
 	// agent is the harness Herdr names for the pane, claude when empty;
-	// screen is what the pane shows; keys are the keys sent to it.
-	agent  string
-	screen string
-	keys   []string
+	// screens is what the pane shows before any key and after each one, the
+	// last holding; keys are the keys sent to it.
+	agent   string
+	screens []string
+	keys    []string
 
 	probing         bool
 	accepted        bool
@@ -99,7 +100,10 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		}
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read":
-		return execx.Result{Stdout: []byte(f.screen)}, nil
+		if len(f.screens) == 0 {
+			return execx.Result{}, nil
+		}
+		return execx.Result{Stdout: []byte(f.screens[min(len(f.keys), len(f.screens)-1)])}, nil
 	case len(args) >= 3 && args[0] == "agent" && args[1] == "prompt":
 		f.promptCalls++
 		if f.promptRefusals > 0 {
@@ -204,20 +208,38 @@ func newExplicitPaneSender(f *agentFake) Sender {
 	return senderFor(f, &fakeResolver{target: fakeTarget})
 }
 
-// On 2026-09-28 a board answer to a Codex goblin, submitted through Herdr's
-// agent prompt, sat in Codex's composer: Codex read the typing as a paste and
-// took the Enter that ended it as part of the paste. A message still showing
-// on a Codex pane after the prompt is submitted with one more Enter.
+// On 2026-09-28 cfo send and board answers to Codex goblins, submitted
+// through Herdr's agent prompt, sat in Codex's composer, idle or mid-turn:
+// Codex read the typing as a paste and took the Enter that ended it as part
+// of the paste. A message still showing is submitted again, further apart
+// each time, until an idle Codex shows a turn on it or the message leaves the
+// composer; on the scratch proof an Enter half a second after the prompt was
+// taken as part of the paste too, while one a few seconds later submitted.
 func TestSenderTextSubmitsAMessageCodexLeftInItsComposer(t *testing.T) {
-	fake := newAgentFake(agentFake{agent: "codex", screen: "› CFO: ship it\n\n  tab to queue message    100% context left\n"})
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	working := "› CFO: ship it\n\n• Working (2s • esc to interrupt)\n› Ask Codex to do anything\n  100% context left\n"
+	idle := "› Ask Codex to do anything\n  100% context left\n"
+	for name, test := range map[string]struct {
+		status  string
+		screens []string
+		enters  int
+	}{
+		"idle, taken on the first Enter again":        {"idle", []string{stuck, working}, 1},
+		"idle, taken only on a later Enter":           {"idle", []string{stuck, stuck, working}, 2},
+		"mid-turn, taken once it leaves the composer": {"working", []string{stuck, idle}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := newAgentFake(agentFake{agent: "codex", status: test.status, screens: test.screens})
 
-	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+			err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
 
-	if err != nil {
-		t.Fatalf("Text: %v", err)
-	}
-	if fake.promptCalls != 1 || !slices.Equal(fake.keys, []string{"enter"}) {
-		t.Errorf("prompts %d, keys %q; want one prompt and one Enter for the message left in the composer", fake.promptCalls, fake.keys)
+			if err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			if fake.promptCalls != 1 || len(fake.keys) != test.enters || slices.ContainsFunc(fake.keys, func(key string) bool { return key != "enter" }) {
+				t.Errorf("prompts %d, keys %q; want one prompt and %d Enters for the message left in the composer", fake.promptCalls, fake.keys, test.enters)
+			}
+		})
 	}
 }
 

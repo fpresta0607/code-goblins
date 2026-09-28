@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -802,21 +801,21 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	if !strings.Contains(result.Output, "harness=pi") {
 		t.Errorf("Output = %q, want pi harness", result.Output)
 	}
-	if got := len(fixture.runner.literals); got != 1 {
-		t.Fatalf("literals = %q, want exactly one typed launch line", fixture.runner.literals)
+	if got := len(fixture.runner.literals); got != 2 {
+		t.Fatalf("literals = %q, want the typed launch line and then the brief", fixture.runner.literals)
 	}
 	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_PARENT_HARNESS = ''; $env:CFO_PARENT_SESSION_ID = ''; $env:CFO_ROOT_SESSION_ID = ''; $env:CFO_SPAWN_GEN = '" + result.Meta.SpawnGen + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:CFO_TASK_ID = 'task-7'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular'"
-	if got := fixture.runner.literal; !strings.HasPrefix(got, wantLine) {
+	if got := fixture.runner.literals[0]; !strings.HasPrefix(got, wantLine) {
 		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
 	}
 	if fixture.runner.startName != "" || fixture.runner.startKind != "" || fixture.runner.startArgs != nil {
 		t.Errorf("typed launch used native agent start: name=%q kind=%q args=%q", fixture.runner.startName, fixture.runner.startKind, fixture.runner.startArgs)
 	}
-	if fixture.runner.prompt != spawnInstruction(fixture.brief, fixture.request.ID) {
-		t.Errorf("typed launch did not send the complete native agent prompt: %q", fixture.runner.prompt)
+	if fixture.runner.brief != spawnInstruction(fixture.brief, fixture.request.ID) || fixture.runner.briefWrites != 1 {
+		t.Errorf("typed launch typed the brief %d times as %q, want the complete brief once", fixture.runner.briefWrites, fixture.runner.brief)
 	}
-	if slices.Contains(fixture.events, "agent-start") || !slices.Contains(fixture.events, "agent-prompt") {
-		t.Errorf("events = %v, want typed launch with a native prompt", fixture.events)
+	if slices.Contains(fixture.events, "agent-start") || slices.Contains(fixture.events, "agent-prompt") {
+		t.Errorf("events = %v, want the typed launch and its brief typed into the pane, with no native agent start or prompt", fixture.events)
 	}
 	if !slices.Contains(fixture.events, "send-enter") || !slices.Contains(fixture.events, "agent-working") {
 		t.Errorf("events = %v, want typed submit followed by working confirmation", fixture.events)
@@ -840,8 +839,8 @@ func TestATypedLaunchWhoseHarnessNeverStartsIsNotHandedItsBrief(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") || !strings.Contains(err.Error(), `PS C:\work>`) {
 		t.Fatalf("Spawn error = %v, want the harness that never started named with its pane", err)
 	}
-	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.prompt != "" {
-		t.Errorf("events = %v, prompt %q: the brief reached a pane at its shell", fixture.events, fixture.runner.prompt)
+	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.brief != "" {
+		t.Errorf("events = %v, brief %q: the brief reached a pane at its shell", fixture.events, fixture.runner.brief)
 	}
 }
 
@@ -865,11 +864,11 @@ func TestABriefCodexLeftInItsComposerIsSubmittedWithOneEnter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	if fixture.runner.promptCalls != 1 {
-		t.Errorf("the brief was typed %d times, want once", fixture.runner.promptCalls)
+	if fixture.runner.briefWrites != 1 || slices.Contains(fixture.events, "agent-prompt") {
+		t.Errorf("the brief was typed %d times (events %v), want once as pane text", fixture.runner.briefWrites, fixture.events)
 	}
-	if !fixture.runner.enteredAfterPrompt {
-		t.Error("the brief left in Codex's composer was never submitted")
+	if fixture.runner.entersAfterBrief < 2 {
+		t.Errorf("Enters after the brief = %d, want the brief left in Codex's composer submitted again", fixture.runner.entersAfterBrief)
 	}
 }
 
@@ -912,14 +911,13 @@ func TestATypedRelaunchIsNotHandedItsBriefOnTheOldHarnesssComposer(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") {
 		t.Fatalf("startHarness error = %v, want the relaunch that never showed its composer named", err)
 	}
-	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.prompt != "" {
-		t.Errorf("events = %v, prompt %q: the brief was typed on the old harness's leftover screen", fixture.events, fixture.runner.prompt)
+	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.brief != "" {
+		t.Errorf("events = %v, brief %q: the brief was typed on the old harness's leftover screen", fixture.events, fixture.runner.brief)
 	}
 }
 
-// Herdr briefly busy refuses an `agent prompt` and delivers nothing, so a
-// refused submit is tried again, and the brief still reaches the harness
-// exactly once.
+// Herdr briefly busy refuses a write and types nothing, so a refused brief is
+// typed again, and it still reaches the harness exactly once.
 func TestARefusedTypedBriefIsSubmittedAgainAndDeliveredOnce(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.request.Harness = harness.Codex
@@ -927,23 +925,25 @@ func TestARefusedTypedBriefIsSubmittedAgainAndDeliveredOnce(t *testing.T) {
 		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
 	}
 	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.failPrompts = 2
+	// The typed launch line is the first write, so the brief's first two
+	// writes are refused.
+	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 2
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	if fixture.runner.promptCalls != 3 {
-		t.Errorf("prompt submissions = %d, want two refused and one taken", fixture.runner.promptCalls)
+	if fixture.runner.briefWrites != 1 || fixture.runner.sendTextCount != 4 {
+		t.Errorf("brief typed %d times in %d writes, want two refused and one taken", fixture.runner.briefWrites, fixture.runner.sendTextCount)
 	}
-	if fixture.runner.prompt != spawnInstruction(fixture.brief, fixture.request.ID) {
-		t.Errorf("prompt = %q, want the brief delivered", fixture.runner.prompt)
+	if fixture.runner.brief != spawnInstruction(fixture.brief, fixture.request.ID) {
+		t.Errorf("brief = %q, want the brief delivered", fixture.runner.brief)
 	}
 }
 
-// A submit Herdr refuses for the whole budget fails the spawn with Herdr's
-// own refusal rather than a claim that the harness ignored its brief.
+// A write Herdr refuses for the whole budget fails the spawn with Herdr's own
+// refusal rather than a claim that the harness ignored its brief.
 func TestATypedBriefHerdrKeepsRefusingFailsWithTheRefusal(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.request.Harness = harness.Codex
@@ -951,15 +951,15 @@ func TestATypedBriefHerdrKeepsRefusingFailsWithTheRefusal(t *testing.T) {
 		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
 	}
 	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.failPrompts = math.MaxInt
+	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 1_000_000
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 
-	if err == nil || !strings.Contains(err.Error(), "could not submit codex's brief") || !strings.Contains(err.Error(), "pane busy") {
+	if err == nil || !strings.Contains(err.Error(), "could not type codex's brief") || !strings.Contains(err.Error(), "pane busy") {
 		t.Fatalf("Spawn error = %v, want Herdr's refusal of the brief", err)
 	}
-	if fixture.runner.prompt != "" {
-		t.Errorf("prompt = %q, want none delivered", fixture.runner.prompt)
+	if fixture.runner.brief != "" {
+		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
 	}
 }
 
@@ -983,8 +983,8 @@ func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	if !strings.Contains(result.Output, "harness=pi") {
 		t.Errorf("Output = %q, want pi harness", result.Output)
 	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want typed launch submit then pi trust confirmation", got)
+	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want typed launch submit, pi trust confirmation, then the brief's submit", got)
 	}
 }
 
@@ -1704,12 +1704,16 @@ type herdrRunner struct {
 	paneUnreadable   bool
 	harnessRunning   bool
 	// composerScreen is what a typed harness's pane shows before its brief,
-	// promptedScreen what it shows once herdr typed the brief, and
-	// enteredScreen what it shows after an Enter pressed after that.
-	composerScreen     string
-	promptedScreen     string
-	enteredScreen      string
-	enteredAfterPrompt bool
+	// brief the text typed once that composer showed, briefWrites how many
+	// times it was typed, promptedScreen what the pane shows after the first
+	// Enter after the brief, and enteredScreen what it shows after a later one.
+	composerScreen   string
+	launched         bool
+	brief            string
+	briefWrites      int
+	entersAfterBrief int
+	promptedScreen   string
+	enteredScreen    string
 	// scrollback is what an earlier program left above those screens: a
 	// recent read includes it, and a read of the visible screen does not.
 	scrollback      string
@@ -1824,6 +1828,15 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		}
 		r.literal = args[3]
 		r.literals = append(r.literals, args[3])
+		// A typed launch line starts a harness; the text typed after it, once
+		// that harness shows its composer, is its brief.
+		switch {
+		case strings.Contains(args[3], "& '"):
+			r.launched, r.brief, r.entersAfterBrief = true, "", 0
+		case r.launched && r.composerScreen != "":
+			r.brief = args[3]
+			r.briefWrites++
+		}
 		return jsonResult(`{}`), nil
 	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
 		// An unexpected error code is herdr answering the liveness probe
@@ -1842,7 +1855,9 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if args[3] == "enter" {
 			*r.events = append(*r.events, "send-enter")
 			r.enterKeys++
-			r.enteredAfterPrompt = r.enteredAfterPrompt || r.prompt != ""
+			if r.brief != "" {
+				r.entersAfterBrief++
+			}
 			if r.trustDialog && r.enterKeys > 1 {
 				r.trustDialog = false
 				r.agentStatus = "working"
@@ -1910,10 +1925,12 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		}
 		screen := ""
 		switch {
-		case r.prompt != "" && r.enteredAfterPrompt && r.enteredScreen != "":
+		case r.brief != "" && r.entersAfterBrief >= 2 && r.enteredScreen != "":
 			screen = r.enteredScreen
-		case r.prompt != "" && r.promptedScreen != "":
+		case r.brief != "" && r.entersAfterBrief >= 1 && r.promptedScreen != "":
 			screen = r.promptedScreen
+		case r.brief != "":
+			screen = "› " + r.brief + "\n" + r.composerScreen
 		case r.composerScreen != "":
 			screen = r.composerScreen
 		}
@@ -2282,9 +2299,9 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 			launchLine = literal
 		}
 	}
-	// The instruction reaches the resumed harness through the native agent
-	// prompt now, not as typed composer text - but it still has to reach it.
-	delivered := strings.Contains(fixture.runner.prompt, instruction)
+	// The instruction reaches the resumed harness typed into its composer
+	// once the composer shows, never as a positional of the launch line.
+	delivered := fixture.runner.brief == instruction
 	if launchLine == "" {
 		t.Fatalf("no typed launch line was sent: %q", fixture.runner.literals)
 	}
@@ -2295,7 +2312,7 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 		t.Errorf("the instruction was passed positionally to a resume, which binds it to SESSION_ID:\n%s", launchLine)
 	}
 	if !delivered {
-		t.Errorf("the instruction never reached the resumed harness, so the goblin has nothing to do: prompt=%q", fixture.runner.prompt)
+		t.Errorf("the instruction never reached the resumed harness, so the goblin has nothing to do: brief=%q", fixture.runner.brief)
 	}
 }
 
@@ -2311,13 +2328,12 @@ func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T)
 	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan); err != nil {
 		t.Fatal(err)
 	}
-	if fixture.runner.prompt != instruction {
-		t.Fatalf("prompt did not reach the native agent channel intact: %q", fixture.runner.prompt)
+	if fixture.runner.brief != instruction || fixture.runner.briefWrites != 1 {
+		t.Fatalf("the brief was typed %d times as %q, want it once and intact", fixture.runner.briefWrites, fixture.runner.brief)
 	}
-	if fixture.runner.promptCalls != 1 {
-		t.Fatalf("instruction was submitted %d times", fixture.runner.promptCalls)
-	}
-	for _, line := range fixture.runner.literals {
+	// Everything typed before the brief went to PowerShell, the brief itself
+	// to Codex's composer once it showed.
+	for _, line := range fixture.runner.literals[:len(fixture.runner.literals)-1] {
 		if strings.Contains(line, "--blocked") || strings.Contains(line, "options:") {
 			t.Fatalf("instruction reached PowerShell native argument parsing: %q", line)
 		}
