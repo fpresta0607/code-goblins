@@ -218,12 +218,6 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 	return zero, lastErr
 }
 
-// TypeSettleFor is how long to wait after typing message before Enter submits
-// it. A message starting with `/` or `$` opens a harness completion popup, and
-// an Enter that arrives while the popup is still open selects the highlighted
-// completion instead of submitting what was typed - so `cfo send <pane>
-// "/exit"` can run an entirely different command. A pane with no registered
-// agent is not necessarily at a shell prompt, so the popup is reachable here.
 // submitLeftInComposer presses Enter once when the message still shows on the
 // pane a moment after `agent prompt` returned, which is how a harness that
 // took the ending Enter as part of a paste leaves it. The harness is the one
@@ -235,7 +229,7 @@ func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, s
 	if err := s.sleep(ctx, confirmBudget/confirmPolls); err != nil {
 		return fmt.Errorf("fleet: wait before reading %s's composer: %w", target, err)
 	}
-	capture, err := s.Terminal.Capture(ctx, target, 60, false)
+	capture, err := s.Terminal.VisibleScreen(ctx, target)
 	if err != nil {
 		if herdr.WaitError(ctx, err) {
 			return fmt.Errorf("fleet: read %s's composer: %w", target, err)
@@ -251,6 +245,12 @@ func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, s
 	return nil
 }
 
+// TypeSettleFor is how long to wait after typing message before Enter submits
+// it. A message starting with `/` or `$` opens a harness completion popup, and
+// an Enter that arrives while the popup is still open selects the highlighted
+// completion instead of submitting what was typed - so `cfo send <pane>
+// "/exit"` can run an entirely different command. A pane with no registered
+// agent is not necessarily at a shell prompt, so the popup is reachable here.
 // Both prefixes get the long wait unconditionally: this path has no harness
 // metadata by design, and waiting longer than a shell prompt needs costs a
 // fraction of a second against running the wrong command.
