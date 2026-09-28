@@ -1,13 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CFO_KEY, MAXIMIZED_KEYS, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget } from "./terminalOrder.ts";
-import type { Task } from "./types.ts";
+import { CFO_KEY, MAXIMIZED_KEYS, cfoView, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
+import type { Session, Task } from "./types.ts";
 
 const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1", archived: false, ...changes }) as Task;
 const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; altGraph: boolean }> = {}) => {
   const { altGraph = false, ...modifiers } = changes;
   return { code, ctrlKey: true, altKey: true, shiftKey: false, metaKey: false, ...modifiers, getModifierState: (name: string) => name === "AltGraph" && altGraph };
 };
+
+test("a slot with no terminal shows an empty state that belongs to no backend", () => {
+  const cases: [string, DeckView, string][] = [
+    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_runs: false }), "No CFO is running."],
+    ["a queued task", idleView(task("queued", { generation: "" })), "This task has not started yet."],
+    ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
+    ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
+    ["nothing selected", idleView(), "Select a goblin to see its terminal."],
+  ];
+  for (const [name, view, text] of cases) assert.deepEqual(view, { kind: "empty", text }, name);
+});
+
+test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
+  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_runs: true }), { kind: "herdr" });
+  assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
+  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true }), { kind: "host", query: "cfo=cfo" });
+  assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
+});
 
 test("the switcher lists the CFO first, then every goblin that has a terminal", () => {
   const order = switchOrder([task("queued", { generation: "" }), task("alpha"), task("history", { archived: true }), task("beta")]);
