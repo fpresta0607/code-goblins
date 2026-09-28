@@ -30,7 +30,7 @@ func recordNativeHost(t *testing.T, stateDir, id string) host.Record {
 	if _, err := rand.Read(name[:]); err != nil {
 		t.Fatal(err)
 	}
-	record := host.Record{ID: id, Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getpid(), Started: time.Now().UTC()}
+	record := host.Record{ID: id, Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getppid(), Started: time.Now().UTC()}
 	data, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +64,7 @@ func TestANativeProberReadsTheHarnessFromItsScreen(t *testing.T) {
 		{"a claude composer waiting", "claude", []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, herdr.AgentDone, herdr.BusyIdle, true},
 		{"a claude trust dialog", "claude", []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}, herdr.AgentBlocked, herdr.BusyIdle, false},
 		{"a codex turn in progress", "codex", []string{"• Working (5s • esc to interrupt)", "› ", "100% context left"}, herdr.AgentWorking, herdr.BusyWorking, false},
+		{"a codex turn that ended saying Working", "codex", []string{"• Working tree is clean and all tests pass.", "› ", "100% context left"}, herdr.AgentDone, herdr.BusyIdle, true},
 		{"a screen with no marker", "claude", []string{"Loading..."}, herdr.AgentUnknown, herdr.BusyUnknown, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -245,23 +246,21 @@ type cycleProber struct {
 
 func (c *cycleProber) BeginScan(context.Context) { c.cycles++ }
 
-// A native goblin's own processes are those its terminal's program started:
-// a native task has no pane for Herdr to name its harness.
+// A native goblin's own processes are those its terminal's program started,
+// not its host's: a native task has no pane for Herdr to name its harness.
 func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 	stateDir := t.TempDir()
 	meta := nativeMeta("g1", "claude")
+	prober := HostProgress{StateDir: stateDir}
 
-	_, missing := HostProgress{StateDir: stateDir}.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
-	recordNativeHost(t, stateDir, "g1")
-	progress, err := HostProgress{StateDir: stateDir}.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
+	_, missing := prober.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
+	record := recordNativeHost(t, stateDir, "g1")
+	harnessPID, err := prober.harnessPID(context.Background(), meta, EndpointSample{Harness: "claude"})
 
 	if missing == nil {
 		t.Error("a native task with no host gave progress evidence")
 	}
-	if err != nil {
-		t.Fatalf("InspectProgress: %v", err)
-	}
-	if len(progress.Jobs) != 0 {
-		t.Errorf("jobs = %q, want none: this test process started nothing after its launch", progress.Jobs)
+	if err != nil || harnessPID != record.ChildPID {
+		t.Errorf("harness pid = %d, %v; want the terminal's program, pid %d, not its host, pid %d", harnessPID, err, record.ChildPID, record.HostPID)
 	}
 }
