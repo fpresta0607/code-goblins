@@ -306,6 +306,24 @@ func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	}
 }
 
+func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	if err := state.WriteLifecycle(fixture.stateDir, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.stopped = true
+	fixture.runner.agentGets = fixture.runner.stopAfter
+	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID: fixture.meta.ID, Session: "fleet", Model: "opus", IsResume: true, ResumeSession: "saved-session-42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Resumed || !contains(fixture.runner.startArgs, "--resume") || !contains(fixture.runner.startArgs, "saved-session-42") || contains(fixture.runner.startArgs, "--continue") {
+		t.Fatalf("wrong session launch: %v", fixture.runner.startArgs)
+	}
+}
+
 func TestSwitchRefusesADirtyWorktreeUnlessForced(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	fixture.runner.gitStatus = " M internal/thing.go\n?? notes.txt\n"

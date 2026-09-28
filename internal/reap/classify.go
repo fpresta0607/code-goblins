@@ -281,6 +281,7 @@ type Task struct {
 	Meta     state.TaskMeta
 	Verb     string
 	Terminal bool
+	IsPaused bool
 	// Hosted says a native task's terminal still runs: Classify sets it from
 	// the inventory's live host records, and it is what a native goblin,
 	// which has no pane, is alive by.
@@ -602,6 +603,9 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
 		task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+		if known && task.IsPaused {
+			continue
+		}
 		if goblinIsAlive(task, known, panes, worktree.Path) {
 			// A live goblin owns this directory, as its worktree or as an
 			// extra one it made for another branch. This outranks
@@ -805,6 +809,9 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
+		if task.IsPaused {
+			continue
+		}
 		if _, ok := panes[task.Meta.HerdrPaneID]; ok || task.Hosted {
 			continue
 		}
@@ -1416,7 +1423,7 @@ func verbText(verb string) string {
 // the two outcomes a goblin reports through cfo notify; every other verb
 // leaves the task somebody's problem.
 func IsTerminal(verb string) bool {
-	return verb == "done" || verb == "failed"
+	return verb == "done" || verb == "failed" || verb == "stopped"
 }
 
 // normalizePath folds a Windows path for comparison: lowercase, with forward
