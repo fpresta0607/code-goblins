@@ -3,6 +3,7 @@ package supervisor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -292,6 +293,61 @@ func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
 				t.Fatalf("audit = %q %v, want one line with the item, its script digest and exit code", audit, err)
 			}
 		})
+	}
+}
+
+// A run's card shows the command's output while it runs: the board reads what
+// it printed so far, and once it ends, the output the item kept.
+func TestRunOutputShowsWhatARunningCommandPrinted(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	_, identity, _, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	r := readyRun(t, store, identity, "migrate-db", "powershell", false, time.Now().UTC())
+	pressRun(t, s, r, "press-migrate")
+	dir := runDir(h.State, r)
+	if err := os.WriteFile(filepath.Join(dir, "output.log"), []byte("\xef\xbb\xbfapplying migration 42\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHTTP(s, "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	handler.Host = strings.TrimPrefix(server.URL, "http://")
+	read := func(path string) (int, string, string) {
+		t.Helper()
+		response, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var answer struct {
+			Output string `json:"output"`
+			State  string `json:"state"`
+		}
+		_ = json.NewDecoder(response.Body).Decode(&answer)
+		return response.StatusCode, answer.Output, answer.State
+	}
+
+	// Act and Assert
+	if code, output, state := read("/api/runs/" + r.ID + "/output"); code != 200 || output != "applying migration 42\n" || state != "running" {
+		t.Fatalf("a running command = %d %q %s, want 200, what it printed so far and running", code, output, state)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "output.log"), []byte("applying migration 42\nmigration 42 applied"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "exit.txt"), []byte("0"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.finishRuns(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if code, output, state := read("/api/runs/" + r.ID + "/output"); code != 200 || output != "applying migration 42\nmigration 42 applied" || state != "succeeded" {
+		t.Fatalf("a finished run = %d %q %s, want 200, its kept output and succeeded", code, output, state)
+	}
+	for _, path := range []string{"/api/runs/unknown/output", "/api/runs/" + r.ID + "/script", "/api/runs/" + r.ID + "/../output"} {
+		if code, _, _ := read(path); code != 404 {
+			t.Fatalf("%s = %d, want 404", path, code)
+		}
 	}
 }
 

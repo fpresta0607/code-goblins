@@ -139,6 +139,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.questionImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/reviews/") && r.Method == "GET":
 		h.reviewImage(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/runs/") && r.Method == "GET":
+		h.runOutput(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/") && r.Method == "GET":
 		h.task(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/"):

@@ -20,6 +20,30 @@ const closed = (item: Item) => Date.parse(item.kind === "question" ? item.questi
 export const isOpen = (item: Item) => item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
+// A goblin's wait on the Overlord himself, raised by notify --waiting-on
+// overlord: a status to see and dismiss, not a question to answer. It closes
+// by itself once the goblin reports again or the CFO answers it.
+export const waitsOnOverlord = (review: Review) => !!review.task && review.id.startsWith("waiting-" + review.task + "-");
+
+// The goblin's reason for a wait as it wrote it: the queue prefixes it with
+// "Waiting on you: " and a page's link, which the card opens instead.
+export const waitReason = (review: Review) => review.title.replace(/^Waiting on you:\s*/, "").replace(review.lavish ? " (page " + review.lavish + ")" : "", "");
+
+// What a wait points at, so its card says it plainly and opens it: the page
+// the goblin named, else its own newest question still waiting, else a file
+// it delivered, else a web link in its words. Null when it names nothing.
+export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
+export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
+  if (review.lavish) return { kind: "page", url: review.lavish, label: "Open the page", says: "It waits on your answer on its review page." };
+  const question = (snapshot.questions || []).filter((candidate) => candidate.task === review.task && candidate.status === "pending").sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  if (question) return { kind: "item", key: "question:" + question.id, label: "Open its question", says: "It waits on your answer to its question." };
+  const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
+  if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
+  const link = /https?:\/\/[^\s<>"'()]+/.exec(review.title)?.[0].replace(/[.,;:!?]+$/, "");
+  if (link && URL.canParse(link)) return { kind: "page", url: link, label: "Open the link", says: "It waits on you at " + new URL(link).host + "." };
+  return null;
+}
+
 export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }

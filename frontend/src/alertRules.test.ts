@@ -58,6 +58,13 @@ test("a goblin's own failure says what it reported", () => {
   assert.equal(alert.text, "The build broke");
 });
 
+test("a goblin waiting on the Overlord says so, and a review item asks for review", () => {
+  const waiting = { ...review("waiting-a-3"), title: "Sign in to GitHub" };
+  const [wait, plan] = boardAlerts(snapshot({}), snapshot({ reviews: [waiting, review("plan")] }));
+  assert.equal(wait.title, "Goblin a is waiting on you");
+  assert.equal(plan.title, "Goblin a wants your review");
+});
+
 test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
   const pr = "https://github.com/o/r/pull/7";
   const working = snapshot({ tasks: [task("a", "working")] });
