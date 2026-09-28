@@ -83,6 +83,17 @@ export function historyText(text: string): string {
   return text.replace(/\r?\n/g, "\r\n") + "\x1b[0m";
 }
 
+// While the panel's divider is dragged a terminal keeps its grid and shows its
+// screen scaled whole into the panel, so a move costs no refit and no resize
+// of the pane; it refits once when the drag ends (PANEL_RESIZED).
+export function previewScale(room: { width: number; height: number }, screen: { width: number; height: number }): number {
+  if (room.width <= 0 || room.height <= 0 || screen.width <= 0 || screen.height <= 0) return 1;
+  return Math.min(room.width / screen.width, room.height / screen.height);
+}
+
+// The window event the panel's divider sends once a drag ends.
+export const PANEL_RESIZED = "board-panel-resized";
+
 export function bracketedPaste(text: string): string {
   const input = "\x1b[200~" + text.replaceAll("\x1b[200~", "").replaceAll("\x1b[201~", "") + "\x1b[201~";
   if (inputBytes(input) > maxInputBytes) throw new Error("Paste exceeds 64 KiB. Paste a smaller selection; nothing was sent.");
