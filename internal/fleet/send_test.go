@@ -65,10 +65,11 @@ type agentFake struct {
 	revisionOnly bool
 	// agent is the harness Herdr names for the pane, claude when empty;
 	// screens is what the pane shows before any key and after each one, the
-	// last holding; keys are the keys sent to it.
-	agent   string
-	screens []string
-	keys    []string
+	// last holding; keys are the keys sent to it, after keyRefusals refused.
+	agent       string
+	screens     []string
+	keys        []string
+	keyRefusals int
 
 	probing         bool
 	accepted        bool
@@ -96,6 +97,10 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"` + args[2] + `"}}}`)}, nil
 	case len(args) >= 4 && args[0] == "pane" && (args[1] == "send-text" || args[1] == "send-keys"):
 		if args[1] == "send-keys" {
+			if f.keyRefusals > 0 {
+				f.keyRefusals--
+				return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+			}
 			f.keys = append(f.keys, args[3])
 		}
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
@@ -240,6 +245,24 @@ func TestSenderTextSubmitsAMessageCodexLeftInItsComposer(t *testing.T) {
 				t.Errorf("prompts %d, keys %q; want one prompt and %d Enters for the message left in the composer", fake.promptCalls, fake.keys, test.enters)
 			}
 		})
+	}
+}
+
+// Codex's transcript echoes a message it took, so a message that still shows
+// after agent prompt may already be delivered. Herdr refusing the Enter that
+// would submit it again is reported as an unconfirmed delivery, never as one
+// that sent nothing, which would invite a second send.
+func TestSenderTextReportsARefusedResubmitUnconfirmed(t *testing.T) {
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	fake := newAgentFake(agentFake{agent: "codex", status: "idle", screens: []string{stuck}, keyRefusals: 1})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), "pane busy") {
+		t.Fatalf("Text = %v, want an unconfirmed delivery wrapping Herdr's refusal", err)
+	}
+	if fake.promptCalls != 1 || len(fake.keys) != 0 {
+		t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter taken", fake.promptCalls, fake.keys)
 	}
 }
 
