@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, meterState, nextChip, refusalStands, startBlock, startOutcome } from "./start.ts";
+import { freeGigabytes, meterScale, meterState, nextChip, refusalStands, startBlock, startOutcome } from "./start.ts";
 import type { Memory, Snapshot, Task } from "./types.ts";
 
 const GB = 2 ** 30;
@@ -11,6 +11,13 @@ test("the meter says when the CFO starts the next task, and never that one start
   assert.deepEqual(meterState(memory(5.2)), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
   assert.deepEqual(meterState(memory(3.1)), { tone: "waiting", text: "The CFO starts the next task at 4 GB free." });
   assert.deepEqual(meterState(memory(2.4)), { tone: "under", text: "Under the 3 GB floor: nothing starts until memory frees." });
+});
+
+test("the memory bar spans twice the start mark, so the floor and start marks sit apart and a full bar means the next task starts", () => {
+  assert.deepEqual(meterScale(memory(3.5)), { fill: 43.75, floor: 37.5, next: 50 }, "on 32 GB the 3 GB floor and the 4 GB mark were 3 % of the bar apart");
+  assert.deepEqual(meterScale(memory(20)), { fill: 100, floor: 37.5, next: 50 }, "memory well past the mark fills the bar");
+  assert.deepEqual(meterScale(memory(0)), { fill: 0, floor: 37.5, next: 50 });
+  assert.deepEqual(meterScale({ ...memory(2), total: 5 * GB }), { fill: 40, floor: 60, next: 80 }, "a machine with less memory than that spans its own");
 });
 
 test("Start is offered while a queued task can start, and otherwise says why not", () => {
