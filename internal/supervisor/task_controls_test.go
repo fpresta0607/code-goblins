@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -395,5 +396,60 @@ func TestRequeuedTaskRegainsQueueControlsAfterAnEarlierQueuedStop(t *testing.T) 
 	}
 	if task := snapshot.Tasks[index]; task.Phase != "queued" || task.Archived || task.Lifecycle != nil || task.QueueRevision == "" || !task.Brief {
 		t.Fatalf("requeued task lost its queue controls or brief: %+v", task)
+	}
+}
+
+func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
+	handler, h := orderBoard(t)
+	meta := state.TaskMeta{ID: "task", Title: "Gated task", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, TaskTmp: filepath.Join(h.State, "tasktmp", "task"), Backend: "native"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
+		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
+		Stop:    func(context.Context, state.TaskMeta) ([]string, error) { return nil, nil },
+		Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
+			if record.Action == "pause" {
+				record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
+			}
+			return nil
+		},
+		Archive: func(context.Context, state.TaskMeta, *state.Lifecycle) (lifecycle.Preservation, error) {
+			return lifecycle.Preservation{Kept: []string{"branch gb-task"}}, nil
+		},
+		Notify: func(state.Lifecycle) error { return nil },
+	}}
+	lifecycleCard := func(id string) *LifecycleStatus {
+		t.Helper()
+		snapshot, err := handler.Service.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == id })
+		if index < 0 || snapshot.Tasks[index].Lifecycle == nil {
+			t.Fatalf("no lifecycle card for %s: %+v", id, snapshot.Tasks)
+		}
+		return snapshot.Tasks[index].Lifecycle
+	}
+	if _, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+		t.Fatal(err)
+	}
+	if !lifecycleCard(meta.ID).ValidationRestarts {
+		t.Fatal("paused card with an interrupted gate does not say validation restarts")
+	}
+	stopped, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "stop-1", Action: "stop"})
+	if err != nil || stopped.GateRun != "run-1" {
+		t.Fatalf("stop lost gate custody: %+v %v", stopped, err)
+	}
+	if lifecycleCard(meta.ID).ValidationRestarts {
+		t.Fatal("stopped card promises a validation restart")
+	}
+	if err := os.Remove(filepath.Join(h.State, meta.ID+".meta")); err != nil {
+		t.Fatal(err)
+	}
+	history := finishedTasks(h, time.Now())
+	index := slices.IndexFunc(history, func(task Task) bool { return task.ID == "finished:"+meta.ID })
+	if index < 0 || history[index].Lifecycle == nil || history[index].Lifecycle.ValidationRestarts {
+		t.Fatalf("archived stopped card promises a validation restart: %+v", history)
 	}
 }
