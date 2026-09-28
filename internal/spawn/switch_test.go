@@ -1111,7 +1111,9 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
 	fixture := newSwitchFixture(t)
 	fixture.service.Harness.Adapters[harness.Pi] = typedFixtureAdapter{events: &fixture.base.events, kind: harness.Pi}
+	typedScreens(fixture.base.runner, harness.Pi)
 	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
+		fixture.base.runner.prompt = ""
 		fixture.base.runner.agentNotFound = true
 		fixture.base.runner.harnessRunning = true
 		return nil, nil

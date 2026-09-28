@@ -54,6 +54,9 @@ type Backend interface {
 	SendKey(ctx context.Context, target herdr.Target, key string) error
 	// Capture returns the last lines of the terminal's screen.
 	Capture(ctx context.Context, target herdr.Target, lines int, ansi bool) (string, error)
+	// VisibleScreen returns only the rows the terminal shows now, without
+	// scrollback.
+	VisibleScreen(ctx context.Context, target herdr.Target) (string, error)
 	// CaptureEvidence reads the bounded recent terminal text the monitor reads
 	// a task's state from.
 	CaptureEvidence(ctx context.Context, target herdr.Target) ([]byte, error)
