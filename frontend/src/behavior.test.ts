@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
+import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRange } from "./diff.ts";
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
@@ -88,6 +88,18 @@ test("diff coordinates survive additions, deletions, separate hunks and split al
   assert.equal(split[1].left?.text, "old");
   assert.equal(split[1].right?.text, "new");
   assert.equal(split[2].left, undefined);
+});
+
+test("the changes summary counts one file in the singular", () => {
+  const cases: [string, number | undefined, string][] = [
+    ["", 1, "Full task changes · 1 file"],
+    ["", 0, "Full task changes · 0 files"],
+    ["", 3, "Full task changes · 3 files"],
+    ["abcdef0123456789", 1, "Commit abcdef01 · 1 file"],
+    ["abcdef0123456789", 2, "Commit abcdef01 · 2 files"],
+    ["", undefined, "Full task changes · … files"],
+  ];
+  for (const [revision, count, summary] of cases) assert.equal(changeSummary(revision, count), summary);
 });
 
 test("lost HTTP response plus SSE success keeps exactly one request identity", () => {
