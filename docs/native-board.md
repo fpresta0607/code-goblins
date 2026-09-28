@@ -4,6 +4,7 @@
 Use `--listen 127.0.0.1:0` for an ephemeral port; the command prints its actual URL.
 Node, Vite, Docker, and a browser are not runtime dependencies of the supervisor.
 Docker remains an optional project environment managed by the existing worktree profiles.
+`serve` does not care where it was started: started from a Herdr pane, such as the CFO's own, it first drops that pane's variables (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_STARTUP_CWD`, `HERDR_SOCKET_PATH` and `HERDR_BIN_PATH`) and keeps every other `HERDR_` variable, such as `HERDR_SESSION` and the user's configuration in `HERDR_CONFIG_PATH`, so a terminal it opens, or any other program it runs, is not refused by herdr as nested inside that pane.
 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
@@ -307,7 +308,7 @@ The registration then names that terminal instead of a pane, and it stays valid 
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and the board shows the message delivered once both are acknowledged, and never types it again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
-`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's `HERDR_PANE_ID`.
+`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's Herdr pane variables, the same ones `serve` drops.
 `goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
 The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
