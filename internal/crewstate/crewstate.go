@@ -1,5 +1,5 @@
 // Package crewstate resolves the current task state from typed metadata, a
-// verified Herdr endpoint, and only then the append-only status event log.
+// verified terminal endpoint, and only then the append-only status event log.
 package crewstate
 
 import (
@@ -40,10 +40,11 @@ type Current struct {
 }
 
 // Endpoint supplies base liveness only. Its Exists result proves that the
-// recorded target is addressable, not that it is the exact task endpoint.
+// terminal the task's metadata records is addressable, not that it is the
+// exact task endpoint.
 type Endpoint interface {
-	Exists(ctx context.Context, target herdr.Target) (bool, error)
-	BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error)
+	Exists(ctx context.Context, meta state.TaskMeta) (bool, error)
+	BusyState(ctx context.Context, meta state.TaskMeta) (herdr.BusyState, error)
 }
 
 // StructuralValidator is an intentionally narrow optional extension for
@@ -72,12 +73,11 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	if err != nil || !info.IsDir() {
 		return Current{State: Unknown, Source: SourceMetadata}, nil
 	}
-	target := herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
-	exists, err := endpoint.Exists(ctx, target)
+	exists, err := endpoint.Exists(ctx, meta)
 	if err != nil || !exists {
 		return Current{State: Unknown, Source: SourceNone}, nil
 	}
-	busy, err := endpoint.BusyState(ctx, target)
+	busy, err := endpoint.BusyState(ctx, meta)
 	if err != nil || busy == herdr.BusyUnknown {
 		return Current{State: Unknown, Source: SourceNone}, nil
 	}

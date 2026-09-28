@@ -993,15 +993,15 @@ type fleetE2EEndpoint struct {
 	fixture *fleetE2EFixture
 }
 
-func (e fleetE2EEndpoint) Exists(_ context.Context, target herdr.Target) (bool, error) {
-	id := strings.TrimPrefix(target.Pane, "pane:")
+func (e fleetE2EEndpoint) Exists(_ context.Context, meta state.TaskMeta) (bool, error) {
+	id := strings.TrimPrefix(meta.HerdrPaneID, "pane:")
 	_, known := e.fixture.runner.tabs["gb-"+id]
-	return known && !e.fixture.runner.missing[target.Pane], nil
+	return known && !e.fixture.runner.missing[meta.HerdrPaneID], nil
 }
 
-func (e fleetE2EEndpoint) BusyState(_ context.Context, target herdr.Target) (herdr.BusyState, error) {
-	id := strings.TrimPrefix(target.Pane, "pane:")
-	if e.fixture.runner.missing[target.Pane] {
+func (e fleetE2EEndpoint) BusyState(_ context.Context, meta state.TaskMeta) (herdr.BusyState, error) {
+	id := strings.TrimPrefix(meta.HerdrPaneID, "pane:")
+	if e.fixture.runner.missing[meta.HerdrPaneID] {
 		return herdr.BusyUnknown, nil
 	}
 	if busy := e.fixture.runner.busy[id]; busy != "" {

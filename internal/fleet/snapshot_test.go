@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -29,14 +31,14 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
 	}}
 	var sleeps []time.Duration
-	endpoint := NewTerminalEndpoint(newHerdrClient(runner, &sleeps))
-	target := herdr.Target{Session: "fleet", Pane: "pane-7"}
+	endpoint := NewTerminalEndpoint(t.TempDir(), newHerdrClient(runner, &sleeps))
+	meta := state.TaskMeta{ID: "g7", Backend: "herdr", HerdrSession: "fleet", HerdrPaneID: "pane-7"}
 
-	exists, err := endpoint.Exists(context.Background(), target)
+	exists, err := endpoint.Exists(context.Background(), meta)
 	if err != nil || !exists {
 		t.Fatalf("Exists = %t, %v; want true, nil", exists, err)
 	}
-	busy, err := endpoint.BusyState(context.Background(), target)
+	busy, err := endpoint.BusyState(context.Background(), meta)
 	if err != nil || busy != herdr.BusyWorking {
 		t.Fatalf("BusyState = %q, %v; want busy, nil", busy, err)
 	}
@@ -47,14 +49,16 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 	})
 }
 
-func (e *snapshotEndpoint) Exists(_ context.Context, target herdr.Target) (bool, error) {
-	e.calls = append(e.calls, "exists:"+target.String())
-	return e.exists[target.String()], nil
+func (e *snapshotEndpoint) Exists(_ context.Context, meta state.TaskMeta) (bool, error) {
+	target := herdrTarget(meta).String()
+	e.calls = append(e.calls, "exists:"+target)
+	return e.exists[target], nil
 }
 
-func (e *snapshotEndpoint) BusyState(_ context.Context, target herdr.Target) (herdr.BusyState, error) {
-	e.calls = append(e.calls, "busy:"+target.String())
-	return e.busy[target.String()], nil
+func (e *snapshotEndpoint) BusyState(_ context.Context, meta state.TaskMeta) (herdr.BusyState, error) {
+	target := herdrTarget(meta).String()
+	e.calls = append(e.calls, "busy:"+target)
+	return e.busy[target], nil
 }
 
 func (e *snapshotEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
@@ -321,5 +325,65 @@ func TestBuildSnapshotUsesCurrentEndpointEvidenceWhenMonitorIsAbsent(t *testing.
 	row := snapshot.Tasks[0]
 	if row.Current.Source != crewstate.SourceEndpoint || row.Endpoint.Exists == nil || !*row.Endpoint.Exists {
 		t.Errorf("row = %+v, want current endpoint evidence to mark the endpoint present", row)
+	}
+}
+
+// A native task's row reads its own terminal instead of Herdr: a turn on its
+// screen is working, and a composer waiting in the terminal whose host
+// recorded itself under the task's id is the task's own, so its latest report
+// says where it stands. With no running host the row stays unknown.
+func TestBuildSnapshotReadsANativeTaskFromItsOwnTerminal(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		hasHost bool
+		screen  []string
+		want    crewstate.Current
+	}{
+		{"a turn in progress", true, []string{"✽ Reticulating… (12s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, crewstate.Current{State: crewstate.Working, Source: crewstate.SourceEndpoint}},
+		{"a composer waiting", true, []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, crewstate.Current{State: crewstate.Done, Source: crewstate.SourceStatus, Detail: "shipped"}},
+		{"no running host", false, []string{"> "}, crewstate.Current{State: crewstate.Unknown, Source: crewstate.SourceNone}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := snapshotHome(t)
+			worktree := filepath.Join(h.Root, "worktree")
+			if err := os.Mkdir(worktree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g1", Worktree: worktree, Harness: "claude", Backend: "native"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(h.State, "g1", "done: shipped"); err != nil {
+				t.Fatal(err)
+			}
+			if test.hasHost {
+				recordHost(t, h.State, "g1")
+			}
+			screen := func(host.Record) ([]string, error) { return test.screen, nil }
+			endpoint := terminalEndpoint{native: monitor.NativeProber{StateDir: h.State, ReadScreen: screen}}
+
+			snapshot, err := BuildSnapshot(context.Background(), h, endpoint)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snapshot.Tasks[0].Current; got != test.want {
+				t.Errorf("current = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
+// recordHost writes the record a running host keeps for terminal id.
+func recordHost(t *testing.T, stateDir, id string) {
+	t.Helper()
+	data, err := json.Marshal(host.Record{ID: id, Pipe: `\\.\pipe\code-goblins-host-test`, Token: "token", Version: host.Version, HostPID: os.Getpid(), Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

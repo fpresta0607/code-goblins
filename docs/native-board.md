@@ -348,6 +348,8 @@ Keys pass through raw, the terminal follows the console's size, and Ctrl-] leave
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
 `cfo peek gb-<id>`, the form fleet-view suggests, reads a native task's terminal as `cfo peek <id>` does.
+`cfo fleet-view` reads a native task's current state from its own terminal, as the monitor does, never from Herdr: a turn on its screen is working, and an idle terminal whose host recorded itself under the task's id is the task's own, so the row shows the task's latest report; with no running host the row is unknown.
+A Herdr task's idle pane still shows unknown, since no Herdr answer proves the pane is the task's.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
 `cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.

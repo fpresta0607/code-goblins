@@ -22,11 +22,11 @@ type fakeEndpoint struct {
 	structErr  error
 }
 
-func (f fakeEndpoint) Exists(context.Context, herdr.Target) (bool, error) {
+func (f fakeEndpoint) Exists(context.Context, state.TaskMeta) (bool, error) {
 	return f.exists, f.existsErr
 }
 
-func (f fakeEndpoint) BusyState(context.Context, herdr.Target) (herdr.BusyState, error) {
+func (f fakeEndpoint) BusyState(context.Context, state.TaskMeta) (herdr.BusyState, error) {
 	return f.busy, f.busyErr
 }
 
