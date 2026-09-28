@@ -30,7 +30,7 @@ If it is empty, infer what to show from the conversation.
 1. Write the artifact as HTML under `.lavish/` in the working directory (for example `.lavish/dispatch-options.html`).
    Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
    Keep every referenced asset beside the HTML and reference it with a relative path; a root-absolute path will not resolve.
-2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's pane: the command opens the page without a browser and puts its link in the Command Center.
+2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
 3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CFO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
    Never run `lavish-axi poll` yourself.
 4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
