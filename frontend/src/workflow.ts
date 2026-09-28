@@ -15,8 +15,9 @@ export function fitScale(graph: { width: number; height: number }, canvas: { wid
   return Math.max(.35, Math.min(1.25, (canvas.width - 48) / graph.width, (canvas.height - 48) / graph.height));
 }
 
-export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
-  if (task.archived) return "Completed";
+export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
+  if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
+  if (["paused", "pausing", "resuming"].includes(task.phase)) return "Paused";
   if (task.phase === "queued") return "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
@@ -94,6 +95,7 @@ export function safePullRequest(url: string): string {
 // evidence the supervisor holds.
 export function statusText(phase: string): string {
   const labels: Record<string, string> = {
+    paused: "Paused", pausing: "Pausing", resuming: "Resuming", stopping: "Stopping", stopped: "Stopped",
     queued: "Not started", working: "Working", active: "Working", started: "Starting",
     review: "In review gate", waiting: "Waiting", ready: "Checks passed", done: "Delivered", merged: "Merged, verifying", idle: "Waiting for input",
     blocked: "Blocked", failed: "Failed", unavailable: "No fresh evidence",
@@ -135,6 +137,7 @@ const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint"
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
+  if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;

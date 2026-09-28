@@ -197,7 +197,14 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
-- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed, each pull request once, under the repository it was opened in, even when a fork carries its upstream's merges; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
+- **Board** is task review.
+  Real tasks sit in **Tasks**, **In progress**, **Paused** and **Completed**.
+  Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
+  Failed work and work awaiting review stay in progress with a plain status.
+  Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.
+  The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal.
+  While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
+  A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
@@ -212,18 +219,41 @@ Under the status, a quiet clock shows how long each goblin's session has run, su
 A list of up to ten cards shows them all, and the board scrolls when they run past the screen.
 Past ten, each list shows only the cards that fit the visible board, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
 A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.
+Without a PR, Finished requires pushed task commits or the artifact the brief requested.
+A task ended by Stop, or cleaned up without delivery, says **Stopped**, with when and why.
+Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
 On a touch screen, drag a card by its number.
 A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past the page's edge moves it on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 
-The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and at the 5 GB mark at which the CFO starts the next task.
-The bar spans 10 GB, so a full bar means the next task starts, and its fill turns amber under the 5 GB mark and red under the floor.
-The top task is marked **Next**; the board itself starts nothing on its own.
-Every queued card carries the same **Start now**, a play button in its top corner, which starts that task at once, even below the 5 GB mark.
+The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and the 5 GB next-start mark.
+The bar spans 10 GB, with amber below 5 GB and red below the floor.
+The first eligible task is marked **Next up**; the board itself starts nothing on its own.
+A blocked task names the person, time or task it waits on and has no Start button or Next up mark.
+An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
-Start is refused, with the reason on the card, when less than 4 GB of memory is free, when the task has no brief yet, or while another task is starting; a start `cfo spawn` refuses shows its reason on the card too.
+When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
+Start requires at least 5 GB free and waits while another task is starting or resuming; any refusal appears on the card.
+
+In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
+Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
+Resume requires 5 GB free and continues the saved session where supported, otherwise using the saved handoff.
+If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
+Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
+
+Stop opens a confirmation offering **Pause instead (Recommended)**, **Stop and delete** and **Cancel**, without typing.
+It ends the session and owned processes, then removes the worktree only when its work is safely preserved.
+Branches stay, and dirty or unpushed work keeps its worktree with the reason shown on the final card.
+Queued Stop removes the task from the queue and keeps its brief.
+The board uses the same paths as `cfo pause <id>`, `cfo resume <id>` and `cfo kill <id>`; `cfo stop` still stops the supervisor.
+
+Open a queued card's **Adjust** pencil icon to edit its title on the first line and its detail below.
+**Save changes** updates the task and any existing brief with an adjustment record.
+**Send to CFO** sends the text as a note about that task without changing it, and the note stays on its card until handled.
+
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
