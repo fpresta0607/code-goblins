@@ -67,3 +67,67 @@ func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
 		t.Errorf("Close stopped pid %d, a process that is not its host", later.Process.Pid)
 	}
 }
+
+// Windows refuses to delete a file another process has open without delete
+// sharing, as Go opens every file, so a reader of the record at the moment a
+// host ends made the host's removal fail. Close then waited on a record that
+// would never go and reported a host that had ended as one that did not. The
+// host ended is what Close waits for, so it takes the host's end as its end
+// and removes the record the host could not.
+func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
+	stateDir, record := launch(t)
+	reader, err := os.Open(recordPath(stateDir, record.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		defer close(released)
+		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
+		_ = reader.Close()
+	}()
+
+	began := time.Now()
+	err = Close(stateDir, record, time.Second)
+	took := time.Since(began)
+	<-released
+
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if took >= 10*time.Second {
+		t.Errorf("Close took %s, want it back once its host ended", took)
+	}
+	if !exited(record.HostPID) {
+		t.Errorf("host pid %d is still running after its terminal closed", record.HostPID)
+	}
+	if _, err := ReadRecord(stateDir, record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the record is still there: %v", err)
+	}
+}
+
+// A reader that has the record open for a moment does not keep it from being
+// removed: the removal is tried again until the reader lets go.
+func TestRemoveRecordOutlastsABriefReader(t *testing.T) {
+	stateDir := t.TempDir()
+	record := Record{ID: "g1", Pipe: `\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, HostPID: os.Getpid(), Started: time.Now().UTC()}
+	if err := writeRecord(stateDir, record); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(recordPath(stateDir, record.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		_ = reader.Close()
+	}()
+
+	removeRecord(stateDir, record.ID, record.HostPID)
+
+	if _, err := ReadRecord(stateDir, record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the record is still there: %v", err)
+	}
+}
