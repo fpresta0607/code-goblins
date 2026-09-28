@@ -40,6 +40,22 @@ func (h HerdrLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
 	return err == nil && status == herdr.AgentAlive
 }
 
+// BackendLiveness decides liveness by a task's backend: a native task is live
+// while its terminal's host runs, since the host ends with its harness; any
+// other asks Herdr.
+type BackendLiveness struct {
+	StateDir string
+	Herdr    HerdrLiveness
+}
+
+// Live implements PaneLiveness.
+func (b BackendLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
+	if meta.Backend == "native" {
+		return nativeTerminalRuns(b.StateDir, meta.ID)
+	}
+	return b.Herdr.Live(ctx, meta)
+}
+
 // Refreshed is one regenerated credential script. Live marks a pane the
 // re-source notice can reach; the caller delivers that notice, because the
 // notice travels over the existing fleet sender rather than a new channel.

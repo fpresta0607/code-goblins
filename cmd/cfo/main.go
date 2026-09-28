@@ -233,7 +233,7 @@ func defaultCommandRuntime() commandRuntime {
 			return spawn.AuthRefresher{
 				StateDir: h.State,
 				DataDir:  h.Data,
-				Panes:    spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}},
+				Panes:    spawn.BackendLiveness{StateDir: h.State, Herdr: spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}}},
 			}
 		},
 		peek: peekTerminal,
