@@ -189,7 +189,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if dirty != "" && !req.ForceDirty {
+	isResumeInPlace := native && target.same(meta)
+	if dirty != "" && !req.ForceDirty && !isResumeInPlace {
 		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
 

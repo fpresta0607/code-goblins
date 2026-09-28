@@ -176,6 +176,59 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	}
 }
 
+// A native goblin whose terminal has ended resumes in place over its own
+// uncommitted work with no --force-dirty, while a switch that changes its
+// model on the same dirty worktree is still refused.
+func TestAnEndedNativeGoblinResumesOverItsUncommittedWork(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "turns")
+	f.service.Commands = dirtyWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}}}}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	closeCurrentTerminal(t, f)
+	first, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+		t.Fatal(err)
+	}
+
+	_, changeErr := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
+	result, resumeErr := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7"})
+
+	if changeErr == nil || !strings.Contains(changeErr.Error(), "--force-dirty") {
+		t.Errorf("model change err = %v, want a refusal naming --force-dirty", changeErr)
+	}
+	if resumeErr != nil {
+		t.Fatalf("resume Switch: %v", resumeErr)
+	}
+	if !result.Resumed {
+		t.Errorf("result = %+v, want the harness resumed", result)
+	}
+	if launches := named(f.events(t), "env"); len(launches) != 2 {
+		t.Errorf("the harness started %d times, want twice: the spawn and the resume only", len(launches))
+	}
+}
+
+// dirtyWorktree answers a switch's git status as a worktree with an
+// uncommitted edit, its other git reads as empty, and hands every other
+// command to the fixture's runner.
+type dirtyWorktree struct {
+	next execx.Runner
+}
+
+func (d dirtyWorktree) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if req.Name != "git" {
+		return d.next.Run(ctx, req)
+	}
+	if len(req.Args) > 0 && req.Args[0] == "status" {
+		return execx.Result{Stdout: []byte(" M main.go\n")}, nil
+	}
+	return execx.Result{}, nil
+}
+
 // cleanWorktree answers a switch's git reads as a worktree with nothing
 // uncommitted and no history to hand off, and hands every other command to
 // the fixture's runner.
