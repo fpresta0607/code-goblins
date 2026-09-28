@@ -8,6 +8,7 @@ import {
 } from "./types";
 import { useResource } from "./api";
 import { age } from "./presentation";
+import { changeSummary } from "./diff";
 import { DiffView } from "./DiffView";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import { Disclosure } from "./Disclosure";
@@ -42,7 +43,7 @@ function Changes({ task, revision = "", reviews, connected }: {
   const files = useResource("/api/tasks/" + encodeURIComponent(task.id) + "/files?revision=" + encodeURIComponent(revision), parseFiles);
   const [version, setVersion] = useState(0);
   return <div className="changes">
-    <div className="section-toolbar"><p className="muted">{revision ? "Commit " + revision.slice(0, 8) : "Full task changes"} · {files.data?.length ?? "…"} files</p>
+    <div className="section-toolbar"><p className="muted">{changeSummary(revision, files.data?.length)}</p>
       <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" data-tip-align="end" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
     </div>
     {files.error ? <ErrorBox error={files.error} retry={files.reload} /> :

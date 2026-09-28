@@ -34,6 +34,11 @@ export function dragRange(rows: DiffRow[], prefer?: "old" | "new"): { side: "old
 export function isDrag(detail: number, from: { x: number; y: number }, to: { x: number; y: number }) {
   return detail === 1 && Math.hypot(to.x - from.x, to.y - from.y) > 4;
 }
+// The Changes toolbar names the change set and counts its files; the count
+// is unknown while the files load.
+export function changeSummary(revision: string, count?: number): string {
+  return (revision ? "Commit " + revision.slice(0, 8) : "Full task changes") + " · " + (count ?? "…") + (count === 1 ? " file" : " files");
+}
 export function parsePatchToRows(patch: string): DiffRow[] {
   const rows: DiffRow[] = [];
   let old = 0,
