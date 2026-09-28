@@ -29,7 +29,7 @@ func TestWithoutPaneDropsEveryPaneVariable(t *testing.T) {
 	kept := WithoutPane(env)
 
 	// Assert
-	if want := []string{"PATH=C:\\bin", "HERDR_SESSION=fleet", "HERDR_CONFIG_PATH=C:\\herdr\\herdr.toml", "HERDRLIKE=kept"};!slices.Equal(kept, want) {
+	if want := []string{"PATH=C:\\bin", "HERDR_SESSION=fleet", "HERDR_CONFIG_PATH=C:\\herdr\\herdr.toml", "HERDRLIKE=kept"}; !slices.Equal(kept, want) {
 		t.Errorf("WithoutPane = %q, want %q", kept, want)
 	}
 }
