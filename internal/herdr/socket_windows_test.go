@@ -250,6 +250,34 @@ func TestSocketCacheReadsAgentsAndPaneEvidenceOnTheSocket(t *testing.T) {
 	}
 }
 
+// A pane the socket reads as empty is empty: the capture fails at once with
+// no herdr command, which would only read the same nothing.
+func TestSocketCacheEmptyPaneReadStartsNoCommand(t *testing.T) {
+	// Arrange
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(request herdrtest.Request) string {
+		if request.Method == "pane.read" {
+			return `{"id":"pane.read","result":{"type":"pane_read","read":{"text":""}}}`
+		}
+		return ""
+	}
+	runner := &fakeRunner{replies: []runnerReply{rawReply(socket.Status())}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	// Act
+	evidence, err := client.CaptureEvidence(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "returned no terminal text") || evidence != nil {
+		t.Fatalf("evidence = %q, %v; want the no-terminal-text error", evidence, err)
+	}
+	if calls := runner.Requests(); len(calls) != 1 || strings.Join(calls[0].Args, " ") != "status --json --session fleet" {
+		t.Fatalf("commands run = %v, want only the one status read", calls)
+	}
+}
+
 // A socket that cannot be reached is forgotten and the read goes through the
 // herdr command, so a restarted Herdr is found again on the next read.
 func TestSocketCacheFallsBackToTheCommandWhenThePipeIsGone(t *testing.T) {

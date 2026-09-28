@@ -73,12 +73,15 @@ func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (Gat
 // monitor asks a goblin's gate once a minute once it has been busy past
 // busyTurnMax, and each `no-mistakes axi status` starts about ten git
 // processes, so a reading stands for five minutes: a gate step wedged past
-// the hour-long budget is named at most five minutes later.
+// the hour-long budget is named at the first fresh reading, at most five
+// minutes later, and a wedge that was real when read can stand in the
+// observation up to five minutes after the step moves on.
 const gateProbeEvery = 5 * time.Minute
 
 // RecentGateProber reads each worktree's gate through Probe at most once per
-// gateProbeEvery. Within the period it answers the last reading, with the
-// active step's age moved on by the time since it was read.
+// gateProbeEvery. Within the period it answers the last reading exactly as it
+// was read, so a kept reading can delay a wake by at most gateProbeEvery and
+// never invent one.
 type RecentGateProber struct {
 	Probe GateProber
 	// Now is the clock; nil means time.Now.
@@ -112,11 +115,7 @@ func (p *RecentGateProber) InspectGate(ctx context.Context, meta state.TaskMeta)
 		p.readings[meta.Worktree] = reading
 		p.mu.Unlock()
 	}
-	sample := reading.sample
-	if sample.Active {
-		sample.ActiveFor += now.Sub(reading.at)
-	}
-	return sample, reading.err
+	return reading.sample, reading.err
 }
 
 // parseGateStatus reads the active_steps row out of `axi status`. Only the

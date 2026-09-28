@@ -140,17 +140,20 @@ func (c *Client) CaptureEvidence(ctx context.Context, target Target) ([]byte, er
 	scoped := *c
 	scoped.Session = target.Session
 	raw, ok := scoped.socketRead(ctx, "pane.read", map[string]any{"pane_id": target.Pane, "source": "recent_unwrapped", "lines": captureFloor})
-	if ok && decodeRaw(raw, &answer) == nil && answer.Read != nil && answer.Read.Text != nil && *answer.Read.Text != "" {
-		return []byte(*answer.Read.Text), nil
+	var text []byte
+	if ok && decodeRaw(raw, &answer) == nil && answer.Read != nil && answer.Read.Text != nil {
+		text = []byte(*answer.Read.Text)
+	} else {
+		result, err := c.required(ctx, target.Session, target, "pane read", "pane", "read", target.Pane, "--source", "recent-unwrapped", "--lines", fmt.Sprint(captureFloor))
+		if err != nil {
+			return nil, err
+		}
+		text = result.Stdout
 	}
-	result, err := c.required(ctx, target.Session, target, "pane read", "pane", "read", target.Pane, "--source", "recent-unwrapped", "--lines", fmt.Sprint(captureFloor))
-	if err != nil {
-		return nil, err
-	}
-	if len(result.Stdout) == 0 {
+	if len(text) == 0 {
 		return nil, fmt.Errorf("herdr: pane read for %s returned no terminal text", target)
 	}
-	return result.Stdout, nil
+	return text, nil
 }
 
 // AgentList reads every registered agent's native state on the session's
