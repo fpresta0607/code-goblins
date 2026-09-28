@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal/terminaltest"
@@ -64,16 +65,21 @@ func TestPeekerReadsTheScreenFromTheTerminalBackend(t *testing.T) {
 	}
 }
 
-// The fleet snapshot reads each task's agent and activity from the backend.
+// The fleet snapshot reads each task's agent and activity from the backend,
+// and never takes a Herdr pane's answer as proof the pane is the task's own.
 func TestSnapshotEndpointReadsTheTerminalBackend(t *testing.T) {
 	fake := fakeTerminal()
-	endpoint := NewTerminalEndpoint(fake)
+	endpoint := NewTerminalEndpoint(t.TempDir(), fake)
+	meta := taskSelector().meta
 
-	exists, existsErr := endpoint.Exists(context.Background(), taskTerminal)
-	busy, busyErr := endpoint.BusyState(context.Background(), taskTerminal)
+	exists, busy, readErr := endpoint.Read(context.Background(), meta)
+	valid, validErr := endpoint.(crewstate.StructuralValidator).Validate(context.Background(), meta)
 
-	if existsErr != nil || !exists || busyErr != nil || busy != herdr.BusyWorking {
-		t.Fatalf("Exists = %v, %v; BusyState = %q, %v; want a live, working agent", exists, existsErr, busy, busyErr)
+	if readErr != nil || !exists || busy != herdr.BusyWorking {
+		t.Fatalf("Read = %v, %q, %v; want a live, working agent", exists, busy, readErr)
+	}
+	if validErr != nil || valid {
+		t.Errorf("Validate = %v, %v; want a Herdr pane never proven the task's own", valid, validErr)
 	}
 	if missing := fake.Missing("AgentStatus fleet:w1:p7", "BusyState fleet:w1:p7"); missing != "" {
 		t.Errorf("no %q call in order: %q", missing, fake.Calls())

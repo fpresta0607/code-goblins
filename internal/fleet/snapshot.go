@@ -27,34 +27,49 @@ type EndpointReader interface {
 	crewstate.Endpoint
 }
 
-// NewTerminalEndpoint adapts the terminal backend to the endpoint evidence
-// BuildSnapshot needs. It deliberately does not implement
-// crewstate.StructuralValidator: idle status-log fallback requires workspace,
-// tab, and label proof that an agent status response cannot establish.
-func NewTerminalEndpoint(backend terminal.Backend) EndpointReader {
-	return terminalEndpoint{backend: backend}
+// NewTerminalEndpoint reads each task's endpoint evidence where the task
+// runs: a native task's own terminal, read the way the monitor reads it, and
+// any other task's Herdr pane through backend.
+func NewTerminalEndpoint(stateDir string, backend terminal.Backend) EndpointReader {
+	return terminalEndpoint{herdr: backend, native: monitor.NativeProber{StateDir: stateDir}}
 }
 
 type terminalEndpoint struct {
-	backend terminal.Backend
+	herdr  terminal.Backend
+	native monitor.NativeProber
 }
 
-func (e terminalEndpoint) Exists(ctx context.Context, target herdr.Target) (bool, error) {
-	if e.backend == nil {
-		return false, errors.New("fleet: terminal backend is required")
+func (e terminalEndpoint) Read(ctx context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
+	if meta.Backend == "native" {
+		sample, err := e.native.Inspect(ctx, meta)
+		if err != nil || sample.Verdict != monitor.ProbePresent {
+			return false, herdr.BusyUnknown, err
+		}
+		return true, sample.Busy, nil
 	}
-	status, err := e.backend.AgentStatus(ctx, target)
-	if err != nil {
-		return false, err
+	if e.herdr == nil {
+		return false, herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
 	}
-	return status == herdr.AgentAlive, nil
+	target := herdrTarget(meta)
+	status, err := e.herdr.AgentStatus(ctx, target)
+	if err != nil || status != herdr.AgentAlive {
+		return false, herdr.BusyUnknown, err
+	}
+	busy, err := e.herdr.BusyState(ctx, target)
+	return true, busy, err
 }
 
-func (e terminalEndpoint) BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error) {
-	if e.backend == nil {
-		return herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
-	}
-	return e.backend.BusyState(ctx, target)
+// Validate proves an idle native terminal is the task's own. It is reached
+// only after Read found the task's own host answering: a host that recorded
+// itself under the task's id, on a pipe whose name is unique to the one
+// launch. No Herdr answer proves a pane's workspace, tab and label, so a
+// Herdr task's idle pane never falls back to its status log.
+func (e terminalEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
+	return meta.Backend == "native", nil
+}
+
+func herdrTarget(meta state.TaskMeta) herdr.Target {
+	return herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
 }
 
 // Snapshot is the typed, read-only fleet view shared by JSON and Markdown
@@ -226,7 +241,7 @@ func endpointVerdict(verdict monitor.ProbeVerdict) *bool {
 func endpointSummary(meta state.TaskMeta, exists *bool) EndpointSummary {
 	target := ""
 	if meta.HerdrSession != "" && meta.HerdrPaneID != "" {
-		target = herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}.String()
+		target = herdrTarget(meta).String()
 	}
 	return EndpointSummary{
 		Target:      target,

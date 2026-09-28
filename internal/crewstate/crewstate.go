@@ -1,5 +1,5 @@
 // Package crewstate resolves the current task state from typed metadata, a
-// verified Herdr endpoint, and only then the append-only status event log.
+// verified terminal endpoint, and only then the append-only status event log.
 package crewstate
 
 import (
@@ -39,11 +39,11 @@ type Current struct {
 	Detail string
 }
 
-// Endpoint supplies base liveness only. Its Exists result proves that the
-// recorded target is addressable, not that it is the exact task endpoint.
+// Endpoint supplies base liveness only. Read takes one sample of the terminal
+// the task's metadata records: exists proves that terminal is addressable,
+// not that it is the exact task endpoint, and busy is its activity.
 type Endpoint interface {
-	Exists(ctx context.Context, target herdr.Target) (bool, error)
-	BusyState(ctx context.Context, target herdr.Target) (herdr.BusyState, error)
+	Read(ctx context.Context, meta state.TaskMeta) (exists bool, busy herdr.BusyState, err error)
 }
 
 // StructuralValidator is an intentionally narrow optional extension for
@@ -72,13 +72,8 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	if err != nil || !info.IsDir() {
 		return Current{State: Unknown, Source: SourceMetadata}, nil
 	}
-	target := herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
-	exists, err := endpoint.Exists(ctx, target)
-	if err != nil || !exists {
-		return Current{State: Unknown, Source: SourceNone}, nil
-	}
-	busy, err := endpoint.BusyState(ctx, target)
-	if err != nil || busy == herdr.BusyUnknown {
+	exists, busy, err := endpoint.Read(ctx, meta)
+	if err != nil || !exists || busy == herdr.BusyUnknown {
 		return Current{State: Unknown, Source: SourceNone}, nil
 	}
 	if busy == herdr.BusyWorking {

@@ -15,19 +15,14 @@ import (
 
 type fakeEndpoint struct {
 	exists     bool
-	existsErr  error
 	busy       herdr.BusyState
-	busyErr    error
+	readErr    error
 	structural bool
 	structErr  error
 }
 
-func (f fakeEndpoint) Exists(context.Context, herdr.Target) (bool, error) {
-	return f.exists, f.existsErr
-}
-
-func (f fakeEndpoint) BusyState(context.Context, herdr.Target) (herdr.BusyState, error) {
-	return f.busy, f.busyErr
+func (f fakeEndpoint) Read(context.Context, state.TaskMeta) (bool, herdr.BusyState, error) {
+	return f.exists, f.busy, f.readErr
 }
 
 func (f fakeEndpoint) Validate(context.Context, state.TaskMeta) (bool, error) {
@@ -186,7 +181,7 @@ func TestParseStatusLineAndFoldOpenDecisionsUseKeyedForms(t *testing.T) {
 		})
 	}
 
-	if _, err := Resolve(context.Background(), t.TempDir(), "g1", fakeEndpoint{existsErr: errors.New("unreadable")}); err != nil {
+	if _, err := Resolve(context.Background(), t.TempDir(), "g1", fakeEndpoint{readErr: errors.New("unreadable")}); err != nil {
 		t.Errorf("Resolve must classify unavailable metadata without surfacing endpoint fake error: %v", err)
 	}
 }
