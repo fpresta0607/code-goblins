@@ -4,12 +4,13 @@
 // time the page spends on its own and lists every animation that never ends.
 // It prints one JSON line and exits 1 when the idle page keeps restyling
 // itself or runs an endless animation, since either keeps the browser and its
-// GPU busy for as long as the board is open. It starts only its own browser
-// and ends it by its pid.
+// GPU busy for as long as the board is open. It measures only the Board view:
+// it clicks nothing but the first-run skip link and the Command Center's close
+// button, and opens no terminal. It starts only its own browser and ends it by
+// its pid.
 //
 //   node tests/acceptance/board_idle.mjs --url http://127.0.0.1:PORT --seconds 10 --label after
 //
-// --view Orchestration measures that view instead of the Board, and
 // --max-recalcs sets the style recalculations a second an idle page may make
 // (default 30: a short transition after a snapshot, such as the memory meter's,
 // restyles a few frames; an endless animation restyles on every frame, 60 or
@@ -29,20 +30,14 @@ const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Ap
 const profile = mkdtempSync(join(tmpdir(), "cfo-idle-"));
 const edge = spawn(browser, ["--headless=new", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=2560,1440", "about:blank"], { stdio: "ignore" });
 
-// settle runs in the board's page: past the first-run page, the Command
-// Center closed, and the view asked for shown.
-async function settle(view) {
+// settle runs in the board's page: past the first-run page and the Command
+// Center closed.
+async function settle() {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   if (document.querySelector("dialog.question-modal[open]")) { document.querySelector(".question-close")?.click(); await pause(800); }
-  if (view) {
-    const tab = [...document.querySelectorAll("button, a, [role=tab]")].find((element) => (element.textContent || "").trim() === view);
-    if (!tab) throw new Error("no " + view + " view");
-    tab.click();
-    await pause(2500);
-  }
-  return document.querySelectorAll(".task-card, .flow-node").length;
+  return document.querySelectorAll(".task-card").length;
 }
 
 // endless lists the animations running with no end, by name and element.
@@ -80,7 +75,7 @@ try {
   await call("Page.enable");
   await call("Page.navigate", { url: options.url });
   await sleep(6000);
-  const cards = await evaluate(settle.toString(), options.view || "");
+  const cards = await evaluate(settle.toString());
   await sleep(2000);
   const metrics = async () => Object.fromEntries((await call("Performance.getMetrics")).metrics.map((metric) => [metric.name, metric.value]));
   const before = await metrics();
@@ -89,7 +84,7 @@ try {
   const perSecond = (name, scale = 1) => +((after[name] - before[name]) / seconds * scale).toFixed(1);
   const animations = await evaluate(endless.toString());
   result = {
-    label: options.label || "", view: options.view || "Board", cards, seconds,
+    label: options.label || "", cards, seconds,
     style_recalcs_per_s: perSecond("RecalcStyleCount"), layouts_per_s: perSecond("LayoutCount"),
     main_thread_ms_per_s: perSecond("TaskDuration", 1000), script_ms_per_s: perSecond("ScriptDuration", 1000),
     heap_mb: +(after.JSHeapUsedSize / 2 ** 20).toFixed(1), endless_animations: animations,
