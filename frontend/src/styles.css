@@ -174,8 +174,8 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
 .task-card-shell { position: relative; min-width: 0; }
 .task-card-shell.has-pr .task-card { padding-bottom: 36px; }
-.card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: .9375rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
-.card-pr .icon { width: 18px; height: 18px; }
+.card-pr, .card-pr-room { display: inline-flex; align-items: center; gap: 6px; font-size: .9375rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
+.card-pr .icon, .card-pr-room .icon { width: 18px; height: 18px; }
 .card-pr:hover, .card-pr:focus-visible { text-decoration: underline; }
 .card-pr.pr-merge { color: var(--merged); }
 .card-pr.pr-pull-request-closed { color: var(--closed); }
@@ -681,7 +681,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .download-link .icon { width: 18px; height: 18px; }
 .question-thumbs button, .gallery-strip button { position: relative; flex: none; width: 112px; height: 76px; padding: 0; overflow: hidden; border: 1px solid var(--edge); border-radius: 12px; background: #0b141b; }
 .question-thumbs img, .gallery-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; padding: 0 8px; border-radius: 999px; background: #05080dcc; font-weight: 800; }
+.question-thumbs span, .gallery-strip span { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; border-radius: 999px; background: #05080dcc; font-weight: 800; }
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
@@ -758,8 +758,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* Each board list shows as many cards as fit the visible board, and a pager
-   under it turns to the rest; a sideways swipe does the same. */
+/* A board list of up to ten cards shows them all; past ten it shows as many
+   as fit the visible board, and a pager under it turns to the rest; a
+   sideways swipe does the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
 /* Cards not measured yet are laid out here, on the list's grid, to learn their
    heights; it takes no room and shows nothing. */
@@ -770,47 +771,43 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .pager .icon { width: 18px; height: 18px; }
 .pager-back .icon { transform: rotate(180deg); }
 /* A quiet clock under the status: how long a goblin's session has run, or
-   how long a queued task has waited, beside the pull request. */
+   how long a queued task has waited. Beside a pull request it shares its row
+   with room the size of the link, which the link sits over; on a card too
+   narrow for both, the room wraps under the clock, so the two never meet. */
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
-.task-card-shell.has-pr.has-clock:not(:has(.card-waiting)) .task-card { padding-bottom: 12px; }
+.card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.card-pr-room { margin-left: auto; visibility: hidden; }
+.task-card-shell:is(:has(.card-terminal), .has-start) .card-foot { margin-right: -32px; }
+.task-card-shell:has(.card-pr-room) .task-card { padding-bottom: 12px; }
 /* The CFO's Task view lists the queue below its workspace. */
 .cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
 .cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
 .cfo-queue .column-hint { margin: -6px 0 2px; }
-/* Free memory at the head of Tasks, against the mark at which the CFO starts
-   the next task; the bar spans the machine's memory. */
+/* Free memory at the head of Tasks, on a bar spanning twice the mark at which
+   the CFO starts the next task, marked with it and the floor; each mark's
+   label sits on its outer side, so the two never meet. */
 .memory { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: #0b141bcc; }
 .memory-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: .9375rem; }
 .memory-line strong { font-variant-numeric: tabular-nums; }
-.memory-bar { position: relative; height: 8px; margin-bottom: 14px; border-radius: 8px; background: #1c2833; }
+.memory-bar { position: relative; height: 8px; border-radius: 8px; background: #1c2833; }
 .memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: var(--mint); transition: width .4s ease, background .2s ease; }
 .memory-fill.waiting { background: var(--amber); }
 .memory-fill.under { background: var(--red); }
-.memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 2px; background: #e4eeeb; }
-.memory-mark span { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: .75rem; white-space: nowrap; }
-.memory-state { margin: 0; color: var(--muted); font-size: .875rem; }
-/* The task the CFO starts next, and Start on a queued card: a text button on
-   the next task, a play button on the others on hover or focus. */
+.memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: #e4eeeb; }
+.memory-mark.floor { background: var(--red); }
+.memory-scale { display: flex; color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.memory-scale > span { flex: none; padding-left: 6px; }
+.memory-scale > .floor { min-width: max-content; padding: 0 6px 0 0; text-align: right; }
+/* The task the CFO starts next, and Start on every queued card: one play
+   button in the card's top corner. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: .8125rem; font-weight: 800; }
 .next-chip.waiting { background: #33290f; color: var(--amber); }
-.card-start { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 4px 12px; font-size: .875rem; font-weight: 700; }
-.card-start.icon-button { width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 10px; }
+.card-start { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; min-height: 32px; border-radius: 10px; }
 .card-start .icon { width: 14px; height: 14px; fill: currentColor; }
 .card-start[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .card-start.icon-button.raised[aria-disabled="true"]:hover { transform: none; box-shadow: var(--shadow-1); }
-.task-card-shell.has-start:not(.prominent-start) .task-card { padding-right: 46px; }
-/* The prominent Start sits in the card's bottom corner, in room the card
-   keeps for it, so it never covers the Next chip or the title; sharing the
-   card's grid cell keeps it there when a refusal shows under the card. */
-.task-card-shell.prominent-start { display: grid; }
-.task-card-shell.prominent-start > .task-card, .task-card-shell.prominent-start > .card-start { grid-area: 1 / 1; }
-.task-card-shell.prominent-start > .card-start { position: relative; top: auto; right: auto; align-self: end; justify-self: end; margin: 0 10px 10px 0; }
-.task-card-shell.prominent-start .task-card { padding-bottom: 52px; }
-@media (hover: hover) {
-  .task-card-shell.has-start:not(.prominent-start) .card-start { opacity: 0; transition: opacity .12s; }
-  .task-card-shell.has-start:hover .card-start, .task-card-shell.has-start:focus-within .card-start { opacity: 1; }
-}
+.task-card-shell.has-start .task-card { padding-right: 46px; }
 .card-start-spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: terminal-spin .8s linear infinite; }
 .card-start-problem { margin: 6px 4px 0; color: var(--amber); font-size: .875rem; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .memory-fill { transition: none; } .card-start-spinner { animation-duration: 2.4s; } }

@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, fitKey, pageLabel, pageOf, pageShowing, pageStarts, swipeStep } from "./fit.ts";
+import { availableHeight, clampPage, fitKey, listPageStarts, pageLabel, pageOf, pageShowing, pageStarts, swipeStep } from "./fit.ts";
+
+test("a list pages only past ten cards: up to ten show whole however tall, and the board scrolls", () => {
+  const cards = (count: number) => Array.from({ length: count }, () => 300);
+  assert.deepEqual(listPageStarts(cards(4), 400, 16, 1), [0], "the Overlord's Tasks column of four, which showed 1–2 of 4");
+  assert.deepEqual(listPageStarts(cards(10), 400, 16, 1), [0], "ten cards still show whole");
+  assert.deepEqual(listPageStarts(cards(11), 400, 16, 1), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "past ten, each page holds the cards that fit");
+  assert.deepEqual(listPageStarts([], 400, 16, 1), [0]);
+});
 
 test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
   assert.deepEqual(pageStarts([195, 120, 150], 370, 16, 1), [0, 2], "the live Tasks column at 1160 px: two cards fit on the first page, where sizing every page by its 195 px tallest card showed one");
