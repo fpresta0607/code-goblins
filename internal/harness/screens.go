@@ -92,9 +92,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		return Screens{
 			// Its focused option has not been seen, so it is never answered.
 			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}}},
-			// The context meter that starts the footer's last row, as in
-			// "0.0%/1.0M (auto)".
-			Ready: regexp.MustCompile(`^\d+(\.\d+)?%/`),
+			// The context meter in the footer's last row, as in "0.0%/1.0M
+			// (auto)", which the session's token counts and cost lead once a
+			// turn has run: "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)".
+			Ready: regexp.MustCompile(`(^|\s)\d+(\.\d+)?%/\d`),
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
