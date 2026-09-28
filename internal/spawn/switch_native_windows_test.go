@@ -95,6 +95,51 @@ func TestANativeSwitchClosesAHarnessThatWillNotExit(t *testing.T) {
 	}
 }
 
+// A switch of a native goblin to a harness no native terminal can start is
+// refused before anything is stopped or recorded: the goblin keeps its
+// terminal, its metadata and its generation.
+func TestANativeSwitchToAHarnessWithNoNativeScreensLeavesTheGoblinRunning(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "turns")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
+		harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}},
+		harness.Kimi:  nativeAdapter{kind: harness.Kimi, control: harness.Control{StopCommand: "/quit"}},
+	}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	closeCurrentTerminal(t, f)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Harness: harness.Kimi})
+
+	if err == nil || !strings.Contains(err.Error(), "kimi cannot run in a native terminal") || !strings.Contains(err.Error(), "left running") {
+		t.Fatalf("Switch err = %v, want a refusal naming kimi and that the goblin was left running", err)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Harness != before.Harness || after.Model != before.Model || after.Effort != before.Effort || after.SpawnGen != before.SpawnGen {
+		t.Errorf("after the refusal the task is %s/%s/%s generation %q; want %s/%s/%s generation %q", after.Harness, after.Model, after.Effort, after.SpawnGen, before.Harness, before.Model, before.Effort, before.SpawnGen)
+	}
+	current, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil || current.HostPID != first.HostPID || !host.Running(current) {
+		t.Errorf("the terminal after the refusal is %+v, %v; want the first host %d still running", current, err, first.HostPID)
+	}
+	if submitted := submittedLines(t, f, 1); slices.Contains(submitted, "/exit") {
+		t.Errorf("submitted = %q, want no exit command sent", submitted)
+	}
+}
+
 // A reboot ends every native terminal. Switching a native goblin whose
 // terminal has ended, to what it already ran, starts its harness again under
 // the same id with the harness's own resume and the resume instruction.

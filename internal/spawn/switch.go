@@ -146,6 +146,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
+	if native {
+		if _, ok := harness.NativeScreens(target.Harness); !ok {
+			return SwitchResult{}, fmt.Errorf("switch: %s cannot run in a native terminal yet; task %s was left running as it was", target.Harness, req.ID)
+		}
+	}
 
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, switchLockName(req.ID)); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: acquire task lock: %w", err)
