@@ -223,6 +223,31 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 	}
 }
 
+// A native CFO presents from its own terminal without naming a task, proven as
+// the registered primary CFO the way its questions and answers are.
+func TestANativeCFOPresentsWithoutATask(t *testing.T) {
+	store, h := testStore(t)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "present")
+
+	lines := cfo.waitForLines(t, 2)
+
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "registered ") || lines[1] != "presented" {
+		t.Fatalf("the program recorded %q, want its registration and then its presentation reported", lines)
+	}
+	if err := store.ingestActivity(); err != nil {
+		t.Fatal(err)
+	}
+	if activity := store.Snapshot().Activity; len(activity) != 1 || activity[0].ID != "cfo-walkthrough" || activity[0].TaskID != "" || activity[0].Target != "primary-cfo" {
+		t.Fatalf("activity = %+v, want the CFO's own walkthrough, borrowing no task", activity)
+	}
+}
+
 // A delivery to a native CFO whose host does not answer is refused with
 // nothing sent, so the board may offer it again.
 func TestADeliveryToANativeCFOWhoseHostDoesNotAnswerIsRefused(t *testing.T) {
