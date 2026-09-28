@@ -247,7 +247,11 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		<-reading
 		return
 	}
-	for chunk := range feed {
+	for {
+		chunk, open := feed.next()
+		if !open {
+			break
+		}
 		if writeFrame(connection, frameOutput, chunk) != nil {
 			<-reading
 			return
