@@ -64,11 +64,20 @@ func TestPeekByTheGoblinsNameReadsANativeTasksTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+	// The terminal's program prints ready once it has started; read it by id
+	// until it has, so both names are asked of the same screen.
+	byID := ""
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(byID, "ready"); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed ready: %q", byID)
+		}
+		byID, _ = peekTerminal(context.Background(), h, "t1", 0)
+	}
 
 	screen, err := peekTerminal(context.Background(), h, "gb-t1", 0)
 
-	if err != nil || !strings.Contains(screen, "ready") {
-		t.Errorf("peek gb-t1 = %q, %v; want the native terminal's screen", screen, err)
+	if err != nil || screen != byID {
+		t.Errorf("peek gb-t1 = %q, %v; want the screen peek t1 reads, %q", screen, err, byID)
 	}
 }
 
