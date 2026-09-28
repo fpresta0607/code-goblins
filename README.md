@@ -62,7 +62,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions: a Claude Code goblin in a native terminal of its own (a pseudo console that outlives every window) by default, and a codex, pi or kimi goblin in [Herdr](https://herdr.dev) until each is proven natively, avoiding a shell-script orchestration layer on the hot path.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions: a Claude Code or pi goblin in a native terminal of its own (a pseudo console that outlives every window) by default, and a codex or kimi goblin in [Herdr](https://herdr.dev) until each is proven natively, avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
@@ -445,7 +445,7 @@ The control plane is local. Your coding harnesses may still call their model pro
 
 Code Goblins is becoming a native Windows desktop app.
 
-- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code goblins this way by default, codex and pi with `--backend native` until each is proven natively, and `goblins --native` starts the CFO so.
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code and pi goblins this way by default, codex with `--backend native` until it is proven natively, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 
