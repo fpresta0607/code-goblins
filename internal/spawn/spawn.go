@@ -32,6 +32,7 @@ const (
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
 	instructionTries   = 60
+	harnessStartTries  = 20
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -602,6 +603,9 @@ func (s Service) startHarness(ctx context.Context, client terminal.Backend, targ
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 		}
+		if err := s.awaitTypedHarness(ctx, client, target, plan.Harness); err != nil {
+			return true, err
+		}
 		if _, err := s.reportUndetectedHarness(ctx, client, target, plan); err != nil {
 			return true, err
 		}
@@ -956,6 +960,43 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // A pane Herdr cannot answer for is left alone. Reporting on a maybe would
 // turn this into a launch that always succeeds, which is the one thing the
 // readiness gate exists to prevent.
+// awaitTypedHarness waits until a typed launch's harness holds the pane,
+// which it does once the pane's foreground is no longer its own shell. A
+// harness that never started, or left at once, leaves the pane at its shell,
+// where a brief typed in would run as shell commands, so the spawn stops with
+// the pane's screen instead. An unreadable pane proves nothing either way,
+// and the brief's own acceptance proof still guards it.
+func (s Service) awaitTypedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind) error {
+	atShell := false
+	for attempt := 0; attempt < harnessStartTries; attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
+				return fmt.Errorf("spawn: wait for %s to start: %w", kind, err)
+			}
+		}
+		running, err := client.HarnessRunning(ctx, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for %s to start: %w", kind, err)
+			}
+			atShell = false
+			continue
+		}
+		if running {
+			return nil
+		}
+		atShell = true
+	}
+	if !atShell {
+		return nil
+	}
+	screen, err := client.Capture(ctx, target, 20, false)
+	if err != nil {
+		screen = fmt.Sprintf("(unreadable: %v)", err)
+	}
+	return fmt.Errorf("spawn: %s did not start within %ds: the pane is back at its shell, so the brief was not typed there; its screen:\n%s", kind, int(launchConfirmPoll.Seconds()*harnessStartTries), screen)
+}
+
 func (s Service) reportUndetectedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (bool, error) {
 	status, err := client.AgentStatus(ctx, target)
 	if err != nil || status != herdr.AgentDead {

@@ -787,6 +787,8 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	fixture := newFixture(t)
+	// A typed launch that works holds the pane: its foreground is the harness.
+	fixture.runner.harnessRunning = true
 	fixture.request.Harness = harness.Pi
 	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
 		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
@@ -820,8 +822,33 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	}
 }
 
+// On 2026-09-28 a Codex goblin's harness left its pane at once, and the spawn
+// typed the goblin's brief into the PowerShell prompt it left behind, which
+// ran it as shell commands. A typed launch hands over its brief only once the
+// harness holds the pane; a pane back at its shell stops the spawn with its
+// screen and receives nothing.
+func TestATypedLaunchWhoseHarnessNeverStartsIsNotHandedItsBrief(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	fixture.runner.harnessRunning = false
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err == nil || !strings.Contains(err.Error(), "codex did not start") || !strings.Contains(err.Error(), "back at its shell") {
+		t.Fatalf("Spawn error = %v, want the harness that never started named", err)
+	}
+	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.prompt != "" {
+		t.Errorf("events = %v, prompt %q: the brief reached a pane at its shell", fixture.events, fixture.runner.prompt)
+	}
+}
+
 func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	fixture := newFixture(t)
+	// A typed launch that works holds the pane: its foreground is the harness.
+	fixture.runner.harnessRunning = true
 	fixture.request.Harness = harness.Pi
 	fixture.request.Model = ""
 	fixture.request.Effort = ""
@@ -2084,6 +2111,8 @@ func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
 // composer instead, the way the native path already delivers it.
 func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 	fixture := newFixture(t)
+	// A typed launch that works holds the pane: its foreground is the harness.
+	fixture.runner.harnessRunning = true
 	target := herdr.Target{Session: "fleet", Pane: "pane-1"}
 	const instruction = "Resume task-7 and continue from the handoff."
 
@@ -2130,6 +2159,8 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 
 func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T) {
 	fixture := newFixture(t)
+	// A typed launch that works holds the pane: its foreground is the harness.
+	fixture.runner.harnessRunning = true
 	instruction := "Read C:\\task dir\\brief.md. Report --blocked \"question options: a | b\". Preserve O'Brien, $(), and `text`."
 	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
 		TypedLaunch: true, Executable: "codex", Instruction: instruction,

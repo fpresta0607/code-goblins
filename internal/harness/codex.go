@@ -32,7 +32,10 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// highlighted by default, so a bare Enter confirms it.
 	launch.ConfirmMarkers = []string{"Do you trust the contents of this directory?"}
 	launch.ConfirmKeys = []string{"enter"}
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox"}
+	// Codex opens an "Update available!" prompt before its composer whenever
+	// a newer release is out, and a spawn's brief typed into that prompt
+	// leaves Codex. A goblin never needs the prompt, so it is never checked.
+	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false"}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
