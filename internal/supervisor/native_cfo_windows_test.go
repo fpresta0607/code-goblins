@@ -226,9 +226,10 @@ func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *test
 	}
 }
 
-// A delivery to a native CFO whose harness has no native hooks is delivered
-// once its screen shows it working on the message, when it was not before.
-func TestADeliveryToANativeCFOIsDeliveredOnceItsScreenShowsItWorking(t *testing.T) {
+// A delivery to a native CFO whose screen turns to work but whose prompt hook
+// never reports taking it is unconfirmed, not delivered, since Enter may have
+// chosen a dialog's option instead.
+func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsUnconfirmed(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
@@ -238,10 +239,10 @@ func TestADeliveryToANativeCFOIsDeliveredOnceItsScreenShowsItWorking(t *testing.
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 
-	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || !strings.Contains(result.Reason, "its screen showed") {
-		t.Errorf("Send = %+v, %v; want it delivered once the CFO's screen showed it working", result, err)
+	if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "check") {
+		t.Errorf("Send = %v, want it unconfirmed, naming what to check before sending again", err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
@@ -272,7 +273,7 @@ func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	}
 }
 
-// A delivery the native CFO never shows taking, by hook or screen, is typed
+// A delivery the native CFO's hook never reports taking is typed
 // and submitted once and reported unconfirmed, never delivered and never
 // typed again.
 func TestADeliveryANativeCFONeverShowsTakingIsUnconfirmed(t *testing.T) {

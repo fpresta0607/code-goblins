@@ -318,8 +318,9 @@ A CFO can also run in a native terminal, a `cfo host` that tells the program it 
 Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
-The board shows it delivered only once the CFO shows it took it within five seconds, the Herdr sender's confirmation budget: its own prompt hook, which names the native terminal its harness runs in, or its screen turning to work when it was not.
-A CFO already in a turn takes it when that turn ends, and the board says so; one that shows neither is unconfirmed, to be checked in its terminal before anything is sent again.
+The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it within five seconds, the Herdr sender's confirmation budget.
+A screen turning to work is no proof, since Enter may have chosen a dialog's option instead.
+Without its hook, a CFO its screen showed in a turn takes it when that turn ends, and the board says so; any other is unconfirmed, to be checked in its terminal before anything is sent again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it, without the launcher's Herdr pane variables, the same ones `serve` drops.
