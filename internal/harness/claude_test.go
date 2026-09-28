@@ -23,6 +23,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		Env: map[string]string{
 			"CFO_ROLE":                             RoleGoblin,
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
+			"CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1",
 			"GOTMPDIR":                             `C:\gotmp\task`,
 		},
 		PromptFile: `C:\briefs\task.md`,
