@@ -16,9 +16,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
-// PaneLiveness reports whether a task's recorded Herdr pane is still live.
-// It is a seam because the auth commands must decide liveness without
-// depending on a particular way of asking Herdr.
+// PaneLiveness reports whether a task's terminal, a Herdr pane or a native
+// terminal, is still live. It is a seam because the auth commands must decide
+// liveness without depending on a particular backend.
 type PaneLiveness interface {
 	Live(ctx context.Context, meta state.TaskMeta) bool
 }
