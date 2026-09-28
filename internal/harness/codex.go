@@ -1,10 +1,69 @@
 package harness
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+)
+
+// CodexMCPServers names the MCP servers the operator's Codex configuration
+// (config.toml in CODEX_HOME, or in .codex under the user's profile) defines:
+// each [mcp_servers.<name>] table and each <name> = { ... } entry of a bare
+// [mcp_servers] table. No configuration defines none.
+func CodexMCPServers() ([]string, error) {
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		profile, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("harness: locate the Codex configuration: %w", err)
+		}
+		home = filepath.Join(profile, ".codex")
+	}
+	file, err := os.Open(filepath.Join(home, "config.toml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("harness: read the Codex configuration: %w", err)
+	}
+	defer file.Close()
+	var names []string
+	inServers := false
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "[") {
+			inServers = line == "[mcp_servers]"
+			if match := mcpServerTable.FindStringSubmatch(line); match != nil {
+				names = append(names, match[1])
+			}
+			continue
+		}
+		if match := mcpServerEntry.FindStringSubmatch(line); inServers && match != nil {
+			names = append(names, match[1])
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("harness: read the Codex configuration: %w", err)
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil
+}
+
+var (
+	mcpServerTable = regexp.MustCompile(`^\[mcp_servers\.("[^"]*"|[^.\]]+)[.\]]`)
+	mcpServerEntry = regexp.MustCompile(`^("[^"]*"|[A-Za-z0-9_-]+)\s*=\s*\{`)
+	// bareKey is a name Codex's -c override can address in a dotted key.
+	bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
 type codexAdapter struct{}
@@ -36,6 +95,15 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// a newer release is out, and a spawn's brief typed into that prompt
 	// leaves Codex. A goblin never needs the prompt, so it is never checked.
 	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false"}
+	// A goblin starts none of the operator's MCP servers, as claude's
+	// --strict-mcp-config starts none: each one runs its own processes per
+	// session, qdrant's alone about 900 MB.
+	for _, name := range spec.CodexMCPServers {
+		if !bareKey.MatchString(name) {
+			return Launch{}, fmt.Errorf("harness: Codex's MCP server %q cannot be turned off with a -c override, so a goblin would start it", name)
+		}
+		launch.Args = append(launch.Args, "-c", "mcp_servers."+name+".enabled=false")
+	}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}

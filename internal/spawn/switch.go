@@ -347,13 +347,18 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // Switch and handed in, redirects included.
 func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+	codexServers, err := codexMCPServers(target.Harness)
+	if err != nil {
+		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: briefPath,
-		TaskTmp:   meta.TaskTmp,
-		GoTmp:     goTmp,
-		Model:     target.Model,
-		Effort:    target.Effort,
-		MCPConfig: goblinMCPConfig(meta.TaskTmp),
+		BriefPath:       briefPath,
+		TaskTmp:         meta.TaskTmp,
+		GoTmp:           goTmp,
+		Model:           target.Model,
+		Effort:          target.Effort,
+		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		CodexMCPServers: codexServers,
 	})
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)

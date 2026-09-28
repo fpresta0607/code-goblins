@@ -43,6 +43,11 @@ type LaunchSpec struct {
 	// config flag and loads the copy provisioning leaves at the worktree root
 	// when that path was safe to write.
 	MCPConfig string
+	// CodexMCPServers names the MCP servers the operator's own Codex
+	// configuration defines, which the codex adapter turns off: a goblin
+	// starts none of them, as claude's --strict-mcp-config starts none of the
+	// operator's.
+	CodexMCPServers []string
 }
 
 // Launch is a harness launch specification. By default Herdr starts the
