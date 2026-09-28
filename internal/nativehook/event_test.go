@@ -117,6 +117,24 @@ func TestAPromptTakenForATurnIsMarked(t *testing.T) {
 	}
 }
 
+// An event records the native terminal its harness runs in, so a delivery
+// into that terminal can be proven by the harness's own hook; a harness in no
+// native terminal records none.
+func TestAnEventRecordsTheNativeTerminalItRunsIn(t *testing.T) {
+	for _, hostID := range []string{"cfo", ""} {
+		input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": t.TempDir(), "hook_event_name": "UserPromptSubmit"})
+
+		e, err := Normalize(bytes.NewReader(input), Context{Harness: "claude", HostID: hostID, Now: time.Now()})
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.HostID != hostID {
+			t.Errorf("host = %q, want %q", e.HostID, hostID)
+		}
+	}
+}
+
 // Only an active event can carry a prompt.
 func TestAPromptOnAnyOtherKindIsRefused(t *testing.T) {
 	input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": t.TempDir(), "hook_event_name": "Stop"})

@@ -48,6 +48,7 @@ type Session struct {
 	LastEventID  string          `json:"last_event_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
+	HostID       string          `json:"host_id,omitempty"`   // the native terminal the session runs in
 	Runtime      RuntimeEvidence `json:"runtime"`
 }
 
@@ -372,6 +373,9 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	}
 	if node.ReportedRoot == "" {
 		node.ReportedRoot = prior.ReportedRoot
+	}
+	if node.HostID = e.HostID; node.HostID == "" {
+		node.HostID = prior.HostID
 	}
 	if known && prior.Generation == e.Generation {
 		node.PromptAt = prior.PromptAt

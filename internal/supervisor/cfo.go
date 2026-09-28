@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -453,9 +454,20 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 // submits it, as the Herdr sender waits.
 const nativeSubmitSettle = 300 * time.Millisecond
 
+// nativeConfirm bounds how long a delivery to the native CFO waits after
+// Enter for the CFO to show it took the message, the Herdr sender's
+// confirmation budget; nativeConfirmPoll spaces the looks.
+const (
+	nativeConfirm     = 5 * time.Second
+	nativeConfirmPoll = 250 * time.Millisecond
+)
+
 // sendNative types text into the registered CFO's native terminal once and
-// submits it, and it is delivered once the terminal's host confirms it wrote
-// both into the terminal's input. It is never typed again.
+// submits it, each part confirmed written by the terminal's host. It is
+// delivered once the CFO shows it took it: its own prompt hook, naming the
+// terminal it runs in, or its screen turning to work when it was not. A CFO
+// already in a turn takes it when that turn ends; one that shows nothing is
+// unconfirmed. It is never typed again.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
 	if err := c.verify(ctx, primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
@@ -472,6 +484,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
+	screens, readable := harness.NativeScreens(harness.Kind(primary.Agent))
+	busy := readable && nativeWorking(record, screens)
+	submitted := time.Now()
 	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
@@ -483,5 +498,30 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err := delivery.Write([]byte("\r")); err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether Enter reached it is unknown: %w", err)
 	}
-	return Evaluation{Reason: "The CFO's native terminal took the message and its Enter."}, nil
+	for deadline := time.Now().Add(nativeConfirm); ; {
+		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
+		}
+		if readable && !busy && nativeWorking(record, screens) {
+			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its screen showed it working."}, nil
+		}
+		if time.Now().After(deadline) {
+			if busy {
+				return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal while it was in a turn, and no hook reported it taken within %s: %w", nativeConfirm, fleet.ErrQueuedBehindTurn)
+			}
+			return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal and submitted, but neither its hook nor its screen showed it taken within %s; check its terminal before sending again", nativeConfirm)
+		}
+		select {
+		case <-time.After(nativeConfirmPoll):
+		case <-ctx.Done():
+			return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
+		}
+	}
+}
+
+// nativeWorking reports whether the terminal's screen shows its harness in a
+// turn; a screen that cannot be read shows nothing.
+func nativeWorking(record host.Record, screens harness.Screens) bool {
+	rows, err := host.ReadScreen(record)
+	return err == nil && screens.IsWorking(rows)
 }
