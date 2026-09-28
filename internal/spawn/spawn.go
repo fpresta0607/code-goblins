@@ -109,6 +109,11 @@ type Service struct {
 	// ReadScreen reads a native terminal's screen. Nil reads it through its
 	// host.
 	ReadScreen func(host.Record) ([]string, error)
+	// PromptSince reports whether a native task's harness, in a spawn
+	// generation, reported through its native hooks taking a prompt at or
+	// after a time: supervisor.NativePromptSince in production. Nil proves a
+	// delivery by the screen alone.
+	PromptSince func(taskID, generation string, since time.Time) (bool, error)
 }
 
 // Spawn creates and launches exactly one local ship or scout task.

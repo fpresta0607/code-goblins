@@ -185,25 +185,32 @@ func defaultCommandRuntime() commandRuntime {
 				StateDir:    h.State,
 				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
 				HostCommand: []string{self, "host"},
+				PromptSince: nativePromptSince(h),
 			}
 			return service.Spawn(ctx, request)
 		},
 		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			commands := execx.OSRunner{}
 			client := &herdr.Client{Commands: commands, Session: request.Session}
+			self, err := os.Executable()
+			if err != nil {
+				return spawn.SwitchResult{}, err
+			}
 			service := spawn.Service{
-				Terminals: terminal.HerdrSessions(client),
-				Worktrees: worktree.Service{Commands: commands, DataDir: h.Data},
-				Harness:   harness.DefaultRegistry(),
-				Auth:      auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
-				Commands:  commands,
-				StateDir:  h.State,
+				Terminals:   terminal.HerdrSessions(client),
+				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
+				Harness:     harness.DefaultRegistry(),
+				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
+				Commands:    commands,
+				StateDir:    h.State,
+				HostCommand: []string{self, "host"},
+				PromptSince: nativePromptSince(h),
 			}
 			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
 			if meta, native := nativeTask(h.State, target); native {
-				return spawn.Service{StateDir: h.State}.SendNative(ctx, meta, fleet.Stamp(text))
+				return spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}.SendNative(ctx, meta, fleet.Stamp(text))
 			}
 			client := &herdr.Client{Commands: execx.OSRunner{}}
 			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)

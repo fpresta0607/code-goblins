@@ -106,7 +106,7 @@ func TestANativeProberSaysWhenItCannotSeeTheTerminal(t *testing.T) {
 	recordNativeHost(t, stateDir, "g3")
 	kimi, _ := NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ")}.Inspect(context.Background(), nativeMeta("g3", "kimi"))
 
-	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") {
+	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") || !strings.Contains(noHost.Detail, "cfo switch g1") {
 		t.Errorf("no host = %+v, want missing", noHost)
 	}
 	if deadHost.Verdict != ProbeMissing || !strings.Contains(deadHost.Detail, "does not answer") {

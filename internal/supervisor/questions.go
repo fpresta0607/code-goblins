@@ -174,7 +174,10 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 		if goblinIdentity(meta) != identity {
 			return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 		}
-		if err := (spawn.Service{StateDir: c.State}).SendNative(ctx, meta, fleet.Stamp(oneLine(text))); err != nil {
+		sender := spawn.Service{StateDir: c.State, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+			return NativePromptSince(c.State, taskID, generation, since)
+		}}
+		if err := sender.SendNative(ctx, meta, fleet.Stamp(oneLine(text))); err != nil {
 			return Evaluation{}, err
 		}
 		return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
@@ -230,7 +233,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	}
 	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = Evaluation{Reason: "Submitted to the goblin through Herdr while it was working; it takes the answer when its current turn ends."}, nil
+		result, err = Evaluation{Reason: "Submitted to the goblin while it was working; it takes the answer when its current turn ends."}, nil
 	}
 	if err != nil {
 		return result, err

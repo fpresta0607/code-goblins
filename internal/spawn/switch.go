@@ -72,9 +72,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	); err != nil {
 		return SwitchResult{}, err
 	}
-	if s.Terminals == nil {
-		return SwitchResult{}, errors.New("switch: terminal backend is required")
-	}
 	metadataLock := state.MetadataLockName(req.ID)
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, metadataLock); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: acquire metadata lock: %w", err)
@@ -94,16 +91,18 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: read task metadata: %w", err)
 	}
-	if meta.Backend != "herdr" {
-		return SwitchResult{}, fmt.Errorf("switch: task %s is not a Herdr task (backend %q)", req.ID, meta.Backend)
+	native := meta.Backend == "native"
+	if meta.Backend != "herdr" && !native {
+		return SwitchResult{}, fmt.Errorf("switch: task %s runs in backend %q, which switch cannot reach", req.ID, meta.Backend)
 	}
-	for name, value := range map[string]string{
-		"herdr_session": meta.HerdrSession,
-		"herdr_pane_id": meta.HerdrPaneID,
-		"worktree":      meta.Worktree,
-		"project":       meta.Project,
-		"tasktmp":       meta.TaskTmp,
-	} {
+	if !native && s.Terminals == nil {
+		return SwitchResult{}, errors.New("switch: terminal backend is required")
+	}
+	required := map[string]string{"worktree": meta.Worktree, "project": meta.Project, "tasktmp": meta.TaskTmp}
+	if !native {
+		required["herdr_session"], required["herdr_pane_id"] = meta.HerdrSession, meta.HerdrPaneID
+	}
+	for name, value := range required {
 		if value == "" {
 			return SwitchResult{}, fmt.Errorf("switch: task %s metadata is missing %s", req.ID, name)
 		}
@@ -114,19 +113,31 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
 
-	session := meta.HerdrSession
-	if session == "" {
-		session = req.Session
+	var (
+		terminals  terminal.Backend
+		paneTarget herdr.Target
+	)
+	if !native {
+		session := meta.HerdrSession
+		if session == "" {
+			session = req.Session
+		}
+		terminals = s.Terminals(session)
+		paneTarget = herdr.Target{Session: session, Pane: meta.HerdrPaneID}
 	}
-	terminals := s.Terminals(session)
-	paneTarget := herdr.Target{Session: session, Pane: meta.HerdrPaneID}
 
 	if target.same(meta) {
-		status, err := terminals.AgentStatus(ctx, paneTarget)
-		if err != nil {
-			return SwitchResult{}, fmt.Errorf("switch: read agent status: %w", err)
+		var alive bool
+		if native {
+			alive = nativeTerminalRuns(s.StateDir, meta.ID)
+		} else {
+			status, err := terminals.AgentStatus(ctx, paneTarget)
+			if err != nil {
+				return SwitchResult{}, fmt.Errorf("switch: read agent status: %w", err)
+			}
+			alive = status == herdr.AgentAlive
 		}
-		if status == herdr.AgentAlive {
+		if alive {
 			return SwitchResult{}, fmt.Errorf("switch: task %s already runs harness=%s model=%s effort=%s; nothing to switch", req.ID, meta.Harness, valueOrDefault(meta.Model), valueOrDefault(meta.Effort))
 		}
 	}
@@ -134,6 +145,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	adapter, err := s.Harness.Get(target.Harness)
 	if err != nil {
 		return SwitchResult{}, err
+	}
+	if native {
+		if _, ok := harness.NativeScreens(target.Harness); !ok {
+			return SwitchResult{}, fmt.Errorf("switch: %s cannot run in a native terminal yet; task %s was left running as it was", target.Harness, req.ID)
+		}
 	}
 
 	if _, err := lock.AcquireExclusiveNamed(s.StateDir, switchLockName(req.ID)); err != nil {
@@ -173,7 +189,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if dirty != "" && !req.ForceDirty {
+	isResumeInPlace := native && target.same(meta)
+	if dirty != "" && !req.ForceDirty && !isResumeInPlace {
 		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
 
@@ -207,36 +224,44 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: current harness %q has no adapter: %w", meta.Harness, err)
 	}
-	if err := s.stopHarness(ctx, terminals, paneTarget, current.Control()); err != nil {
+	from := describe(meta.Harness, meta.Model, meta.Effort)
+	if native {
+		// A native terminal ends with its harness, and its job ends
+		// everything the harness started, so nothing is left to wait on.
+		if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
+			return SwitchResult{}, err
+		}
+	} else if err := s.stopHarness(ctx, terminals, paneTarget, current.Control()); err != nil {
 		return SwitchResult{}, err
 	}
-	from := describe(meta.Harness, meta.Model, meta.Effort)
 	// The pane's shell waits until every process the harness started has
 	// exited, so one left alive would hold a relaunch in the shell's input, to
 	// start later with no registered agent. Switch refuses over them instead.
-	if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
-		rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
-		if target.Model != "" {
-			rerun += " --model " + target.Model
-		}
-		if target.Effort != "" {
-			rerun += " --effort " + target.Effort
-		}
-		if req.ForceDirty {
-			rerun += " --force-dirty"
-		}
-		refusal := fmt.Errorf("switch: %s exited, but what pane %s's shell is waiting on could not be checked (%v), so no harness was started; check the pane, then run:\n  %s", from, paneTarget.Pane, err, rerun)
-		if err == nil {
-			var named strings.Builder
-			for _, leftover := range leftovers {
-				fmt.Fprintf(&named, "\n  %s pid %d: %s", leftover.Executable, leftover.PID, leftover.CommandLine)
+	if !native {
+		if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
+			rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
+			if target.Model != "" {
+				rerun += " --model " + target.Model
 			}
-			refusal = fmt.Errorf("switch: %s exited, but processes it started are still running and keep pane %s's shell waiting, so no harness was started:%s\nStop them (a shared server is restarted detached, not only stopped), then run:\n  %s", from, paneTarget.Pane, named.String(), rerun)
+			if target.Effort != "" {
+				rerun += " --effort " + target.Effort
+			}
+			if req.ForceDirty {
+				rerun += " --force-dirty"
+			}
+			refusal := fmt.Errorf("switch: %s exited, but what pane %s's shell is waiting on could not be checked (%v), so no harness was started; check the pane, then run:\n  %s", from, paneTarget.Pane, err, rerun)
+			if err == nil {
+				var named strings.Builder
+				for _, leftover := range leftovers {
+					fmt.Fprintf(&named, "\n  %s pid %d: %s", leftover.Executable, leftover.PID, leftover.CommandLine)
+				}
+				refusal = fmt.Errorf("switch: %s exited, but processes it started are still running and keep pane %s's shell waiting, so no harness was started:%s\nStop them (a shared server is restarted detached, not only stopped), then run:\n  %s", from, paneTarget.Pane, named.String(), rerun)
+			}
+			if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(refusal.Error()), 1000)); appendErr != nil {
+				refusal = errors.Join(refusal, appendErr)
+			}
+			return SwitchResult{}, refusal
 		}
-		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(refusal.Error()), 1000)); appendErr != nil {
-			refusal = errors.Join(refusal, appendErr)
-		}
-		return SwitchResult{}, refusal
 	}
 
 	briefPath := meta.Brief
@@ -261,7 +286,16 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		// says so rather than guessing in either direction.
 		to := describe(string(target.Harness), target.Model, target.Effort)
 		var recovery string
-		status, statusErr := terminals.AgentStatus(ctx, paneTarget)
+		var status herdr.AgentStatus
+		var statusErr error
+		if native {
+			status = herdr.AgentDead
+			if nativeTerminalRuns(s.StateDir, meta.ID) {
+				status = herdr.AgentAlive
+			}
+		} else {
+			status, statusErr = terminals.AgentStatus(ctx, paneTarget)
+		}
 		switch {
 		case statusErr == nil && status == herdr.AgentAlive:
 			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
@@ -338,9 +372,6 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	nativeEnvironment(launch.Env, meta)
-	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
-		return "", false, err
-	}
 
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
@@ -366,6 +397,21 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
 
+	if meta.Backend == "native" {
+		// A native task has no credentials script: its credentials ride its
+		// terminal's environment, as its spawn gave them.
+		userEnv, err := s.userEnvironment()
+		if err != nil {
+			return handoff, resumed, fmt.Errorf("switch: read the user's environment: %w", err)
+		}
+		if _, err := s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env); err != nil {
+			return handoff, resumed, err
+		}
+		return handoff, resumed, nil
+	}
+	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
+		return handoff, resumed, err
+	}
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
 		AgentName: "gb-" + id,
 		Harness:   target.Harness,
