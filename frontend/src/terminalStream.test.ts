@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, refitsOnDraw, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -90,6 +90,16 @@ test("the cell is measured from a screen drawn at the current grid, and a screen
   const stale = drawnCell({ width: 1440, height: 744 }, 200, 50, false);
   assert.deepEqual(stale, { width: 0, height: 0 });
   assert.equal(panelFit(1574, 749.8, stale, 10), null);
+});
+
+test("the first draw after a resize refits only a view that sized the terminal itself", () => {
+  const cases: { isDrawn: boolean; isOwner: boolean; isRefit: boolean }[] = [
+    { isDrawn: false, isOwner: true, isRefit: true },
+    { isDrawn: false, isOwner: false, isRefit: false },
+    { isDrawn: true, isOwner: true, isRefit: false },
+    { isDrawn: true, isOwner: false, isRefit: false },
+  ];
+  for (const { isDrawn, isOwner, isRefit } of cases) assert.equal(refitsOnDraw(isDrawn, isOwner), isRefit, `drawn ${isDrawn}, owner ${isOwner}`);
 });
 
 test("a panel too small for a usable grid, or an unmeasured cell, gives no fit", () => {

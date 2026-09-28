@@ -2,7 +2,7 @@ import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
 import { FrameWriter } from "./terminalFrames";
-import { ackDue, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, inputMessages, panelFit, parseHistory, parseSize } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, inputMessages, panelFit, parseHistory, parseSize, refitsOnDraw } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -90,7 +90,11 @@ export class TerminalView {
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
-    this.rendered = this.term.onRender(() => { if (!this.isDrawn) { this.isDrawn = true; this.refit(); } });
+    this.rendered = this.term.onRender(() => {
+      const isRefit = refitsOnDraw(this.isDrawn, this.owner);
+      this.isDrawn = true;
+      if (isRefit) this.refit();
+    });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
   }

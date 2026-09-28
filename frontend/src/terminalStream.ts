@@ -83,6 +83,13 @@ export function drawnCell(screen: { width: number; height: number }, cols: numbe
   return isDrawn ? { width: screen.width / cols, height: screen.height / rows } : { width: 0, height: 0 };
 }
 
+// The first draw after a resize makes the cell measurable again. A view that
+// sized the terminal itself then refits to its panel; a view drawing another
+// view's size keeps it until typed into, so two views never fight over it.
+export function refitsOnDraw(isDrawn: boolean, isOwner: boolean): boolean {
+  return !isDrawn && isOwner;
+}
+
 // The grid a panel holds at a cell size, evenly padded: the spare width is
 // split between left and right, the bottom keeps the same space, so the last
 // row, the input line, sits that far from the bottom, and the spare height,
