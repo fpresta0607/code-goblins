@@ -174,7 +174,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 		if goblinIdentity(meta) != identity {
 			return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 		}
-		if err := (spawn.Service{StateDir: c.State}).SendNative(ctx, meta, oneLine(text)); err != nil {
+		if err := (spawn.Service{StateDir: c.State}).SendNative(ctx, meta, fleet.Stamp(oneLine(text))); err != nil {
 			return Evaluation{}, err
 		}
 		return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil

@@ -172,6 +172,57 @@ func TestScanSupervisesANativeGoblinOnceItsLaunchIsOver(t *testing.T) {
 	}
 }
 
+// The launch budget quiets only a goblin never seen alive: one seen working
+// whose turn then ends or whose host then dies wakes at once, as a Herdr
+// goblin does, rather than reading as launching until the budget runs out.
+func TestScanWakesANativeGoblinSeenWorkingWithinItsLaunchBudget(t *testing.T) {
+	working := []string{"✽ Reticulating… (12s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	composer := []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	for _, test := range []struct {
+		name           string
+		shouldKeepHost bool
+		reason         Reason
+	}{
+		{"its turn ends", true, AwaitingAnswer},
+		{"its host dies", false, EndpointMissing},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)
+			meta := nativeMeta("g1", "claude")
+			writeTask(t, stateDir, meta)
+			if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
+				t.Fatal(err)
+			}
+			recordNativeHost(t, stateDir, "g1")
+			screen := working
+			readScreen := func(host.Record) ([]string, error) { return screen, nil }
+			service := testService(stateDir, BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: readScreen}}, &now)
+			now = now.Add(time.Minute)
+			if seen, err := service.Scan(context.Background()); err != nil || seen.Observations[0].Health == HealthLaunching {
+				t.Fatalf("working scan = %+v, %v; want the goblin seen alive", seen, err)
+			}
+			screen = composer
+			if !test.shouldKeepHost {
+				if err := os.Remove(filepath.Join(stateDir, "hosts", "g1.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			now = now.Add(time.Minute)
+
+			result, err := service.Scan(context.Background())
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation := result.Observations[0]
+			if observation.Health == HealthLaunching || observation.Reason != test.reason || result.Event == nil {
+				t.Errorf("health %q reason %q event %+v, want a %q wake", observation.Health, observation.Reason, result.Event, test.reason)
+			}
+		})
+	}
+}
+
 // Each task is inspected by the prober of the backend it runs in, and one
 // scan starts the Herdr prober's cycle once.
 func TestABackendProberSendsEachTaskToItsBackend(t *testing.T) {
