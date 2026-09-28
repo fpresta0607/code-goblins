@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="The Code Goblins board: a queued task and five goblins working, awaiting input or blocked on a question, beside one goblin's diff with a line comment the CFO has accepted" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with the question waiting on you, two queued tasks under the memory meter, goblins in progress, and beside them the selected goblin's panel with its status line and the diff of its change" width="900" />
   <br />
   <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
 </p>
@@ -171,7 +171,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: a queued task, four goblins in progress (working or waiting on you) and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO pinned above the columns, two numbered queued tasks with the memory meter and Start now, five goblins in progress, and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -183,6 +183,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
+An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
 A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
@@ -196,7 +197,7 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
-  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above five goblins in four repositories, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
@@ -250,7 +251,7 @@ Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: th
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="A goblin's terminal maximized over the whole window: its Herdr pane fills the panel, scaled to fit, with the input line at the bottom and no scroll bars" width="900" />
+  <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Task and Terminal pill with Open in terminal, Restore and Close" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO
@@ -282,6 +283,11 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request; clicking an alert opens that item, alerts stack and fade after a few seconds, and routine progress never alerts.
 While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
+
+<p align="center">
+  <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: the goblin fixing the flaky checkout test wants your review, with its request, Look at the checkout race fix before it ships, and a close button" width="420" />
+</p>
+
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
@@ -429,6 +435,14 @@ The core is intentionally local-first:
 - `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
+
+## Roadmap
+
+Code Goblins is becoming a native Windows desktop app.
+
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn --backend native` and `goblins --native` already work this way today.
+- **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
+- **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 
 ## Development
 
