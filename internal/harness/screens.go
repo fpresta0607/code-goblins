@@ -60,8 +60,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// composer's footer says while it waits.
 			Ready: regexp.MustCompile(`bypass permissions on`),
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
-			// "✽ Reticulating…".
-			Working: regexp.MustCompile(`^[·✢✳✶✻✽] \S.*…`),
+			// "✽ Reticulating…". Claude Code draws the spinner from one of
+			// three glyph lists; one has "*" where the others have "✳".
+			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:  []string{"[Pasted text #"},
 		}, true
 	case Codex:
