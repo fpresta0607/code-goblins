@@ -19,6 +19,10 @@ type Screens struct {
 	Working *regexp.Regexp
 	// Pasted is how the composer shows typed text it collapsed as a paste.
 	Pasted []string
+	// PasteTakesEnter says the harness reads fast typing as a paste and can
+	// take the Enter that ends it as part of the paste, leaving the text in
+	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
+	PasteTakesEnter bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -66,9 +70,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// the first live native codex spawn checks them. A turn in progress
 			// shows only in the status row, as in "• Working (5s • esc to
 			// interrupt)": a reply may say "Working" anywhere else.
-			Ready:   regexp.MustCompile(`context left`),
-			Working: regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
-			Pasted:  []string{"[Pasted Content"},
+			Ready:           regexp.MustCompile(`context left`),
+			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
+			Pasted:          []string{"[Pasted Content"},
+			PasteTakesEnter: true,
 		}, true
 	case Pi:
 		return Screens{

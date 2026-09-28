@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -114,6 +115,11 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	if err := s.Terminal.AgentPrompt(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
 	}
+	if screens, ok := harness.NativeScreens(harness.Kind(before.Agent)); ok && screens.PasteTakesEnter {
+		if err := s.submitLeftInComposer(ctx, target, screens, message); err != nil {
+			return err
+		}
+	}
 
 	// The prompt is submitted once. `agent prompt` submits on success, so a
 	// re-send would deliver the message twice - and a duplicated instruction
@@ -218,6 +224,33 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 // completion instead of submitting what was typed - so `cfo send <pane>
 // "/exit"` can run an entirely different command. A pane with no registered
 // agent is not necessarily at a shell prompt, so the popup is reachable here.
+// submitLeftInComposer presses Enter once when the message still shows on the
+// pane a moment after `agent prompt` returned, which is how a harness that
+// took the ending Enter as part of a paste leaves it. The harness is the one
+// Herdr names for the pane, never a recorded one. The Enter cannot deliver
+// the message twice: a submitted message leaves the composer, and an Enter on
+// an empty composer submits nothing. An unreadable pane is left to the
+// counters' confirmation below.
+func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string) error {
+	if err := s.sleep(ctx, confirmBudget/confirmPolls); err != nil {
+		return fmt.Errorf("fleet: wait before reading %s's composer: %w", target, err)
+	}
+	capture, err := s.Terminal.Capture(ctx, target, 60, false)
+	if err != nil {
+		if herdr.WaitError(ctx, err) {
+			return fmt.Errorf("fleet: read %s's composer: %w", target, err)
+		}
+		return nil
+	}
+	if !screens.Shows(strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n"), message) {
+		return nil
+	}
+	if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
+		return fmt.Errorf("fleet: submit the text left in %s's composer: %w", target, err)
+	}
+	return nil
+}
+
 // Both prefixes get the long wait unconditionally: this path has no harness
 // metadata by design, and waiting longer than a shell prompt needs costs a
 // fraction of a second against running the wrong command.
