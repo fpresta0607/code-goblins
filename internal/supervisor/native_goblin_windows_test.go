@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -83,5 +84,60 @@ func TestAnAnswerForARestartedNativeGoblinIsRefused(t *testing.T) {
 	}
 	if typed := goblin.exit(t); len(typed) != 0 {
 		t.Errorf("the restarted goblin received %q, want nothing", typed)
+	}
+}
+
+// A native goblin's send to its child names it as the receipt's sender when
+// the send runs from inside its own terminal, as a Herdr goblin's does from
+// its pane. The same send from outside that terminal names no sender.
+func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
+	store, h := testStore(t)
+	child, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Backend, child.Window = "native", "native"
+	child.HerdrSession, child.HerdrWorkspaceID, child.HerdrTabID, child.HerdrPaneID = "", "", "", ""
+	if err := state.WriteTaskMeta(h.State, child); err != nil {
+		t.Fatal(err)
+	}
+	parentMeta := writeNativeTask(t, h.State, "task-9")
+	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	id := store.db.TaskSessions["task-1"]
+	node := store.db.Sessions[id]
+	node.Parent = "claude/parent-1"
+	store.db.Sessions[id] = node
+	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "parent-1", Harness: "claude", Role: "goblin", TaskID: "task-9", Generation: parentMeta.SpawnGen, Phase: "active"}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_SESSION_ID", "parent-1")
+	t.Setenv("CFO_SESSION_HARNESS", "claude")
+	parent := hostTerminal(t, h.State, "task-9")
+
+	parent.typeLine(t, "send gb-task-1")
+	lines := parent.waitForLines(t, 1)
+	outside := PrepareSendActivity(context.Background(), h, nil, "task-1")()
+
+	if len(lines) != 1 || lines[0] != "sent" {
+		t.Fatalf("the parent's terminal recorded %q, want its send received", lines)
+	}
+	if outside != nil {
+		t.Fatal(outside)
+	}
+	if err := store.ingestActivity(); err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, a := range store.Snapshot().Activity {
+		if a.Kind == "message" {
+			sources = append(sources, a.Source)
+		}
+	}
+	slices.Sort(sources)
+	if !slices.Equal(sources, []string{"", node.Parent}) {
+		t.Errorf("message receipt sources = %q, want the parent for its own send and none from outside its terminal", sources)
 	}
 }

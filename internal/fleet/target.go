@@ -57,3 +57,14 @@ func (r Resolver) Resolve(_ context.Context, raw string) (herdr.Target, state.Ta
 	}
 	return herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, meta, nil
 }
+
+// NativeTask is the record of the native task target names, by its id or as
+// gb-<id>. Any other target is Herdr's to resolve.
+func NativeTask(stateDir, target string) (state.TaskMeta, bool) {
+	for _, id := range []string{target, strings.TrimPrefix(target, "gb-")} {
+		if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
+			return meta, meta.Backend == "native"
+		}
+	}
+	return state.TaskMeta{}, false
+}

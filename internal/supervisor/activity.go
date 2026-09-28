@@ -330,16 +330,15 @@ func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Op
 		}
 		a.Generation, a.Target = meta.SpawnGen, ""
 	} else {
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
-		b, err := service.resolveTerminal(ctx, terminalSelection{Generation: a.Generation}, false)
+		// The primary CFO proves itself as it does for a question, in a Herdr
+		// pane or a native terminal.
+		identity, release, err := (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("only the registered primary CFO may report a presentation without a task: %w", err)
 		}
-		if !callerOwns(b.Process) {
-			return errors.New("only the registered primary CFO may report a presentation without a task")
-		}
+		defer release()
 		// Native session discovery can arrive later; it must not change a report's recipient.
-		a.CFOIdentity, a.Target = b.Identity, "primary-cfo"
+		a.CFOIdentity, a.Target = identity, "primary-cfo"
 	}
 	if err := store.retainActivity(a); err != nil {
 		return err
@@ -354,9 +353,12 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	none := func() error { return nil }
-	_, meta, err := (fleet.Resolver{StateDir: h.State}).Resolve(ctx, target)
-	if err != nil || meta.ID == "" {
-		return none
+	meta, native := fleet.NativeTask(h.State, target)
+	if !native {
+		var err error
+		if _, meta, err = (fleet.Resolver{StateDir: h.State}).Resolve(ctx, target); err != nil || meta.ID == "" {
+			return none
+		}
 	}
 	store, err := readBoardState(h)
 	if err != nil {
@@ -377,10 +379,16 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 		}
 	}
 	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "cfo" && parent.TaskID != "" {
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
-		binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
-		if err == nil && callerOwns(binding.Process) {
-			source = parent.ID
+		if parentMeta, err := state.ReadTaskMeta(h.State, parent.TaskID); err == nil && parentMeta.Backend == "native" {
+			if proven, err := goblinAsker(ctx, h.State, terminals, parent.TaskID); err == nil && proven.SpawnGen == parent.Generation {
+				source = parent.ID
+			}
+		} else {
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
+			binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
+			if err == nil && callerOwns(binding.Process) {
+				source = parent.ID
+			}
 		}
 	}
 	var bytes [16]byte

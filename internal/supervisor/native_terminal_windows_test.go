@@ -24,6 +24,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -76,6 +77,20 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("asked")
+		case line == "present":
+			now := time.Now().UTC()
+			a := BoardActivity{ID: "cfo-walkthrough", Kind: "browser", State: "active", URL: "http://127.0.0.1:4387/walkthrough", At: now, Until: now.Add(time.Minute)}
+			if err := PublishPresentation(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, a); err != nil {
+				record("present error: " + err.Error())
+				continue
+			}
+			record("presented")
+		case strings.HasPrefix(line, "send "):
+			if err := PrepareSendActivity(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, strings.TrimPrefix(line, "send "))(); err != nil {
+				record("send error: " + err.Error())
+				continue
+			}
+			record("sent")
 		case line == "register":
 			described, err := Register(context.Background(), args[2], nil, "claude", "session-1")
 			if err != nil {
