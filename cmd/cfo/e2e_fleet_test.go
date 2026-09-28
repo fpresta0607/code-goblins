@@ -818,6 +818,20 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			// replaced by a placeholder that names nothing it contained.
 			return result("> [Pasted text #1]\n  paste again to expand\n"), nil
 		}
+		// A harness launched typed shows its composer once it runs, and a
+		// turn once a prompt reached it, as live Codex 0.154.0 and pi do.
+		if typed := strings.Contains(r.lastText, "& 'codex'"); typed || strings.Contains(r.lastText, "& 'pi'") {
+			composer, working := "› Ask Codex to do anything\n  100% context left", "• Working (1s • esc to interrupt)"
+			if !typed {
+				composer, working = "0.0%/1.0M (auto)", "── ⠸ Working ──"
+			}
+			if len(args) >= 3 {
+				if prompts := r.prompts[args[2]]; len(prompts) > 0 {
+					return result(prompts[len(prompts)-1] + "\n" + working + "\n"), nil
+				}
+			}
+			return result(composer + "\n"), nil
+		}
 		// A prompt the agent accepted shows up in the pane transcript, which
 		// is what a later peek reads. Verified against live herdr 0.9.0: the
 		// submitted text appears in full, with no placeholder.

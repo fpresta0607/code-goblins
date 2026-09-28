@@ -787,8 +787,7 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	fixture := newFixture(t)
-	// A typed launch that works holds the pane: its foreground is the harness.
-	fixture.runner.harnessRunning = true
+	typedScreens(fixture.runner, harness.Pi)
 	fixture.request.Harness = harness.Pi
 	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
 		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
@@ -822,33 +821,79 @@ func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
 	}
 }
 
-// On 2026-09-28 a Codex goblin's harness left its pane at once, and the spawn
-// typed the goblin's brief into the PowerShell prompt it left behind, which
-// ran it as shell commands. A typed launch hands over its brief only once the
-// harness holds the pane; a pane back at its shell stops the spawn with its
-// screen and receives nothing.
+// On 2026-09-28 a Codex goblin's pane was back at PowerShell when the spawn
+// typed its brief, which ran as shell commands. A typed launch hands over its
+// brief only once the harness shows its composer; a pane at its shell never
+// does, so the spawn stops with the pane's screen and types nothing.
 func TestATypedLaunchWhoseHarnessNeverStartsIsNotHandedItsBrief(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.request.Harness = harness.Codex
 	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
 		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
 	}
-	fixture.runner.harnessRunning = false
+	fixture.runner.composerScreen = "PS C:\\work> \n"
 
 	_, err := fixture.service.Spawn(context.Background(), fixture.request)
 
-	if err == nil || !strings.Contains(err.Error(), "codex did not start") || !strings.Contains(err.Error(), "back at its shell") {
-		t.Fatalf("Spawn error = %v, want the harness that never started named", err)
+	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") || !strings.Contains(err.Error(), `PS C:\work>`) {
+		t.Fatalf("Spawn error = %v, want the harness that never started named with its pane", err)
 	}
 	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.prompt != "" {
 		t.Errorf("events = %v, prompt %q: the brief reached a pane at its shell", fixture.events, fixture.runner.prompt)
 	}
 }
 
+// On 2026-09-28 a Codex goblin's brief, typed by herdr, sat in Codex's
+// composer as "[Pasted Content 1031 chars]": Codex read the fast typing as a
+// paste and took the Enter that ended it as part of the paste. The brief
+// still showing in the composer is submitted with one more Enter, and the
+// spawn waits to see Codex working on it.
+func TestABriefCodexLeftInItsComposerIsSubmittedWithOneEnter(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	typedScreens(fixture.runner, harness.Codex)
+	fixture.runner.promptedScreen = "› [Pasted Content 1031 chars]\n\n  tab to queue message    100% context left\n"
+	fixture.runner.enteredScreen = codexWorking
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if fixture.runner.promptCalls != 1 {
+		t.Errorf("the brief was typed %d times, want once", fixture.runner.promptCalls)
+	}
+	if !fixture.runner.enteredAfterPrompt {
+		t.Error("the brief left in Codex's composer was never submitted")
+	}
+}
+
+// Herdr's counters move on any redraw, so they cannot say a typed harness
+// took its brief: on 2026-09-28 a spawn reported a Codex goblin started whose
+// brief never reached a turn. A harness that never shows a turn on its brief
+// stops the spawn instead.
+func TestATypedBriefIsNotReportedTakenUntilItsHarnessWorksOnIt(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	typedScreens(fixture.runner, harness.Codex)
+	fixture.runner.promptedScreen = codexComposer
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err == nil || !strings.Contains(err.Error(), "codex never showed it took its brief") {
+		t.Fatalf("Spawn error = %v, want the brief no turn took reported", err)
+	}
+}
+
 func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	fixture := newFixture(t)
-	// A typed launch that works holds the pane: its foreground is the harness.
-	fixture.runner.harnessRunning = true
+	typedScreens(fixture.runner, harness.Pi)
 	fixture.request.Harness = harness.Pi
 	fixture.request.Model = ""
 	fixture.request.Effort = ""
@@ -1586,14 +1631,21 @@ type herdrRunner struct {
 	failCaptures     int
 	paneUnreadable   bool
 	harnessRunning   bool
-	reportedAgent    []string
-	sendTextCount    int
-	failSendTextAt   int
-	failSendTexts    int
-	failCtrlUs       int
-	installer        string
-	installerStderr  string
-	mcpTracked       bool
+	// composerScreen is what a typed harness's pane shows before its brief,
+	// promptedScreen what it shows once herdr typed the brief, and
+	// enteredScreen what it shows after an Enter pressed after that.
+	composerScreen     string
+	promptedScreen     string
+	enteredScreen      string
+	enteredAfterPrompt bool
+	reportedAgent      []string
+	sendTextCount      int
+	failSendTextAt     int
+	failSendTexts      int
+	failCtrlUs         int
+	installer          string
+	installerStderr    string
+	mcpTracked         bool
 	// worktreesUncovered models a checkout whose own .gitignore says nothing
 	// about .worktrees/, so only the clone's info/exclude hides it.
 	worktreesUncovered bool
@@ -1715,6 +1767,7 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if args[3] == "enter" {
 			*r.events = append(*r.events, "send-enter")
 			r.enterKeys++
+			r.enteredAfterPrompt = r.enteredAfterPrompt || r.prompt != ""
 			if r.trustDialog && r.enterKeys > 1 {
 				r.trustDialog = false
 				r.agentStatus = "working"
@@ -1779,6 +1832,14 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 				text = "Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n"
 			}
 			return execx.Result{Stdout: []byte(text)}, nil
+		}
+		switch {
+		case r.prompt != "" && r.enteredAfterPrompt && r.enteredScreen != "":
+			return execx.Result{Stdout: []byte(r.enteredScreen)}, nil
+		case r.prompt != "" && r.promptedScreen != "":
+			return execx.Result{Stdout: []byte(r.promptedScreen)}, nil
+		case r.composerScreen != "":
+			return execx.Result{Stdout: []byte(r.composerScreen)}, nil
 		}
 		if r.literal != "" {
 			if r.corruptCaptureAt > 0 && r.captureCount >= r.corruptCaptureAt && r.captureCount < r.corruptCaptureAt+max(1, r.corruptCaptures) {
@@ -2111,8 +2172,7 @@ func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
 // composer instead, the way the native path already delivers it.
 func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 	fixture := newFixture(t)
-	// A typed launch that works holds the pane: its foreground is the harness.
-	fixture.runner.harnessRunning = true
+	typedScreens(fixture.runner, harness.Pi)
 	target := herdr.Target{Session: "fleet", Pane: "pane-1"}
 	const instruction = "Resume task-7 and continue from the handoff."
 
@@ -2159,8 +2219,7 @@ func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
 
 func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T) {
 	fixture := newFixture(t)
-	// A typed launch that works holds the pane: its foreground is the harness.
-	fixture.runner.harnessRunning = true
+	typedScreens(fixture.runner, fixture.request.Harness)
 	instruction := "Read C:\\task dir\\brief.md. Report --blocked \"question options: a | b\". Preserve O'Brien, $(), and `text`."
 	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
 		TypedLaunch: true, Executable: "codex", Instruction: instruction,
@@ -2240,5 +2299,23 @@ func TestSpawnRunsAClaudeGoblinWithNoNamedModelOnOpus55(t *testing.T) {
 				t.Fatalf("recorded model %q, launched %q; want %q", meta.Model, launched, c.want)
 			}
 		})
+	}
+}
+
+// Codex's and pi's panes as a typed launch reads them: the composer waiting,
+// and a turn in progress.
+const (
+	codexComposer = "› Ask Codex to do anything\n\n  gpt-6-astra max · ~\\proof · 100% context left\n"
+	codexWorking  = "• Working (3s • esc to interrupt)\n\n› Ask Codex to do anything\n  100% context left\n"
+	piComposer    = "────────\n\n────────\n0.0%/1.0M (auto)\n"
+	piWorking     = "── ⠸ Working ──\n\n0.0%/1.0M (auto)\n"
+)
+
+// typedScreens makes the fake pane show what a working typed harness shows:
+// its composer before the brief and a turn once the brief is taken.
+func typedScreens(r *herdrRunner, kind harness.Kind) {
+	r.composerScreen, r.promptedScreen = codexComposer, codexWorking
+	if kind == harness.Pi {
+		r.composerScreen, r.promptedScreen = piComposer, piWorking
 	}
 }
