@@ -17,15 +17,20 @@ import (
 )
 
 // TestMain doubles the test binary as the stand-ins the process tests run.
-// Copied as lavish-axi.exe it is a poll that waits to be stopped; copied as
-// claude.exe or cfo.exe it starts one below itself and prints its pid; run
-// busy it keeps a processor busy, the way a build does; run as a gate it is a
-// no-mistakes status call that leaves a process holding its output. A
+// Copied as lavish-axi.exe it is a poll that waits to be stopped, and says
+// "running" first when its starter waits for it; copied as claude.exe or
+// cfo.exe it starts one below itself and prints its pid once that one runs;
+// run busy it keeps a processor busy, the way a build does; run as a gate it
+// is a no-mistakes status call that leaves a process holding its output. A
 // stand-in nobody stops ends on its own after a minute.
 func TestMain(m *testing.M) {
 	switch os.Getenv("CFO_POLL_STANDIN") {
 	case "":
 		os.Exit(m.Run())
+	case "wait":
+		if os.Getenv("CFO_POLL_READY") != "" {
+			fmt.Println("running")
+		}
 	case "busy":
 		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
 		}
@@ -45,8 +50,15 @@ func TestMain(m *testing.M) {
 	case "parent":
 		child := exec.Command(os.Getenv("CFO_POLL_CHILD"), os.Args[1:]...)
 		child.Dir = os.Getenv("CFO_POLL_CHILD_DIR")
-		child.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait")
+		child.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait", "CFO_POLL_READY=1")
+		running, err := child.StdoutPipe()
+		if err != nil {
+			os.Exit(1)
+		}
 		if err := child.Start(); err != nil {
+			os.Exit(1)
+		}
+		if _, err := bufio.NewReader(running).ReadString('\n'); err != nil {
 			os.Exit(1)
 		}
 		fmt.Println(child.Process.Pid)
@@ -115,13 +127,19 @@ func (f pollFixture) standIn(name string) string {
 	return path
 }
 
-// poll starts a lavish-axi stand-in in dir with args and stops it by pid
-// when the test ends.
+// poll starts a lavish-axi stand-in in dir with args, returns once it runs,
+// and stops it by pid when the test ends. A process that is still starting
+// can hide its working directory and command line from another process for
+// a few milliseconds, so its pid is no use before then.
 func (f pollFixture) poll(dir string, args ...string) int {
 	f.t.Helper()
 	command := exec.Command(f.standIn("lavish-axi.exe"), args...)
 	command.Dir = dir
-	command.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait")
+	command.Env = append(os.Environ(), "CFO_POLL_STANDIN=wait", "CFO_POLL_READY=1")
+	running, err := command.StdoutPipe()
+	if err != nil {
+		f.t.Fatal(err)
+	}
 	if err := command.Start(); err != nil {
 		f.t.Fatal(err)
 	}
@@ -129,12 +147,15 @@ func (f pollFixture) poll(dir string, args ...string) int {
 		_ = command.Process.Kill()
 		_, _ = command.Process.Wait()
 	})
+	if _, err := bufio.NewReader(running).ReadString('\n'); err != nil {
+		f.t.Fatalf("the poll stand-in never said it runs: %v", err)
+	}
 	return command.Process.Pid
 }
 
 // pollUnder starts parent in parentDir, which starts a lavish-axi stand-in in
-// childDir with args. Both are stopped by pid when the test ends; an orphaned
-// poll's parent exits before this returns.
+// childDir with args and prints its pid once it runs. Both are stopped by pid
+// when the test ends; an orphaned poll's parent exits before this returns.
 func (f pollFixture) pollUnder(parent, parentDir, childDir string, orphan bool, args ...string) int {
 	f.t.Helper()
 	command := exec.Command(parent, args...)
