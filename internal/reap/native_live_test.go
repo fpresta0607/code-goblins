@@ -220,18 +220,22 @@ func (unreadablePanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.Pan
 	return herdr.PaneProcessInfo{}, errors.New("herdr is not running")
 }
 
-// With no Herdr server in the process table no pane can exist, so a machine
-// that runs its goblins natively still sweeps for orphans; a Herdr server
-// that runs but cannot be read could hide live goblins, so the sweep still
-// refuses.
+// With no Herdr server for the fleet's session in the process table no pane
+// can exist, so a machine that runs its goblins natively still sweeps for
+// orphans, even past a test fixture's server for another session or a
+// short-lived Herdr CLI call; the fleet session's server that runs but cannot
+// be read could hide live goblins, so the sweep still refuses.
 func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 	cases := []struct {
-		name        string
-		herdrServer bool
-		wantErr     bool
+		name    string
+		herdr   []Process
+		wantErr bool
 	}{
-		{name: "no Herdr server", herdrServer: false, wantErr: false},
-		{name: "a Herdr server that cannot be read", herdrServer: true, wantErr: true},
+		{name: "no Herdr process", wantErr: false},
+		{name: "the fleet session's server that cannot be read", herdr: []Process{process(300, 1, "herdr.exe", `herdr server`, fixtureStart)}, wantErr: true},
+		{name: "the fleet session's server named by flag", herdr: []Process{process(300, 1, "herdr.exe", `herdr --session default server`, fixtureStart)}, wantErr: true},
+		{name: "another session's server", herdr: []Process{process(300, 1, "herdr.exe", `herdr --session fx123 server`, fixtureStart)}, wantErr: false},
+		{name: "a Herdr CLI call", herdr: []Process{process(300, 1, "herdr.exe", `herdr pane list`, fixtureStart)}, wantErr: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -240,9 +244,7 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 				process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart),
 				process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
 			}
-			if tc.herdrServer {
-				processes = append(processes, process(300, 1, "herdr.exe", `herdr server`, fixtureStart))
-			}
+			processes = append(processes, tc.herdr...)
 
 			inv, notes, err := Collector{Home: h, Session: "default", Panes: unreadablePanes{}, Processes: processes}.Collect(context.Background())
 
@@ -253,7 +255,7 @@ func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("Collect refused a machine with no Herdr server: %v", err)
+				t.Fatalf("Collect refused a machine with no Herdr server for its session: %v", err)
 			}
 			if len(inv.NativeHosts) == 0 {
 				t.Errorf("native hosts = %v, want the goblin's host read", inv.NativeHosts)

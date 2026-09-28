@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -103,8 +104,10 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 			// Every pane reads as gone when Herdr is unreadable, which would
 			// classify the whole live fleet as orphaned. Refuse instead: a
 			// sweep that cannot see panes has no business reporting orphans,
-			// unless no Herdr server runs at all, when no pane can exist and
-			// a fleet of native terminals is swept on its own evidence.
+			// unless no Herdr server runs for this session, when no pane can
+			// exist and a fleet of native terminals is swept on its own
+			// evidence. Another session's server is a test fixture, and a
+			// Herdr CLI call is no server.
 			if c.Processes == nil {
 				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
 			}
@@ -113,10 +116,10 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
 			}
 			listed = true
-			if len(herdrRoots(processes)) > 0 {
+			if slices.ContainsFunc(processes, c.runsSessionServer) {
 				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
 			}
-			notes = append(notes, "no Herdr server runs, so there are no panes; native terminals and processes decide")
+			notes = append(notes, "no Herdr server runs for session "+c.Session+", so there are no panes; native terminals and processes decide")
 		}
 		inv.Panes = panes
 		inv.UnresolvedPanes = unresolved
@@ -147,6 +150,12 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	c.nativeHosts(&inv, &notes)
 
 	return inv, notes, nil
+}
+
+// runsSessionServer reports whether process is the Herdr server of the
+// collector's session.
+func (c Collector) runsSessionServer(process Process) bool {
+	return isHerdrServer(process) && strings.EqualFold(herdrSession(process.CommandLine), c.Session)
 }
 
 // nativeHosts reads every native terminal's host record. A record that cannot
