@@ -70,8 +70,10 @@ type agentFake struct {
 	screens     []string
 	keys        []string
 	keyRefusals int
-	// readFailure fails every pane read as Herdr failing to run at all.
-	readFailure error
+	// readFailure fails every pane read as Herdr failing to run at all;
+	// readRefusals refuses that many pane reads with a nonzero exit first.
+	readFailure  error
+	readRefusals int
 
 	probing         bool
 	accepted        bool
@@ -109,6 +111,10 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read":
 		if f.readFailure != nil {
 			return execx.Result{}, f.readFailure
+		}
+		if f.readRefusals > 0 {
+			f.readRefusals--
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane read: pane busy")}, nil
 		}
 		if len(f.screens) == 0 {
 			return execx.Result{}, nil
@@ -272,17 +278,45 @@ func TestSenderTextReportsARefusedResubmitUnconfirmed(t *testing.T) {
 }
 
 // Once agent prompt has taken the message, a composer Herdr cannot read leaves
-// its delivery unconfirmed, never an error that reads as nothing sent.
+// its delivery unconfirmed, never an error that reads as nothing sent, whether
+// Herdr fails to run or refuses every read.
 func TestSenderTextReportsAnUnreadableComposerAfterThePromptUnconfirmed(t *testing.T) {
-	fake := newAgentFake(agentFake{agent: "codex", status: "idle", readFailure: errors.New("herdr stopped answering")})
+	for name, test := range map[string]struct {
+		shape agentFake
+		cause string
+	}{
+		"herdr fails to run":       {agentFake{agent: "codex", status: "idle", readFailure: errors.New("herdr stopped answering")}, "herdr stopped answering"},
+		"herdr refuses every read": {agentFake{agent: "codex", status: "idle", readRefusals: submitRetries}, "pane busy"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := newAgentFake(test.shape)
+
+			err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+			if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), test.cause) {
+				t.Fatalf("Text = %v, want an unconfirmed delivery wrapping the failed read", err)
+			}
+			if fake.promptCalls != 1 || len(fake.keys) != 0 {
+				t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter", fake.promptCalls, fake.keys)
+			}
+		})
+	}
+}
+
+// A composer read Herdr refuses for a moment is tried again at the next press,
+// and a later read decides the resubmit as if none had been refused.
+func TestSenderTextResubmitsAfterAComposerReadRefusedOnce(t *testing.T) {
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	working := "› CFO: ship it\n\n• Working (2s • esc to interrupt)\n› Ask Codex to do anything\n  100% context left\n"
+	fake := newAgentFake(agentFake{agent: "codex", status: "idle", screens: []string{stuck, working}, readRefusals: 1})
 
 	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
 
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), "herdr stopped answering") {
-		t.Fatalf("Text = %v, want an unconfirmed delivery wrapping the failed read", err)
+	if err != nil {
+		t.Fatalf("Text: %v", err)
 	}
-	if fake.promptCalls != 1 || len(fake.keys) != 0 {
-		t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter", fake.promptCalls, fake.keys)
+	if fake.promptCalls != 1 || !slices.Equal(fake.keys, []string{"enter"}) {
+		t.Errorf("prompts %d, keys %q; want one prompt and one Enter once the composer was read", fake.promptCalls, fake.keys)
 	}
 }
 
