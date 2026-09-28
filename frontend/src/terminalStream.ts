@@ -76,18 +76,18 @@ export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
 
-// One character cell measured from xterm's screen, which is exactly its
-// columns and rows of cells once it has drawn them. A screen not yet drawn at
-// the current grid, as when xterm resized it while out of sight, gives no cell.
-export function drawnCell(screen: { width: number; height: number }, cols: number, rows: number, isDrawn: boolean): { width: number; height: number } {
-  return isDrawn ? { width: screen.width / cols, height: screen.height / rows } : { width: 0, height: 0 };
-}
+// A view measures its cell from xterm's screen, which matches the grid only
+// once xterm has drawn it after a resize; out of sight, xterm draws, and so
+// resizes its screen, only once shown. A claim while the screen is not drawn
+// waits for the draw and is made then. A resize alone claims nothing, so a
+// view drawing another view's size keeps it until typed into.
+export interface FitState { isDrawn: boolean; isClaimPending: boolean }
+export type FitEvent = "resize" | "claim" | "draw";
 
-// The first draw after a resize makes the cell measurable again. A view that
-// sized the terminal itself then refits to its panel; a view drawing another
-// view's size keeps it until typed into, so two views never fight over it.
-export function refitsOnDraw(isDrawn: boolean, isOwner: boolean): boolean {
-  return !isDrawn && isOwner;
+export function nextFit(state: FitState, event: FitEvent): FitState & { isClaim: boolean } {
+  if (event === "resize") return { isDrawn: false, isClaimPending: state.isClaimPending, isClaim: false };
+  if (event === "claim") return state.isDrawn ? { ...state, isClaim: true } : { isDrawn: false, isClaimPending: true, isClaim: false };
+  return { isDrawn: true, isClaimPending: false, isClaim: state.isClaimPending };
 }
 
 // The grid a panel holds at a cell size, evenly padded: the spare width is

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, refitsOnDraw, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -85,21 +85,22 @@ test("a terminal fills its panel with the same padding left, right and below, an
   }
 });
 
-test("the cell is measured from a screen drawn at the current grid, and a screen not yet drawn gives no fit", () => {
-  assert.deepEqual(drawnCell({ width: 1440, height: 744 }, 120, 24, true), { width: 12, height: 31 });
-  const stale = drawnCell({ width: 1440, height: 744 }, 200, 50, false);
-  assert.deepEqual(stale, { width: 0, height: 0 });
-  assert.equal(panelFit(1574, 749.8, stale, 10), null);
-});
-
-test("the first draw after a resize refits only a view that sized the terminal itself", () => {
-  const cases: { isDrawn: boolean; isOwner: boolean; isRefit: boolean }[] = [
-    { isDrawn: false, isOwner: true, isRefit: true },
-    { isDrawn: false, isOwner: false, isRefit: false },
-    { isDrawn: true, isOwner: true, isRefit: false },
-    { isDrawn: true, isOwner: false, isRefit: false },
+test("a claim waits for xterm to draw a resized grid, and a resize alone claims nothing", () => {
+  const cases: { name: string; events: FitEvent[]; claims: boolean[] }[] = [
+    { name: "another view's size, then its draw", events: ["resize", "draw"], claims: [false, false] },
+    { name: "shown while not drawn, then the draw", events: ["resize", "claim", "draw"], claims: [false, false, true] },
+    { name: "a refit while drawn", events: ["claim"], claims: [true] },
+    { name: "claims held for one draw are made once", events: ["resize", "claim", "claim", "draw", "draw"], claims: [false, false, false, true, false] },
   ];
-  for (const { isDrawn, isOwner, isRefit } of cases) assert.equal(refitsOnDraw(isDrawn, isOwner), isRefit, `drawn ${isDrawn}, owner ${isOwner}`);
+  for (const { name, events, claims } of cases) {
+    let state = { isDrawn: true, isClaimPending: false };
+    const made = events.map((event) => {
+      const { isClaim, ...next } = nextFit(state, event);
+      state = next;
+      return isClaim;
+    });
+    assert.deepEqual(made, claims, name);
+  }
 });
 
 test("a panel too small for a usable grid, or an unmeasured cell, gives no fit", () => {

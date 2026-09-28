@@ -2,7 +2,7 @@ import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
 import { FrameWriter } from "./terminalFrames";
-import { ackDue, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, inputMessages, panelFit, parseHistory, parseSize, refitsOnDraw } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -49,9 +49,7 @@ export class TerminalView {
   private sized = false;
   private isReady = false;
   private isShown = false;
-  // isDrawn is whether xterm has drawn its screen since the view last resized
-  // it; out of sight, xterm draws, and so resizes its screen, only once shown.
-  private isDrawn = true;
+  private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
@@ -90,11 +88,7 @@ export class TerminalView {
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
-    this.rendered = this.term.onRender(() => {
-      const isRefit = refitsOnDraw(this.isDrawn, this.owner);
-      this.isDrawn = true;
-      if (isRefit) this.refit();
-    });
+    this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
   }
@@ -190,7 +184,7 @@ export class TerminalView {
   // The first size repaints the screen even when it matches; later ones reach
   // the pseudo console once the panel has settled.
   private claim(): void {
-    if (this.disposed || !this.isShown) return;
+    if (this.disposed || !this.isShown || !this.step("claim")) return;
     const panel = this.element.getBoundingClientRect();
     const size = panelFit(panel.width, panel.height, this.cell(), PADDING);
     if (!size || !this.term.element) return;
@@ -208,18 +202,25 @@ export class TerminalView {
     this.fallback = setTimeout(() => this.markReady(), READY_FALLBACK_MS);
   }
 
+  // step moves the fit on by one event and says whether to claim now.
+  private step(event: FitEvent): boolean {
+    const { isClaim, ...fit } = nextFit(this.fit, event);
+    this.fit = fit;
+    return isClaim;
+  }
+
   // resizeGrid resizes xterm, whose screen is measured again once drawn.
   private resizeGrid(cols: number, rows: number): void {
     if (cols === this.term.cols && rows === this.term.rows) return;
-    this.isDrawn = false;
+    this.step("resize");
     this.term.resize(cols, rows);
   }
 
-  // cell is one character cell as xterm draws it, or none until its screen
-  // is drawn at the current grid.
+  // cell is one character cell as xterm draws it: its drawn screen is exactly
+  // its columns and rows of cells.
   private cell(): { width: number; height: number } {
     const screen = this.term.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
-    return screen ? drawnCell(screen, this.term.cols, this.term.rows, this.isDrawn) : { width: 0, height: 0 };
+    return screen ? { width: screen.width / this.term.cols, height: screen.height / this.term.rows } : { width: 0, height: 0 };
   }
 
   private key(event: KeyboardEvent): boolean {
