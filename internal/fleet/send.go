@@ -67,13 +67,16 @@ type Sender struct {
 // selector whose agent is gone is refused outright and never typed into: a
 // goblin is addressed through its agent or not at all.
 //
-// Neither mode types into a composer and reads the text back afterwards. That
-// is what this did, and it is unreliable for the same reason spawn's
-// instruction read-back was: a harness renders a submitted prompt however it
-// likes, and Claude Code renders anything it treats as a paste as a collapsed
+// Neither mode proves delivery by reading the composer back. That is what
+// this did, and it is unreliable for the same reason spawn's instruction
+// read-back was: a harness renders a submitted prompt however it likes, and
+// Claude Code renders anything it treats as a paste as a collapsed
 // placeholder. The composer then never shows the message, every submit reads
 // as unconfirmed, and a message the CFO believes was delivered is silently
-// lost mid-turn.
+// lost mid-turn. The one read-back left is for a harness that takes the
+// ending Enter as part of a paste, such as Codex: while its pane still shows
+// the message, Enter is pressed again (see submitLeftInComposer), and the
+// delivery is still confirmed by the counters alone.
 func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	target, addressedExplicitly, err := s.target(ctx, raw)
 	if err != nil {
