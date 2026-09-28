@@ -639,13 +639,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .dependency-line path { fill: none; stroke: #d9b76a; stroke-width: 2.5; stroke-dasharray: 8 6; }
 .dependency-line circle { fill: #d9b76a; }
 
-/* Command Center: one card at a time, the rest of the deck peeking behind,
-   each card sending its own answer. */
+/* Command Center: one card at a time, each sending its own answer, in type
+   sized to read at a glance. */
 .question-modal { width: min(1040px, calc(100vw - 48px)); padding: 28px 32px; overflow-x: hidden; scrollbar-width: none; }
 .question-modal::-webkit-scrollbar { display: none; }
 /* A question is read, not scanned: body type at a readable line length, with
    only what its asker marked in bold. */
-.question-body { max-width: 72ch; color: #e3ecef; font: 400 1rem/1.55 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
+.question-body { max-width: 72ch; color: #e3ecef; font: 400 1.1875rem/1.6 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
 .question-body p, .question-body ul { margin: 0 0 10px; }
 .question-body > :last-child { margin-bottom: 0; }
 .question-body ul { padding-left: 22px; }
@@ -654,14 +654,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .inbox-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .count-pill { flex: none; padding: 2px 12px; border: 1px solid var(--edge); border-radius: 999px; background: #0b141b; color: #dfe9ef; font-weight: 800; white-space: nowrap; }
 .card-stage { position: relative; }
-/* The rest of the stack is one card peeking above this one: one clean edge. */
-.card-stage.stacked { padding-top: 10px; }
-.card-stage.stacked::before { content: ""; position: absolute; left: 16px; right: 16px; top: 0; height: 30px; border: 1px solid var(--edge); border-bottom: 0; border-radius: 18px 18px 0 0; background: var(--level-1); }
-.question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); touch-action: pan-y; animation: card-in .18s ease-out; }
+.question-card { position: relative; display: grid; gap: 16px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); font-size: 1.0625rem; touch-action: pan-y; animation: card-in .18s ease-out; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
 .question-card .asker { display: flex; align-items: center; gap: 12px; color: #c4d4df; }
 .question-card .asker .goblin-avatar { width: 48px; height: 48px; }
-.question-card h3 { margin: 0; }
+.question-card h3, .run-card h3 { margin: 0; font-size: 1.375rem; line-height: 1.3; }
 .question-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 /* A review page's preview is the one way into it: the whole tile opens it. */
 .page-preview { position: relative; display: grid; place-items: center; min-height: 150px; padding: 18px; border: 1px solid var(--edge); border-radius: 16px; background: linear-gradient(160deg, #13232c, #0b141b); color: inherit; text-decoration: none; overflow: hidden; }
@@ -689,8 +686,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .gallery-strip button[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .question-outcome { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; }
 .card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
-.send-decision { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; }
-.send-decision .icon { width: 20px; height: 20px; }
+.send-decision, .status-dismiss, .wait-open { display: inline-flex; align-items: center; gap: 8px; padding-inline: 22px; white-space: nowrap; }
+.send-decision .icon, .status-dismiss .icon, .wait-open .icon { width: 20px; height: 20px; }
+/* A wait that opens a page does it with a link drawn as the primary button. */
+a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--radius); text-decoration: none; }
+.question-card .wait-target { margin: 0; color: #c4d4df; }
 /* Back, the card's place and Next lead a card's action row; its answer keeps
    the right edge. */
 .stack-pager { display: flex; align-items: center; gap: 8px; margin-right: auto; }
@@ -840,18 +840,23 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .order-error { margin: 12px 0 0; color: #f6d79e; }
 @media (prefers-reduced-motion: reduce) { .ranked-item.dragging .task-card { transform: none; } }
 /* Run items: a command the CFO needs run, shown verbatim before it runs. */
-.run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); }
-.run-card h3 { margin: 0; }
+.run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: var(--level-2); box-shadow: var(--shadow-2); font-size: 1.0625rem; }
 .run-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-head .run-state { margin-left: auto; }
 .run-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
 .chip.admin { display: inline-flex; align-items: center; gap: 6px; color: #f6d79e; border-color: #735338; }
 .chip.admin .icon { width: 16px; height: 16px; }
 .run-command { position: relative; }
-.run-command pre, .run-output { margin: 0; border: 1px solid var(--edge); border-radius: 14px; background: #071015; font-family: var(--font-mono); font-size: .9375rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.run-command pre, .run-output { margin: 0; border: 1px solid var(--edge); border-radius: 14px; background: #071015; font-family: var(--font-mono); font-size: 1rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .run-command pre { padding: 14px 56px 14px 16px; max-height: 14rem; }
 .run-command .icon-button { position: absolute; top: 6px; right: 6px; }
-.run-output { padding: 12px 14px; max-height: 18rem; }
+/* The command's output as a terminal shows it, newest at the bottom. */
+.run-terminal { display: grid; gap: 8px; }
+.run-terminal header { display: flex; align-items: center; justify-content: space-between; color: #c4d4df; font-weight: 700; }
+.exit-code { padding: 2px 10px; border: 1px solid var(--edge); border-radius: 999px; font-family: var(--font-mono); }
+.exit-code.succeeded { color: var(--mint); }
+.exit-code.failed { color: #f1a39c; border-color: #735338; }
+.run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
 .run-card .card-actions { flex-wrap: wrap; }

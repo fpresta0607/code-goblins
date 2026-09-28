@@ -120,7 +120,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.StateDir, id)
-		if err != nil || meta.Backend != "herdr" {
+		if err != nil || (meta.Backend != "herdr" && meta.Backend != "native") {
 			continue
 		}
 
@@ -241,6 +241,16 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	sample, err := s.Probe.Inspect(ctx, meta)
 	if err != nil {
 		return unknownObservation(observation, EndpointUnknown, err.Error(), now)
+	}
+	// A native task publishes its metadata before its host starts, and the
+	// harness then shows the trust dialog and its composer before the brief is
+	// submitted. Within the launch budget anything short of a turn in progress
+	// is still launching, unless the provider is refusing the harness or the
+	// goblin has already been seen alive.
+	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
+		if _, _, refused := routing.Detect(string(sample.Capture)); !refused {
+			return launchingObservation(observation, now)
+		}
 	}
 	if sample.Verdict == ProbeMissing {
 		return unknownObservation(observation, EndpointMissing, sample.Detail, now)

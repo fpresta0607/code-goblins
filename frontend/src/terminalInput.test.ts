@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, endStep, fittedFontSize, gridToAsk, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, endStep, fittedFontSize, previewScale, gridToAsk, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+
+test("while the panel is dragged the screen keeps its grid, scaled whole into the panel", () => {
+  assert.equal(previewScale({ width: 600, height: 900 }, { width: 1200, height: 900 }), 0.5, "a narrower panel shrinks it by width");
+  assert.equal(previewScale({ width: 1500, height: 600 }, { width: 1200, height: 900 }), 600 / 900, "and by height when that is tighter");
+  assert.equal(previewScale({ width: 1800, height: 1350 }, { width: 1200, height: 900 }), 1.5, "a wider panel grows it");
+  for (const [room, screen] of [[{ width: 0, height: 900 }, { width: 1200, height: 900 }], [{ width: 600, height: 900 }, { width: 0, height: 0 }]] as const) assert.equal(previewScale(room, screen), 1, "nothing measured yet keeps it as it is");
+});
 
 test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
   const limit = Math.floor((maxInputBytes - 12) / 3);

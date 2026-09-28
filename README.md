@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="The Code Goblins board: a queued task and five goblins working, awaiting input or blocked on a question, beside one goblin's diff with a line comment the CFO has accepted" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with the question waiting on you, two queued tasks under the memory meter, goblins in progress, and beside them the selected goblin's panel with its status line and the diff of its change" width="900" />
   <br />
   <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
 </p>
@@ -171,7 +171,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: a queued task, four goblins in progress (working or waiting on you) and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO pinned above the columns, two numbered queued tasks with the memory meter and Start now, five goblins in progress, and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -183,6 +183,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
+An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
 A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
@@ -196,7 +197,7 @@ The header switches between two views, one at a time, each with a contextual pan
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
-  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above four goblins, with the selected goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above five goblins in four repositories, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
@@ -236,6 +237,7 @@ The Task view shows **Workspace** with the repository, branch and exact working 
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
@@ -249,7 +251,7 @@ Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: th
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="A goblin's terminal maximized over the whole window: its Herdr pane fills the panel, scaled to fit, with the input line at the bottom and no scroll bars" width="900" />
+  <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Task and Terminal pill with Open in terminal, Restore and Close" width="900" />
 </p>
 
 ### Sending a diff comment to the CFO
@@ -275,12 +277,17 @@ When the CFO needs a decision only you can make, it publishes the question with 
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
-Review items share the stack: a goblin's image review, a review page, or a goblin waiting on you.
+Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
-Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
+Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request; clicking an alert opens that item, alerts stack and fade after a few seconds, and routine progress never alerts.
 While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
+
+<p align="center">
+  <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: the goblin fixing the flaky checkout test wants your review, with its request, Look at the checkout race fix before it ships, and a close button" width="420" />
+</p>
+
 New items also stay under the badge, and the browser tab's title counts what is waiting on you.
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
@@ -291,9 +298,9 @@ Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
-An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own pane, each exactly once; no answer approves a gate or merges anything.
+An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; the card then shows its exit code and output.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
@@ -428,6 +435,14 @@ The core is intentionally local-first:
 - `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
+
+## Roadmap
+
+Code Goblins is becoming a native Windows desktop app.
+
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn --backend native` and `goblins --native` already work this way today.
+- **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
+- **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 
 ## Development
 

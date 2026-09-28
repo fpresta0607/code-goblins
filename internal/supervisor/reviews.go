@@ -128,7 +128,7 @@ func reviewImageDir(stateDir string, r Review) string {
 }
 
 // reviewReporter proves who is reporting: a goblin from inside its task's own
-// Herdr pane, or the registered primary CFO when taskID is empty. The returned
+// terminal, or the registered primary CFO when taskID is empty. The returned
 // release keeps the CFO's registration from changing until the report is made.
 func reviewReporter(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string) (string, func(), error) {
 	if taskID != "" {

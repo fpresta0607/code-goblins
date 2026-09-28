@@ -63,9 +63,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			},
 			// Codex's composer, working and paste texts are its known ones,
 			// not yet seen in a capture on this machine (CFO decision 2353):
-			// the first live native codex spawn checks them.
+			// the first live native codex spawn checks them. A turn in progress
+			// shows only in the status row, as in "• Working (5s • esc to
+			// interrupt)": a reply may say "Working" anywhere else.
 			Ready:   regexp.MustCompile(`context left`),
-			Working: regexp.MustCompile(`esc to interrupt|\bWorking\b`),
+			Working: regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
 			Pasted:  []string{"[Pasted Content"},
 		}, true
 	case Pi:

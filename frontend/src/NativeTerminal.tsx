@@ -5,7 +5,7 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
-import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, inputBytes, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { useDictation } from "./useDictation";
@@ -131,6 +131,9 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       const style = getComputedStyle(element);
       return { width: element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), height: element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) };
     };
+    // The panel's divider is being dragged: the screen keeps its grid until
+    // the drag ends, so the pane is resized once, not on every move.
+    const resizing = () => !!element.closest(".workspace.resizing");
     const settle = () => {
       if (!checking) return;
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
@@ -182,7 +185,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     term.onRender(() => {
       settle();
       const screen = element.querySelector<HTMLElement>(".xterm-screen");
-      if (active?.sized && screen && (screen.offsetWidth > room().width || screen.offsetHeight > room().height)) resizeSized();
+      if (active?.sized && screen && !resizing() && (screen.offsetWidth > room().width || screen.offsetHeight > room().height)) resizeSized();
       if (past.options.fontSize !== term.options.fontSize) past.options.fontSize = term.options.fontSize;
     });
     const stop = (reason: string) => {
@@ -428,8 +431,24 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
     element.addEventListener("wheel", liveBeside, { passive: false });
     pastElement.addEventListener("wheel", historyBeside, { passive: false });
-    const resize = new ResizeObserver(() => { if (active?.sized) resizeSized(); else fit(); });
+    const refit = () => { if (active?.sized) resizeSized(); else fit(); };
+    // While the panel's divider is dragged the screen keeps its grid and is
+    // shown scaled into the panel, and it refits once when the drag ends.
+    const preview = () => {
+      const screen = element.querySelector<HTMLElement>(".xterm-screen");
+      if (!term.element || !screen) return;
+      term.element.style.transformOrigin = "0 0";
+      term.element.style.transform = "scale(" + previewScale(room(), { width: screen.offsetWidth, height: screen.offsetHeight }) + ")";
+    };
+    // The drag's end has committed the panel's final width by the next frame.
+    const dropped = () => requestAnimationFrame(() => {
+      if (abort.signal.aborted) return;
+      if (term.element) term.element.style.transform = "";
+      refit();
+    });
+    const resize = new ResizeObserver(() => { if (resizing()) preview(); else refit(); });
     resize.observe(element);
+    window.addEventListener(PANEL_RESIZED, dropped);
     const focused = () => step("focus");
     window.addEventListener("focus", focused);
     shownChanged.current = (isShown) => { if (isShown) step("shown"); };
@@ -543,7 +562,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, missing, dictate]);
   if (missing) return <div className="terminal-empty"><Icon name="terminal" /><p>{queued ? "This task has not started yet." : shared ? "This child has no separate terminal." : error}</p>{onOwner && shared && <button className="primary" onClick={onOwner}>Open owning task</button>}</div>;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>

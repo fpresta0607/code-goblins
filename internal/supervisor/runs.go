@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -497,6 +498,31 @@ func readRunExit(dir string) (int, bool) {
 	}
 	code, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(string(data), "\xef\xbb\xbf")))
 	return code, err == nil
+}
+
+// runOutput answers what a run printed so far, so its card shows the command
+// as it runs; a run that ended answers the output it kept.
+func (h *HTTP) runOutput(w http.ResponseWriter, r *http.Request) {
+	id, found := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/api/runs/"), "/output")
+	if !found || id == "" || strings.Contains(id, "/") {
+		apiError(w, 404, "Unknown run")
+		return
+	}
+	for _, run := range h.Service.Store.Snapshot().Runs {
+		if run.ID != id {
+			continue
+		}
+		output := run.Output
+		if run.State == "running" {
+			output = readRunOutput(runDir(h.Service.Store.Home.State, run))
+		}
+		respond(w, 200, struct {
+			Output string `json:"output"`
+			State  string `json:"state"`
+		}{output, run.State})
+		return
+	}
+	apiError(w, 404, "Unknown run")
 }
 
 // readRunOutput reads the end of what a run printed.
