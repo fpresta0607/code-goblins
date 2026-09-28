@@ -39,15 +39,15 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text)}</div>
     {review && <a className="icon-button raised pill-link open-inline" href={review.url} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
-      {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View image for option " + choice.label + " full size"} onClick={() => onImage(index)}>
-        {missing.has(choice.image) ? <span className="image-missing"><Icon name="images" /></span> : <img src={choice.image} alt="" onError={() => setMissing((prior) => new Set([...prior, choice.image]))} />}<span>{choice.label}</span>
+      {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View the image for " + choice.text + " full size"} onClick={() => onImage(index)}>
+        {missing.has(choice.image) ? <span className="image-missing"><Icon name="images" /></span> : <img src={choice.image} alt="" onError={() => setMissing((prior) => new Set([...prior, choice.image]))} />}<span>{choice.text}</span>
       </button>)}
     </div>}
     <fieldset disabled={!pending || draft.sending}><legend className="sr-only">Choose your answer</legend>
       {choices.map((option) => <label className={"question-choice" + (closed ? (chosen === option.value ? " chosen" : " dimmed") : "")} key={option.value}>
         {closed ? <span className="choice-mark">{chosen === option.value && <Icon name="check" />}</span>
           : <input type="radio" name={"answer-" + question.id} checked={displayed.selection === "option:" + option.value} onChange={() => onDraft({ selection: "option:" + option.value, error: "", receipt: undefined })} />}
-        <span className="question-option"><span>{option.label}. {option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
+        <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}

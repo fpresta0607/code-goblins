@@ -17,6 +17,16 @@ export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under
   return { tone: "ready", text: "Enough memory: the CFO starts the next task." };
 }
 
+// The memory bar spans twice the mark at which the CFO starts the next task,
+// or the machine's memory if that is less, so the floor and the mark sit well
+// apart and a full bar says the next task starts: the fill and both marks as
+// percents of the bar.
+export function meterScale(memory: Memory): { fill: number; floor: number; next: number } {
+  const span = Math.min(memory.total, 2 * memory.next);
+  const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
+  return { fill: percent(memory.available), floor: percent(memory.floor), next: percent(memory.next) };
+}
+
 // Why a queued task's Start cannot run now, or empty when it can. The
 // supervisor checks all of it again; this only saves a refused click.
 export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean): string {

@@ -232,6 +232,46 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 	}
 }
 
+// A choice is the answer itself, because the Overlord picks from a plain list
+// of answers: a choice that is only a letter or number is refused before
+// anything is recorded, and answers written as phrases are not.
+func TestNotifyRefusesAChoiceThatIsOnlyALetterOrNumber(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	for _, question := range []string{
+		"Merge now? options: a | b",
+		"Merge now? options: a (Recommended) | b",
+		"Merge now? options: Merge now (Recommended) | 2",
+		"Merge now? options: (c) | Wait",
+		"Merge now? options: B) | Wait",
+		"Merge now? options: 12 | Wait",
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), "write the answer itself") {
+			t.Fatalf("%q: exit=%d stderr=%q, want it refused with how to write the answer", question, exit, stderr.String())
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("a refused notify recorded status %q", lines)
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+		t.Fatalf("a refused notify woke the CFO: %+v %v", records, err)
+	}
+	question := "Merge now? options: Fix it next (Recommended) | Keep 300 s | A plan"
+	var stdout, stderr bytes.Buffer
+	if exit := runNotify([]string{"g1", "--blocked", question}, &stdout, &stderr); exit != 0 {
+		t.Fatalf("exit=%d stderr=%q, want answers written as phrases recorded", exit, stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "blocked: "+question {
+		t.Fatalf("wake records = %+v %v, want the question", records, err)
+	}
+}
+
 // Review images are checked before anything is recorded: a wrong count or a
 // path outside the task fails the whole notify, so the CFO is never woken
 // with a question whose images the Overlord cannot see.

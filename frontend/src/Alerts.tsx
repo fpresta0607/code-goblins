@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { asksPermission, boardAlerts, notifies, type AlertTarget, type BoardAlert } from "./alertRules";
+import { arrive, asksPermission, boardAlerts, notifies, type AlertTarget, type Arrival } from "./alertRules";
 import { personaFor } from "./workflow";
 import { Toast } from "./Toast";
 import type { Snapshot } from "./types";
 
-// The most toasts shown at once; the oldest leaves first.
-const MAX_TOASTS = 4;
 // Whether the board already asked this browser for Windows notifications.
 const ASKED_KEY = "cfo-notifications-asked";
 
@@ -26,7 +24,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   const seen = useRef(new Set<string>());
   const open = useRef(onOpen);
   useEffect(() => { open.current = onOpen; });
-  const [toasts, setToasts] = useState<BoardAlert[]>([]);
+  const [toasts, setToasts] = useState<Arrival[]>([]);
   const [asking, setAsking] = useState(false);
   useEffect(() => {
     // A Command Center item alerts once a page; a goblin alerts each time it
@@ -35,8 +33,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
     previous.current = snapshot;
     if (!fresh.length) return;
     for (const alert of fresh) seen.current.add(alert.key);
-    const keys = new Set(fresh.map((alert) => alert.key));
-    setToasts((prior) => [...prior.filter((alert) => !keys.has(alert.key)), ...fresh].slice(-MAX_TOASTS));
+    setToasts((prior) => arrive(prior, fresh));
     if (asksPermission(permission(), asked())) setAsking(true);
     if (!notifies(permission(), document.hidden, document.hasFocus())) return;
     for (const alert of fresh) {
@@ -44,7 +41,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
       note.onclick = () => { window.focus(); open.current(alert.target); note.close(); };
     }
   }, [snapshot]);
-  const dismiss = (key: string) => setToasts((prior) => prior.filter((alert) => alert.key !== key));
+  const dismiss = (id: number) => setToasts((prior) => prior.filter((toast) => toast.id !== id));
   const answer = (allow: boolean) => {
     rememberAsked();
     setAsking(false);
@@ -56,7 +53,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
       <p>Show a Windows notification when something needs you while the board is in the background?</p>
       <div className="toast-actions"><button onClick={() => answer(false)}>Not now</button><button className="primary" onClick={() => answer(true)}>Allow</button></div>
     </div>}
-    {toasts.map((alert) => <Toast key={alert.key} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : "cfo"}
-      onOpen={() => { dismiss(alert.key); onOpen(alert.target); }} onDismiss={() => dismiss(alert.key)} />)}
+    {toasts.map(({ id, alert }) => <Toast key={id} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : "cfo"}
+      onOpen={() => { dismiss(id); onOpen(alert.target); }} onDismiss={() => dismiss(id)} />)}
   </section>;
 }

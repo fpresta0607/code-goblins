@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -91,6 +92,39 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 	if got := view.Tasks[0]; got.Phase != "blocked" || got.Activity != "Which schema?" {
 		t.Fatalf("waiting task = phase %q activity %q, want blocked showing its question", got.Phase, got.Activity)
+	}
+}
+
+// A goblin's own failed report leaves its phase to the evidence, so the board
+// alerts on it only through the report kind the snapshot carries.
+func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
+	store, h := testStore(t)
+	service := &Service{Store: store}
+	for _, c := range []struct{ line, report string }{
+		{"working: gate test step", "working"},
+		{"failed: The build broke on a missing asset", "failed"},
+		{"done: PR https://example/pr/7", "done"},
+	} {
+		if err := state.AppendStatus(h.State, "task-1", c.line); err != nil {
+			t.Fatal(err)
+		}
+		view, err := service.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(view.Tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent struct {
+			Report string `json:"report"`
+		}
+		if err := json.Unmarshal(encoded, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.Report != c.report {
+			t.Errorf("after %q the snapshot sends report %q, want %q", c.line, sent.Report, c.report)
+		}
 	}
 }
 

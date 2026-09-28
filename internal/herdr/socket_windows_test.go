@@ -206,6 +206,78 @@ func TestSocketCacheReadsSnapshotAndProcessInfoOnTheSocket(t *testing.T) {
 	}
 }
 
+// The monitor's other two reads each minute, the agent list and every task's
+// bounded pane capture, go over the socket too: with a cache the whole scan
+// starts no herdr process after the one status read.
+func TestSocketCacheReadsAgentsAndPaneEvidenceOnTheSocket(t *testing.T) {
+	// Arrange
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(request herdrtest.Request) string {
+		switch request.Method {
+		case "agent.list":
+			return `{"id":"agent.list","result":{"type":"agent_list","agents":[{"agent":"claude","agent_status":"working","pane_id":"w1:p2","revision":7,"state_change_seq":3}]}}`
+		case "pane.read":
+			if request.Params["source"] != "recent_unwrapped" || request.Params["lines"] != float64(200) {
+				return `{"id":"pane.read","error":{"code":"bad_params","message":"want the 200 most recent unwrapped lines"}}`
+			}
+			return `{"id":"pane.read","result":{"type":"pane_read","read":{"text":"$ go test\nok\n"}}}`
+		}
+		return ""
+	}
+	runner := &fakeRunner{replies: []runnerReply{rawReply(socket.Status())}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	for i := 0; i < 2; i++ {
+		// Act
+		agents, agentsErr := client.AgentList(context.Background())
+		evidence, evidenceErr := client.CaptureEvidence(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+
+		// Assert
+		if agentsErr != nil || len(agents) != 1 || agents[0].Revision != 7 || agents[0].StateChangeSeq != 3 {
+			t.Fatalf("agents %d = %+v, %v; want the socket's one agent with its counters", i, agents, agentsErr)
+		}
+		if evidenceErr != nil || string(evidence) != "$ go test\nok\n" {
+			t.Fatalf("evidence %d = %q, %v; want the socket's pane text", i, evidence, evidenceErr)
+		}
+	}
+	if calls := runner.Requests(); len(calls) != 1 || strings.Join(calls[0].Args, " ") != "status --json --session fleet" {
+		t.Fatalf("commands run = %v, want only the one status read", calls)
+	}
+	if requests := socket.Requests(); len(requests) != 4 {
+		t.Fatalf("socket got %d requests, want 2 agent lists and 2 pane reads", len(requests))
+	}
+}
+
+// A pane the socket reads as empty is empty: the capture fails at once with
+// no herdr command, which would only read the same nothing.
+func TestSocketCacheEmptyPaneReadStartsNoCommand(t *testing.T) {
+	// Arrange
+	socket := herdrtest.NewSocket(t)
+	socket.Answer = func(request herdrtest.Request) string {
+		if request.Method == "pane.read" {
+			return `{"id":"pane.read","result":{"type":"pane_read","read":{"text":""}}}`
+		}
+		return ""
+	}
+	runner := &fakeRunner{replies: []runnerReply{rawReply(socket.Status())}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+	client.Sockets = NewSocketCache()
+
+	// Act
+	evidence, err := client.CaptureEvidence(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "returned no terminal text") || evidence != nil {
+		t.Fatalf("evidence = %q, %v; want the no-terminal-text error", evidence, err)
+	}
+	if calls := runner.Requests(); len(calls) != 1 || strings.Join(calls[0].Args, " ") != "status --json --session fleet" {
+		t.Fatalf("commands run = %v, want only the one status read", calls)
+	}
+}
+
 // A socket that cannot be reached is forgotten and the read goes through the
 // herdr command, so a restarted Herdr is found again on the next read.
 func TestSocketCacheFallsBackToTheCommandWhenThePipeIsGone(t *testing.T) {

@@ -51,7 +51,8 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done"): BoardAlert
   const target: AlertTarget = { kind: "task", id: task.id };
   const key = "task:" + task.id + ":" + task.generation + ":" + state;
   if (state === "done") return { key, tone: "done", title: task.title + " is done", text: "Its pull request is ready: " + task.pr, task: task.id, target };
-  const said = task.report === state ? task.activity : task.reason;
+  const reported = task.activity.startsWith(state + ": ") ? task.activity.slice(state.length + 2) : task.activity;
+  const said = task.report === state ? reported : task.reason;
   return { key, tone: state === "failed" ? "failed" : "needs", title: task.title + (state === "failed" ? " failed" : " is blocked"), text: shortened(said || "It needs a decision to go on."), task: task.id, target };
 }
 
@@ -59,18 +60,38 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done"): BoardAlert
 // or finished: a new question, review or command in the Command Center, and a
 // goblin that became blocked, failed or done with its pull request. The first
 // snapshot a page sees alerts nothing: what already waits is under the badge.
+// The Completed column's history is not a goblin finishing, so it alerts
+// nothing either.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = new Set(waitingItems(previous).map((item) => item.key));
   const items = waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(next, item));
   const before = new Map(previous.tasks.map((task) => [task.id, task]));
-  const tasks = next.tasks.flatMap((task) => {
+  const tasks = next.tasks.filter((task) => !task.archived).flatMap((task) => {
     const state = taskState(task);
     const prior = before.get(task.id);
     const changed = !prior || prior.generation !== task.generation || taskState(prior) !== state;
     return state && changed ? [taskAlert(task, state)] : [];
   });
   return [...items, ...tasks];
+}
+
+// The most toasts shown at once; the oldest leaves first.
+const MAX_TOASTS = 4;
+
+// A toast on screen: id is its arrival, so an alert that arrives again is a
+// new toast with its own time on screen, not the old one carried over.
+export interface Arrival {
+  id: number;
+  alert: BoardAlert;
+}
+
+// arrive stacks fresh alerts below the toasts on screen, each replacing the
+// toast its key already has.
+export function arrive(shown: Arrival[], fresh: BoardAlert[]): Arrival[] {
+  const keys = new Set(fresh.map((alert) => alert.key));
+  const last = Math.max(0, ...shown.map((toast) => toast.id));
+  return [...shown.filter((toast) => !keys.has(toast.alert.key)), ...fresh.map((alert, index) => ({ id: last + 1 + index, alert }))].slice(-MAX_TOASTS);
 }
 
 // A Windows notification is for an alert the Overlord would not see: the
