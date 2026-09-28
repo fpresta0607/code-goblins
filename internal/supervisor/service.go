@@ -942,7 +942,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.StartError = s.startErrors[task.ID]
 		}
 		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
-		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued"
+		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
 		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
 			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
