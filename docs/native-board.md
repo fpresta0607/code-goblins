@@ -4,7 +4,7 @@
 Use `--listen 127.0.0.1:0` for an ephemeral port; the command prints its actual URL.
 Node, Vite, Docker, and a browser are not runtime dependencies of the supervisor.
 Docker remains an optional project environment managed by the existing worktree profiles.
-`serve` does not care where it was started: started from a Herdr pane, such as the CFO's own, it first drops that pane's variables (`HERDR_ENV`, `HERDR_PANE_ID` and every other `HERDR_` name but `HERDR_SESSION`), so a terminal it opens, or any other program it runs, is not refused by herdr as nested inside that pane.
+`serve` does not care where it was started: started from a Herdr pane, such as the CFO's own, it first drops that pane's variables (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_STARTUP_CWD`, `HERDR_SOCKET_PATH` and `HERDR_BIN_PATH`) and keeps every other `HERDR_` variable, such as `HERDR_SESSION` and the user's configuration in `HERDR_CONFIG_PATH`, so a terminal it opens, or any other program it runs, is not refused by herdr as nested inside that pane.
 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.

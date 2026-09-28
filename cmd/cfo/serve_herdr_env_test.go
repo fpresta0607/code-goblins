@@ -74,13 +74,15 @@ func waitForReport(t *testing.T, report string) string {
 // cfo serve does not care where it was started: started from a Herdr pane it
 // forgets that pane before anything else, so a terminal the board opens
 // carries none of the pane's variables and herdr starts, while HERDR_SESSION,
-// the fleet's session, stays.
+// the fleet's session, and HERDR_CONFIG_PATH, the user's Herdr configuration,
+// stay.
 func TestAServeStartedInAHerdrPaneOpensTerminalsWithoutThePane(t *testing.T) {
 	// Arrange
 	for name, value := range paneVariables {
 		t.Setenv(name, value)
 	}
 	t.Setenv("HERDR_SESSION", "fleet")
+	t.Setenv("HERDR_CONFIG_PATH", `C:\herdr\herdr.toml`)
 	report := standInHerdr(t)
 
 	// Act: serve starts as from the CFO's pane and stops at an address it
@@ -105,6 +107,9 @@ func TestAServeStartedInAHerdrPaneOpensTerminalsWithoutThePane(t *testing.T) {
 	}
 	if !strings.Contains(environment, "HERDR_SESSION=fleet") {
 		t.Errorf("the terminal's herdr lost HERDR_SESSION; environment:\n%s", environment)
+	}
+	if !strings.Contains(environment, `HERDR_CONFIG_PATH=C:\herdr\herdr.toml`) {
+		t.Errorf("the terminal's herdr lost HERDR_CONFIG_PATH; environment:\n%s", environment)
 	}
 }
 

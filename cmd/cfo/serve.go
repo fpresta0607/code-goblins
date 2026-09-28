@@ -33,8 +33,11 @@ const defaultBoardAddress = "127.0.0.1:4310"
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
-	// terminal and herdr client it runs, and herdr refuses to start inside
-	// what they name as another Herdr, so it forgets them first.
+	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
+	// HERDR_TAB_ID, HERDR_WORKSPACE_ID, HERDR_STARTUP_CWD, HERDR_SOCKET_PATH
+	// and HERDR_BIN_PATH), and herdr refuses to start inside what they name
+	// as another Herdr, so it forgets them first. HERDR_SESSION and
+	// configuration such as HERDR_CONFIG_PATH are not the pane's and are kept.
 	for _, entry := range os.Environ() {
 		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) {
 			if err := os.Unsetenv(name); err != nil {
