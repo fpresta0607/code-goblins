@@ -19,6 +19,64 @@ export function wheelScroll(lines: number): PaneCommand | null {
   return { type: "terminal.scroll", direction: lines < 0 ? "up" : "down", lines: Math.min(Math.abs(lines), MAX_WHEEL_LINES), source: "wheel" };
 }
 
+// Herdr hands the program one wheel notch for each scroll, so turns cannot be
+// joined into one. A wheel faster than the board can send its scrolls keeps at
+// most MAX_WAITING_SCROLLS waiting behind the one on its way and drops the
+// rest, so the pane stops soon after the wheel does; a turn the other way
+// replaces the waiting ones. Typing and sizes keep their places, and so do the
+// scrolls before them.
+export const MAX_WAITING_SCROLLS = 2;
+export function queueScroll(queue: PaneCommand[], command: PaneCommand) {
+  let first = queue.length;
+  while (first > 0 && queue[first - 1].type === "terminal.scroll") first--;
+  const last = queue[queue.length - 1];
+  if (last?.type === "terminal.scroll" && command.type === "terminal.scroll" && last.direction !== command.direction) queue.splice(first);
+  if (queue.length - first < MAX_WAITING_SCROLLS) queue.push(command);
+}
+
+// Ctrl+End, the key Claude Code's fullscreen interface jumps to its newest
+// output on, as its own "Jump to bottom" note says.
+export const JUMP_TO_BOTTOM = "\x1b[1;5F";
+
+// How many notches the board has scrolled a pane that scrolls itself up from
+// its bottom. Herdr hands the program one wheel notch for each scroll, however
+// many lines it names, so a scroll up adds one, a scroll down takes one away,
+// and Ctrl+End clears them.
+export function scrolledUp(prior: number, command: PaneCommand): number {
+  if (command.type === "terminal.scroll") return Math.max(0, prior + (command.direction === "up" ? 1 : -1));
+  if (command.type === "terminal.input" && command.text.includes(JUMP_TO_BOTTOM)) return 0;
+  return prior;
+}
+
+// The screen of a pane that scrolls itself is drawn from Herdr's frames, which
+// carry no mouse modes, so a click never reaches the program and its "Jump to
+// bottom" note cannot be pressed. A plain click on a pane the board scrolled up
+// jumps it to the bottom instead; a drag, a selection or another button does
+// not, and neither does a view that could not scroll the pane itself now, such
+// as one whose pane a review gate took, since typing there would ask for it.
+// The count can run ahead of the pane, which stops at its top, and a jump at
+// the bottom only moves Claude Code's cursor to the end of its input.
+const CLICK_SLOP = 4;
+export function clickJumps(scrolled: number, click: { button: number; moved: number; selected: boolean }, view: { sized: boolean; refused: boolean }): boolean {
+  return scrolled > 0 && click.button === 0 && click.moved < CLICK_SLOP && !click.selected && view.sized && !view.refused;
+}
+
+// A click's jump waits out the double-click interval and a further press
+// cancels it, so a double or triple click selects the word or line it aimed at
+// before the pane moves. Whether it jumps is decided when it would go.
+export const CLICK_JUMP_WAIT_MS = 300;
+export function clickJumper(jump: () => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => clearTimeout(timer);
+  return {
+    cancel,
+    released(jumps: () => boolean) {
+      cancel();
+      timer = setTimeout(() => { if (jumps()) jump(); }, CLICK_JUMP_WAIT_MS);
+    },
+  };
+}
+
 // Claude Code's fullscreen interface draws in the terminal's alternate
 // screen, so its pane keeps no scrollback: Herdr's history holds no more
 // lines than the screen. Such a pane scrolls its own transcript on the wheel;
@@ -33,6 +91,27 @@ export function scrollsItself(history: string, rows: number, agent: string): boo
 export const SELF_SCROLL_FRESH_MS = 30_000;
 export function selfScrollFresh(checkedAt: number, now: number): boolean {
   return now - checkedAt < SELF_SCROLL_FRESH_MS;
+}
+
+// The lines a view reads to judge whether a pane scrolls itself: two screens
+// and one line tell a pane with no scrollback from one with some exactly as its
+// whole history does, blank rows below the screen's last text included, and
+// read in a moment.
+export function judgeLines(rows: number): number {
+  return Math.min(HISTORY_LINES, 2 * rows + 1);
+}
+
+// What a turn of the wheel over the live screen does with what the view last
+// judged of the pane (at is when, 0 for not yet, and rows the grid it was
+// judged against): a pane that scrolls itself scrolls at once, and one with
+// history opens it on a turn up, which reads it whole and judges again. A
+// stale judgment is looked at again beside the scroll, never before it; only
+// turns before the first judgment at the screen's grid wait for it, since a
+// pane asked for a new grid as it was read may have answered at that one.
+export function liveWheel(judged: { at: number; selfScrolls: boolean; rows: number }, screen: { now: number; rows: number }, lines: number): { action: "scroll" | "open" | "wait" | "none"; look: boolean } {
+  if (!judged.at || judged.rows !== screen.rows) return { action: "wait", look: true };
+  if (judged.selfScrolls) return { action: "scroll", look: !selfScrollFresh(judged.at, screen.now) };
+  return { action: lines < 0 ? "open" : "none", look: false };
 }
 
 // What a turn of the wheel does to a pane that scrolls itself: a view that

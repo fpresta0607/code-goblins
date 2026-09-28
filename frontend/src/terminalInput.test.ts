@@ -1,6 +1,6 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { bracketedPaste, endStep, fittedFontSize, previewScale, gridToAsk, historyText, inputBytes, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, scrollAction, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
+import { bracketedPaste, CLICK_JUMP_WAIT_MS, clickJumper, clickJumps, endStep, fittedFontSize, previewScale, gridToAsk, HISTORY_LINES, historyText, inputBytes, JUMP_TO_BOTTOM, judgeLines, liveWheel, MAX_WAITING_SCROLLS, MAX_WHEEL_LINES, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, SELF_SCROLL_FRESH_MS, selfScrollFresh, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput.ts";
 
 test("while the panel is dragged the screen keeps its grid, scaled whole into the panel", () => {
   assert.equal(previewScale({ width: 600, height: 900 }, { width: 1200, height: 900 }), 0.5, "a narrower panel shrinks it by width");
@@ -100,6 +100,135 @@ test("a pane found to scroll itself is trusted only until its history is due a f
     ["never checked, as a new connection is", 0, checkedAt, false],
   ];
   for (const [name, at, now, want] of cases) assert.equal(selfScrollFresh(at, now), want, name);
+});
+
+test("a short read judges whether a pane scrolls itself exactly as its whole history does", () => {
+  // A pane holds scrollback lines above a screen whose last rows may be blank,
+  // and a read returns its most recent lines.
+  const read = (scrollback: number, rows: number, blank: number, lines: number) => {
+    const pane = [...Array.from({ length: scrollback }, (_, index) => `old ${index}`), ...Array.from({ length: rows }, (_, index) => index < rows - blank ? `row ${index}` : "")];
+    return pane.slice(-lines).join("\n");
+  };
+  for (const rows of [5, 28, 51]) {
+    assert.ok(judgeLines(rows) < HISTORY_LINES / 10, `${rows} rows read a few lines, not the whole history`);
+    for (let scrollback = 0; scrollback <= 3 * rows; scrollback++) {
+      for (let blank = 0; blank <= rows; blank++) {
+        const whole = scrollsItself(read(scrollback, rows, blank, HISTORY_LINES), rows, "claude");
+        assert.equal(scrollsItself(read(scrollback, rows, blank, judgeLines(rows)), rows, "claude"), whole, `${rows} rows, ${scrollback} lines of scrollback, ${blank} blank rows`);
+      }
+    }
+  }
+});
+
+test("the wheel over the live screen never waits for a fresh look at the pane", () => {
+  const at = 1_000_000, rows = 24;
+  const cases: [string, Parameters<typeof liveWheel>[0], Parameters<typeof liveWheel>[1], number, ReturnType<typeof liveWheel>][] = [
+    ["a pane that scrolls itself is scrolled at once", { at, selfScrolls: true, rows }, { now: at + 10, rows }, -3, { action: "scroll", look: false }],
+    ["and down as well", { at, selfScrolls: true, rows }, { now: at + 10, rows }, 3, { action: "scroll", look: false }],
+    ["a stale judgment still scrolls at once and is looked at again beside it", { at, selfScrolls: true, rows }, { now: at + SELF_SCROLL_FRESH_MS, rows }, -3, { action: "scroll", look: true }],
+    ["a pane with history opens it on a turn up", { at, selfScrolls: false, rows }, { now: at + 10, rows }, -3, { action: "open", look: false }],
+    ["and a turn down on its live screen does nothing", { at, selfScrolls: false, rows }, { now: at + 10, rows }, 3, { action: "none", look: false }],
+    ["opening the history reads it whole, so a stale judgment needs no look of its own", { at, selfScrolls: false, rows }, { now: at + SELF_SCROLL_FRESH_MS, rows }, -3, { action: "open", look: false }],
+    ["before the first judgment lands the turn waits for it", { at: 0, selfScrolls: false, rows: 0 }, { now: at, rows }, -3, { action: "wait", look: true }],
+    // The pane was asked for a new grid as the judgment was read, so Herdr
+    // answered a screen taller than the rows it was judged against.
+    ["a judgment read at another grid waits for a look at this one", { at, selfScrolls: false, rows: rows - 1 }, { now: at + 10, rows }, -3, { action: "wait", look: true }],
+    ["even one that found the pane scrolls itself", { at, selfScrolls: true, rows: rows + 1 }, { now: at + 10, rows }, 3, { action: "wait", look: true }],
+  ];
+  for (const [name, judged, screen, lines, want] of cases) assert.deepEqual(liveWheel(judged, screen, lines), want, name);
+});
+
+const scroll = (direction: "up" | "down", lines: number): Extract<PaneCommand, { type: "terminal.scroll" }> => ({ type: "terminal.scroll", direction, lines, source: "wheel" });
+
+test("a wheel faster than the board can send keeps only a few scrolls waiting, so the pane stops soon after the wheel", () => {
+  const size: PaneCommand = { type: "terminal.resize", cols: 100, rows: 30 };
+  const full = Array.from({ length: MAX_WAITING_SCROLLS }, () => scroll("up", 4));
+  const cases: [string, PaneCommand[], ReturnType<typeof scroll>, PaneCommand[]][] = [
+    ["an empty queue takes the turn", [], scroll("up", 4), [scroll("up", 4)]],
+    ["a turn waits behind one the same way, since a scroll is one notch and cannot be joined", [scroll("up", 4)], scroll("up", 3), [scroll("up", 4), scroll("up", 3)]],
+    ["a turn past the waiting limit is dropped", full, scroll("up", 4), full],
+    ["a turn the other way replaces the waiting ones", full, scroll("down", 4), [scroll("down", 4)]],
+    ["typing keeps its place and the scrolls before it", [...full, typed("a")], scroll("up", 4), [...full, typed("a"), scroll("up", 4)]],
+    ["a turn the other way never drops typing", [scroll("up", 4), typed("a"), scroll("up", 4)], scroll("down", 4), [scroll("up", 4), typed("a"), scroll("down", 4)]],
+    ["a size keeps its place", [...full, size], scroll("up", 4), [...full, size, scroll("up", 4)]],
+  ];
+  for (const [name, queue, command, want] of cases) {
+    const waiting = [...queue];
+    queueScroll(waiting, command);
+    assert.deepEqual(waiting, want, name);
+  }
+  const flick: PaneCommand[] = [];
+  for (let turn = 0; turn < 40; turn++) queueScroll(flick, scroll("up", 4));
+  assert.equal(flick.length, MAX_WAITING_SCROLLS, "forty turns while one scroll is on its way leave only the limit waiting");
+});
+
+test("the board counts the notches it scrolled a pane up, one a scroll whatever its lines, and Ctrl+End clears them", () => {
+  // Herdr hands the program one wheel notch for each scroll, measured on a
+  // fixture: scrolls of 3, 4, 12 and 50 lines each arrived as one notch.
+  const steps: [string, PaneCommand, number][] = [
+    ["a scroll up is a notch up", scroll("up", 10), 1],
+    ["another, of fewer lines, is another notch", scroll("up", 4), 2],
+    ["a scroll down of many lines is still one notch back", scroll("down", 50), 1],
+    ["typing leaves the count", typed("a"), 1],
+    ["the last notch down reaches the bottom", scroll("down", 3), 0],
+    ["the pane's bottom is as far down as it goes", scroll("down", 3), 0],
+    ["up again", scroll("up", 7), 1],
+    ["Ctrl+End jumps to the bottom", typed(JUMP_TO_BOTTOM), 0],
+  ];
+  let scrolled = 0;
+  for (const [name, command, want] of steps) {
+    scrolled = scrolledUp(scrolled, command);
+    assert.equal(scrolled, want, name);
+  }
+});
+
+test("a plain click on a pane the board scrolled up and could scroll now jumps it to the bottom; a selection, a pane at its bottom or one it cannot scroll does not", () => {
+  const click = { button: 0, moved: 0, selected: false };
+  const holds = { sized: true, refused: false };
+  const cases: [string, number, typeof click, typeof holds, boolean][] = [
+    ["a click on a pane scrolled up jumps", 12, click, holds, true],
+    ["a click that shook a pixel or two still jumps", 12, { ...click, moved: 3 }, holds, true],
+    ["a press and release 4 px apart is not a click", 12, { ...click, moved: 4 }, holds, false],
+    ["a drag that selected text copies it instead", 12, { ...click, moved: 40, selected: true }, holds, false],
+    ["a drag that selected nothing is not a click", 12, { ...click, moved: 40 }, holds, false],
+    ["a click that left a selection keeps it", 12, { ...click, selected: true }, holds, false],
+    ["another button does nothing", 12, { ...click, button: 2 }, holds, false],
+    ["a pane at its bottom has nowhere to jump", 0, click, holds, false],
+    ["a view that no longer sizes the pane, as when a review gate took it, does nothing", 12, click, { sized: false, refused: false }, false],
+    ["a view whose take was refused does nothing", 12, click, { sized: false, refused: true }, false],
+    ["a sized view with a refused take pending an answer does nothing", 12, click, { sized: true, refused: true }, false],
+  ];
+  for (const [name, scrolled, pointer, view, want] of cases) assert.equal(clickJumps(scrolled, pointer, view), want, name);
+  assert.equal(JUMP_TO_BOTTOM, "[1;5F", "the jump is Ctrl+End, the key Claude Code names on its own note");
+});
+
+test("a click jumps only once the double-click interval passes with no further press, so a double or triple click selects what it aimed at", () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let jumps = 0;
+    const jumper = clickJumper(() => { jumps++; });
+    jumper.released(() => true);
+    mock.timers.tick(CLICK_JUMP_WAIT_MS - 1);
+    assert.equal(jumps, 0, "a click waits out the double-click interval");
+    mock.timers.tick(1);
+    assert.equal(jumps, 1, "then jumps");
+
+    jumper.released(() => true);
+    mock.timers.tick(150);
+    jumper.cancel();
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "a second press in time cancels the jump");
+
+    jumper.released(() => false);
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "the jump is decided when it would go, not when the click ended");
+
+    jumper.released(() => true);
+    jumper.cancel();
+    mock.timers.tick(CLICK_JUMP_WAIT_MS);
+    assert.equal(jumps, 1, "stopping the view cancels a waiting jump");
+  } finally { mock.timers.reset(); }
+  assert.ok(CLICK_JUMP_WAIT_MS >= 300, "the wait covers a double click");
 });
 
 test("the wheel over a pane that scrolls itself never asks again for a take that was refused", () => {
