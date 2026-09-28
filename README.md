@@ -265,12 +265,13 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 3 of 3, a goblin's question with A, B and C choices, the recommended option marked, and Other; Back, 3 of 3 and Next sit on the left of the card's action row and Send decision on the right" width="560" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
-Choices are labelled A, B and C with the CFO's recommendation marked, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped, so each choice shows one letter.
+Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
+`cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
 Review items share the stack: a goblin's image review, a review page, or a goblin waiting on you.
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.

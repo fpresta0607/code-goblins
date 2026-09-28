@@ -151,6 +151,70 @@ func TestIsPrimaryOutsideGitNeedsTheInstalledMarker(t *testing.T) {
 	}
 }
 
+// IsPrimary runs in the CFO's hooks on every tool call they select, so it
+// reads the checkout from its files and starts no git process: with nothing
+// on PATH it tells a plain checkout, a folder inside one, a linked worktree
+// and a home outside any repository apart exactly as git does.
+func TestIsPrimaryReadsTheCheckoutWithoutStartingGit(t *testing.T) {
+	// Arrange: every repository is made with git before PATH is emptied.
+	ceiling := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", ceiling)
+	home := func(root string) Home {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return Home{Root: root, State: filepath.Join(root, "state")}
+	}
+	checkout := filepath.Join(ceiling, "checkout")
+	if err := os.Mkdir(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, checkout)
+	plain := home(checkout)
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "c"}} {
+		if out, err := exec.Command("git", append([]string{"-C", checkout}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	worktreeRoot := filepath.Join(ceiling, "wt")
+	if out, err := exec.Command("git", "-C", checkout, "worktree", "add", worktreeRoot).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	worktree := home(worktreeRoot)
+	inside := home(filepath.Join(checkout, "nested", "home"))
+	outside := home(filepath.Join(ceiling, "outside"))
+	installed := home(filepath.Join(ceiling, "installed"))
+	if err := os.WriteFile(filepath.Join(installed.Root, InstalledMarker), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	cases := []struct {
+		name string
+		home Home
+		want bool
+	}{
+		{"plain checkout", plain, true},
+		{"folder inside a plain checkout", inside, true},
+		{"linked worktree", worktree, false},
+		{"outside any repository", outside, false},
+		{"installed home outside any repository", installed, true},
+	}
+	for _, c := range cases {
+		// Act
+		got := IsPrimary(c.home)
+
+		// Assert
+		if got != c.want {
+			t.Errorf("%s: IsPrimary = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestIsPrimaryNeverCreates(t *testing.T) {
 	dir := t.TempDir()
 	IsPrimary(Home{Root: dir, State: filepath.Join(dir, "state")})

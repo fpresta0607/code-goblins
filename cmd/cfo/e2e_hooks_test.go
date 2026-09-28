@@ -35,9 +35,10 @@ import (
 //  1. Seven invocations against a genuine primary home (the brief's table).
 //  2. The inertness proof: the same seven invocations against a bare dev
 //     home must be silent no-ops, verified by a recursive directory diff.
-//  3. The exact six command strings cfo install registers, run through the
-//     POSIX shell Step 3a identified, against both homes.
-//  4. A timing sweep of the four hooks Global Constraints budgets.
+//  3. The hooks cfo install registers, run as Claude Code runs them (the
+//     home's cfo.exe started directly with its args, no shell), against
+//     both homes.
+//  4. A timing sweep: what each hook adds to the binary's own start.
 func TestHookFamilyEndToEnd(t *testing.T) {
 	goBin := resolveGoBin(t)
 	repoRoot := repoRootFromCmdCFO(t)
@@ -56,9 +57,7 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 
 	// --- Phase 1: seven invocations against a genuine primary home ---
 
-	// The registered commands resolve cfo.exe through CFO_HOME, so a home
-	// that stands in for a real $CFO_HOME has to hold the binary.
-	sharedHome := homeWithBinary(t, exe)
+	sharedHome := newPrimaryHome(t)
 
 	t.Run("case1 session-start full compose", func(t *testing.T) {
 		home := newPrimaryHome(t)
@@ -167,19 +166,17 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 	})
 
-	// --- Phase 3: the exact registered command strings, through the shell Step 3a identified ---
+	// --- Phase 3: the hooks cfo install registers, run as Claude Code runs them ---
 
-	t.Run("registered command strings via the POSIX shell", func(t *testing.T) {
-		bashPath := resolveMingwBash(t)
-
-		commands := loadRegisteredCommands(t)
-		wantNames := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
+	t.Run("registered hooks as Claude Code runs them", func(t *testing.T) {
+		commands := loadRegisteredCommands(t, exe)
+		wantNames := []string{"session-start", "pretool-bash", "pretool-subagent", "turnend-guard", "stop-autoarm"}
 		if len(commands) != len(wantNames) {
-			t.Fatalf("cfo install registered %d recognizable hook commands, want %d: %v", len(commands), len(wantNames), commands)
+			t.Fatalf("cfo install registered %d recognizable hooks, want %d: %v", len(commands), len(wantNames), commands)
 		}
 		for _, name := range wantNames {
 			if _, ok := commands[name]; !ok {
-				t.Fatalf("cfo install is missing a registered command for %q", name)
+				t.Fatalf("cfo install is missing a registered hook for %q", name)
 			}
 		}
 
@@ -199,58 +196,53 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 		}
 
 		t.Run("session-start", func(t *testing.T) {
-			home := homeWithBinary(t, exe)
-			res := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, baseEnv(home, nil))
-			assertExit(t, res, 0, "session-start via shell (primary)")
-			assertEmptyStderr(t, res, "session-start via shell (primary)")
-			assertHasHeaders(t, res.stdout, "session-start via shell (primary)")
+			home := newPrimaryHome(t)
+			res := runRegistered(t, commands["session-start"], sessionStartPayload, baseEnv(home, nil))
+			assertExit(t, res, 0, "session-start (primary)")
+			assertEmptyStderr(t, res, "session-start (primary)")
+			assertHasHeaders(t, res.stdout, "session-start (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, baseEnv(devHome, nil))
-			assertSilentZero(t, devRes, "session-start via shell (dev)")
+			devRes := runRegistered(t, commands["session-start"], sessionStartPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "session-start (dev)")
 		})
 
 		t.Run("pretool-subagent", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, baseEnv(sharedHome, nil))
-			assertDeny(t, res, "", "pretool-subagent via shell (primary)")
+			res := runRegistered(t, commands["pretool-subagent"], subagentPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "", "pretool-subagent (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, baseEnv(devHome, nil))
-			assertSilentZero(t, devRes, "pretool-subagent via shell (dev)")
+			devRes := runRegistered(t, commands["pretool-subagent"], subagentPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-subagent (dev)")
 		})
 
-		t.Run("pretool-arm", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, baseEnv(sharedHome, nil))
-			assertDeny(t, res, "watcher-background", "pretool-arm via shell (primary)")
+		t.Run("pretool-bash", func(t *testing.T) {
+			res := runRegistered(t, commands["pretool-bash"], armDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "watcher-background", "pretool-bash watcher arm (primary)")
+			res = runRegistered(t, commands["pretool-bash"], cdDenyPayload, baseEnv(sharedHome, nil))
+			assertDeny(t, res, "cwd-relocation", "pretool-bash relocation (primary)")
+			res = runRegistered(t, commands["pretool-bash"], armAllowPayload, baseEnv(sharedHome, nil))
+			assertSilentZero(t, res, "pretool-bash plain command (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, baseEnv(devHome, nil))
-			assertSilentZero(t, devRes, "pretool-arm via shell (dev)")
-		})
-
-		t.Run("pretool-cd", func(t *testing.T) {
-			res := runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, baseEnv(sharedHome, nil))
-			assertDeny(t, res, "cwd-relocation", "pretool-cd via shell (primary)")
-
-			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, baseEnv(devHome, nil))
-			assertSilentZero(t, devRes, "pretool-cd via shell (dev)")
+			devRes := runRegistered(t, commands["pretool-bash"], cdDenyPayload, baseEnv(devHome, nil))
+			assertSilentZero(t, devRes, "pretool-bash (dev)")
 		})
 
 		t.Run("turnend-guard", func(t *testing.T) {
-			home := homeWithBinary(t, exe)
+			home := newPrimaryHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
 			extra := map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}
-			res := runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload, baseEnv(home, extra))
-			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard via shell (primary)")
+			res := runRegistered(t, commands["turnend-guard"], turnendPayload, baseEnv(home, extra))
+			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload, baseEnv(devHome, extra))
-			assertSilentZero(t, devRes, "turnend-guard via shell (dev)")
+			devRes := runRegistered(t, commands["turnend-guard"], turnendPayload, baseEnv(devHome, extra))
+			assertSilentZero(t, devRes, "turnend-guard (dev)")
 		})
 
 		t.Run("stop-autoarm", func(t *testing.T) {
-			home := homeWithBinary(t, exe)
+			home := newPrimaryHome(t)
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			extra := map[string]string{
@@ -261,68 +253,21 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
 			}
 			done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
-			res := runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, baseEnv(home, extra))
+			res := runRegistered(t, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(home, extra))
 			<-done
-			assertBlock(t, res, "cfo watcher wake", "stop-autoarm via shell (primary)")
+			assertBlock(t, res, "cfo watcher wake", "stop-autoarm (primary)")
 
 			devHome := newDevHome(t)
-			devRes := runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, baseEnv(devHome, extra))
-			assertSilentZero(t, devRes, "stop-autoarm via shell (dev)")
-		})
-
-		// Important 1 (review): every one of these subtests so far resolves
-		// cfo.exe successfully - the present-binary branch of every
-		// "[ -x ... ] || exit 0" guard. That is NOT the state a fresh clone
-		// is in: cfo.exe is git-ignored, so until it is built every session
-		// takes the ABSENT branch of all six guards. This subtest proves
-		// that branch directly: neither CFO_HOME nor CLAUDE_PROJECT_DIR
-		// holds a binary, against a primary home that already has goblin
-		// work in flight (so an un-guarded hook would visibly deny, block,
-		// or rewake if the guard did not stop it first), and every one of
-		// the six exact registered command strings must still exit 0 with
-		// both streams empty.
-		t.Run("absent binary guard (no cfo.exe to resolve)", func(t *testing.T) {
-			emptyDir := t.TempDir()
-			home := newPrimaryHome(t)
-			state := filepath.Join(home, "state")
-			writeMetaFixture(t, state, "g1.meta")
-			env := func(extra map[string]string) []string {
-				return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": emptyDir}, extra))
-			}
-
-			absentCases := []struct {
-				name  string
-				stdin string
-				env   map[string]string
-			}{
-				{"session-start", sessionStartPayload, nil},
-				{"pretool-subagent", subagentPayload, nil},
-				{"pretool-arm", armDenyPayload, nil},
-				{"pretool-cd", cdDenyPayload, nil},
-				{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
-				{"stop-autoarm", stopAutoarmPayload, map[string]string{
-					"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
-					"CFO_POLL":                    "1",
-					"CFO_SIGNAL_GRACE":            "1",
-					"CFO_HEARTBEAT":               "1",
-					"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
-				}},
-			}
-			if len(absentCases) != 6 {
-				t.Fatalf("absent-binary table has %d rows, want exactly 6 (one per registered command)", len(absentCases))
-			}
-			for _, c := range absentCases {
-				res := runViaShell(t, bashPath, commands[c.name].Command, c.stdin, env(c.env))
-				assertSilentZero(t, res, c.name+" via shell (cfo.exe absent)")
-			}
+			devRes := runRegistered(t, commands["stop-autoarm"], stopAutoarmPayload, baseEnv(devHome, extra))
+			assertSilentZero(t, devRes, "stop-autoarm (dev)")
 		})
 
 		// This is the whole point of installing at user scope: a session
 		// opened in some OTHER repository - one with no cfo.exe of its own,
 		// which is every repository - must still be supervised. Every hook
 		// here has CLAUDE_PROJECT_DIR pointing at a project directory with
-		// no binary in it, so the only thing that can resolve cfo.exe is
-		// CFO_HOME, and each command must do the same thing it does inside
+		// no binary in it; the registered hooks name the home's binary by its
+		// full path, and each must do the same thing it does inside
 		// code-goblins.
 		t.Run("a session in a different repo (no cfo.exe at CLAUDE_PROJECT_DIR)", func(t *testing.T) {
 			otherRepo := t.TempDir()
@@ -333,29 +278,29 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 				return cfoTestEnv(t, home, mergeEnv(map[string]string{"CLAUDE_PROJECT_DIR": otherRepo}, extra))
 			}
 
-			home := homeWithBinary(t, exe)
-			res := runViaShell(t, bashPath, commands["session-start"].Command, sessionStartPayload, env(home, nil))
+			home := newPrimaryHome(t)
+			res := runRegistered(t, commands["session-start"], sessionStartPayload, env(home, nil))
 			assertExit(t, res, 0, "session-start in a different repo")
 			assertHasHeaders(t, res.stdout, "session-start in a different repo")
 
-			home = homeWithBinary(t, exe)
+			home = newPrimaryHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
-			res = runViaShell(t, bashPath, commands["pretool-subagent"].Command, subagentPayload, env(home, nil))
+			res = runRegistered(t, commands["pretool-subagent"], subagentPayload, env(home, nil))
 			assertDeny(t, res, "", "pretool-subagent in a different repo")
 
-			res = runViaShell(t, bashPath, commands["pretool-arm"].Command, armDenyPayload, env(home, nil))
-			assertDeny(t, res, "watcher-background", "pretool-arm in a different repo")
+			res = runRegistered(t, commands["pretool-bash"], armDenyPayload, env(home, nil))
+			assertDeny(t, res, "watcher-background", "pretool-bash watcher arm in a different repo")
 
-			res = runViaShell(t, bashPath, commands["pretool-cd"].Command, cdDenyPayload, env(home, nil))
-			assertDeny(t, res, "cwd-relocation", "pretool-cd in a different repo")
+			res = runRegistered(t, commands["pretool-bash"], cdDenyPayload, env(home, nil))
+			assertDeny(t, res, "cwd-relocation", "pretool-bash relocation in a different repo")
 
-			home = homeWithBinary(t, exe)
+			home = newPrimaryHome(t)
 			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
-			res = runViaShell(t, bashPath, commands["turnend-guard"].Command, turnendPayload,
+			res = runRegistered(t, commands["turnend-guard"], turnendPayload,
 				env(home, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}))
 			assertBlock(t, res, "TURN WOULD END BLIND", "turnend-guard in a different repo")
 
-			home = homeWithBinary(t, exe)
+			home = newPrimaryHome(t)
 			state := filepath.Join(home, "state")
 			writeMetaFixture(t, state, "g1.meta")
 			autoarmExtra := map[string]string{
@@ -366,92 +311,99 @@ func TestHookFamilyEndToEnd(t *testing.T) {
 				"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
 			}
 			done := statusApendAfter(state, "g1.status", 300*time.Millisecond)
-			res = runViaShell(t, bashPath, commands["stop-autoarm"].Command, stopAutoarmPayload, env(home, autoarmExtra))
+			res = runRegistered(t, commands["stop-autoarm"], stopAutoarmPayload, env(home, autoarmExtra))
 			<-done
 			assertBlock(t, res, "cfo watcher wake", "stop-autoarm in a different repo")
 		})
 
-		// The other side of moving the hooks to user scope: a goblin pane
-		// now inherits them too, so the role stamp is the only thing keeping
-		// the CFO's supervision out of the work it is supervising. Same
-		// primary home and same in-flight goblin as the subtest above, where
-		// every one of these six denied, blocked, or printed a digest.
-		t.Run("a goblin pane receives no hook", func(t *testing.T) {
-			home := homeWithBinary(t, exe)
-			writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
-			goblinEnv := func(extra map[string]string) []string {
-				return cfoTestEnv(t, home, mergeEnv(map[string]string{
-					"CLAUDE_PROJECT_DIR": home,
-					"CFO_ROLE":           "goblin",
-				}, extra))
-			}
+		// The other side of moving the hooks to user scope: every goblin pane
+		// and every gate agent inherits them too, so the role stamp and the
+		// gate's own variable are what keep the CFO's supervision out of the
+		// work it is supervising. Same primary home and same in-flight goblin
+		// as the subtest above, where every one of these denied, blocked, or
+		// printed a digest.
+		for _, session := range []struct{ name, variable, value string }{
+			{"a goblin pane receives no hook", "CFO_ROLE", "goblin"},
+			{"a gate agent receives no hook", "NO_MISTAKES_GATE", "1"},
+		} {
+			t.Run(session.name, func(t *testing.T) {
+				home := newPrimaryHome(t)
+				writeMetaFixture(t, filepath.Join(home, "state"), "g1.meta")
+				sessionEnv := func(extra map[string]string) []string {
+					return cfoTestEnv(t, home, mergeEnv(map[string]string{
+						"CLAUDE_PROJECT_DIR": home,
+						session.variable:     session.value,
+					}, extra))
+				}
 
-			goblinCases := []struct {
-				name  string
-				stdin string
-				env   map[string]string
-			}{
-				{"session-start", sessionStartPayload, nil},
-				{"pretool-subagent", subagentPayload, nil},
-				{"pretool-arm", armDenyPayload, nil},
-				{"pretool-cd", cdDenyPayload, nil},
-				{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
-				{"stop-autoarm", stopAutoarmPayload, map[string]string{
-					"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
-					"CFO_POLL":                    "1",
-					"CFO_SIGNAL_GRACE":            "1",
-					"CFO_HEARTBEAT":               "1",
-					"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
-				}},
-			}
-			if len(goblinCases) != len(wantNames) {
-				t.Fatalf("goblin table has %d rows, want one per registered command (%d)", len(goblinCases), len(wantNames))
-			}
-			for _, c := range goblinCases {
-				res := runViaShell(t, bashPath, commands[c.name].Command, c.stdin, goblinEnv(c.env))
-				assertSilentZero(t, res, c.name+" via shell (goblin pane)")
-			}
-		})
+				cases := []struct {
+					name  string
+					stdin string
+					env   map[string]string
+				}{
+					{"session-start", sessionStartPayload, nil},
+					{"pretool-subagent", subagentPayload, nil},
+					{"pretool-bash", armDenyPayload, nil},
+					{"turnend-guard", turnendPayload, map[string]string{"CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS": "1"}},
+					{"stop-autoarm", stopAutoarmPayload, map[string]string{
+						"CFO_TEST_ANCESTOR_PID":       strconv.Itoa(os.Getpid()),
+						"CFO_POLL":                    "1",
+						"CFO_SIGNAL_GRACE":            "1",
+						"CFO_HEARTBEAT":               "1",
+						"CFO_CLAUDE_AUTOARM_ATTEMPTS": "1",
+					}},
+				}
+				if len(cases) != len(wantNames) {
+					t.Fatalf("table has %d rows, want one per registered hook (%d)", len(cases), len(wantNames))
+				}
+				for _, c := range cases {
+					res := runRegistered(t, commands[c.name], c.stdin, sessionEnv(c.env))
+					assertSilentZero(t, res, c.name+" ("+session.name+")")
+				}
+			})
+		}
 	})
 
-	// --- Phase 4: timing sweep, Global Constraints budgets ---
+	// --- Phase 4: timing sweep, budgets over the binary's own start ---
 
+	// Starting cfo.exe is the machine's cost, and on a loaded machine it alone
+	// passes any fixed budget; what a hook adds on top of it is this code's.
+	// Each hook runs interleaved with `cfo version`, which starts the same
+	// binary and does nothing, and its fastest run may exceed the fastest
+	// start by no more than its budget. A pre-tool hook's work is reading its
+	// payload and a few of the home's files, so a child process, a symlink
+	// resolution or a Herdr call on its path breaks the budget.
 	t.Run("timing budgets", func(t *testing.T) {
 		timingHome := newPrimaryHome(t)
 		env := cfoTestEnv(t, timingHome, nil)
 
-		preToolCases := []struct {
+		cases := []struct {
 			hookName string
 			stdin    string
+			budget   time.Duration
 		}{
-			{"pretool-arm", armAllowPayload},
-			{"pretool-cd", cdAllowPayload},
-			{"pretool-subagent", subagentAllowPayload},
+			{"pretool-bash", armAllowPayload, 50 * time.Millisecond},
+			{"pretool-bash", cdAllowPayload, 50 * time.Millisecond},
+			{"pretool-subagent", subagentAllowPayload, 50 * time.Millisecond},
+			{"session-start", sessionStartPayload, time.Second},
 		}
-		for _, c := range preToolCases {
-			durs := make([]time.Duration, 20)
-			for i := range durs {
+		for _, c := range cases {
+			starts, hooks := make([]time.Duration, 20), make([]time.Duration, 20)
+			for i := range hooks {
+				version := exec.Command(exe, "version")
+				version.Env = env
 				start := time.Now()
+				runCmd(t, version)
+				starts[i] = time.Since(start)
+				start = time.Now()
 				runHookBinary(t, exe, c.hookName, c.stdin, env)
-				durs[i] = time.Since(start)
+				hooks[i] = time.Since(start)
 			}
-			min := minDuration(durs)
-			t.Logf("%s: min=%v over %d runs (median %v) (%v)", c.hookName, min, len(durs), median(durs), durs)
-			if min > 150*time.Millisecond {
-				t.Errorf("%s min = %v, want <= 150ms (Global Constraints budget)", c.hookName, min)
+			floor, fastest := minDuration(starts), minDuration(hooks)
+			t.Logf("%s: fastest %v over the binary's fastest start %v (medians %v and %v)", c.hookName, fastest, floor, median(hooks), median(starts))
+			if fastest-floor > c.budget {
+				t.Errorf("%s fastest run %v is %v over the binary's fastest start %v, want at most %v", c.hookName, fastest, fastest-floor, floor, c.budget)
 			}
-		}
-
-		durs := make([]time.Duration, 20)
-		for i := range durs {
-			start := time.Now()
-			runHookBinary(t, exe, "session-start", sessionStartPayload, env)
-			durs[i] = time.Since(start)
-		}
-		min := minDuration(durs)
-		t.Logf("session-start: min=%v over %d runs (median %v) (%v)", min, len(durs), median(durs), durs)
-		if min > time.Second {
-			t.Errorf("session-start min = %v, want <= 1s (Global Constraints budget)", min)
 		}
 	})
 }
@@ -573,10 +525,11 @@ func buildCFOBinary(t *testing.T, goBin, repoRoot string) string {
 // --- registered-command extraction (Step 3c) ---
 
 type settingsHookEntry struct {
-	Type        string `json:"type"`
-	Command     string `json:"command"`
-	Timeout     int    `json:"timeout"`
-	AsyncRewake bool   `json:"asyncRewake"`
+	Type        string   `json:"type"`
+	Command     string   `json:"command"`
+	Args        []string `json:"args"`
+	Timeout     int      `json:"timeout"`
+	AsyncRewake bool     `json:"asyncRewake"`
 }
 
 type settingsHookGroup struct {
@@ -593,13 +546,14 @@ type settingsFile struct {
 }
 
 // registeredHook is one settings.json hook entry, keyed by the cfo hook name
-// its command string invokes. Timeout and AsyncRewake are carried through
-// (not just Command) so a future edit that silently drops SessionStart's
+// its args invoke. Timeout and AsyncRewake are carried through (not just
+// Command and Args) so a future edit that silently drops SessionStart's
 // timeout or stop-autoarm's asyncRewake/28800s timeout - both called out as
 // preserved verbatim by the brief - fails this test instead of going
 // unnoticed.
 type registeredHook struct {
 	Command     string
+	Args        []string
 	Timeout     int
 	AsyncRewake bool
 }
@@ -619,11 +573,12 @@ func (inertEnvStore) Broadcast() error                 { return nil }
 // parallel constant in this test) means this step always exercises what is
 // really wired, and an installer edit that drops or renames a hook fails
 // here loudly instead of silently testing stale strings.
-func loadRegisteredCommands(t *testing.T) map[string]registeredHook {
+func loadRegisteredCommands(t *testing.T, exe string) map[string]registeredHook {
 	t.Helper()
 	settingsPath := filepath.Join(t.TempDir(), "settings.json")
+	root := homeWithBinary(t, exe)
 	service := install.Service{
-		Root:         t.TempDir(),
+		Root:         root,
 		UserSettings: settingsPath,
 		RepoSettings: filepath.Join(t.TempDir(), "absent.json"),
 		Env:          inertEnvStore{},
@@ -641,12 +596,10 @@ func loadRegisteredCommands(t *testing.T) map[string]registeredHook {
 	}
 
 	commands := make(map[string]registeredHook)
-	names := []string{"session-start", "pretool-arm", "pretool-cd", "pretool-subagent", "turnend-guard", "stop-autoarm"}
+	binary := filepath.Join(root, "cfo.exe")
 	record := func(entry settingsHookEntry) {
-		for _, name := range names {
-			if strings.Contains(entry.Command, "hook "+name) {
-				commands[name] = registeredHook{Command: entry.Command, Timeout: entry.Timeout, AsyncRewake: entry.AsyncRewake}
-			}
+		if entry.Command == binary && len(entry.Args) == 2 && entry.Args[0] == "hook" {
+			commands[entry.Args[1]] = registeredHook{Command: entry.Command, Args: entry.Args, Timeout: entry.Timeout, AsyncRewake: entry.AsyncRewake}
 		}
 	}
 	for _, g := range sf.Hooks.SessionStart {
@@ -668,8 +621,8 @@ func loadRegisteredCommands(t *testing.T) map[string]registeredHook {
 }
 
 // homeWithBinary is a primary fleet home that also holds cfo.exe, which is
-// what a real $CFO_HOME looks like and what lets a session in another
-// repository resolve the binary at all.
+// what a real $CFO_HOME looks like and the binary the hooks cfo install
+// registers for it run.
 func homeWithBinary(t *testing.T, exe string) string {
 	t.Helper()
 	home := newPrimaryHome(t)
@@ -723,75 +676,14 @@ func runHookBinary(t *testing.T, exe, hookName, stdin string, env []string) hook
 	return runCmd(t, cmd)
 }
 
-// resolveMingwBash finds a verified MSYS/MINGW bash.exe and refuses to run
-// Phase 3 under anything else, because the POSIX-shell assumption behind
-// every registered command string is load-bearing for this proof.
-//
-// exec.LookPath("bash") is not safe here: on a Windows box with WSL
-// installed, "bash" on PATH frequently resolves to
-// C:\WINDOWS\system32\bash.exe, which is WSL2 bash (uname -s reports
-// "Linux", release "...microsoft-standard-WSL2"). WSL bash cannot resolve a
-// Windows path in any form the hooks use - it needs /mnt/c/... - so every
-// registered command's `[ -x "$CFO_ROOT"/cfo.exe ] || exit 0`
-// guard is false, the guard takes its exit-0 branch, and all six hooks
-// silently no-op. Every Phase 3 primary-home assertion then fails with
-// "exit = 0, want 2" and empty streams, and depending on PATH order the
-// suite passes or fails with no code change.
-//
-// That is a defect in this test's shell resolution, not in the production
-// wiring. Under Git bash (MINGW64, the shell Claude Code actually invokes
-// hooks through), CLAUDE_PROJECT_DIR passed as an ENVIRONMENT VARIABLE with
-// a Windows backslash path resolves correctly, because MSYS auto-converts
-// path-shaped env vars - confirmed empirically. The same path interpolated
-// INLINE into script text instead of via an env var does not resolve, but
-// that is a property of inline literals, not of the hooks, and is not a
-// defect. So: pin bash to a verified MINGW/MSYS build here rather than
-// trusting whatever LookPath("bash") happens to find first, and never
-// reintroduce a bare LookPath("bash") for this proof.
-func resolveMingwBash(t *testing.T) string {
-	t.Helper()
-	candidates := []string{
-		`C:\Program Files\Git\bin\bash.exe`,
-		`C:\Program Files\Git\usr\bin\bash.exe`,
-	}
-	if pathBash, err := exec.LookPath("bash"); err == nil {
-		candidates = append(candidates, pathBash)
-	}
-
-	var disqualified []string
-	for _, candidate := range candidates {
-		out, err := exec.Command(candidate, "-c", "uname -s").CombinedOutput()
-		if err != nil {
-			disqualified = append(disqualified, candidate+" (could not run uname -s: "+err.Error()+")")
-			continue
-		}
-		kernel := strings.TrimSpace(string(out))
-		if strings.Contains(kernel, "MINGW") || strings.Contains(kernel, "MSYS") {
-			t.Logf("resolved MINGW/MSYS bash for Phase 3: %s (uname -s = %q)", candidate, kernel)
-			return candidate
-		}
-		disqualified = append(disqualified, candidate+" (uname -s = "+kernel+")")
-	}
-
-	t.Fatalf("no MINGW/MSYS bash found; every candidate was disqualified: %s. "+
-		"The only bash on PATH is likely WSL, whose uname -s reports Linux; WSL bash "+
-		"cannot resolve Windows paths, so the registered command strings' "+
-		"`[ -x \"$CLAUDE_PROJECT_DIR\"/cfo.exe ] || exit 0` guard would silently take "+
-		"its exit-0 branch and no-op all six hooks. Install Git for Windows, or put its "+
-		"bash (bin\\bash.exe or usr\\bin\\bash.exe) ahead of System32 on PATH.",
-		strings.Join(disqualified, "; "))
-	return ""
-}
-
-// runViaShell invokes script through bashPath -c, the shell Step 3a proved
-// hook commands actually run under. Stdin is written directly by exec, the
-// same direct byte transfer runHookBinary uses; no PowerShell layer sits
-// between this test and the child process at any point, so the BOM hazard
-// documented elsewhere in this plan does not apply here.
-func runViaShell(t *testing.T, bashPath, script, stdin string, env []string) hookResult {
+// runRegistered runs a registered hook as Claude Code runs a hook that has
+// args: its command started directly with them, no shell between. Stdin is
+// written directly by exec, the same direct byte transfer runHookBinary
+// uses.
+func runRegistered(t *testing.T, hook registeredHook, stdin string, env []string) hookResult {
 	t.Helper()
 	assertFleetIsolatedEnv(t, env)
-	cmd := exec.Command(bashPath, "-c", script)
+	cmd := exec.Command(hook.Command, hook.Args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
 	return runCmd(t, cmd)
