@@ -58,6 +58,7 @@ export function App() {
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
+  const [resizing, setResizing] = useState(false);
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [switchFocus, setSwitchFocus] = useState(0);
@@ -194,7 +195,7 @@ export function App() {
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
-    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "")} style={layout}>
+    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (resizing ? " resizing" : "")} style={layout}>
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
@@ -204,7 +205,7 @@ export function App() {
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
-      {paneOpen && !panelWide && !compact && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
+      {paneOpen && !panelWide && !compact && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
         {snapshot && cardStart && paneOpen && (!showsPanel
           ? <><div className="panel-top"><div className="panel-top-side" /><div /><div className="panel-top-side end">{closeButton}</div></div>
