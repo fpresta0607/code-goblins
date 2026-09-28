@@ -963,6 +963,91 @@ func TestATypedBriefHerdrKeepsRefusingFailsWithTheRefusal(t *testing.T) {
 	}
 }
 
+// A write Herdr refuses may have typed all the same. With the read after it
+// refused too, the brief is read again rather than typed again, so the
+// composer never holds it twice.
+func TestARefusedWriteThatTypedIsNotTypedAgain(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.request.Harness = harness.Codex
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+	}
+	typedScreens(fixture.runner, harness.Codex)
+	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 1
+	fixture.runner.refusedWritesType = true
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if fixture.runner.briefWrites != 1 || fixture.runner.sendTextCount != 2 {
+		t.Errorf("brief typed %d times in %d writes, want the refused write that typed never written again", fixture.runner.briefWrites, fixture.runner.sendTextCount)
+	}
+}
+
+// Herdr briefly busy refuses an Enter and nothing is pressed, so neither a
+// refused first submit nor a refused later one fails the spawn: each is
+// pressed again, and the brief is still delivered once.
+func TestARefusedEnterOnATypedBriefIsPressedAgain(t *testing.T) {
+	for name, test := range map[string]struct {
+		refused  []int
+		prompted string
+		enters   int
+	}{
+		"the first submit":      {[]int{1}, codexWorking, 1},
+		"a submit left pending": {[]int{2}, "› [Pasted Content 1031 chars]\n\n  tab to queue message    100% context left\n", 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newFixture(t)
+			fixture.request.Harness = harness.Codex
+			fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+				harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
+			}
+			typedScreens(fixture.runner, harness.Codex)
+			fixture.runner.promptedScreen, fixture.runner.enteredScreen = test.prompted, codexWorking
+			fixture.runner.refuseBriefEnters = test.refused
+
+			_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if fixture.runner.briefWrites != 1 || fixture.runner.entersAfterBrief != test.enters {
+				t.Errorf("brief typed %d times with %d Enters taken, want once with %d", fixture.runner.briefWrites, fixture.runner.entersAfterBrief, test.enters)
+			}
+		})
+	}
+}
+
+// A trust prompt Codex draws after the startup checks is confirmed with one
+// Enter; a read before it redraws still shows the prompt and takes no second
+// key, which would answer the hook review Codex draws next. That prompt is
+// never a spawn's to answer, so the spawn stops there with its name.
+func TestALateTrustPromptTakesOneEnterAndTheHookReviewStopsTheSpawn(t *testing.T) {
+	fixture := newFixture(t)
+	trust := "Do you trust the contents of this directory?\n\n› 1. Yes, continue\n  2. No, quit\n"
+	fixture.runner.composerScreen = "PS C:\\work> \n"
+	fixture.runner.lateScreens = []string{trust, trust, "Hooks need review\n\n› 1. Review hooks\n"}
+	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
+		TypedLaunch: true, Executable: "codex", Instruction: "Read the brief.",
+		Dir: fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
+		ConfirmMarkers: []string{"Do you trust the contents of this directory?"}, ConfirmKeys: []string{"enter"},
+	}}
+
+	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
+
+	if err == nil || !strings.Contains(err.Error(), "the hook review prompt") {
+		t.Fatalf("startHarness error = %v, want the spawn stopped at the hook review", err)
+	}
+	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want the launch's submit and one Enter for the late trust prompt", got)
+	}
+	if fixture.runner.brief != "" {
+		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
+	}
+}
+
 func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	fixture := newFixture(t)
 	typedScreens(fixture.runner, harness.Pi)
@@ -1716,15 +1801,26 @@ type herdrRunner struct {
 	enteredScreen    string
 	// scrollback is what an earlier program left above those screens: a
 	// recent read includes it, and a read of the visible screen does not.
-	scrollback      string
-	reportedAgent   []string
-	sendTextCount   int
-	failSendTextAt  int
-	failSendTexts   int
-	failCtrlUs      int
-	installer       string
-	installerStderr string
-	mcpTracked      bool
+	scrollback string
+	// lateScreens are what the visible screen shows in turn, one per read,
+	// before the typed harness's brief: a dialog drawn after the startup
+	// checks, which read recent rows. refuseBriefEnters are the Enters after
+	// the brief Herdr refuses, counted from 1 in briefEnterTries.
+	// refusedWritesType has a write Herdr refuses type all the same, with the
+	// read after it refused too.
+	lateScreens       []string
+	lateReads         int
+	refuseBriefEnters []int
+	briefEnterTries   int
+	refusedWritesType bool
+	reportedAgent     []string
+	sendTextCount     int
+	failSendTextAt    int
+	failSendTexts     int
+	failCtrlUs        int
+	installer         string
+	installerStderr   string
+	mcpTracked        bool
 	// worktreesUncovered models a checkout whose own .gitignore says nothing
 	// about .worktrees/, so only the clone's info/exclude hides it.
 	worktreesUncovered bool
@@ -1824,6 +1920,11 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		// A non-zero exit with no runner failure is the transient class:
 		// herdr refused this one write, and nothing was typed.
 		if r.failSendTextAt > 0 && r.sendTextCount >= r.failSendTextAt && r.sendTextCount < r.failSendTextAt+max(1, r.failSendTexts) {
+			if r.refusedWritesType && r.launched && r.composerScreen != "" {
+				r.brief = args[3]
+				r.briefWrites++
+				r.failCaptureAt, r.failCaptures = r.captureCount+1, 1
+			}
 			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-text: pane busy")}, nil
 		}
 		r.literal = args[3]
@@ -1850,6 +1951,12 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 		if args[3] == "ctrl+u" && r.failCtrlUs > 0 {
 			r.failCtrlUs--
 			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+		}
+		if args[3] == "enter" && r.brief != "" {
+			r.briefEnterTries++
+			if slices.Contains(r.refuseBriefEnters, r.briefEnterTries) {
+				return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+			}
 		}
 		r.keys = append(r.keys, args[3])
 		if args[3] == "enter" {
@@ -1922,6 +2029,10 @@ func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, e
 				text = "Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n"
 			}
 			return execx.Result{Stdout: []byte(text)}, nil
+		}
+		if slices.Contains(args, "visible") && r.brief == "" && r.lateReads < len(r.lateScreens) {
+			r.lateReads++
+			return execx.Result{Stdout: []byte(r.lateScreens[r.lateReads-1])}, nil
 		}
 		screen := ""
 		switch {

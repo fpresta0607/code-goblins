@@ -229,7 +229,9 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 // Herdr names for the pane, never a recorded one. No Enter can deliver the
 // message twice: a submitted message leaves the composer, and an Enter on an
 // empty composer submits nothing. An unreadable pane is left to the counters'
-// confirmation below.
+// confirmation below. The message may already be taken when an Enter is
+// refused, so that is reported as an unconfirmed delivery, never as one that
+// sent nothing.
 func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string, wasWorking bool) error {
 	for press := 1; press <= submitRetries; press++ {
 		if err := s.sleep(ctx, time.Duration(press)*time.Second); err != nil {
@@ -250,7 +252,7 @@ func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, s
 			return nil
 		}
 		if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
-			return fmt.Errorf("fleet: submit the text left in %s's composer: %w", target, err)
+			return fmt.Errorf("%w; submitting the text left in %s's composer was refused: %w", unconfirmed(target, herdr.SubmitPending), target, err)
 		}
 	}
 	return nil
