@@ -340,6 +340,39 @@ func TestAClientThatNeverReadsStillTypesIntoTheTerminal(t *testing.T) {
 	v.waitFor(t, "got typed without reading")
 }
 
+// A viewer that falls behind while the terminal prints a burst, as a window
+// busy repainting does, still receives all of it. It reads nothing until the
+// host holds the whole burst, which a late viewer's replay shows.
+func TestAViewerThatFallsBehindDuringABurstStillReceivesIt(t *testing.T) {
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	typeLine(t, v, "spill")
+	for deadline := time.Now().Add(15 * time.Second); !strings.Contains(replay(t, record), "spilled"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the spill never reached the host's history")
+		}
+	}
+
+	v.waitFor(t, "spilled")
+}
+
+// replay is the history the host sends a viewer that attaches now.
+func replay(t *testing.T, record Record) string {
+	t.Helper()
+	client, err := Dial(record)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+	event, err := client.Next()
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	return string(event.Output)
+}
+
 // A host outlives the process that launched it.
 func TestTheHostOutlivesItsLauncher(t *testing.T) {
 	stateDir := t.TempDir()
