@@ -186,7 +186,10 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .task-card.history .card-pr { position: absolute; right: 16px; bottom: 12px; }
 .task-card-shell:hover, .task-card-shell:focus-within, .task-card.history:hover, .task-card.history:focus-visible { z-index: 3; }
 .phase-queued .status-dot, .phase-unavailable .status-dot, .phase-stale .status-dot, .phase-unknown .status-dot, .phase-ended .status-dot { background: #a6beda; }
-.phase-working .status-dot, .phase-busy .status-dot, .phase-active .status-dot, .phase-started .status-dot { background: var(--blue); animation: working 2.4s ease-in-out infinite; }
+/* A working dot wears a still ring. An endless pulse restyled and repainted
+   the board on every frame while any goblin worked, which kept the browser
+   and its GPU busy for as long as the board was open. */
+.phase-working .status-dot, .phase-busy .status-dot, .phase-active .status-dot, .phase-started .status-dot { background: var(--blue); box-shadow: 0 0 0 3px #4aa3ff33; }
 .phase-blocked .status-dot { background: var(--amber); }
 .phase-failed .status-dot { background: var(--red); }
 .phase-review .status-dot { background: var(--purple); }
@@ -196,7 +199,6 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .phase-failed.plain-status { color: #f5b1a8; }
 .phase-review.plain-status { color: #cfc0f3; }
 .phase-waiting.plain-status { color: #e7d3a3; }
-@keyframes working { 50% { box-shadow: 0 0 0 5px #4aa3ff22; } }
 .column-empty { color: #8293a1; font-size: .9375rem; padding: 16px 0; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.png'); background-size: 300% 200%; background-repeat: no-repeat; }
 .goblin-avatar.small { width: 72px; height: 72px; }
