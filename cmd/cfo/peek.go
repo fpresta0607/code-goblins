@@ -17,7 +17,11 @@ import (
 // peekTerminal is the tail of target's terminal: a native terminal's screen as
 // its console holds it, or else the Herdr pane's tail.
 func peekTerminal(ctx context.Context, h home.Home, target string, lines int) (string, error) {
-	if record, err := host.ReadRecord(h.State, target); err == nil {
+	id := target
+	if meta, native := nativeTask(h.State, target); native {
+		id = meta.ID
+	}
+	if record, err := host.ReadRecord(h.State, id); err == nil {
 		rows, err := host.ReadScreen(record)
 		if err != nil {
 			return "", err

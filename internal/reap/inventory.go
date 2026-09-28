@@ -95,13 +95,28 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
+	var processes []Process
+	listed := false
 	if c.Panes != nil {
-		panes, unresolved, unplaced, err := c.readPanes(ctx)
-		if err != nil {
+		panes, unresolved, unplaced, paneErr := c.readPanes(ctx)
+		if paneErr != nil {
 			// Every pane reads as gone when Herdr is unreadable, which would
 			// classify the whole live fleet as orphaned. Refuse instead: a
-			// sweep that cannot see panes has no business reporting orphans.
-			return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", err)
+			// sweep that cannot see panes has no business reporting orphans,
+			// unless no Herdr server runs at all, when no pane can exist and
+			// a fleet of native terminals is swept on its own evidence.
+			if c.Processes == nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
+			}
+			var err error
+			if processes, err = c.Processes.List(ctx); err != nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+			}
+			listed = true
+			if len(herdrRoots(processes)) > 0 {
+				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
+			}
+			notes = append(notes, "no Herdr server runs, so there are no panes; native terminals and processes decide")
 		}
 		inv.Panes = panes
 		inv.UnresolvedPanes = unresolved
@@ -117,9 +132,11 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	}
 
 	if c.Processes != nil {
-		processes, err := c.Processes.List(ctx)
-		if err != nil {
-			return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+		if !listed {
+			var err error
+			if processes, err = c.Processes.List(ctx); err != nil {
+				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
+			}
 		}
 		inv.Processes = processes
 		inv.FleetRootPIDs = herdrRoots(processes)

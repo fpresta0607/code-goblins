@@ -3,6 +3,7 @@ package reap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -201,6 +203,63 @@ func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 			}
 			if !test.wantAlive && !reported[StaleServer] {
 				t.Errorf("the dev server of a native goblin whose host is gone was not reported: %v", lines(findings))
+			}
+		})
+	}
+}
+
+// unreadablePanes is a Herdr that cannot be read: not installed, or its
+// server not answering.
+type unreadablePanes struct{}
+
+func (unreadablePanes) Snapshot(context.Context) (herdr.SessionSnapshot, error) {
+	return herdr.SessionSnapshot{}, errors.New("herdr is not running")
+}
+
+func (unreadablePanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
+	return herdr.PaneProcessInfo{}, errors.New("herdr is not running")
+}
+
+// With no Herdr server in the process table no pane can exist, so a machine
+// that runs its goblins natively still sweeps for orphans; a Herdr server
+// that runs but cannot be read could hide live goblins, so the sweep still
+// refuses.
+func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
+	cases := []struct {
+		name        string
+		herdrServer bool
+		wantErr     bool
+	}{
+		{name: "no Herdr server", herdrServer: false, wantErr: false},
+		{name: "a Herdr server that cannot be read", herdrServer: true, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := nativeHome(t)
+			processes := stubProcesses{
+				process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart),
+				process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
+			}
+			if tc.herdrServer {
+				processes = append(processes, process(300, 1, "herdr.exe", `herdr server`, fixtureStart))
+			}
+
+			inv, notes, err := Collector{Home: h, Session: "default", Panes: unreadablePanes{}, Processes: processes}.Collect(context.Background())
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Collect swept past a Herdr server it could not read: %+v", inv)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Collect refused a machine with no Herdr server: %v", err)
+			}
+			if len(inv.NativeHosts) == 0 {
+				t.Errorf("native hosts = %v, want the goblin's host read", inv.NativeHosts)
+			}
+			if !strings.Contains(strings.Join(notes, " "), "no Herdr server runs") {
+				t.Errorf("notes = %q, want one saying Herdr is not running", notes)
 			}
 		})
 	}
