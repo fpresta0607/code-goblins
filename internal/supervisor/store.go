@@ -410,6 +410,23 @@ func (s *Store) Queue(a Action) (Action, error) {
 	return queued, s.save()
 }
 
+// queueUnlessEvaluating queues a reconcile's evaluation only while no
+// evaluation of its task is queued or running. It is the second of two
+// checks: the reconcile's snapshot catches an evaluation that finishes while
+// the reconcile reads, and this one, under the store lock, catches one queued
+// since the snapshot.
+func (s *Store) queueUnlessEvaluating(a Action) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if evaluationPending(s.db.Actions, a.TaskID) {
+		return nil
+	}
+	if _, err := s.queue(a); err != nil {
+		return err
+	}
+	return s.save()
+}
+
 // QueueReview admits a review only for a CFO the verifier proves live, and
 // pins that registration as its recipient. An identical retry answers from
 // its durable record before any probe, so a replacement registration can
