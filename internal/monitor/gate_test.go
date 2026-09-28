@@ -140,3 +140,57 @@ func TestBusyClockResetsWhenAgentLeavesWorking(t *testing.T) {
 		t.Fatalf("reset clock still woke: %+v", r.Event)
 	}
 }
+
+// The monitor asks a long-busy goblin's gate once a minute, and each
+// `no-mistakes axi status` starts about ten git processes. One reading of a
+// worktree stands for gateProbeEvery exactly as it was read, and each
+// worktree is read on its own.
+func TestRecentGateProberReadsEachWorktreeOncePerPeriod(t *testing.T) {
+	// Arrange
+	probe := &fakeGate{sample: GateSample{Active: true, Step: "test", ActiveFor: 10 * time.Minute}}
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	gate := &RecentGateProber{Probe: probe, Now: func() time.Time { return now }}
+	first := state.TaskMeta{ID: "a", Worktree: `C:\wt\a`}
+	second := state.TaskMeta{ID: "b", Worktree: `C:\wt\b`}
+
+	// Act and Assert
+	if _, err := gate.InspectGate(context.Background(), first); err != nil || probe.calls != 1 {
+		t.Fatalf("first reading: err %v, probes %d; want one probe", err, probe.calls)
+	}
+	now = now.Add(3 * time.Minute)
+	again, err := gate.InspectGate(context.Background(), first)
+	if err != nil || probe.calls != 1 || !again.Active || again.Step != "test" || again.ActiveFor != 10*time.Minute {
+		t.Fatalf("within the period: %+v, err %v, probes %d; want the first reading unchanged and no new probe", again, err, probe.calls)
+	}
+	if _, err := gate.InspectGate(context.Background(), second); err != nil || probe.calls != 2 {
+		t.Fatalf("another worktree: err %v, probes %d; want its own probe", err, probe.calls)
+	}
+	now = now.Add(gateProbeEvery)
+	if _, err := gate.InspectGate(context.Background(), first); err != nil || probe.calls != 3 {
+		t.Fatalf("after the period: err %v, probes %d; want a fresh probe", err, probe.calls)
+	}
+}
+
+// A kept reading is never aged: a step read at 57m that finishes right after
+// still answers 57m within the period, so busyOverAge cannot name a wedge the
+// gate never showed.
+func TestRecentGateProberDoesNotAgeAKeptReadingPastTheBudget(t *testing.T) {
+	// Arrange
+	probe := &fakeGate{sample: GateSample{Active: true, Step: "test", ActiveFor: 57 * time.Minute}}
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	gate := &RecentGateProber{Probe: probe, Now: func() time.Time { return now }}
+	meta := state.TaskMeta{ID: "a", Worktree: `C:\wt\a`}
+	if _, err := gate.InspectGate(context.Background(), meta); err != nil {
+		t.Fatalf("first reading: %v", err)
+	}
+	probe.sample = GateSample{}
+	now = now.Add(3 * time.Minute)
+
+	// Act
+	kept, err := gate.InspectGate(context.Background(), meta)
+
+	// Assert
+	if err != nil || probe.calls != 1 || kept.Step != "test" || kept.ActiveFor != 57*time.Minute || kept.ActiveFor >= time.Hour {
+		t.Fatalf("kept reading = %+v, err %v, probes %d; want step test at 57m, not past the hour", kept, err, probe.calls)
+	}
+}

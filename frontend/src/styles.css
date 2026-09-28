@@ -751,6 +751,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* Each board list shows as many cards as fit the visible board, and a pager
    under it turns to the rest; a sideways swipe does the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
+/* Cards not measured yet are laid out here, on the list's grid, to learn their
+   heights; it takes no room and shows nothing. */
+.fit-measure { height: 0; overflow: hidden; visibility: hidden; }
+.fit-measure > * { align-self: start; }
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; color: var(--muted); font-size: .9375rem; font-variant-numeric: tabular-nums; }
 .pager .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .pager .icon { width: 18px; height: 18px; }
