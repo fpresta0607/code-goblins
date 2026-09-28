@@ -265,7 +265,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
 ### Supreme Overlord Command Center
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: card 3 of 3, a goblin's question with A, B and C choices, the recommended option marked, and Other; Back, 3 of 3 and Next sit on the left of the card's action row and Send decision on the right" width="560" />
+  <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
 </p>
 
 When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
