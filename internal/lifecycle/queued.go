@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"errors"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -39,10 +38,6 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		if prior.Phase == "stopped" {
 			return service.finish(prior)
 		}
-		if prior.Phase == "failed" {
-			finished, finishErr := service.finish(prior)
-			return finished, errors.Join(finishErr, errors.New(strings.Join(prior.Problems, "; ")))
-		}
 		if prior.Phase == "stopping" {
 			outcome, err := state.ReadOutcome(h.State, request.ID)
 			if err == nil && outcome.Generation == prior.Generation && outcome.Phase == "stopped" {
@@ -55,12 +50,11 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		return record, errors.New("task session ended; an active task request cannot stop a replacement queued task")
 	}
 	queued, err := fleet.ReadQueuedTask(h, request.ID)
-	isRowRemoved := errors.Is(err, fleet.ErrNotQueued) || err == nil && queued.IsBriefOnly
-	if isRowRemoved && prior.Operation == request.Operation && prior.Generation == "queued" && prior.Phase == "stopping" {
-		prior.Phase = "stopped"
-		return service.finish(prior)
-	}
 	if err != nil {
+		if errors.Is(err, fleet.ErrNotQueued) && prior.Operation == request.Operation && prior.Generation == "queued" && prior.Phase == "stopping" {
+			prior.Phase = "stopped"
+			return service.finish(prior)
+		}
 		return record, err
 	}
 	if revision == "" {
@@ -69,19 +63,13 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 	if queued.Revision != revision {
 		return record, fleet.ErrQueueChanged
 	}
-	if err := fleet.WriteQueuedBrief(h, queued); err != nil && !errors.Is(err, os.ErrExist) {
-		return record, err
-	}
 	now := time.Now().UTC()
 	record = state.Lifecycle{ID: request.ID, Generation: "queued", RequestGeneration: "queued", Operation: request.Operation, Action: "stop", Phase: "stopping", Title: queued.Row.Title, Project: queued.Row.Repo, Started: now, Updated: now, Reason: request.Reason, Kept: []string{"task brief"}}
 	if err := state.WriteLifecycle(h.State, record); err != nil {
 		return record, err
 	}
 	if err := fleet.RemoveQueuedTask(h, request.ID, revision); err != nil {
-		record.Phase = "failed"
-		record.Problems = append(record.Problems, err.Error())
-		finished, finishErr := service.finish(record)
-		return finished, errors.Join(err, finishErr)
+		return record, err
 	}
 	record.Phase = "stopped"
 	return service.finish(record)

@@ -92,7 +92,7 @@ func TestCleanupRequiresCurrentDeliveryAndKeepsPRDetailsOnStop(t *testing.T) {
 				}
 			}
 			if kind == "stopped pull request" {
-				if err := state.WriteLifecycle(fixture.stateDir, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "stop-1", Action: "stop", Phase: "stopping", Reason: "Requested from the board"}); err != nil {
+				if err := state.WriteLifecycle(fixture.stateDir, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "stop-1", Action: "stop", Phase: "stopping"}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -107,7 +107,7 @@ func TestCleanupRequiresCurrentDeliveryAndKeepsPRDetailsOnStop(t *testing.T) {
 			if kind == "old generation" || kind == "stopped pull request" {
 				want = "stopped"
 			}
-			if err != nil || outcome.Phase != want || want == "done" && outcome.Evidence == "" || kind == "stopped pull request" && (outcome.PR == "" || outcome.Reason != "Requested from the board") {
+			if err != nil || outcome.Phase != want || want == "done" && outcome.Evidence == "" || kind == "stopped pull request" && outcome.PR == "" {
 				t.Fatalf("outcome=%+v %v", outcome, err)
 			}
 		})

@@ -21,7 +21,7 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 		outcome.Title = meta.ID
 	}
 	if current, err := state.ReadLifecycle(service.StateDir, meta.ID); err == nil && current.Generation == meta.SpawnGen && current.Action == "stop" {
-		defer func() { outcome.Phase, outcome.Reason = "stopped", current.Reason }()
+		defer func() { outcome.Phase = "stopped" }()
 	}
 	values, err := state.ReadMeta(filepath.Join(service.StateDir, meta.ID+".meta"))
 	if err == nil && deliveredPR.MatchString(values["pr"]) {
