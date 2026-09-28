@@ -26,6 +26,9 @@ export interface Task extends Evaluation {
   session: string;
   dependencies: string[];
   activity: string;
+  // report is the kind of the goblin's latest report: working, blocked,
+  // failed, done, waiting, or empty.
+  report: string;
   // waiting_on names what a waiting task waits on: another task's id,
   // overlord, ci or deploy; gate_step is the gate step of a task in review.
   waiting_on: string;
@@ -333,6 +336,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         session: string(t.session),
         dependencies: strings(t.dependencies),
         activity: t.activity === undefined ? "" : string(t.activity),
+        report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
         archived: t.archived === undefined ? false : boolean(t.archived),

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -91,6 +92,39 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 	if got := view.Tasks[0]; got.Phase != "blocked" || got.Activity != "Which schema?" {
 		t.Fatalf("waiting task = phase %q activity %q, want blocked showing its question", got.Phase, got.Activity)
+	}
+}
+
+// A goblin's own failed report leaves its phase to the evidence, so the board
+// alerts on it only through the report kind the snapshot carries.
+func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
+	store, h := testStore(t)
+	service := &Service{Store: store}
+	for _, c := range []struct{ line, report string }{
+		{"working: gate test step", "working"},
+		{"failed: The build broke on a missing asset", "failed"},
+		{"done: PR https://example/pr/7", "done"},
+	} {
+		if err := state.AppendStatus(h.State, "task-1", c.line); err != nil {
+			t.Fatal(err)
+		}
+		view, err := service.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(view.Tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sent struct {
+			Report string `json:"report"`
+		}
+		if err := json.Unmarshal(encoded, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.Report != c.report {
+			t.Errorf("after %q the snapshot sends report %q, want %q", c.line, sent.Report, c.report)
+		}
 	}
 }
 
@@ -248,6 +282,24 @@ func TestStatusActivityKeepsOnlyHttpsPullRequests(t *testing.T) {
 		activity, pr := statusActivity([]string{c.line}, time.Time{})
 		if pr != c.pr || activity != c.line {
 			t.Errorf("statusActivity(%q) = %q, %q; want pr %q", c.line, activity, pr, c.pr)
+		}
+	}
+}
+
+// The board alerts on a goblin's own failure or finish, so the snapshot says
+// which kind of report a task last made.
+func TestReportKindNamesTheKindOfAGoblinsLatestReport(t *testing.T) {
+	for _, c := range []struct{ report, kind string }{
+		{"working: Build review panel", "working"},
+		{"blocked: Which colour? options: green | blue", "blocked"},
+		{"failed: The build broke", "failed"},
+		{"done: PR https://github.com/o/r/pull/9", "done"},
+		{"waiting on overlord: sign-off", "waiting"},
+		{"failedover to plan b", ""},
+		{"", ""},
+	} {
+		if kind := reportKind(c.report); kind != c.kind {
+			t.Errorf("reportKind(%q) = %q, want %q", c.report, kind, c.kind)
 		}
 	}
 }

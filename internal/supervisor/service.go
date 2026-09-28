@@ -633,8 +633,10 @@ type Task struct {
 	Session      string          `json:"session"`
 	Dependencies []string        `json:"dependencies"`
 	Runtime      RuntimeEvidence `json:"runtime"`
-	// Activity is the task's own latest status line.
+	// Activity is the task's own latest status line, and Report the kind of
+	// its latest report.
 	Activity string `json:"activity"`
+	Report   string `json:"report"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -814,7 +816,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: sessionStarted(meta), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
