@@ -59,6 +59,10 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 			ready:   []string{"❯ Try \"fix typecheck errors\"", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
 			working: []string{"✽ Reticulating…", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
 		},
+		Codex: {
+			ready:   []string{"• Working tree is clean and all tests pass.", "› Ask Codex to do anything", "  100% context left"},
+			working: []string{"• Working (12s • esc to", "› Ask Codex to do anything", "  100% context left"},
+		},
 		Pi: {
 			ready:   []string{"────", "0.0%/1.0M (auto)                    (openrouter) z-ai/glm-5.3-flash • high"},
 			working: []string{"── ⠸ Working ──", "0.0%/1.0M (auto)                    (openrouter) z-ai/glm-5.3-flash • high"},

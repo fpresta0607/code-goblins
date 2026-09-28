@@ -68,22 +68,9 @@ const harnessLaunch = 2 * time.Minute
 // shell has no harness and so no processes of its own.
 func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
-	var harnessPID int
-	if meta.Backend == "native" {
-		record, err := host.ReadRecord(h.StateDir, meta.ID)
-		if err != nil {
-			return progress, err
-		}
-		harnessPID = record.ChildPID
-	} else {
-		info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
-		if err != nil {
-			return progress, err
-		}
-		if info.ForegroundProcessGroupID == info.ShellPID {
-			return progress, nil
-		}
-		harnessPID = info.ForegroundProcessGroupID
+	harnessPID, err := h.harnessPID(ctx, meta, sample)
+	if err != nil || harnessPID == 0 {
+		return progress, err
 	}
 	processes, err := proc.Processes()
 	if err != nil {
@@ -91,6 +78,26 @@ func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, 
 	}
 	progress.Jobs, progress.JobCPU = harnessJobs(harnessPID, processes, harnessLaunch, proc.StartTime, proc.CPUTime)
 	return progress, nil
+}
+
+// harnessPID returns the process id of the task's harness, and 0 for a pane
+// back at its shell.
+func (h HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
+	if meta.Backend == "native" {
+		record, err := host.ReadRecord(h.StateDir, meta.ID)
+		if err != nil {
+			return 0, err
+		}
+		return record.ChildPID, nil
+	}
+	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
+	if err != nil {
+		return 0, err
+	}
+	if info.ForegroundProcessGroupID == info.ShellPID {
+		return 0, nil
+	}
+	return info.ForegroundProcessGroupID, nil
 }
 
 // launchShims are the programs a harness is commonly started through. One
