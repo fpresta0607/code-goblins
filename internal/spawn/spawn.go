@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -948,19 +949,25 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // in the pane, read with the harness's own screen markers as a native spawn
 // reads its terminal. A shell never shows a composer, so a harness that never
 // started, or left at once, stops the spawn here with the pane's screen
-// instead of having its brief run as shell commands. A dialog the launch
-// confirms (the trust prompt) is confirmed again should it show late; any
-// other dialog the harness is known to show stops the spawn, since a brief
-// typed into a dialog is lost or taken as its answer.
+// instead of having its brief run as shell commands. A dialog a spawn never
+// answers (Codex's hook review) stops the spawn before any key is pressed. A
+// dialog the launch confirms (the trust prompt) is confirmed again should it
+// show late, paced as confirmHarnessDialogs paces it, and pressed again only
+// once a later screen that has changed still shows it, so a frame not yet
+// redrawn never takes a second key. Any other dialog the harness is known to
+// show stops the spawn, since a brief typed into a dialog is lost or taken as
+// its answer.
 func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
-	var screen []string
+	var screen, confirmed []string
 	var readErr error
+	poll := nativePoll
 	for attempt := 0; attempt < int(nativeStartup/nativePoll); attempt++ {
 		if attempt > 0 {
-			if err := s.sleep(ctx, nativePoll); err != nil {
+			if err := s.sleep(ctx, poll); err != nil {
 				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
 			}
 		}
+		poll = nativePoll
 		read, err := readPane(ctx, client, target)
 		if err != nil {
 			if herdr.WaitError(ctx, err) {
@@ -970,15 +977,26 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 			continue
 		}
 		screen, readErr = read, nil
+		dialog, found := screens.Dialog(screen)
+		if found && dialog.Accept == "" {
+			return fmt.Errorf("spawn: %s shows %s, which a spawn never answers, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
+		}
 		if containsMarker(strings.Join(screen, "\n"), launch.ConfirmMarkers) {
+			if slices.Equal(screen, confirmed) {
+				continue
+			}
 			for _, key := range launch.ConfirmKeys {
 				if err := client.SendKey(ctx, target, key); err != nil {
 					return fmt.Errorf("spawn: confirm %s's startup dialog: %w", kind, err)
 				}
+				if err := s.sleep(ctx, launchSettle); err != nil {
+					return fmt.Errorf("spawn: wait between %s's dialog keys: %w", kind, err)
+				}
 			}
+			confirmed, poll = screen, launchConfirmPoll
 			continue
 		}
-		if dialog, found := screens.Dialog(screen); found {
+		if found {
 			return fmt.Errorf("spawn: %s shows %s where its composer should be, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
 		}
 		if screens.IsReady(screen) {
@@ -1007,7 +1025,10 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 // as part of the paste and leave the brief in its composer, so while the brief
 // still shows and no turn has started, Enter is pressed again, further apart
 // each time, up to submitRetries more times. An Enter on an empty composer
-// submits nothing, so the brief is never handed over twice.
+// submits nothing, so the brief is never handed over twice. An Enter Herdr
+// refuses counts as not pressed: the first is pressed again at the next poll
+// and a later one at the next spacing, so a briefly busy Herdr never fails the
+// spawn while its budget lasts.
 func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
 	instruction := launch.PromptInstruction()
 	screen, err := s.typeIntoComposer(ctx, client, target, kind, screens, instruction)
@@ -1018,11 +1039,25 @@ func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Ba
 		return fmt.Errorf("spawn: wait before submitting %s's brief: %w", kind, err)
 	}
 	submitted := time.Now()
-	if err := client.SendKey(ctx, target, "Enter"); err != nil {
-		return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+	presses, sincePress := 0, 0
+	var enterErr error
+	pressEnter := func() error {
+		if err := client.SendKey(ctx, target, "Enter"); err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+			}
+			enterErr, sincePress = err, 0
+			return nil
+		}
+		enterErr, presses, sincePress = nil, presses+1, 0
+		return nil
 	}
-	presses, sincePress := 1, 0
 	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
+		if presses == 0 {
+			if err := pressEnter(); err != nil {
+				return err
+			}
+		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
 			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
 		}
@@ -1043,37 +1078,47 @@ func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Ba
 		if screens.IsWorking(screen) {
 			return nil
 		}
-		if presses <= submitRetries && sincePress >= presses*int(time.Second/nativePoll) && screens.Shows(screen, instruction) {
-			if err := client.SendKey(ctx, target, "Enter"); err != nil {
-				return fmt.Errorf("spawn: submit %s's brief left in its composer: %w", kind, err)
+		if presses > 0 && presses <= submitRetries && sincePress >= presses*int(time.Second/nativePoll) && screens.Shows(screen, instruction) {
+			if err := pressEnter(); err != nil {
+				return err
 			}
-			presses, sincePress = presses+1, 0
 		}
+	}
+	if presses == 0 {
+		return fmt.Errorf("spawn: could not submit %s's brief within %s: %w", kind, nativeAccepted, enterErr)
+	}
+	if enterErr != nil {
+		return fmt.Errorf("spawn: %s never showed it took its brief within %s and its last Enter was refused: %w; its screen ends:\n%s", kind, nativeAccepted, enterErr, host.ScreenTail(screen, 8))
 	}
 	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
 }
 
 // typeIntoComposer types text into the harness's composer and returns once
-// the composer shows it. A write Herdr refuses typed nothing, so it is written
-// again, but only while the composer shows none of the text.
+// the composer shows it. A write Herdr refuses may still have typed, so it is
+// written again only once a read taken after launchSettle succeeds and shows
+// none of the text; a read that fails leaves it unwritten until one succeeds.
 func (s Service) typeIntoComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, text string) ([]string, error) {
 	var screen []string
 	var writeErr error
-	typed := false
+	typed, write := false, true
 	for attempt := 0; attempt < int(nativeKeyEffect/nativePoll); attempt++ {
 		if attempt > 0 {
 			if err := s.sleep(ctx, nativePoll); err != nil {
 				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
 			}
 		}
-		if !typed {
+		if write {
+			write = false
 			if err := client.SendLiteral(ctx, target, text); err != nil {
 				if herdr.WaitError(ctx, err) {
 					return nil, fmt.Errorf("spawn: type %s's brief: %w", kind, err)
 				}
 				writeErr = err
+				if err := s.sleep(ctx, launchSettle); err != nil {
+					return nil, fmt.Errorf("spawn: wait for %s's composer after a refused write: %w", kind, err)
+				}
 			} else {
-				typed = true
+				typed, writeErr = true, nil
 			}
 		}
 		read, err := readPane(ctx, client, target)
@@ -1087,8 +1132,7 @@ func (s Service) typeIntoComposer(ctx context.Context, client terminal.Backend, 
 		if screens.Shows(screen, text) {
 			return screen, nil
 		}
-		// A refused write that typed after all shows in the composer and is
-		// never written again.
+		write = writeErr != nil
 	}
 	if !typed {
 		return nil, fmt.Errorf("spawn: could not type %s's brief within %s: %w", kind, nativeKeyEffect, writeErr)
