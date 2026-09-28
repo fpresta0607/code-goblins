@@ -70,6 +70,8 @@ type agentFake struct {
 	screens     []string
 	keys        []string
 	keyRefusals int
+	// readFailure fails every pane read as Herdr failing to run at all.
+	readFailure error
 
 	probing         bool
 	accepted        bool
@@ -105,6 +107,9 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		}
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
 	case len(args) >= 3 && args[0] == "pane" && args[1] == "read":
+		if f.readFailure != nil {
+			return execx.Result{}, f.readFailure
+		}
 		if len(f.screens) == 0 {
 			return execx.Result{}, nil
 		}
@@ -263,6 +268,21 @@ func TestSenderTextReportsARefusedResubmitUnconfirmed(t *testing.T) {
 	}
 	if fake.promptCalls != 1 || len(fake.keys) != 0 {
 		t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter taken", fake.promptCalls, fake.keys)
+	}
+}
+
+// Once agent prompt has taken the message, a composer Herdr cannot read leaves
+// its delivery unconfirmed, never an error that reads as nothing sent.
+func TestSenderTextReportsAnUnreadableComposerAfterThePromptUnconfirmed(t *testing.T) {
+	fake := newAgentFake(agentFake{agent: "codex", status: "idle", readFailure: errors.New("herdr stopped answering")})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), "herdr stopped answering") {
+		t.Fatalf("Text = %v, want an unconfirmed delivery wrapping the failed read", err)
+	}
+	if fake.promptCalls != 1 || len(fake.keys) != 0 {
+		t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter", fake.promptCalls, fake.keys)
 	}
 }
 
