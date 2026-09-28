@@ -1,18 +1,23 @@
 import type { Memory } from "./types";
-import { freeGigabytes, meterState } from "./start";
+import { freeGigabytes, meterScale, meterState } from "./start";
 
-const percent = (part: number, whole: number) => `${Math.min(100, Math.max(0, part / whole * 100))}%`;
-
-// Free memory at the head of Tasks, against the mark at which the CFO starts
-// the next task; the bar spans the machine's memory.
+// Free memory at the head of Tasks, on a bar marked with the floor under
+// which nothing starts and the mark at which the CFO starts the next task
+// (see meterScale); the fill's colour says which side of them memory is on,
+// and the same in words is for a screen reader.
 export function MemoryMeter({ memory }: { memory: Memory }) {
-  const state = meterState(memory);
+  const state = meterState(memory), scale = meterScale(memory);
   return <div className="memory" role="group" aria-label="Memory">
     <div className="memory-line"><span>Memory free</span><strong>{freeGigabytes(memory.available)} GB</strong></div>
     <div className="memory-bar" aria-hidden="true">
-      <span className={"memory-fill " + state.tone} style={{ width: percent(memory.available, memory.total) }} />
-      <span className="memory-mark" style={{ left: percent(memory.next, memory.total) }}><span>{Math.round(memory.next / 2 ** 30)} GB</span></span>
+      <span className={"memory-fill " + state.tone} style={{ width: `${scale.fill}%` }} />
+      <span className="memory-mark floor" style={{ left: `${scale.floor}%` }} />
+      <span className="memory-mark" style={{ left: `${scale.next}%` }} />
     </div>
-    <p className="memory-state">{state.text}</p>
+    <div className="memory-scale" aria-hidden="true">
+      <span className="floor" style={{ width: `${scale.floor}%` }}>{Math.round(memory.floor / 2 ** 30)} GB floor</span>
+      <span style={{ marginLeft: `${scale.next - scale.floor}%` }}>{Math.round(memory.next / 2 ** 30)} GB next</span>
+    </div>
+    <p className="sr-only">{state.text}</p>
   </div>;
 }
