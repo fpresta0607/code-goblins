@@ -62,7 +62,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions in [Herdr](https://herdr.dev), avoiding a shell-script orchestration layer on the hot path.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions: a Claude Code goblin in a native terminal of its own (a pseudo console that outlives every window) by default, and a codex, pi or kimi goblin in [Herdr](https://herdr.dev) until each is proven natively, avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
@@ -236,7 +236,7 @@ A live goblin's card also carries a terminal button, shown on hover or keyboard 
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (`cfo spawn --backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (what `cfo spawn` starts for Claude Code by default, and for codex or pi with `--backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `cfo switch <id>` resumes it in its own session.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
@@ -441,7 +441,7 @@ The control plane is local. Your coding harnesses may still call their model pro
 
 Code Goblins is becoming a native Windows desktop app.
 
-- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn --backend native` and `goblins --native` already work this way today.
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code goblins this way by default, codex and pi with `--backend native` until each is proven natively, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 

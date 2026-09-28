@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
@@ -101,17 +103,24 @@ func TestRunSpawnKeepsTheBacklogRowsTitle(t *testing.T) {
 	}
 }
 
-// cfo spawn passes --backend native on, spawns in Herdr without it, and
-// refuses any other backend without calling the spawn service.
+// cfo spawn starts a Claude goblin in a native terminal of its own by default,
+// in Herdr when asked or when its harness is not yet proven natively (codex,
+// pi, kimi), and refuses any other backend without calling the spawn service.
 func TestRunSpawnPassesTheBackend(t *testing.T) {
 	for name, test := range map[string]struct {
+		harness string
 		args    []string
 		exit    int
 		backend string
 	}{
-		"native":  {[]string{"--backend", "native"}, 0, "native"},
-		"default": {nil, 0, "herdr"},
-		"unknown": {[]string{"--backend", "tmux"}, 2, ""},
+		"default":           {"claude", nil, 0, "native"},
+		"native":            {"claude", []string{"--backend", "native"}, 0, "native"},
+		"herdr":             {"claude", []string{"--backend", "herdr"}, 0, "herdr"},
+		"default for codex": {"codex", nil, 0, "herdr"},
+		"native for codex":  {"codex", []string{"--backend", "native"}, 0, "native"},
+		"default for pi":    {"pi", nil, 0, "herdr"},
+		"default for kimi":  {"kimi", nil, 0, "herdr"},
+		"unknown":           {"claude", []string{"--backend", "tmux"}, 2, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testCommandRuntime(t)
@@ -122,7 +131,7 @@ func TestRunSpawnPassesTheBackend(t *testing.T) {
 			}
 
 			var stdout, stderr bytes.Buffer
-			exit := runWithRuntime(append([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", "claude"}, test.args...), &stdout, &stderr, deps)
+			exit := runWithRuntime(append([]string{"spawn", "g4", "--project", `C:\project`, "--brief", briefFile(t), "--harness", test.harness}, test.args...), &stdout, &stderr, deps)
 
 			if exit != test.exit {
 				t.Fatalf("exit = %d, want %d; stderr=%s", exit, test.exit, stderr.String())
@@ -268,4 +277,26 @@ func testCommandRuntimeForHome(h home.Home) commandRuntime {
 	return commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 	}
+}
+
+// Through the real spawn service, a kimi goblin that asks for a native
+// terminal is refused before any terminal opens, because kimi has no native
+// screens; only a spawn that names no backend falls back to Herdr for it.
+func TestRunSpawnRefusesANativeKimiGoblin(t *testing.T) {
+	fixture := newFleetE2EFixture(t)
+	brief := filepath.Join(fixture.home.Root, "kimi.brief.md")
+	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"spawn", "kimi-native", "--project", fixture.project, "--brief", brief, "--harness", "kimi", "--backend", "native", "--mode", "local-only"}, &stdout, &stderr, fixture.runtime)
+
+	if exit == 0 || !strings.Contains(stderr.String(), "kimi cannot run in a native terminal yet") {
+		t.Fatalf("native kimi exit=%d stdout=%q stderr=%q, want it refused", exit, stdout.String(), stderr.String())
+	}
+	if _, err := state.ReadTaskMeta(fixture.home.State, "kimi-native"); err == nil {
+		t.Error("a refused native kimi spawn left task metadata behind")
+	}
+	t.Logf("native kimi refused: %s", strings.TrimSpace(stderr.String()))
 }

@@ -243,7 +243,7 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--mode", "local-only")
+	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--backend", "herdr", "--mode", "local-only")
 	if !strings.Contains(stdout, "spawned g-fresh1 ") || !strings.Contains(stdout, "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
 		t.Errorf("stdout = %q, want the goblin spawned on the project's own lane", stdout)
 	}
@@ -405,5 +405,34 @@ func TestRunSpawnRefusesALaneNamingAnUnknownHarness(t *testing.T) {
 	exit := runWithRuntime([]string{"spawn", "g21", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
 	if exit != 1 || called || !strings.Contains(stderr.String(), `lane "build" names harness "gemini"`) {
 		t.Errorf("exit = %d called = %v stderr = %q", exit, called, stderr.String())
+	}
+}
+
+// A routed spawn that names no backend takes it from the harness the lane
+// table chose, so a lane that routes to codex, pi or kimi starts in Herdr
+// while a Claude lane starts natively.
+func TestRunSpawnTakesTheDefaultBackendFromTheRoutedHarness(t *testing.T) {
+	for harnessName, wantBackend := range map[string]string{
+		"claude": "native",
+		"codex":  "herdr",
+		"pi":     "herdr",
+		"kimi":   "herdr",
+	} {
+		t.Run(harnessName, func(t *testing.T) {
+			table := `{"rules":[],"default_lane":"only","escalate_to":"only","lanes":{"only":{"harness":"` + harnessName + `","model":"m","effort":"high"}}}`
+			_, deps := routedRuntime(t, table)
+			got := captureSpawn(&deps, "spawned g30")
+			brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
+
+			var stdout, stderr bytes.Buffer
+			exit := runWithRuntime([]string{"spawn", "g30", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
+
+			if exit != 0 {
+				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+			}
+			if string(got.Harness) != harnessName || got.Backend != wantBackend {
+				t.Errorf("request harness %q backend %q, want %q in %q", got.Harness, got.Backend, harnessName, wantBackend)
+			}
+		})
 	}
 }

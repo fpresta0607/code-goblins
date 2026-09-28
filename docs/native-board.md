@@ -353,7 +353,7 @@ A host refuses to start for a terminal that already runs, so a second start neve
 A Herdr task's idle pane still shows unknown, since no Herdr answer proves the pane is the task's.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
-`cfo spawn --backend native` starts a goblin in a native terminal of its own, named by its task id, instead of a Herdr tab; it is opt-in until native becomes the default.
+`cfo spawn`, and the board's Start with it, starts a Claude Code goblin in a native terminal of its own, named by its task id, by default; `--backend herdr` starts it in a Herdr tab instead. Codex, pi and kimi start in Herdr when no backend is given until each is proven natively, and `--backend native` starts codex or pi natively.
 The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.
 The terminal's environment starts from the one Windows gives a new process of the user, built from the user's and the machine's configured variables, never from the spawning process's own, so nothing the spawning session set reaches the goblin, as with a Herdr pane.
 The harness billing keys and every known session marker, such as `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` and the Herdr pane's variables, are dropped from it all the same, then the project's credentials and the launch's variables, `CFO_ROLE=goblin` among them, are added and win: a native task has no credentials script.
