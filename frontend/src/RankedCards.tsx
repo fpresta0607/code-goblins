@@ -2,7 +2,7 @@ import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import type { Task } from "./types";
 import { message, request } from "./api";
 import { object } from "./types";
-import { pageOf } from "./fit";
+import { fitKey } from "./fit";
 import { Pager } from "./Pager";
 import { orderShown, pendingSettled, rankLabel } from "./priority";
 import { useFit } from "./useFit";
@@ -30,7 +30,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const listed = orderShown(tasks, pending?.order || null);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const fit = useFit(listed.length, frameRef, listRef);
+  const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef);
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
     const title = listed[before]?.title || moved;
@@ -38,7 +38,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
-    fit.show(pageOf(order.indexOf(moved), fit.size));
+    fit.show(fitKey(moved, order.indexOf(moved)));
     try {
       const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ list, order }) }));
       if (latest.current !== order) return;
@@ -47,11 +47,15 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       if (latest.current !== order) return;
       setPending(null);
       setError(message(failure));
-      fit.show(pageOf(before, fit.size));
+      fit.show(fitKey(moved, before));
     }
   };
   const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef);
   const shown = order.map((id) => listed.find((task) => task.id === id)).filter((task): task is Task => !!task);
+  const rank = (index: number) => <span className="rank" aria-hidden="true">
+    <span className="rank-number">{index + 1}</span>
+    <svg className="grip" viewBox="0 0 14 14"><circle cx="4" cy="3" r="1.3" /><circle cx="10" cy="3" r="1.3" /><circle cx="4" cy="7" r="1.3" /><circle cx="10" cy="7" r="1.3" /><circle cx="4" cy="11" r="1.3" /><circle cx="10" cy="11" r="1.3" /></svg>
+  </span>;
   // A finger on a card's rank drags the card, so only a swipe elsewhere turns
   // the page.
   const onFramePointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -61,17 +65,20 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   return <>
     <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards ranked">
-        {shown.slice(fit.start, fit.start + fit.size).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
-          <span className="rank" aria-hidden="true">
-            <span className="rank-number">{index + 1}</span>
-            <svg className="grip" viewBox="0 0 14 14"><circle cx="4" cy="3" r="1.3" /><circle cx="10" cy="3" r="1.3" /><circle cx="4" cy="7" r="1.3" /><circle cx="10" cy="7" r="1.3" /><circle cx="4" cy="11" r="1.3" /><circle cx="10" cy="11" r="1.3" /></svg>
-          </span>
+        {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={fitKey(task.id, index)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
+          {rank(index)}
           {renderCard(task, rankLabel(index, shown.length), index)}
         </div>; })}
         {!shown.length && empty}
       </div>
+      {fit.unmeasured.length > 0 && <div className="task-cards ranked fit-measure" aria-hidden="true" inert>
+        {listed.map((task, index) => fit.unmeasured.includes(fitKey(task.id, index)) && <div key={task.id} className="ranked-item" data-fit-key={fitKey(task.id, index)}>
+          {rank(index)}
+          {renderCard(task, rankLabel(index, listed.length), index)}
+        </div>)}
+      </div>}
     </div>
-    <Pager page={fit.page} size={fit.size} count={shown.length} onTurn={fit.turn} />
+    <Pager start={fit.start} end={fit.end} count={shown.length} onTurn={fit.turn} />
     {error && <p className="order-error" role="alert">{error}</p>}
     <p className="sr-only" role="status">{note}</p>
   </>;
