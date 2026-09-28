@@ -17,6 +17,9 @@ type RuntimeEvidence struct {
 }
 
 func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Time) RuntimeEvidence {
+	if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+		return RuntimeEvidence{State: record.Phase, Reason: record.Reason, At: record.Updated}
+	}
 	// The monitor reads a native task from its own terminal, never Herdr.
 	source := "Herdr"
 	if meta.Backend == "native" {

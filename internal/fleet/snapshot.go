@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -80,6 +81,7 @@ type Snapshot struct {
 	Tasks       []TaskRow       `json:"tasks"`
 	Backlog     BacklogRows     `json:"backlog"`
 	Secondmates []SecondmateRow `json:"secondmates"`
+	Completed   []state.Outcome `json:"completed"`
 }
 
 // SecondmateRow is deliberately empty because secondmates are outside Plan 3.
@@ -165,11 +167,21 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: read task metadata %q: %w", id, err)
 		}
+		snapshot.Backlog.Queued = slices.DeleteFunc(snapshot.Backlog.Queued, func(row BacklogRow) bool { return row.Structured && row.ID == id })
 		current, err := crewstate.Resolve(ctx, h.State, id, endpoint)
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: resolve current state for %q: %w", id, err)
 		}
 		monitorSummary, endpointExists := readMonitorSummary(h.State, id)
+		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(h.State) {
+			monitorSummary = MonitorSummary{Health: monitor.HealthPaused}
+			if record.Phase == "resuming" {
+				monitorSummary.Health = monitor.HealthLaunching
+			} else if record.Phase != "paused" && record.Phase != "pausing" {
+				monitorSummary.Health = monitor.HealthParked
+			}
+			endpointExists = nil
+		}
 		if endpointExists == nil && currentEndpointExists(current) {
 			present := true
 			endpointExists = &present
@@ -197,6 +209,24 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 	// An unreadable attention order leaves the tasks in ID order.
 	if attention, err := ReadAttention(h); err == nil {
 		SortByAttention(snapshot.Tasks, attention, func(task TaskRow) string { return task.ID })
+	}
+	completed, err := os.ReadDir(filepath.Join(h.State, "outcomes"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Snapshot{}, err
+	}
+	for _, entry := range completed {
+		id, ok := strings.CutSuffix(entry.Name(), ".json")
+		if !ok || entry.IsDir() {
+			continue
+		}
+		if _, err := state.ReadTaskMeta(h.State, id); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		outcome, err := state.ReadOutcome(h.State, id)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		snapshot.Completed = append(snapshot.Completed, outcome)
 	}
 	return snapshot, nil
 }

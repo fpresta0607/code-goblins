@@ -84,13 +84,14 @@ const (
 type Reason string
 
 const (
-	None            Reason = "none"
-	UnchangedIdle   Reason = "unchanged_idle"
-	BusyTurnOverAge Reason = "busy_turn_over_age"
-	DeclaredPause   Reason = "declared_pause"
-	EndpointMissing Reason = "endpoint_missing"
-	EndpointUnknown Reason = "endpoint_unknown"
-	InvalidRecord   Reason = "invalid_record"
+	None               Reason = "none"
+	UnchangedIdle      Reason = "unchanged_idle"
+	BusyTurnOverAge    Reason = "busy_turn_over_age"
+	DeclaredPause      Reason = "declared_pause"
+	LifecycleOperation Reason = "lifecycle_operation"
+	EndpointMissing    Reason = "endpoint_missing"
+	EndpointUnknown    Reason = "endpoint_unknown"
+	InvalidRecord      Reason = "invalid_record"
 	// HarnessError is a provider failure read out of the pane itself.
 	HarnessError Reason = "harness_error"
 	// AwaitingAnswer is a goblin whose agent turn ended (agent_status done) and
@@ -327,6 +328,15 @@ func validateObservation(observation Observation) error {
 }
 
 func validateObservationState(observation Observation) error {
+	if observation.Reason == LifecycleOperation {
+		if observation.Health != HealthPaused && observation.Health != HealthParked && observation.Health != HealthLaunching {
+			return errors.New("monitor: lifecycle operation has incompatible health")
+		}
+		if observation.EndpointVerdict != ProbeUnknown || observation.PendingEvent != nil || observation.NextPauseResurface != nil || observation.NextEscalation != nil || observation.StaleSince != nil || observation.NextDecisionAsk != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: lifecycle operation cannot carry endpoint or alarm evidence")
+		}
+		return nil
+	}
 	requireProgress := func() error {
 		if observation.Digest == "" || observation.LastSeen.IsZero() || observation.LastProgress.IsZero() {
 			return errors.New("monitor: observation progress fields are required")
