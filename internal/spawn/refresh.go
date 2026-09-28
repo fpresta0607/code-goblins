@@ -16,9 +16,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
-// PaneLiveness reports whether a task's recorded Herdr pane is still live.
-// It is a seam because the auth commands must decide liveness without
-// depending on a particular way of asking Herdr.
+// PaneLiveness reports whether a task's terminal, a Herdr pane or a native
+// terminal, is still live. It is a seam because the auth commands must decide
+// liveness without depending on a particular backend.
 type PaneLiveness interface {
 	Live(ctx context.Context, meta state.TaskMeta) bool
 }
@@ -38,6 +38,22 @@ func (h HerdrLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
 	}
 	status, err := h.Client.AgentStatus(ctx, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID})
 	return err == nil && status == herdr.AgentAlive
+}
+
+// BackendLiveness decides liveness by a task's backend: a native task is live
+// while its terminal's host runs, since the host ends with its harness; any
+// other asks Herdr.
+type BackendLiveness struct {
+	StateDir string
+	Herdr    HerdrLiveness
+}
+
+// Live implements PaneLiveness.
+func (b BackendLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
+	if meta.Backend == "native" {
+		return nativeTerminalRuns(b.StateDir, meta.ID)
+	}
+	return b.Herdr.Live(ctx, meta)
 }
 
 // Refreshed is one regenerated credential script. Live marks a pane the
