@@ -13,7 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -40,48 +39,33 @@ type terminalEndpoint struct {
 	native monitor.NativeProber
 }
 
-func (e terminalEndpoint) Exists(ctx context.Context, meta state.TaskMeta) (bool, error) {
-	if meta.Backend == "native" {
-		sample, err := e.native.Inspect(ctx, meta)
-		return sample.Verdict == monitor.ProbePresent, err
-	}
-	if e.herdr == nil {
-		return false, errors.New("fleet: terminal backend is required")
-	}
-	status, err := e.herdr.AgentStatus(ctx, herdrTarget(meta))
-	if err != nil {
-		return false, err
-	}
-	return status == herdr.AgentAlive, nil
-}
-
-func (e terminalEndpoint) BusyState(ctx context.Context, meta state.TaskMeta) (herdr.BusyState, error) {
+func (e terminalEndpoint) Read(ctx context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
 	if meta.Backend == "native" {
 		sample, err := e.native.Inspect(ctx, meta)
 		if err != nil || sample.Verdict != monitor.ProbePresent {
-			return herdr.BusyUnknown, err
+			return false, herdr.BusyUnknown, err
 		}
-		return sample.Busy, nil
+		return true, sample.Busy, nil
 	}
 	if e.herdr == nil {
-		return herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
+		return false, herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
 	}
-	return e.herdr.BusyState(ctx, herdrTarget(meta))
+	target := herdrTarget(meta)
+	status, err := e.herdr.AgentStatus(ctx, target)
+	if err != nil || status != herdr.AgentAlive {
+		return false, herdr.BusyUnknown, err
+	}
+	busy, err := e.herdr.BusyState(ctx, target)
+	return true, busy, err
 }
 
-// Validate proves an idle native terminal is the task's own: its host
-// recorded itself under the task's id, and Exists already had an answer from
-// that host's pipe, whose name is unique to the one launch. No Herdr answer
-// proves a pane's workspace, tab and label, so a Herdr task's idle pane never
-// falls back to its status log.
+// Validate proves an idle native terminal is the task's own. It is reached
+// only after Read found the task's own host answering: a host that recorded
+// itself under the task's id, on a pipe whose name is unique to the one
+// launch. No Herdr answer proves a pane's workspace, tab and label, so a
+// Herdr task's idle pane never falls back to its status log.
 func (e terminalEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
-	if meta.Backend != "native" {
-		return false, nil
-	}
-	if _, err := host.ReadRecord(e.native.StateDir, meta.ID); err != nil {
-		return false, err
-	}
-	return true, nil
+	return meta.Backend == "native", nil
 }
 
 func herdrTarget(meta state.TaskMeta) herdr.Target {

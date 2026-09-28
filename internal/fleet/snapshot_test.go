@@ -34,13 +34,9 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 	endpoint := NewTerminalEndpoint(t.TempDir(), newHerdrClient(runner, &sleeps))
 	meta := state.TaskMeta{ID: "g7", Backend: "herdr", HerdrSession: "fleet", HerdrPaneID: "pane-7"}
 
-	exists, err := endpoint.Exists(context.Background(), meta)
-	if err != nil || !exists {
-		t.Fatalf("Exists = %t, %v; want true, nil", exists, err)
-	}
-	busy, err := endpoint.BusyState(context.Background(), meta)
-	if err != nil || busy != herdr.BusyWorking {
-		t.Fatalf("BusyState = %q, %v; want busy, nil", busy, err)
+	exists, busy, err := endpoint.Read(context.Background(), meta)
+	if err != nil || !exists || busy != herdr.BusyWorking {
+		t.Fatalf("Read = %t, %q, %v; want true, busy, nil", exists, busy, err)
 	}
 	assertRequests(t, runner.requests, [][]string{
 		{"pane", "get", "pane-7", "--session", "fleet"},
@@ -49,16 +45,10 @@ func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 	})
 }
 
-func (e *snapshotEndpoint) Exists(_ context.Context, meta state.TaskMeta) (bool, error) {
+func (e *snapshotEndpoint) Read(_ context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
 	target := herdrTarget(meta).String()
-	e.calls = append(e.calls, "exists:"+target)
-	return e.exists[target], nil
-}
-
-func (e *snapshotEndpoint) BusyState(_ context.Context, meta state.TaskMeta) (herdr.BusyState, error) {
-	target := herdrTarget(meta).String()
-	e.calls = append(e.calls, "busy:"+target)
-	return e.busy[target], nil
+	e.calls = append(e.calls, "read:"+target)
+	return e.exists[target], e.busy[target], nil
 }
 
 func (e *snapshotEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
@@ -358,7 +348,11 @@ func TestBuildSnapshotReadsANativeTaskFromItsOwnTerminal(t *testing.T) {
 			if test.hasHost {
 				recordHost(t, h.State, "g1")
 			}
-			screen := func(host.Record) ([]string, error) { return test.screen, nil }
+			screenReads := 0
+			screen := func(host.Record) ([]string, error) {
+				screenReads++
+				return test.screen, nil
+			}
 			endpoint := terminalEndpoint{native: monitor.NativeProber{StateDir: h.State, ReadScreen: screen}}
 
 			snapshot, err := BuildSnapshot(context.Background(), h, endpoint)
@@ -368,6 +362,9 @@ func TestBuildSnapshotReadsANativeTaskFromItsOwnTerminal(t *testing.T) {
 			}
 			if got := snapshot.Tasks[0].Current; got != test.want {
 				t.Errorf("current = %+v, want %+v", got, test.want)
+			}
+			if test.hasHost && screenReads != 1 {
+				t.Errorf("screen reads = %d, want one sample of the task's terminal", screenReads)
 			}
 		})
 	}

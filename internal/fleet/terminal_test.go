@@ -72,12 +72,11 @@ func TestSnapshotEndpointReadsTheTerminalBackend(t *testing.T) {
 	endpoint := NewTerminalEndpoint(t.TempDir(), fake)
 	meta := taskSelector().meta
 
-	exists, existsErr := endpoint.Exists(context.Background(), meta)
-	busy, busyErr := endpoint.BusyState(context.Background(), meta)
+	exists, busy, readErr := endpoint.Read(context.Background(), meta)
 	valid, validErr := endpoint.(crewstate.StructuralValidator).Validate(context.Background(), meta)
 
-	if existsErr != nil || !exists || busyErr != nil || busy != herdr.BusyWorking {
-		t.Fatalf("Exists = %v, %v; BusyState = %q, %v; want a live, working agent", exists, existsErr, busy, busyErr)
+	if readErr != nil || !exists || busy != herdr.BusyWorking {
+		t.Fatalf("Read = %v, %q, %v; want a live, working agent", exists, busy, readErr)
 	}
 	if validErr != nil || valid {
 		t.Errorf("Validate = %v, %v; want a Herdr pane never proven the task's own", valid, validErr)
