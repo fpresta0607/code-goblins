@@ -453,3 +453,54 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 		t.Fatalf("archived stopped card promises a validation restart: %+v", history)
 	}
 }
+
+func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
+	for _, test := range []struct {
+		action, phase string
+		want          bool
+	}{
+		{"pause", "paused", true},
+		{"resume", "resuming", true},
+		{"resume", "failed", true},
+		{"pause", "failed", false},
+		{"stop", "stopping", false},
+		{"stop", "stopped", false},
+		{"stop", "failed", false},
+	} {
+		t.Run(test.action+" "+test.phase, func(t *testing.T) {
+			handler, h := orderBoard(t)
+			meta := state.TaskMeta{ID: "task", Title: "Gated task", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, TaskTmp: filepath.Join(h.State, "tasktmp", "task"), Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if test.action == "pause" && test.phase == "failed" {
+				service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
+					Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
+					Stop:    func(context.Context, state.TaskMeta) ([]string, error) { return nil, nil },
+					Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
+						record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
+						return errors.New("gate commits are pinned locally but could not merge into the task branch")
+					},
+					Notify: func(state.Lifecycle) error { return nil },
+				}}
+				record, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"})
+				if err == nil || record.Phase != "failed" || record.GateRun != "run-1" || len(record.Problems) == 0 {
+					t.Fatalf("failed pause lost its gate custody or diagnostic: %+v %v", record, err)
+				}
+			} else if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "operation-1", Action: test.action, Phase: test.phase, GateRun: "run-1", GateIntent: "saved intent", Updated: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := handler.Service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
+			if index < 0 || snapshot.Tasks[index].Lifecycle == nil {
+				t.Fatalf("no lifecycle card: %+v", snapshot.Tasks)
+			}
+			if got := snapshot.Tasks[index].Lifecycle.ValidationRestarts; got != test.want {
+				t.Fatalf("validation restarts=%v, want %v", got, test.want)
+			}
+		})
+	}
+}
