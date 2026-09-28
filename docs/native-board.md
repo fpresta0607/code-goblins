@@ -494,7 +494,7 @@ cfo review --id dispatch-review-1 --title "Pick the dispatch order" --lavish .la
 cfo deliver --id setbacks-1204-oak --title "Setbacks and envelope, 1204 Oak St" --file "$env:USERPROFILE\Desktop\setbacks-1204-oak-st.pdf"
 ```
 
-A goblin runs it from its own pane, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
+A goblin runs it from its own Herdr pane or native terminal, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
 The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing the same ID with the same content changes nothing, and other content under that ID is refused.
 Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
 A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
@@ -506,7 +506,7 @@ The supervisor retires a goblin's item nobody waits on any more, on every reconc
 A delivered document is never retired, because its copy outlives the goblin: it stays until the Overlord opens, downloads or clears it.
 When the CFO answers a goblin's question with `cfo answer`, the goblin's waits on the Overlord raised up to that question close at once, since it has what it was waiting for, and each reads The CFO answered <task>'s question.; a wait it raised after the question stays open.
 The registered primary CFO can clear any open item with `cfo review --clear <id> --reason "<why>"`, such as one a retired goblin left; the item reads Cleared by the CFO: <why>, and `state/reviews.audit` records every clear the CFO makes, with its time, item, goblin and reason, one per line.
-The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own pane while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
+The Overlord can instead answer it (`review_answer`): his text goes once to the reporter, the goblin's own terminal while it is the same task generation or the CFO that reported it, and the item closes as answered; an answer for a goblin that restarted or ended goes to the current CFO instead, and the item reads `delivered: false`.
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and a banner at the bottom right names it for eight seconds with Open, so it cannot be missed; a new run item is announced the same way, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
@@ -563,7 +563,7 @@ It can also debug or inject into the CFO process itself: the pipe closes the fil
 
 ## Nonblocking presentation notices
 
-After a presentation tool succeeds, the goblin that ran it reports the returned safe URL explicitly, from its own pane:
+After a presentation tool succeeds, the goblin that ran it reports the returned safe URL explicitly, from its own terminal:
 
 ```powershell
 cfo present --id browser-walkthrough-001 --task task-id --kind browser --url http://127.0.0.1:5173/ --ttl 5m
