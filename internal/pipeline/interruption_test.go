@@ -17,6 +17,7 @@ type interruptionRunner struct {
 	failMerge bool
 	pins      map[string]string
 	startRun  bool
+	endStatus string
 	gateHead  string
 	gateDirty bool
 }
@@ -30,6 +31,9 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 	if strings.Contains(command, "axi run --intent") {
 		if runner.startRun {
 			runner.run.ID, runner.run.Status = "new-run", "running"
+			if runner.endStatus != "" {
+				runner.run.Status = runner.endStatus
+			}
 		}
 		return execx.Result{ExitCode: 1, Stderr: []byte("bounded wait elapsed")}, nil
 	}
@@ -138,6 +142,44 @@ func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T
 				}
 			}
 		})
+	}
+}
+
+func TestRestartInterruptedAcceptsAReplacementThatAlreadyEnded(t *testing.T) {
+	for _, status := range []string{"failed", "cancelled"} {
+		t.Run(status, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+			runner := &interruptionRunner{run: prior, startRun: true, endStatus: status}
+			reader := Reader{Root: root, Commands: runner}
+			for attempt := 0; attempt < 2; attempt++ {
+				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior); err != nil {
+					t.Fatalf("attempt %d: replacement that %s blocked Resume: %v", attempt, status, err)
+				}
+			}
+			if count := strings.Count(strings.Join(runner.commands, "\n"), "axi run --intent"); count != 1 {
+				t.Fatalf("started %d replacement runs", count)
+			}
+		})
+	}
+}
+
+func TestRestartInterruptedRefusesARunWithAnotherIntent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
+	other := prior
+	other.ID, other.Status, other.Intent = "other-run", "failed", "Unrelated work"
+	runner := &interruptionRunner{run: other}
+	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior)
+	commands := strings.Join(runner.commands, "\n")
+	if err == nil || strings.Contains(commands, "no-mistakes") {
+		t.Fatalf("restart over another intent: %v\n%s", err, commands)
 	}
 }
 
