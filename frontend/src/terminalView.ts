@@ -1,8 +1,8 @@
-import { Terminal } from "@xterm/xterm";
+import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
 import { FrameWriter } from "./terminalFrames";
-import { ackDue, DEFAULT_FONT_SIZE, fontSizeFor, inputMessages, panelFit, parseHistory, parseSize } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, inputMessages, panelFit, parseHistory, parseSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -36,6 +36,7 @@ export class TerminalView {
   private readonly socket: WebSocket;
   private readonly frames: FrameWriter;
   private readonly resize: ResizeObserver;
+  private readonly rendered: IDisposable;
   private readonly encoder = new TextEncoder();
   private readonly events: ViewEvents;
   // history is how many output bytes replay the terminal's history, once the
@@ -48,6 +49,9 @@ export class TerminalView {
   private sized = false;
   private isReady = false;
   private isShown = false;
+  // isDrawn is whether xterm has drawn its screen since the view last resized
+  // it; out of sight, xterm draws, and so resizes its screen, only once shown.
+  private isDrawn = true;
   private disposed = false;
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
@@ -86,6 +90,7 @@ export class TerminalView {
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
+    this.rendered = this.term.onRender(() => { if (!this.isDrawn) { this.isDrawn = true; this.refit(); } });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
   }
@@ -127,6 +132,7 @@ export class TerminalView {
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
     this.resize.disconnect();
+    this.rendered.dispose();
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
     window.removeEventListener("pointerup", this.copy);
@@ -146,7 +152,7 @@ export class TerminalView {
       if (history !== null) { this.history = history; return; }
       // Another view sized the terminal: draw at its size until typed into.
       const size = parseSize(data);
-      if (size && (size.cols !== this.term.cols || size.rows !== this.term.rows)) { this.owner = false; this.term.resize(size.cols, size.rows); }
+      if (size && (size.cols !== this.term.cols || size.rows !== this.term.rows)) { this.owner = false; this.resizeGrid(size.cols, size.rows); }
       return;
     }
     const bytes = new Uint8Array(data);
@@ -185,11 +191,11 @@ export class TerminalView {
     const size = panelFit(panel.width, panel.height, this.cell(), PADDING);
     if (!size || !this.term.element) return;
     this.term.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`;
-    if (this.socket.readyState === WebSocket.CLOSED) { this.term.resize(size.cols, size.rows); return; }
+    if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); return; }
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (this.sized && this.owner && size.cols === this.term.cols && size.rows === this.term.rows) return;
     this.owner = true;
-    if (size.cols !== this.term.cols || size.rows !== this.term.rows) this.term.resize(size.cols, size.rows);
+    this.resizeGrid(size.cols, size.rows);
     clearTimeout(this.settle);
     const report = () => this.send(JSON.stringify({ type: "resize", cols: this.term.cols, rows: this.term.rows }));
     if (this.sized) { this.settle = setTimeout(report, RESIZE_SETTLE_MS); return; }
@@ -198,11 +204,18 @@ export class TerminalView {
     this.fallback = setTimeout(() => this.markReady(), READY_FALLBACK_MS);
   }
 
-  // cell is one character cell as xterm draws it: its screen is exactly its
-  // columns and rows of cells.
+  // resizeGrid resizes xterm, whose screen is measured again once drawn.
+  private resizeGrid(cols: number, rows: number): void {
+    if (cols === this.term.cols && rows === this.term.rows) return;
+    this.isDrawn = false;
+    this.term.resize(cols, rows);
+  }
+
+  // cell is one character cell as xterm draws it, or none until its screen
+  // is drawn at the current grid.
   private cell(): { width: number; height: number } {
     const screen = this.term.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
-    return screen ? { width: screen.width / this.term.cols, height: screen.height / this.term.rows } : { width: 0, height: 0 };
+    return screen ? drawnCell(screen, this.term.cols, this.term.rows, this.isDrawn) : { width: 0, height: 0 };
   }
 
   private key(event: KeyboardEvent): boolean {

@@ -76,6 +76,13 @@ export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
 
+// One character cell measured from xterm's screen, which is exactly its
+// columns and rows of cells once it has drawn them. A screen not yet drawn at
+// the current grid, as when xterm resized it while out of sight, gives no cell.
+export function drawnCell(screen: { width: number; height: number }, cols: number, rows: number, isDrawn: boolean): { width: number; height: number } {
+  return isDrawn ? { width: screen.width / cols, height: screen.height / rows } : { width: 0, height: 0 };
+}
+
 // The grid a panel holds at a cell size, evenly padded: the spare width is
 // split between left and right, the bottom keeps the same space, so the last
 // row, the input line, sits that far from the bottom, and the spare height,

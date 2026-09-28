@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, drawnCell, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -83,6 +83,13 @@ test("a terminal fills its panel with the same padding left, right and below, an
     assert.ok(Math.abs(fit.left + fit.cols * cell.width + fit.right - width) < 1e-6, "the columns and padding fill the width");
     assert.ok(Math.abs(fit.top + fit.rows * cell.height + fit.bottom - height) < 1e-6, "the rows and padding fill the height");
   }
+});
+
+test("the cell is measured from a screen drawn at the current grid, and a screen not yet drawn gives no fit", () => {
+  assert.deepEqual(drawnCell({ width: 1440, height: 744 }, 120, 24, true), { width: 12, height: 31 });
+  const stale = drawnCell({ width: 1440, height: 744 }, 200, 50, false);
+  assert.deepEqual(stale, { width: 0, height: 0 });
+  assert.equal(panelFit(1574, 749.8, stale, 10), null);
 });
 
 test("a panel too small for a usable grid, or an unmeasured cell, gives no fit", () => {
