@@ -137,9 +137,10 @@ func LatestVerb(lines []string) (string, bool) {
 }
 
 // cfoAuditVerbs are the records the CFO itself writes into a task's status
-// log. They are the CFO's word, never the task's own report, so every scan
-// for a task's latest report skips them.
-var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated"}
+// log, including the Pause, Resume and Stop controller's outcomes. They are
+// the CFO's word, never the task's own report, so every scan for a task's
+// latest report skips them.
+var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed"}
 
 // IsCFOAudit reports whether a status line is a CFO audit record rather than
 // something the task reported.
