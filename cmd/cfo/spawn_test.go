@@ -101,9 +101,9 @@ func TestRunSpawnKeepsTheBacklogRowsTitle(t *testing.T) {
 	}
 }
 
-// cfo spawn starts a goblin in a native terminal of its own by default, in
-// Herdr only when asked or when its harness cannot run natively yet (kimi),
-// and refuses any other backend without calling the spawn service.
+// cfo spawn starts a Claude goblin in a native terminal of its own by default,
+// in Herdr when asked or when its harness is not yet proven natively (codex,
+// pi, kimi), and refuses any other backend without calling the spawn service.
 func TestRunSpawnPassesTheBackend(t *testing.T) {
 	for name, test := range map[string]struct {
 		harness string
@@ -111,11 +111,14 @@ func TestRunSpawnPassesTheBackend(t *testing.T) {
 		exit    int
 		backend string
 	}{
-		"default":          {"claude", nil, 0, "native"},
-		"native":           {"claude", []string{"--backend", "native"}, 0, "native"},
-		"herdr":            {"claude", []string{"--backend", "herdr"}, 0, "herdr"},
-		"default for kimi": {"kimi", nil, 0, "herdr"},
-		"unknown":          {"claude", []string{"--backend", "tmux"}, 2, ""},
+		"default":           {"claude", nil, 0, "native"},
+		"native":            {"claude", []string{"--backend", "native"}, 0, "native"},
+		"herdr":             {"claude", []string{"--backend", "herdr"}, 0, "herdr"},
+		"default for codex": {"codex", nil, 0, "herdr"},
+		"native for codex":  {"codex", []string{"--backend", "native"}, 0, "native"},
+		"default for pi":    {"pi", nil, 0, "herdr"},
+		"default for kimi":  {"kimi", nil, 0, "herdr"},
+		"unknown":           {"claude", []string{"--backend", "tmux"}, 2, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testCommandRuntime(t)

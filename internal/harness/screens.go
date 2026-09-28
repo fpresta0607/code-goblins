@@ -85,6 +85,16 @@ func NativeScreens(kind Kind) (Screens, bool) {
 	return Screens{}, false
 }
 
+// NativeDefault reports whether a spawn that names no backend starts kind in a
+// native terminal, which it does only once kind's native launch has been
+// proven live. Codex's composer, working and paste texts are not yet seen in a
+// capture and pi's trust prompt is never answered, so codex and pi, like kimi,
+// which has no native screens, start in Herdr until a live native spawn proves
+// them.
+func NativeDefault(kind Kind) bool {
+	return kind == Claude
+}
+
 // Dialog returns the dialog screen shows, if any.
 func (s Screens) Dialog(screen []string) (Dialog, bool) {
 	for _, dialog := range s.Dialogs {

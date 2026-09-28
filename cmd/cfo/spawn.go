@@ -48,7 +48,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native unless the harness cannot run natively yet (kimi)")
+	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude and herdr for codex, pi and kimi until each is proven natively")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -154,9 +154,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 	}
 	if *backend == "" {
-		*backend = "native"
-		if _, ok := harness.NativeScreens(harness.Kind(*harnessName)); !ok {
-			*backend = "herdr"
+		*backend = "herdr"
+		if harness.NativeDefault(harness.Kind(*harnessName)) {
+			*backend = "native"
 		}
 	}
 	if routed || *auto {
