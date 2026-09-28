@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
-import { availableHeight, clampPage, pageOf, pageStarts, swipeStep } from "./fit";
+import { availableHeight, clampPage, pageShowing, pageStarts, swipeStep } from "./fit";
 
 const columnsOf = (grid: HTMLElement) => {
   const value = getComputedStyle(grid).gridTemplateColumns;
@@ -21,16 +21,18 @@ const sameLayout = (a: Layout, b: Layout) => a.width === b.width && a.available 
 // container of no height beside the list: every page is then sized by its
 // cards' real heights without the list ever growing past its space. Until a
 // card is measured it counts as tall as the tallest one that was, and before
-// any is, a page holds one card. frameRef is the box around the list, listRef
-// the list itself.
+// any is, a page holds one card. The page shown is the one holding the card
+// kept in view: show keeps a card, such as one just moved, and a turn keeps
+// the first card of the page it turns to. frameRef is the box around the
+// list, listRef the list itself.
 export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null>, listRef: RefObject<HTMLDivElement | null>) {
   const [layout, setLayout] = useState<Layout>({ width: -1, available: 0, gap: 0, columns: 1, heights: new Map() });
-  const [chosen, setChosen] = useState(0);
+  const [kept, setKept] = useState({ key: "", page: 0 });
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const tallest = layout.heights.size ? Math.max(...layout.heights.values()) : Number.POSITIVE_INFINITY;
-  const heightsOf = (order: string[]) => order.map((key) => layout.heights.get(key) ?? tallest);
-  const starts = pageStarts(heightsOf(keys), layout.available, layout.gap, layout.columns);
-  const page = clampPage(chosen, starts.length);
+  const starts = pageStarts(keys.map((key) => layout.heights.get(key) ?? tallest), layout.available, layout.gap, layout.columns);
+  const page = pageShowing(keys.indexOf(kept.key), kept.page, starts);
+  if (page !== kept.page) setKept({ key: kept.key, page });
   const start = starts[page];
   const end = starts[page + 1] ?? keys.length;
   const unmeasured = keys.filter((key) => !layout.heights.has(key));
@@ -75,8 +77,11 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
     };
   }, [watched, frameRef, listRef]);
 
-  const show = (next: number) => setChosen(Math.max(0, next));
-  const turn = (step: number) => show(clampPage(page + step, starts.length));
+  const show = (key: string) => setKept({ key, page });
+  const turn = (step: number) => {
+    const next = clampPage(page + step, starts.length);
+    setKept({ key: keys[starts[next]] ?? "", page: next });
+  };
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     swipe.current = event.pointerType === "touch" ? { x: event.clientX, y: event.clientY } : null;
   };
@@ -88,8 +93,5 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
   const onPointerCancel = () => {
     swipe.current = null;
   };
-  // pageAt is the page that holds the card at index when the list is in
-  // order, such as the order a move is about to save.
-  const pageAt = (order: string[], index: number) => pageOf(index, pageStarts(heightsOf(order), layout.available, layout.gap, layout.columns));
-  return { start, end, page, unmeasured, pageAt, turn, show, onPointerDown, onPointerUp, onPointerCancel };
+  return { start, end, page, unmeasured, turn, show, onPointerDown, onPointerUp, onPointerCancel };
 }

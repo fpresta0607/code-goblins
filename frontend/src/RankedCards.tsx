@@ -30,8 +30,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const listed = orderShown(tasks, pending?.order || null);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const fitKeys = (order: string[]) => order.map(fitKey);
-  const fit = useFit(fitKeys(listed.map((task) => task.id)), frameRef, listRef);
+  const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef);
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
     const title = listed[before]?.title || moved;
@@ -39,7 +38,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
     setNote(`Moved ${title} to ${order.indexOf(moved) + 1} of ${order.length}.`);
-    fit.show(fit.pageAt(fitKeys(order), order.indexOf(moved)));
+    fit.show(fitKey(moved, order.indexOf(moved)));
     try {
       const saved = object(await request("/api/order", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ list, order }) }));
       if (latest.current !== order) return;
@@ -48,7 +47,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       if (latest.current !== order) return;
       setPending(null);
       setError(message(failure));
-      fit.show(fit.pageAt(fitKeys(listed.map((task) => task.id)), before));
+      fit.show(fitKey(moved, before));
     }
   };
   const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef);

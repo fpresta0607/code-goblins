@@ -51,6 +51,14 @@ export function pageOf(index: number, starts: number[]): number {
   return page;
 }
 
+// The page to show while the list keeps the card at index in view, so the
+// page follows that card as heights are measured and the order changes; once
+// the card has left the list (index -1), the last page shown, clamped to the
+// pages there are.
+export function pageShowing(index: number, last: number, starts: number[]): number {
+  return index >= 0 ? pageOf(index, starts) : clampPage(last, starts.length);
+}
+
 // Which cards the page shows, such as 1–5 of 18; empty when one page holds
 // the whole list.
 export function pageLabel(start: number, end: number, count: number): string {

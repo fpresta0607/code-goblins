@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableHeight, clampPage, fitKey, pageLabel, pageOf, pageStarts, swipeStep } from "./fit.ts";
+import { availableHeight, clampPage, fitKey, pageLabel, pageOf, pageShowing, pageStarts, swipeStep } from "./fit.ts";
 
 test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
   assert.deepEqual(pageStarts([195, 120, 150], 370, 16, 1), [0, 2], "the live Tasks column at 1160 px: two cards fit on the first page, where sizing every page by its 195 px tallest card showed one");
@@ -34,6 +34,19 @@ test("a card moved past its page's edge is shown on the page it moved to", () =>
   assert.equal(pageOf(3, starts), 1, "one place further down carries the view to the second page");
   assert.equal(pageOf(4, starts), 1);
   assert.equal(pageOf(7, starts), 2);
+});
+
+test("the page follows the card kept in view as its neighbours are measured", () => {
+  const estimated = pageStarts([195, 195, 150], 370, 16, 1);
+  const measured = pageStarts([195, 120, 150], 370, 16, 1);
+  assert.equal(pageShowing(1, 0, estimated), 1, "the top card moved down one place, next to a new top card not measured yet, first shows on the second page");
+  assert.equal(pageShowing(1, 1, measured), 0, "once the new top card and the moved card are measured, both fit the first page and the view goes with the moved card");
+});
+
+test("a page whose kept card has left the list stays where it was, within the pages there are", () => {
+  assert.equal(pageShowing(-1, 1, [0, 2, 4]), 1);
+  assert.equal(pageShowing(-1, 3, [0, 2]), 1);
+  assert.equal(pageShowing(-1, 0, [0]), 0);
 });
 
 test("the pager says which cards show, and a list that fits needs none", () => {
