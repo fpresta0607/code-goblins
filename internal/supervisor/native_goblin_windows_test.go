@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -43,7 +44,8 @@ func TestANativeGoblinAsksFromItsOwnTerminalOnly(t *testing.T) {
 
 // The Overlord's answer reaches a native goblin through its own terminal:
 // typed, submitted once its composer shows it, and delivered once the
-// harness works on it, on one line.
+// harness works on it, on one line and stamped as a steer so the monitor never
+// reads the question it repeats as the harness's own fault.
 func TestTheOverlordsAnswerReachesANativeGoblinOnce(t *testing.T) {
 	stateDir := t.TempDir()
 	meta := writeNativeTask(t, stateDir, "task-9")
@@ -55,7 +57,7 @@ func TestTheOverlordsAnswerReachesANativeGoblinOnce(t *testing.T) {
 	if err != nil || !strings.Contains(result.Reason, "native terminal") {
 		t.Errorf("SendGoblin = %+v, %v; want it accepted in the native terminal", result, err)
 	}
-	want := []string{"The Overlord answered your question on the board. Answer: yes"}
+	want := []string{routing.SteerPrefix + "The Overlord answered your question on the board. Answer: yes"}
 	if typed := goblin.exit(t); !slices.Equal(typed, want) {
 		t.Errorf("the goblin received %q, want the answer once on one line", typed)
 	}
