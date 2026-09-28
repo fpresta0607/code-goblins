@@ -40,17 +40,30 @@ func replayStart(output []byte, cut int) int {
 type history struct {
 	mu      sync.Mutex
 	kept    []byte
-	viewers map[chan []byte]struct{}
+	viewers map[*feed]struct{}
 	closed  bool
 }
 
-func newHistory() *history {
-	return &history{viewers: map[chan []byte]struct{}{}}
+// feed is one live viewer's share of the output: what the terminal wrote
+// that the viewer has not taken yet, and whether that is all it will get.
+type feed struct {
+	output *history
+	// ready holds a signal while output or the feed's end waits to be taken.
+	ready   chan struct{}
+	pending []byte
+	ended   bool
 }
 
-// write keeps chunk and hands it to every viewer; the caller never changes
-// it afterwards. A viewer that cannot keep up is dropped, never waited on, so
-// the terminal never stalls behind a slow window.
+func newHistory() *history {
+	return &history{viewers: map[*feed]struct{}{}}
+}
+
+// write keeps chunk and queues it for every viewer. A viewer is dropped,
+// never waited on, once it is further behind than a replay reaches, so the
+// terminal never stalls behind a slow window and a viewer holds no more than
+// the history does. The bound is in bytes, not writes: ConPTY writes about
+// one chunk per line, so an ordinary burst of a few thousand lines is
+// thousands of writes while a viewer is still reading through it.
 func (h *history) write(chunk []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -59,45 +72,75 @@ func (h *history) write(chunk []byte) {
 		h.kept = append(h.kept[:0], h.kept[replayStart(h.kept, len(h.kept)-historyLimit):]...)
 	}
 	for viewer := range h.viewers {
-		select {
-		case viewer <- chunk:
-		default:
-			delete(h.viewers, viewer)
-			close(viewer)
+		if len(viewer.pending)+len(chunk) > historyLimit {
+			h.stop(viewer)
+			continue
 		}
+		viewer.pending = append(viewer.pending, chunk...)
+		viewer.wake()
 	}
 }
 
 // attach returns the output so far and a feed that starts exactly where it
-// ends, closed when the terminal ends or detach is called.
-func (h *history) attach() ([]byte, <-chan []byte, func()) {
+// ends, which ends when the terminal ends or detach is called.
+func (h *history) attach() ([]byte, *feed, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	feed := make(chan []byte, 1024)
+	viewer := &feed{output: h, ready: make(chan struct{}, 1)}
 	past := append([]byte(nil), h.kept[replayStart(h.kept, len(h.kept)-historyLimit):]...)
 	if h.closed {
-		close(feed)
-		return past, feed, func() {}
+		h.stop(viewer)
+		return past, viewer, func() {}
 	}
-	h.viewers[feed] = struct{}{}
-	return past, feed, func() {
+	h.viewers[viewer] = struct{}{}
+	return past, viewer, func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		if _, ok := h.viewers[feed]; ok {
-			delete(h.viewers, feed)
-			close(feed)
-		}
+		h.stop(viewer)
 	}
 }
 
-// end closes every viewer's feed once the terminal has no more output.
+// stop ends viewer's feed once it has taken what is already queued. The
+// caller holds h.mu.
+func (h *history) stop(viewer *feed) {
+	delete(h.viewers, viewer)
+	viewer.ended = true
+	viewer.wake()
+}
+
+// end ends every viewer's feed once the terminal has no more output.
 func (h *history) end() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.closed = true
 	for viewer := range h.viewers {
-		delete(h.viewers, viewer)
-		close(viewer)
+		h.stop(viewer)
+	}
+}
+
+// wake tells the viewer's reader there is output or an end to take.
+func (f *feed) wake() {
+	select {
+	case f.ready <- struct{}{}:
+	default:
+	}
+}
+
+// next waits for output the viewer has not taken and returns all of it at
+// once, or false once the feed has ended and nothing is left.
+func (f *feed) next() ([]byte, bool) {
+	for {
+		f.output.mu.Lock()
+		output, ended := f.pending, f.ended
+		f.pending = nil
+		f.output.mu.Unlock()
+		if len(output) > 0 {
+			return output, true
+		}
+		if ended {
+			return nil, false
+		}
+		<-f.ready
 	}
 }
 
