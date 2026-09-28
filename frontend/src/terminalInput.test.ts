@@ -121,17 +121,21 @@ test("a short read judges whether a pane scrolls itself exactly as its whole his
 });
 
 test("the wheel over the live screen never waits for a fresh look at the pane", () => {
-  const at = 1_000_000;
-  const cases: [string, Parameters<typeof liveWheel>[0], number, number, ReturnType<typeof liveWheel>][] = [
-    ["a pane that scrolls itself is scrolled at once", { at, selfScrolls: true }, at + 10, -3, { action: "scroll", look: false }],
-    ["and down as well", { at, selfScrolls: true }, at + 10, 3, { action: "scroll", look: false }],
-    ["a stale judgment still scrolls at once and is looked at again beside it", { at, selfScrolls: true }, at + SELF_SCROLL_FRESH_MS, -3, { action: "scroll", look: true }],
-    ["a pane with history opens it on a turn up", { at, selfScrolls: false }, at + 10, -3, { action: "open", look: false }],
-    ["and a turn down on its live screen does nothing", { at, selfScrolls: false }, at + 10, 3, { action: "none", look: false }],
-    ["opening the history reads it whole, so a stale judgment needs no look of its own", { at, selfScrolls: false }, at + SELF_SCROLL_FRESH_MS, -3, { action: "open", look: false }],
-    ["before the first judgment lands the turn waits for it", { at: 0, selfScrolls: false }, at, -3, { action: "wait", look: true }],
+  const at = 1_000_000, rows = 24;
+  const cases: [string, Parameters<typeof liveWheel>[0], Parameters<typeof liveWheel>[1], number, ReturnType<typeof liveWheel>][] = [
+    ["a pane that scrolls itself is scrolled at once", { at, selfScrolls: true, rows }, { now: at + 10, rows }, -3, { action: "scroll", look: false }],
+    ["and down as well", { at, selfScrolls: true, rows }, { now: at + 10, rows }, 3, { action: "scroll", look: false }],
+    ["a stale judgment still scrolls at once and is looked at again beside it", { at, selfScrolls: true, rows }, { now: at + SELF_SCROLL_FRESH_MS, rows }, -3, { action: "scroll", look: true }],
+    ["a pane with history opens it on a turn up", { at, selfScrolls: false, rows }, { now: at + 10, rows }, -3, { action: "open", look: false }],
+    ["and a turn down on its live screen does nothing", { at, selfScrolls: false, rows }, { now: at + 10, rows }, 3, { action: "none", look: false }],
+    ["opening the history reads it whole, so a stale judgment needs no look of its own", { at, selfScrolls: false, rows }, { now: at + SELF_SCROLL_FRESH_MS, rows }, -3, { action: "open", look: false }],
+    ["before the first judgment lands the turn waits for it", { at: 0, selfScrolls: false, rows: 0 }, { now: at, rows }, -3, { action: "wait", look: true }],
+    // The pane was asked for a new grid as the judgment was read, so Herdr
+    // answered a screen taller than the rows it was judged against.
+    ["a judgment read at another grid waits for a look at this one", { at, selfScrolls: false, rows: rows - 1 }, { now: at + 10, rows }, -3, { action: "wait", look: true }],
+    ["even one that found the pane scrolls itself", { at, selfScrolls: true, rows: rows + 1 }, { now: at + 10, rows }, 3, { action: "wait", look: true }],
   ];
-  for (const [name, judged, now, lines, want] of cases) assert.deepEqual(liveWheel(judged, now, lines), want, name);
+  for (const [name, judged, screen, lines, want] of cases) assert.deepEqual(liveWheel(judged, screen, lines), want, name);
 });
 
 const scroll = (direction: "up" | "down", lines: number): Extract<PaneCommand, { type: "terminal.scroll" }> => ({ type: "terminal.scroll", direction, lines, source: "wheel" });

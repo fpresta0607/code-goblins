@@ -111,9 +111,10 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     // fullscreen interface does: it keeps no history to read, so the wheel
     // sends it Herdr's wheel scroll instead. selfScrollChecked is when its
     // history was last read to judge that, 0 until a new connection's first
-    // look lands; judging is the lease a look is on its way for, and
-    // unjudged the lines of each turn that waited for that first look.
-    let selfScrolls = false, selfScrollChecked = 0, judging = "";
+    // look lands, and selfScrollRows the grid it was judged against; judging
+    // is the lease and grid a look is on its way for, and unjudged the lines
+    // of each turn that waited for a look at the screen's grid.
+    let selfScrolls = false, selfScrollChecked = 0, selfScrollRows = 0, judging = "";
     let unjudged: number[] = [];
     // scrolled is how many notches the board has sent a pane that scrolls
     // itself up, so a click can jump it back to its bottom; taken is
@@ -238,6 +239,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         if (abort.signal.aborted || !lease) return;
         selfScrolls = scrollsItself(string(answer.text), term.rows, string(answer.agent));
         selfScrollChecked = Date.now();
+        selfScrollRows = term.rows;
         if (selfScrolls) {
           scrollPane(lines);
           return;
@@ -272,24 +274,26 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       void flush();
     };
     // Reads a few lines of the pane to judge whether it scrolls itself,
-    // beside whatever the wheel is doing; the turns that waited for a
-    // connection's first look then scroll the pane or open its history.
+    // beside whatever the wheel is doing; the turns that waited for a look
+    // at the screen's grid then scroll the pane or open its history. A look
+    // at a newer lease or grid replaces one still on its way.
     const judge = async () => {
-      if (!lease || judging === lease || abort.signal.aborted) return;
-      const from = lease, rows = term.rows;
-      judging = from;
+      const from = lease, rows = term.rows, look = from + " " + rows;
+      if (!lease || judging === look || abort.signal.aborted) return;
+      judging = look;
       try {
         const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease: from, lines: judgeLines(rows) }) }));
-        if (abort.signal.aborted || lease !== from) return;
+        if (abort.signal.aborted || lease !== from || judging !== look) return;
         selfScrolls = scrollsItself(string(answer.text), rows, string(answer.agent));
         selfScrollChecked = Date.now();
+        selfScrollRows = rows;
       } catch (e: unknown) {
-        if (abort.signal.aborted || lease !== from) return;
+        if (abort.signal.aborted || lease !== from || judging !== look) return;
         if (unjudged.length) setError(message(e));
         unjudged = [];
         return;
       } finally {
-        if (judging === from) judging = "";
+        if (judging === look) judging = "";
       }
       const turns = unjudged;
       unjudged = [];
@@ -298,9 +302,9 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       else if (lines < 0) void openHistory(lines);
     };
     // A turn of the wheel over the live screen never waits for a look at the
-    // pane, except before a connection's first.
+    // pane, except before the first at the screen's grid.
     const liveTurn = (lines: number) => {
-      const turn = liveWheel({ at: selfScrollChecked, selfScrolls }, Date.now(), lines);
+      const turn = liveWheel({ at: selfScrollChecked, selfScrolls, rows: selfScrollRows }, { now: Date.now(), rows: term.rows }, lines);
       if (turn.action === "scroll") scrollPane(lines);
       if (turn.action === "open") void openHistory(lines);
       if (turn.action === "wait") unjudged.push(lines);
@@ -582,14 +586,19 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
             if (connection !== active && !(await activate(connection))) return;
             connection.frameSeq = frame.seq;
             if (frame.full === true) term.reset();
-            if (term.cols !== frame.width || term.rows !== frame.height) { term.resize(frame.width, frame.height); if (showing) past.resize(frame.width, frame.height); fit(); }
+            const rowsChanged = term.rows !== frame.height;
+            if (term.cols !== frame.width || rowsChanged) { term.resize(frame.width, frame.height); if (showing) past.resize(frame.width, frame.height); fit(); }
             const bytes = Uint8Array.from(atob(string(frame.bytes)), (character) => character.charCodeAt(0));
             await new Promise<void>((resolve) => term.write(bytes, resolve));
-            if (connection.full) continue;
+            // The wheel's judgment is read beside the first whole screen, before
+            // any turn needs it, and again on each new grid, since a judgment
+            // holds only for the rows it was read at.
+            if (connection.full) {
+              if (rowsChanged) void judge();
+              continue;
+            }
             connection.full = true;
             term.options.disableStdin = false;
-            // The first whole screen is the pane at this connection's size,
-            // so the wheel's judgment is read now, before any turn needs it.
             void judge();
             if (!liveValue.current) {
               liveValue.current = true;

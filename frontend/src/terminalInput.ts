@@ -102,13 +102,15 @@ export function judgeLines(rows: number): number {
 }
 
 // What a turn of the wheel over the live screen does with what the view last
-// judged of the pane (at is when, 0 for not yet): a pane that scrolls itself
-// scrolls at once, and one with history opens it on a turn up, which reads it
-// whole and judges again. A stale judgment is looked at again beside the
-// scroll, never before it; only turns before the first judgment wait for it.
-export function liveWheel(judged: { at: number; selfScrolls: boolean }, now: number, lines: number): { action: "scroll" | "open" | "wait" | "none"; look: boolean } {
-  if (!judged.at) return { action: "wait", look: true };
-  if (judged.selfScrolls) return { action: "scroll", look: !selfScrollFresh(judged.at, now) };
+// judged of the pane (at is when, 0 for not yet, and rows the grid it was
+// judged against): a pane that scrolls itself scrolls at once, and one with
+// history opens it on a turn up, which reads it whole and judges again. A
+// stale judgment is looked at again beside the scroll, never before it; only
+// turns before the first judgment at the screen's grid wait for it, since a
+// pane asked for a new grid as it was read may have answered at that one.
+export function liveWheel(judged: { at: number; selfScrolls: boolean; rows: number }, screen: { now: number; rows: number }, lines: number): { action: "scroll" | "open" | "wait" | "none"; look: boolean } {
+  if (!judged.at || judged.rows !== screen.rows) return { action: "wait", look: true };
+  if (judged.selfScrolls) return { action: "scroll", look: !selfScrollFresh(judged.at, screen.now) };
   return { action: lines < 0 ? "open" : "none", look: false };
 }
 
