@@ -1,6 +1,7 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
+import { RenderBoundary } from "./render-boundary";
 import { TaskCard } from "./TaskCard";
 import { nextChip } from "./start";
 import type { CardStarter } from "./useStart";
@@ -18,9 +19,9 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
   const memory = snapshot.memory;
   return <>
     {memory && <MemoryMeter memory={memory} />}
-    <RankedCards list="queued" tasks={queuedTasks(snapshot)} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
+    <RenderBoundary scope="list"><RankedCards list="queued" tasks={queuedTasks(snapshot)} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank, index) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
         next={index === 0 ? { text: nextChip(memory), waiting: !!memory && memory.available < memory.next } : undefined}
-        start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} />
+        start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} /></RenderBoundary>
   </>;
 }
