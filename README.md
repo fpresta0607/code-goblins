@@ -275,9 +275,9 @@ When the CFO needs a decision only you can make, it publishes the question with 
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
-Review items share the stack: a goblin's image review, a review page, or a goblin waiting on you.
+Review items share the stack: a goblin's image review or review page, and a goblin waiting on you personally (its sign-in, its click, its page), which shows as a status card with no answer box: it says what the goblin waits on and opens it (**Open the page**, **Open its question**, **Open the file** or **Open the link**), with **Dismiss** beside it.
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
-Other items, a plain link included, are answered in writing with **Send answer**, and any item closes with **Clear**.
+Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request; clicking an alert opens that item, alerts stack and fade after a few seconds, and routine progress never alerts.
 While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
@@ -293,7 +293,7 @@ A goblin waiting on you offers **Answer** in its panel, which opens the stack at
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own pane, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; the card then shows its exit code and output.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />

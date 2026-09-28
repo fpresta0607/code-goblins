@@ -1,11 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
-import type { Action } from "./types.ts";
+import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
+
+test("a goblin's wait on the Overlord is a status card, anything else under review is answered", () => {
+  const cases: [string, Partial<Review>, boolean][] = [
+    ["a goblin waiting on him", { id: "waiting-billing-7", task: "billing" }, true],
+    ["another goblin's wait id", { id: "waiting-billing-7", task: "notes" }, false],
+    ["a goblin's review page", { id: "plan-billing", task: "billing" }, false],
+    ["the CFO's own item", { id: "waiting--7", task: "" }, false],
+  ];
+  for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
+});
+
+test("a goblin's wait says what it waits on and opens it: its page, its own question, a file it delivered, or a link it names", () => {
+  const wait = (title: string, extra: Record<string, unknown> = {}) => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title: "Waiting on you: " + title, ...extra });
+  const target = (item: ReturnType<typeof wait>, others: { questions?: unknown[]; reviews?: unknown[] } = {}) => {
+    const snapshot = parseSnapshot({ healthy: true, questions: others.questions || [], reviews: [item, ...(others.reviews || [])] });
+    return waitTarget((snapshot.reviews || []).find((candidate) => candidate.id === "waiting-billing-7")!, snapshot);
+  };
+  const page = "http://127.0.0.1:4387/p/plan";
+  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open the page", says: "It waits on your answer on its review page." });
+  assert.deepEqual(target(wait("answer my question in the Command Center"), { questions: [question("notify-billing-5", "billing", "2026-09-27T09:00:00Z"), question("notify-billing-6", "billing", "2026-09-27T09:30:00Z"), question("notify-notes-1", "notes", "2026-09-27T09:45:00Z"), question("notify-billing-2", "billing", "2026-09-27T09:50:00Z", "succeeded")] }),
+    { kind: "item", key: "question:notify-billing-6", label: "Open its question", says: "It waits on your answer to its question." }, "its newest open question, never another goblin's or an answered one");
+  assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
+    { kind: "item", key: "review:report-billing", label: "Open the file", says: "It waits on you to open report.pdf." });
+  assert.deepEqual(target(wait("sign in at https://dashboard.stripe.com/login, then tell me")), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
+  assert.equal(target(wait("log in to Stripe")), null, "a wait that names nothing to open offers nothing");
+  assert.equal(target(wait("open file:///C:/secret.txt")), null, "only a web link opens");
+});
+
+test("a wait's card reads the goblin's reason, without the queue's prefix or the page it already opens", () => {
+  const page = "http://127.0.0.1:4387/p/plan";
+  const reason = (title: string, lavish = "") => waitReason(review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title, lavish }) as unknown as Review);
+  assert.equal(reason("Waiting on you: log in to Stripe"), "log in to Stripe");
+  assert.equal(reason("Waiting on you: pick a plan (page " + page + ")", page), "pick a plan");
+  assert.equal(reason("A title without the prefix"), "A title without the prefix");
+});
 
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
   const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],

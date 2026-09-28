@@ -1,16 +1,39 @@
-import { useState, type ReactNode } from "react";
-import type { Run } from "./types";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { request } from "./api";
+import { object, string, type Run } from "./types";
 import { Icon } from "./Icon";
 import { ConnectorMark } from "./ConnectorMark";
-import { Disclosure } from "./Disclosure";
 import { runMark } from "./feedback";
 import { shellLabel, shellMark } from "./connectors";
 
 // A command the CFO needs the Overlord to run: why, the shell, the exact text
-// that runs and where, one Run button, its live state and the captured output.
-// The browser never sends the command; Run names the stored item.
+// that runs and where, one Run button, its live state, and its output as a
+// terminal shows it: read every second while it runs, then with its exit
+// code. The browser never sends the command; Run names the stored item.
+const OUTPUT_READ_MS = 1000;
 export function RunCard({ run, connected, sending, error, onRun, pager }: { run: Run; connected: boolean; sending: boolean; error: string; onRun: () => void; pager?: ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const [printed, setPrinted] = useState("");
+  const screen = useRef<HTMLPreElement>(null);
+  const running = run.state === "running";
+  useEffect(() => {
+    if (!running) return;
+    let stopped = false;
+    const read = async () => {
+      try {
+        const answer = object(await request("/api/runs/" + encodeURIComponent(run.id) + "/output"));
+        if (!stopped) setPrinted(string(answer.output));
+      } catch {
+        // The next read tries again; the run's state still shows above.
+      }
+    };
+    void read();
+    const timer = setInterval(() => void read(), OUTPUT_READ_MS);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [running, run.id]);
+  const output = running ? printed : run.output;
+  // The screen follows the newest output, as a terminal does.
+  useEffect(() => { if (screen.current) screen.current.scrollTop = screen.current.scrollHeight; }, [output]);
   const mark = runMark(run);
   const copy = () => navigator.clipboard.writeText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className="run-card" aria-labelledby={"run-" + run.id}>
@@ -35,8 +58,9 @@ export function RunCard({ run, connected, sending, error, onRun, pager }: { run:
         <button className="primary run-button" type="button" disabled={!connected || sending} onClick={onRun}><Icon name="play" />{run.admin ? "Run as administrator" : "Run"}</button>
       </>}
     </div>}
-    {run.output && <Disclosure kind="run-output" title={<>Output{run.exit_code !== null && <span className="column-count">exit {run.exit_code}</span>}</>}>
-      <pre className="run-output">{run.output}</pre>
-    </Disclosure>}
+    {(running || run.output) && <section className="run-terminal" aria-label="Command output">
+      <header><span>{running ? "Running" : "Output"}</span>{run.exit_code !== null && <span className={"exit-code" + (run.exit_code === 0 ? " succeeded" : " failed")}>exit {run.exit_code}</span>}</header>
+      <pre ref={screen} className="run-output">{output || (running ? "Waiting for output" : "")}</pre>
+    </section>}
   </article>;
 }
