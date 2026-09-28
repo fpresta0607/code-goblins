@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
@@ -20,7 +22,8 @@ import (
 // version when the tool has one. A Presentation check is reported but never
 // makes the environment unhealthy: without it, visual review falls back to
 // plain text and nonvisual work proceeds. An Installer check is reported the
-// same way: only install.ps1 uses the tool, and cfo never does.
+// same way: only install.ps1 uses the tool, and cfo never does. So is an
+// Optional one, which says who needs the tool.
 type Check struct {
 	Name         string
 	Version      string
@@ -29,6 +32,7 @@ type Check struct {
 	Floor        string
 	Presentation bool
 	Installer    bool
+	Optional     string
 }
 
 // LavishRelease is the Code Goblins build of lavish-axi, from the fork at
@@ -45,10 +49,11 @@ var tools = []struct {
 	build        string
 	presentation bool
 	installer    bool
+	optional     string
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
-	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex"},
+	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex", optional: "only a goblin or CFO started in Herdr needs it"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
@@ -58,6 +63,10 @@ var tools = []struct {
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
+// claudeInstall installs the native build of Claude Code, claude.exe, the one
+// a native terminal can start.
+const claudeInstall = "irm https://claude.ai/install.ps1 | iex"
+
 // harnessTools are the interactive harnesses a spawn can select. They are
 // checked only through the single probed --version path in ProbeHarnesses, so
 // each harness runs exactly one bounded sanity probe.
@@ -65,7 +74,7 @@ var harnessTools = []struct {
 	name string
 	hint string
 }{
-	{name: "claude", hint: "npm install -g @anthropic-ai/claude-code"},
+	{name: "claude", hint: claudeInstall},
 	{name: "codex", hint: "npm install -g @openai/codex"},
 	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
 	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
@@ -76,7 +85,7 @@ var harnessTools = []struct {
 func Run() []Check {
 	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
-		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer}
+		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer, Optional: tool.optional}
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
 			check.Err = "not found on PATH"
@@ -98,8 +107,21 @@ func Run() []Check {
 		}
 		checks = append(checks, check)
 	}
-	checks = append(checks, checkHookPairing())
+	checks = append(checks, checkConPTY(), checkHookPairing())
 	return checks
+}
+
+// pseudoConsole is the Windows call every native terminal runs in.
+var pseudoConsole = windows.NewLazySystemDLL("kernel32.dll").NewProc("CreatePseudoConsole")
+
+// checkConPTY reports whether this Windows has the pseudo console a native
+// terminal runs its program in.
+func checkConPTY() Check {
+	check := Check{Name: "conpty", Version: "pseudo console available", Hint: "Windows 10 version 1809 or later, which native terminals run on"}
+	if err := pseudoConsole.Find(); err != nil {
+		check.Version, check.Err = "", "this Windows has no pseudo console"
+	}
+	return check
 }
 
 // meetsFloor reports whether the last field of a --version line is a dotted
@@ -263,6 +285,12 @@ func ProbeHarnesses(ctx context.Context) []HarnessProbe {
 			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "not found on PATH (install: " + tool.hint + ")"})
 			continue
 		}
+		// A native terminal starts Claude Code as a program, with no shell
+		// to run a script shim such as npm's claude.cmd.
+		if tool.name == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe") {
+			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "resolves to " + path + ", a script a native terminal cannot start (install the native build: " + claudeInstall + ")"})
+			continue
+		}
 		probes = append(probes, probeHarness(ctx, tool.name, path))
 	}
 	return probes
@@ -289,10 +317,11 @@ func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 	return HarnessProbe{Name: name, Detail: strings.TrimSpace(version), OK: true}
 }
 
-// Healthy reports whether every check passed, ignoring presentation checks.
+// Healthy reports whether every check passed, ignoring presentation,
+// installer and optional checks.
 func Healthy(checks []Check) bool {
 	for _, c := range checks {
-		if c.Err != "" && !c.Presentation && !c.Installer {
+		if c.Err != "" && !c.Presentation && !c.Installer && c.Optional == "" {
 			return false
 		}
 	}
