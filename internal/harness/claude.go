@@ -24,6 +24,12 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 		return Launch{}, err
 	}
 	launch.Env["CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION"] = "false"
+	// A goblin draws in Claude's classic interface, whatever the operator's
+	// tui setting: its output stays in the terminal's own scrollback, which
+	// the board scrolls locally, while the fullscreen interface repaints its
+	// transcript for every turn of the wheel, about once a second in a long
+	// working session.
+	launch.Env["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"] = "1"
 	// Goblin panes must not inherit the operator's connected claude.ai MCP
 	// servers: those are interactive-auth (OAuth) servers that print "N MCP
 	// servers need authentication - run /mcp" on every launch and do the goblin
