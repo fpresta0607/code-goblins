@@ -17,8 +17,10 @@ import (
 
 // CodexMCPServers names the MCP servers the operator's Codex configuration
 // (config.toml in CODEX_HOME, or in .codex under the user's profile) defines:
-// each [mcp_servers.<name>] table and each <name> = { ... } entry of a bare
-// [mcp_servers] table. No configuration defines none.
+// each [mcp_servers.<name>] table, each <name> = { ... } or <name>.<key>
+// entry of a bare [mcp_servers] table, and each top-level mcp_servers.<name>
+// key. A quoted name comes back without its quotes. No configuration defines
+// none.
 func CodexMCPServers() ([]string, error) {
 	home := os.Getenv("CODEX_HOME")
 	if home == "" {
@@ -37,19 +39,24 @@ func CodexMCPServers() ([]string, error) {
 	}
 	defer file.Close()
 	var names []string
-	inServers := false
+	// Keys before the first table header are top-level keys.
+	isTopLevel, isInServers := true, false
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "[") {
-			inServers = line == "[mcp_servers]"
-			if match := mcpServerTable.FindStringSubmatch(line); match != nil {
-				names = append(names, match[1])
-			}
-			continue
+		var match []string
+		switch {
+		case strings.HasPrefix(line, "["):
+			isTopLevel = false
+			isInServers = mcpServersTable.MatchString(line)
+			match = mcpServerTable.FindStringSubmatch(line)
+		case isTopLevel:
+			match = mcpServerTopLevelKey.FindStringSubmatch(line)
+		case isInServers:
+			match = mcpServerEntry.FindStringSubmatch(line)
 		}
-		if match := mcpServerEntry.FindStringSubmatch(line); inServers && match != nil {
-			names = append(names, match[1])
+		if match != nil {
+			names = append(names, unquotedKey(match[1]))
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -59,9 +66,22 @@ func CodexMCPServers() ([]string, error) {
 	return slices.Compact(names), nil
 }
 
+// unquotedKey is a TOML key segment without the quotes of a quoted key.
+func unquotedKey(key string) string {
+	if strings.HasPrefix(key, `"`) || strings.HasPrefix(key, "'") {
+		return key[1 : len(key)-1]
+	}
+	return key
+}
+
+// tomlKeySegment is one segment of a TOML dotted key: quoted or bare.
+const tomlKeySegment = `("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)`
+
 var (
-	mcpServerTable = regexp.MustCompile(`^\[mcp_servers\.("[^"]*"|[^.\]]+)[.\]]`)
-	mcpServerEntry = regexp.MustCompile(`^("[^"]*"|[A-Za-z0-9_-]+)\s*=\s*\{`)
+	mcpServersTable      = regexp.MustCompile(`^\[\s*mcp_servers\s*\]`)
+	mcpServerTable       = regexp.MustCompile(`^\[\s*mcp_servers\s*\.\s*` + tomlKeySegment + `\s*[.\]]`)
+	mcpServerEntry       = regexp.MustCompile(`^` + tomlKeySegment + `\s*[.=]`)
+	mcpServerTopLevelKey = regexp.MustCompile(`^mcp_servers\s*\.\s*` + tomlKeySegment + `\s*[.=]`)
 	// bareKey is a name Codex's -c override can address in a dotted key.
 	bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )

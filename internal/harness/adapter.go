@@ -95,8 +95,9 @@ func (launch Launch) PromptInstruction() string {
 	return BriefInstruction(launch.PromptFile)
 }
 
-// BriefInstruction is the single prompt every goblin receives, delivered
-// through `herdr agent prompt` after either launch path is ready.
+// BriefInstruction is the single prompt every goblin receives once its
+// harness is ready: typed into the composer as pane text after a typed
+// launch, and through the terminal's verified prompt channel otherwise.
 func BriefInstruction(promptFile string) string {
 	return "Read the brief at " + promptFile + " and follow it exactly."
 }

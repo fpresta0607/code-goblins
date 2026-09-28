@@ -1578,6 +1578,9 @@ const fixtureStartCounters = 42
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	isolateUserCacheDir(t)
+	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
+	// config.toml, which is never this machine's own.
+	t.Setenv("CODEX_HOME", t.TempDir())
 	root := t.TempDir()
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
