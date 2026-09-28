@@ -288,7 +288,11 @@ func ProbeHarnesses(ctx context.Context) []HarnessProbe {
 		// A native terminal starts Claude Code as a program, with no shell
 		// to run a script shim such as npm's claude.cmd.
 		if tool.name == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe") {
-			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "resolves to " + path + ", a script a native terminal cannot start (install the native build: " + claudeInstall + ")"})
+			fix := "install the native build: " + claudeInstall
+			if _, err := os.Stat(filepath.Join(filepath.Dir(path), "node_modules", "@anthropic-ai", "claude-code")); err == nil {
+				fix += ", then remove npm's copy: npm uninstall -g @anthropic-ai/claude-code"
+			}
+			probes = append(probes, HarnessProbe{Name: tool.name, Detail: "resolves to " + path + ", a script a native terminal cannot start (" + fix + ")"})
 			continue
 		}
 		probes = append(probes, probeHarness(ctx, tool.name, path))

@@ -267,16 +267,36 @@ func TestRunWithoutAPseudoConsoleIsUnhealthy(t *testing.T) {
 
 // A native terminal starts Claude Code as a program, so a claude found only
 // as a script shim, such as npm's claude.cmd, is broken with the native
-// build's installer.
+// build's installer, and npm's own copy names its removal too.
 func TestProbeHarnessesRefusesAClaudeScriptShim(t *testing.T) {
-	dir := t.TempDir()
-	fakeTool(t, dir, "claude", "claude 1.0.0", 0)
-	t.Setenv("PATH", dir)
+	const npmUninstall = "npm uninstall -g @anthropic-ai/claude-code"
+	for _, tc := range []struct {
+		name          string
+		isNpmsScript  bool
+		wantUninstall bool
+	}{
+		{name: "a script", isNpmsScript: false, wantUninstall: false},
+		{name: "npm's script", isNpmsScript: true, wantUninstall: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			fakeTool(t, dir, "claude", "claude 1.0.0", 0)
+			if tc.isNpmsScript {
+				if err := os.MkdirAll(filepath.Join(dir, "node_modules", "@anthropic-ai", "claude-code"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", dir)
 
-	probes := ProbeHarnesses(context.Background())
+			probes := ProbeHarnesses(context.Background())
 
-	if probes[0].Name != "claude" || probes[0].OK || !strings.Contains(probes[0].Detail, "claude.bat") || !strings.Contains(probes[0].Detail, "irm https://claude.ai/install.ps1 | iex") {
-		t.Errorf("claude probe = %+v, want the script refused with the native build's installer", probes[0])
+			if probes[0].Name != "claude" || probes[0].OK || !strings.Contains(probes[0].Detail, "claude.bat") || !strings.Contains(probes[0].Detail, "irm https://claude.ai/install.ps1 | iex") {
+				t.Errorf("claude probe = %+v, want the script refused with the native build's installer", probes[0])
+			}
+			if got := strings.Contains(probes[0].Detail, npmUninstall); got != tc.wantUninstall {
+				t.Errorf("claude probe detail = %q, names %q = %v, want %v", probes[0].Detail, npmUninstall, got, tc.wantUninstall)
+			}
+		})
 	}
 }
 

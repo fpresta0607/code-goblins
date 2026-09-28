@@ -338,6 +338,11 @@
     $installedAny = $false
     foreach ($tool in $tools) {
         $found = Get-Command $tool.Name -ErrorAction SilentlyContinue
+        # A native terminal starts Claude Code only as claude.exe, so a script
+        # such as npm's claude.cmd does not count as present.
+        if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
+            $found = $null
+        }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
             continue
@@ -387,6 +392,14 @@
         if (-not (@($userPath -split ';') -contains $claudeBin)) {
             $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
             Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $claudeBin) -join ';') -Type $kind
+            # WM_SETTINGCHANGE makes Explorer, and every window it opens after
+            # this, see the new PATH before the next sign-in.
+            Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+            $result = [UIntPtr]::Zero
+            [void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
             Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
             $installedAny = $true
         }
@@ -399,6 +412,14 @@
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
         $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
+    }
+
+    # The native build's folder is appended to PATH, so a script left earlier
+    # on it, such as npm's claude.cmd, still wins until the user removes it.
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
+    if ($claude -and [IO.Path]::GetExtension($claude.Source) -ne ".exe") {
+        Write-Host ("WARN     {0,-20} resolves to {1}, a script a native terminal cannot start; run: npm.cmd uninstall -g @anthropic-ai/claude-code" -f "claude", $claude.Source)
+        $failedInstalls += "claude: npm.cmd uninstall -g @anthropic-ai/claude-code"
     }
 
     # Point Claude Code's project skills directory at the clone's .agents/skills.
