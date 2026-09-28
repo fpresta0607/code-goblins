@@ -1073,6 +1073,35 @@ func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	}
 }
 
+// Pi draws its trust prompt in every fresh worktree, sometimes only after the
+// startup checks have read the pane. Its screens never answer that prompt, but
+// its launch confirms it, so a late one takes one Enter and the spawn goes on.
+func TestALatePiTrustPromptIsConfirmedAndTheBriefDelivered(t *testing.T) {
+	fixture := newFixture(t)
+	typedScreens(fixture.runner, harness.Pi)
+	fixture.request.Harness = harness.Pi
+	fixture.request.Model = ""
+	fixture.request.Effort = ""
+	fixture.runner.agentStatus = "blocked"
+	trust := "Accessing workspace:\n\n Trust project folder?\n"
+	fixture.runner.lateScreens = []string{trust, trust}
+	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
+		harness.Pi: harness.DefaultRegistry().Adapters[harness.Pi],
+	}
+
+	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+
+	if err != nil {
+		t.Fatalf("Spawn pi with a late trust prompt: %v", err)
+	}
+	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keys = %v, want typed launch submit, one Enter for the late trust prompt, then the brief's submit", got)
+	}
+	if fixture.runner.briefWrites != 1 {
+		t.Errorf("brief typed %d times, want once", fixture.runner.briefWrites)
+	}
+}
+
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
