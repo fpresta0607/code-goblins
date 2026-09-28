@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent, type RefObject } from "react";
+import { useEffect, useRef, type PointerEvent, type RefObject } from "react";
 import { paneWidth } from "./terminalOrder";
 import { PANEL_RESIZED } from "./terminalInput";
 
@@ -35,6 +35,12 @@ export function PaneDivider({ workspace, pane, width, onWidth, onResizing, onDon
     onResizing(false);
     window.dispatchEvent(new Event(PANEL_RESIZED));
   };
+  useEffect(() => () => {
+    if (!dragging.current) return;
+    if (pointer.current) cancelAnimationFrame(pointer.current.frame);
+    onResizing(false);
+    window.dispatchEvent(new Event(PANEL_RESIZED));
+  }, [onResizing]);
   return <div className="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize the panel" aria-valuenow={width ?? undefined} tabIndex={0}
     onPointerDown={(event) => {
       dragging.current = width ?? pane.current?.getBoundingClientRect().width ?? 0;
