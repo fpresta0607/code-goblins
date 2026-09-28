@@ -79,6 +79,12 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("presented")
+		case strings.HasPrefix(line, "send "):
+			if err := PrepareSendActivity(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, strings.TrimPrefix(line, "send "))(); err != nil {
+				record("send error: " + err.Error())
+				continue
+			}
+			record("sent")
 		case line == "register":
 			described, err := Register(context.Background(), args[2], nil, "claude", "session-1")
 			if err != nil {

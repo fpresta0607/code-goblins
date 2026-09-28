@@ -379,10 +379,16 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 		}
 	}
 	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "cfo" && parent.TaskID != "" {
-		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
-		binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
-		if err == nil && callerOwns(binding.Process) {
-			source = parent.ID
+		if parentMeta, err := state.ReadTaskMeta(h.State, parent.TaskID); err == nil && parentMeta.Backend == "native" {
+			if proven, err := goblinAsker(ctx, h.State, terminals, parent.TaskID); err == nil && proven.SpawnGen == parent.Generation {
+				source = parent.ID
+			}
+		} else {
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
+			binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
+			if err == nil && callerOwns(binding.Process) {
+				source = parent.ID
+			}
 		}
 	}
 	var bytes [16]byte
