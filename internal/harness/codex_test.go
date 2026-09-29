@@ -246,3 +246,44 @@ func TestCodexMCPServersWithoutAConfiguration(t *testing.T) {
 		t.Errorf("CodexMCPServers = %q, %v; want none", names, err)
 	}
 }
+
+// A spawn that continues past Codex's hook review names the hooks the session
+// loads: the operator's hooks.json, then the project's, each command hook as
+// its event and command; a file that is not there lists none.
+func TestCodexHooksListsTheCommandHooksASessionLoads(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	operator := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"herdr-state session"}]},{"hooks":[{"type":"command","command":"siqshift --event session-start"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"siqshift --event session-end"}]}]}}`
+	project := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"},{"type":"prompt","command":"not a command"}]}]}}`
+	for name, test := range map[string]struct {
+		operator, project string
+		want              []string
+	}{
+		"none":          {"", "", nil},
+		"operator only": {operator, "", []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start"}},
+		"both":          {operator, project, []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start", "Stop: cfo hook stop"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			write := func(path, content string) {
+				_ = os.Remove(path)
+				if content == "" {
+					return
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(filepath.Join(home, "hooks.json"), test.operator)
+			write(filepath.Join(dir, ".codex", "hooks.json"), test.project)
+
+			hooks, err := CodexHooks(dir)
+
+			if err != nil || !slices.Equal(hooks, test.want) {
+				t.Errorf("CodexHooks = %q, %v; want %q", hooks, err, test.want)
+			}
+		})
+	}
+}
