@@ -472,6 +472,9 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 	for _, process := range inv.Processes {
 		byPID[process.PID] = process
 	}
+	owns := func(dir, task string) bool {
+		return runsForTask(dir, task, inv, tasks, unreadable)
+	}
 	var findings []Finding
 	for _, process := range inv.Processes {
 		if supervised[process.PID] {
@@ -485,7 +488,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, inv.Worktrees)
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, owns)
 			owner := ""
 			if underFixture {
 				dirs := fixture.Dirs
@@ -893,8 +896,8 @@ const fixtureAncestry = 8
 // home's host carries its harness's command line after --, and a program run
 // from a goblin's Go temporary directory may be the stand-in itself, so each
 // is checked as its own fixture origin too.
-func fixtureServer(process Process, byPID map[int]Process, session, stateDir string, worktrees []WorktreeDir) (fixtureOrigin, bool) {
-	if origin, ok := nativeFixture(process, stateDir, worktrees); ok {
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+	if origin, ok := nativeFixture(process, stateDir, owns); ok {
 		return origin, true
 	}
 	current := process
@@ -909,7 +912,7 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 			}
 			return fixtureOrigin{}, false
 		}
-		if origin, ok := nativeFixture(parent, stateDir, worktrees); ok {
+		if origin, ok := nativeFixture(parent, stateDir, owns); ok {
 			return origin, true
 		}
 		current = parent
@@ -921,28 +924,35 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 // session runs its stand-ins from: the native terminal host of another CFO
 // home, or a program run from a goblin's Go temporary directory and from that
 // goblin's own worktree or scratch directory.
-func nativeFixture(process Process, stateDir string, worktrees []WorktreeDir) (fixtureOrigin, bool) {
+func nativeFixture(process Process, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
 	if dirs, scratch := scratchHost(process, stateDir); scratch {
 		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
 	}
-	if task, ok := goTestTask(process); ok && runsForTask(process.Cwd, task, stateDir, worktrees) {
+	if task, ok := goTestTask(process); ok && owns(process.Cwd, task) {
 		return fixtureOrigin{Process: process, GoTestTask: task}, true
 	}
 	return fixtureOrigin{}, false
 }
 
 // runsForTask reports whether dir, a process's working directory, lies in
-// task's own worktree or scratch directory: its task temporary directory or
-// its Claude Code scratchpad. A Go temporary directory alone names no owner:
-// the shared no-mistakes daemon builds every goblin's gate tests under the
-// directory of whichever goblin started it, and runs them from the gate's
-// own worktree.
-func runsForTask(dir, task, stateDir string, worktrees []WorktreeDir) bool {
-	if stateDir != "" && pathWithin(dir, filepath.Join(stateDir, "tasktmp", task)) {
+// task's own worktree, an extra worktree ownerOf gives it, or its scratch
+// directory: its task temporary directory or its Claude Code scratchpad. A Go
+// temporary directory alone names no owner: the shared no-mistakes daemon
+// builds every goblin's gate tests under the directory of whichever goblin
+// started it, and runs them from the gate's own worktree.
+func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreadable map[string]bool) bool {
+	if inv.StateDir != "" && pathWithin(dir, filepath.Join(inv.StateDir, "tasktmp", task)) {
 		return true
 	}
-	worktree, ok := worktreeHolding(scratchpadOwner(dir, worktrees), worktrees)
-	return ok && worktree.TaskID == task
+	worktree, ok := worktreeHolding(scratchpadOwner(dir, inv.Worktrees), inv.Worktrees)
+	if !ok {
+		return false
+	}
+	if strings.EqualFold(worktree.TaskID, task) {
+		return true
+	}
+	owner, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+	return known && strings.EqualFold(owner.ID, task)
 }
 
 // fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr

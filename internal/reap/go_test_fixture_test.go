@@ -63,6 +63,36 @@ func TestAGoblinsGoTestStandInsAreItsFixture(t *testing.T) {
 	}
 }
 
+// A test binary under a goblin's Go temporary directory is that goblin's when
+// it also runs from the goblin's own worktree, an extra worktree it made, its
+// task temporary directory or its Claude Code scratchpad.
+func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
+	for name, dir := range map[string]string{
+		"its worktree":          boardTestDir,
+		"its extra worktree":    `C:\dev\proj\.worktrees\gb-board-2\internal\spawn`,
+		"its task temporary":    fleetState + `\tasktmp\board`,
+		"its Claude scratchpad": `C:\Users\op\AppData\Local\Temp\claude\c--dev-proj--worktrees-gb-board\5f0c2e1a\scratchpad`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			inv := fleetWithGoblin(true, "done: PR https://example.invalid/pull/1")
+			inv.StateDir = fleetState
+			inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: `C:\dev\proj\.worktrees\gb-board-2`, Project: `C:\dev\proj`, TaskID: "board-2", Registration: RegistrationListed, Created: fixtureLater})
+			inv = withGoTest(inv, boardGoTmp, dir)
+
+			// Act
+			orphans := classOf(Classify(inv), OrphanProcess)
+
+			// Assert
+			for _, finding := range orphans {
+				if finding.PID == 700 || finding.PID == 710 {
+					t.Fatalf("a live goblin's Go test run from %s was reported: %v", name, lines(orphans))
+				}
+			}
+		})
+	}
+}
+
 // A Go temporary directory names its task, but a task this fleet does not
 // know leaves nothing live to tie it to, so its leftover is reported as any
 // unsupervised harness is.
