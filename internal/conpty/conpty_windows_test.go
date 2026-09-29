@@ -33,8 +33,8 @@ func TestMain(m *testing.M) {
 }
 
 // echoChild answers one typed line at a time: its console size, an
-// environment value, its directory, a grandchild it starts, an exit code, or
-// the line itself.
+// environment value, its directory, its pid, a grandchild it starts, an exit
+// code, or the line itself.
 func echoChild() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
@@ -53,6 +53,8 @@ func echoChild() {
 		case line == "cwd":
 			dir, _ := os.Getwd()
 			fmt.Println("cwd", dir)
+		case line == "pid":
+			fmt.Println("pid", os.Getpid())
 		case line == "spawn" || line == "spawn-attached":
 			grandchild := exec.Command(os.Args[0])
 			grandchild.Env = append(os.Environ(), childMode+"=sleep")

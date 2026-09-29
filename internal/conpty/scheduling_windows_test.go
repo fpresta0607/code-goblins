@@ -1,6 +1,7 @@
 package conpty
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,70 +28,120 @@ func readScheduling(t *testing.T, process windows.Handle) (uint32, uint32) {
 	return state.Control, state.State
 }
 
-func assertInteractiveScheduling(t *testing.T, pid int) {
+func isInteractive(t *testing.T, process windows.Handle) bool {
 	t.Helper()
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer windows.CloseHandle(process)
 	control, state := readScheduling(t, process)
-	if control&1 == 0 || state&1 != 0 {
-		t.Errorf("pid %d uses automatic/throttled scheduling: control=%#x state=%#x", pid, control, state)
+	return control&1 != 0 && state&1 == 0
+}
+
+func assertInteractiveScheduling(t *testing.T, process windows.Handle) {
+	t.Helper()
+	if !isInteractive(t, process) {
+		control, state := readScheduling(t, process)
+		t.Errorf("process uses automatic/throttled scheduling: control=%#x state=%#x", control, state)
 	}
 }
 
-func TestConsoleKeepsHostConsoleAndDescendantsInteractive(t *testing.T) {
-	before, err := proc.Processes()
+// waitInteractiveScheduling polls one retained handle, since the job's
+// notifications schedule a process a wrapper starts asynchronously.
+func waitInteractiveScheduling(t *testing.T, process windows.Handle) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if isInteractive(t, process) {
+			return
+		}
+	}
+	assertInteractiveScheduling(t, process)
+}
+
+// openProcess opens pid for the rest of the test, so its pid cannot be
+// reused while the test holds it.
+func openProcess(t *testing.T, pid int) windows.Handle {
+	t.Helper()
+	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_INFORMATION, false, uint32(pid))
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous := make(map[int]bool, len(before))
-	for _, process := range before {
-		previous[process.PID] = true
-	}
-	console, output := startChild(t, Spec{Cols: 80, Rows: 25,
-		Args: []string{filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/s", "/c", windows.ComposeCommandLine([]string{os.Args[0]})},
-	})
+	t.Cleanup(func() { windows.CloseHandle(process) })
+	return process
+}
 
-	assertInteractiveScheduling(t, os.Getpid())
-	assertInteractiveScheduling(t, console.PID())
+// consoleServers lists this process's direct conhost children, which include
+// servers of earlier tests' consoles that are still exiting.
+func consoleServers(t *testing.T) []int {
+	t.Helper()
 	processes, err := proc.Processes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	isConsoleFound := false
+	var servers []int
 	for _, process := range processes {
-		if process.ParentPID == console.PID() {
-			assertInteractiveScheduling(t, process.PID)
-		}
-		if !previous[process.PID] && process.ParentPID == os.Getpid() && strings.EqualFold(process.ExeBase, "conhost.exe") {
-			isConsoleFound = true
-			assertInteractiveScheduling(t, process.PID)
+		if process.ParentPID == os.Getpid() && strings.EqualFold(process.ExeBase, "conhost.exe") {
+			servers = append(servers, process.PID)
 		}
 	}
-	if !isConsoleFound {
-		t.Fatal("new pseudo console has no console server")
+	return servers
+}
+
+// startChildWithServer starts a console and returns a handle on the console
+// server it created. Handles held on the servers that already existed keep
+// their pids from being reused, so neither an exiting older server nor a
+// recycled pid is taken for the new one.
+func startChildWithServer(t *testing.T, spec Spec) (*Console, *screen, windows.Handle) {
+	t.Helper()
+	existing := map[int]bool{}
+	for _, pid := range consoleServers(t) {
+		process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			continue // Already gone, so its pid is free for the new server.
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer windows.CloseHandle(process)
+		existing[pid] = true
 	}
+	console, output := startChild(t, spec)
+	var server windows.Handle
+	for _, pid := range consoleServers(t) {
+		if existing[pid] {
+			continue
+		}
+		if server != 0 {
+			t.Fatal("the new pseudo console has more than one console server")
+		}
+		server = openProcess(t, pid)
+	}
+	if server == 0 {
+		t.Fatal("the new pseudo console has no console server")
+	}
+	return console, output, server
+}
+
+func TestConsoleKeepsHostConsoleAndDescendantsInteractive(t *testing.T) {
+	console, output, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25,
+		Args: []string{filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/s", "/c", windows.ComposeCommandLine([]string{os.Args[0]})},
+	})
+
+	assertInteractiveScheduling(t, windows.CurrentProcess())
+	assertInteractiveScheduling(t, console.process)
+	assertInteractiveScheduling(t, server)
+	typeLine(t, console, "pid")
+	child, err := strconv.Atoi(output.waitFor(t, `pid (\d+)`)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child == console.PID() {
+		t.Fatal("the console runs the child directly, not through the cmd wrapper")
+	}
+	waitInteractiveScheduling(t, openProcess(t, child))
 
 	typeLine(t, console, "spawn-attached")
-	match := output.waitFor(t, `grandchild (\d+)`)
-	pid, err := strconv.Atoi(match[1])
+	grandchild, err := strconv.Atoi(output.waitFor(t, `grandchild (\d+)`)[1])
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer windows.CloseHandle(process)
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		control, state := readScheduling(t, process)
-		if control&1 != 0 && state&1 == 0 {
-			return
-		}
-	}
-	assertInteractiveScheduling(t, pid)
+	waitInteractiveScheduling(t, openProcess(t, grandchild))
 }
 
 func writeScheduling(t *testing.T, process windows.Handle, control, state uint32) {
@@ -142,7 +193,7 @@ func TestJobSchedulingReconcilesAutomaticPolicyBeforeInput(t *testing.T) {
 
 	typeLine(t, console, "reconciled")
 
-	assertInteractiveScheduling(t, console.PID())
+	assertInteractiveScheduling(t, console.process)
 	output.waitFor(t, "got reconciled")
 }
 
@@ -215,36 +266,16 @@ func TestInputReconciliationWithManyJobMembers(t *testing.T) {
 }
 
 func TestNewConsoleDoesNotChangeExistingConsoleScheduling(t *testing.T) {
-	first, _ := startChild(t, Spec{Cols: 80, Rows: 25})
-	processes, err := proc.Processes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var handles []windows.Handle
-	for _, process := range processes {
-		if process.ParentPID != os.Getpid() || !strings.EqualFold(process.ExeBase, "conhost.exe") {
-			continue
-		}
-		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_INFORMATION, false, uint32(process.PID))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer windows.CloseHandle(handle)
-		writeScheduling(t, handle, 1, 1)
-		handles = append(handles, handle)
-	}
-	if len(handles) == 0 {
-		t.Fatal("first console has no server")
-	}
+	first, _, server := startChildWithServer(t, Spec{Cols: 80, Rows: 25})
+	originalControl, originalState := readScheduling(t, server)
+	// Registered before the second console starts, so a failure restores too.
+	t.Cleanup(func() { writeScheduling(t, server, originalControl, originalState) })
+	writeScheduling(t, server, 1, 1)
 
 	second, _ := startChild(t, Spec{Cols: 80, Rows: 25})
 
-	for _, handle := range handles {
-		control, state := readScheduling(t, handle)
-		if control != 1 || state != 1 {
-			t.Errorf("an existing console was changed to %d/%d", control, state)
-		}
-		writeScheduling(t, handle, 1, 0)
+	if control, state := readScheduling(t, server); control != 1 || state != 1 {
+		t.Errorf("the existing console server was changed to %d/%d", control, state)
 	}
 	if second.PID() == first.PID() {
 		t.Fatal("consoles share a process")
