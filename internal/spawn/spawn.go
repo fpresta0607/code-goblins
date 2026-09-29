@@ -912,11 +912,11 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client terminal.Back
 }
 
 // confirmLaunch waits for the launched harness to report working after its
-// brief has been delivered through the native prompt channel or the typed
-// launch line. On timeout it re-probes agent liveness: a pane that herdr does
-// not report as empty - alive, or simply unreadable - is adopted rather than
-// declared failed, so a false timeout cannot orphan a live goblin. An idle or
-// blocked agent is a healthy Claude waiting at its prompt.
+// brief has been delivered through the native prompt channel or typed into a
+// typed launch's composer. On timeout it re-probes agent liveness: a pane that
+// herdr does not report as empty - alive, or simply unreadable - is adopted
+// rather than declared failed, so a false timeout cannot orphan a live goblin.
+// An idle or blocked agent is a healthy Claude waiting at its prompt.
 //
 // Herdr recognizes a harness by matching pane output against a per-harness
 // detection manifest, so a harness whose manifest has fallen behind its
