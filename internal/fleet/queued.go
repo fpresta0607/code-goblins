@@ -45,6 +45,33 @@ func SaveQueuedTask(h home.Home, id, revision, text string) error {
 	return changeQueuedTask(h, id, revision, strings.TrimSpace(title), strings.TrimSpace(detail), false)
 }
 
+// WriteQueuedBrief writes data/<id>/brief.md from a queued row and every
+// detail line under it, and never replaces a brief that already exists.
+func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
+	row := queued.Row
+	brief := filepath.Join(h.Data, row.ID, "brief.md")
+	if err := os.MkdirAll(filepath.Dir(brief), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(brief, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	mode := row.Mode
+	if mode == "" {
+		mode = "no-mistakes"
+	}
+	kind := row.Kind
+	if kind == "" {
+		kind = "ship"
+	}
+	_, writeErr := fmt.Fprintf(file, "# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above.\n\n## Authentication\n\nUse the project's configured authentication preflight before dispatch.\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, kind, mode, row.Harness, row.Model, row.Effort)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return errors.Join(err, os.Remove(brief))
+	}
+	return nil
+}
+
 func RemoveQueuedTask(h home.Home, id, revision string) error {
 	return changeQueuedTask(h, id, revision, "", "", true)
 }
