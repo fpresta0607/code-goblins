@@ -103,6 +103,83 @@ func TestTerminalInputOnceGuardAndBoundedWrite(t *testing.T) {
 	}
 }
 
+func TestTerminalPasteStaysWholeBeforeTheNextKey(t *testing.T) {
+	for _, isControl := range []bool{false, true} {
+		t.Run(fmt.Sprint(isControl), func(t *testing.T) {
+			stream := newTestTerminal()
+			defer stream.Close()
+			panes := &recordingPanes{}
+			lease := &terminalLease{control: isControl, stream: stream, panes: panes, cancel: func() {}}
+			verify := func(context.Context, terminalBinding, bool) error { return nil }
+			parts := []string{"\x1b[200~" + strings.Repeat("界", 15000), strings.Repeat("🙂", 8000) + "\x1b[20", "1~"}
+			for index, text := range parts {
+				if err := lease.input(context.Background(), uint64(index+1), herdr.TerminalCommand{Type: "terminal.input", Text: text}, verify); err != nil {
+					t.Fatal(err)
+				}
+				if index < len(parts)-1 && (len(stream.writes) != 0 || len(panes.typed) != 0) {
+					t.Fatal("partial paste reached Herdr before it could apply the program's paste mode")
+				}
+			}
+			if err := lease.input(context.Background(), 4, herdr.TerminalCommand{Type: "terminal.input", Text: "\r"}, verify); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			if isControl {
+				for _, command := range stream.writes {
+					got = append(got, command.Text)
+				}
+			} else {
+				got = panes.typed
+			}
+			if want := []string{strings.Join(parts, ""), "\r"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("received %d inputs, want a complete paste followed by Enter", len(got))
+			}
+		})
+	}
+}
+
+func TestTerminalPasteRefusesOverflowOrAChangedBindingWithoutSending(t *testing.T) {
+	for _, failure := range []string{"overflow", "encoded overflow", "resized", "replaced"} {
+		t.Run(failure, func(t *testing.T) {
+			stream := newTestTerminal()
+			defer stream.Close()
+			isCancelled := false
+			lease := &terminalLease{control: true, stream: stream, cancel: func() { isCancelled = true }}
+			verify := func(context.Context, terminalBinding, bool) error { return nil }
+			if err := lease.input(context.Background(), 1, herdr.TerminalCommand{Type: "terminal.input", Text: "\x1b[200~"}, verify); err != nil {
+				t.Fatal(err)
+			}
+			sequence := uint64(2)
+			command := herdr.TerminalCommand{Type: "terminal.input", Text: "\x1b[201~"}
+			switch failure {
+			case "overflow":
+				command.Text = strings.Repeat("x", 64<<10)
+				for ; sequence < 17; sequence++ {
+					if err := lease.input(context.Background(), sequence, command, verify); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "encoded overflow":
+				for ; sequence < 5; sequence++ {
+					if err := lease.input(context.Background(), sequence, herdr.TerminalCommand{Type: "terminal.input", Text: strings.Repeat("<", 60000)}, verify); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "resized":
+				command = herdr.TerminalCommand{Type: "terminal.resize", Cols: 80, Rows: 24}
+			case "replaced":
+				verify = func(context.Context, terminalBinding, bool) error { return errors.New("session replaced") }
+			}
+			if err := lease.input(context.Background(), sequence, command, verify); err == nil {
+				t.Fatal("unfinished paste accepted after", failure)
+			}
+			if !isCancelled || !lease.closed || len(stream.writes) != 0 {
+				t.Fatal("failed paste must end its lease without sending any text")
+			}
+		})
+	}
+}
+
 func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.Server, string, *cfoRunner) {
 	t.Helper()
 	store, _ := testStore(t)

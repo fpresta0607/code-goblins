@@ -8,9 +8,22 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestTerminalCommandAcceptsAWholeLargePasteOnly(t *testing.T) {
+	text := strings.Repeat("x", 128<<10)
+	if err := (TerminalCommand{Type: "terminal.input", Text: "\x1b[200~" + text + "\x1b[201~"}).Validate(); err != nil {
+		t.Fatal("complete large paste refused:", err)
+	}
+	for _, input := range []string{text, "\x1b[200~" + text, "\x1b[200~" + strings.Repeat("x", 1<<20) + "\x1b[201~", "\x1b[200~" + strings.Repeat("<", 180000) + "\x1b[201~"} {
+		if (TerminalCommand{Type: "terminal.input", Text: input}).Validate() == nil {
+			t.Fatal("unbounded or incomplete input accepted")
+		}
+	}
+}
 
 // The board's view of a pane attaches as an observer at the pane's size, or
 // as a controller that sizes the pane and takes it over from any other

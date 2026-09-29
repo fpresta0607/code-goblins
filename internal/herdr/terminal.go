@@ -36,10 +36,30 @@ type TerminalCommand struct {
 	Source    string `json:"source,omitempty"`
 }
 
+// MaxPasteBytes leaves room for the envelope in Herdr's 1 MiB socket request.
+// The control stream permits 2 MiB, so this bound fits both routes.
+const MaxPasteBytes = (1 << 20) - 1024
+
+func pasteText(text string) (string, bool) {
+	inside, isPaste := strings.CutPrefix(text, "\x1b[200~")
+	if !isPaste {
+		return "", false
+	}
+	return strings.CutSuffix(inside, "\x1b[201~")
+}
+
 func (c TerminalCommand) Validate() error {
 	switch c.Type {
 	case "terminal.input":
-		if len(c.Text) == 0 || len(c.Text) > 64<<10 || c.Cols != 0 || c.Rows != 0 || c.Direction != "" || c.Lines != 0 || c.Source != "" {
+		limit := 64 << 10
+		if _, isPaste := pasteText(c.Text); isPaste {
+			limit = MaxPasteBytes
+			encoded, err := json.Marshal(c.Text)
+			if err != nil || len(encoded) > limit {
+				return errors.New("paste exceeds Herdr's encoded request limit")
+			}
+		}
+		if len(c.Text) == 0 || len(c.Text) > limit || c.Cols != 0 || c.Rows != 0 || c.Direction != "" || c.Lines != 0 || c.Source != "" {
 			return errors.New("invalid terminal input")
 		}
 	case "terminal.resize":
