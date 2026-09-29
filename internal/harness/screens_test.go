@@ -78,6 +78,32 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	}
 }
 
+// Codex 0.154's composer, captured live on a native terminal: its footer names
+// the model and folder, not the context left, so the empty composer's
+// placeholder is what shows it ready, at start and after a turn; its working
+// row's glyph alternates between • and ◦.
+func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	footer := "  gpt-6-astra low · ~\\AppData\\Local\\Temp\\cfo-codex-proof\\projects\\proof\\.worktrees\\cxprobe"
+	for name, test := range map[string]struct {
+		screen         []string
+		ready, working bool
+	}{
+		"at start":       {[]string{"  Tip: Use /mcp to list configured MCP tools.", "› Ask Codex to do anything", footer}, true, false},
+		"after a turn":   {[]string{"› Reply with the single word ok and nothing else.", "• ok", "› Ask Codex to do anything", footer + " · Reply with ok"}, true, false},
+		"working":        {[]string{"› Reply with the single word ok and nothing else.", "• Working (0s • esc to interrupt)", "› Ask Codex to do anything", footer}, false, true},
+		"working, later": {[]string{"› Reply with the single word ok and nothing else.", "◦ Working (4s • esc to interrupt)", "› Ask Codex to do anything", footer + " · renaming... ⠏"}, false, true},
+		"text typed":     {[]string{"› Reply with the single word ok and nothing else.", footer}, false, false},
+	} {
+		if got := screens.IsReady(test.screen); got != test.ready {
+			t.Errorf("%s: ready = %v, want %v", name, got, test.ready)
+		}
+		if got := screens.IsWorking(test.screen); got != test.working {
+			t.Errorf("%s: working = %v, want %v", name, got, test.working)
+		}
+	}
+}
+
 // Typed text shows in a composer by its end, however the composer wraps it,
 // or as a paste's placeholder.
 func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
