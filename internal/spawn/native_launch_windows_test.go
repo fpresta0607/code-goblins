@@ -888,3 +888,16 @@ func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *tes
 		})
 	}
 }
+
+// A native terminal whose host could not leave its launcher's job is named in
+// the spawn's output, since it ends when that job closes; one that left is not.
+func TestAContainedNativeTerminalIsReported(t *testing.T) {
+	for contained, want := range map[bool]string{
+		true:  "warning: native terminal task-7 could not leave the job of the process that ran cfo, so it ends when that job closes (see its host log)",
+		false: "",
+	} {
+		if got := containedNotice(host.Record{ID: "task-7", Contained: contained}); got != want {
+			t.Errorf("contained %v: notice = %q, want %q", contained, got, want)
+		}
+	}
+}

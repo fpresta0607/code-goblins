@@ -102,14 +102,16 @@ func Start(spec Spec) (*Console, error) {
 
 // startProcess starts the process suspended, puts it in a job that ends
 // every process in it when the job's last handle closes, and only then lets
-// it run, so nothing it starts can escape the job.
+// it run, so nothing it starts escapes the job unless it asks to: a process
+// started with CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a
+// CFO in this terminal launches must, to outlive the terminal.
 func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return fmt.Errorf("conpty: create job: %w", err)
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: limit job: %w", err)

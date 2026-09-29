@@ -413,6 +413,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta)
+	if notice := containedNotice(nativeHost); notice != "" {
+		result.Output += "\n" + notice
+	}
 	if gitignoreNotice != "" {
 		result.Output += "\n" + gitignoreNotice
 	}

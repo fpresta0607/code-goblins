@@ -23,7 +23,10 @@ var launchTimeout = 15 * time.Second
 // in production), and env is the whole environment the host and its terminal
 // run with. The host is detached from this process, in its own process group
 // and out of this process's job where Windows allows it, so it outlives
-// whatever launched it. Its output goes to state/hosts/<id>.log.
+// whatever launched it. Where the job forbids it, the host starts inside the
+// job and ends when the job closes: the record Launch returns says so as
+// Contained, and so does the host's log. Its output goes to
+// state/hosts/<id>.log.
 func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	if len(command) == 0 {
 		return Record{}, errors.New("host: the command that runs a host is required")
@@ -53,9 +56,11 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	// A hidden console of its own, so nothing the host runs opens a window.
 	flags := uint32(windows.CREATE_NO_WINDOW | windows.CREATE_NEW_PROCESS_GROUP)
 	cmd, err := start(flags | windows.CREATE_BREAKAWAY_FROM_JOB)
-	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+	contained := errors.Is(err, windows.ERROR_ACCESS_DENIED)
+	if contained {
 		// This process is in a job that forbids breaking away; the host
 		// starts inside it instead.
+		fmt.Fprintf(log, "host: cannot break away from the job of the process that launched it (pid %d), so this host runs inside that job and ends when it closes\n", os.Getpid())
 		cmd, err = start(flags)
 	}
 	if err != nil {
@@ -65,6 +70,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	go func() { exited <- cmd.Wait() }()
 	for deadline := time.Now().Add(launchTimeout); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
 		if record, err := ReadRecord(stateDir, spec.ID); err == nil && record.HostPID == cmd.Process.Pid {
+			record.Contained = contained
 			return record, nil
 		}
 		select {

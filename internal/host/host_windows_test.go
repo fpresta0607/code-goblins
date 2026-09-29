@@ -30,6 +30,12 @@ func TestMain(m *testing.M) {
 		echoChild()
 	case len(os.Args) > 1 && os.Args[1] == "sleep-child":
 		time.Sleep(time.Minute)
+	case len(os.Args) > 3 && os.Args[1] == "launch-host":
+		launchFromTerminal(os.Args[2], os.Args[3])
+	case len(os.Args) > 2 && os.Args[1] == "start-child":
+		startFromTerminal(os.Args[2])
+	case len(os.Args) > 3 && os.Args[1] == "launch-when-told":
+		launchWhenTold(os.Args[2], os.Args[3])
 	case os.Getenv(hostRole) == "host":
 		if err := RunArgs(os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
