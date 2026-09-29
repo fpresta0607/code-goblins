@@ -157,13 +157,27 @@ func fakeHarness() {
 	if chosen == 0 {
 		return
 	}
-	if mode == "hooks" {
+	if mode == "hooks" || mode == "hooks-deaf" {
 		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
-		chosen := choose(keys, record, func(focus int) {
+		review := func(focus int) {
 			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
 			rows = append(rows, focusRows(hooks, focus)...)
 			draw(append(rows, "", "  Press enter to confirm or esc to go back")...)
-		})
+		}
+		if mode == "hooks-deaf" {
+			// As Codex 0.154 does, the review shows a moment before keys
+			// reach it, and a key sent meanwhile is lost.
+			review(0)
+			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
+				select {
+				case key := <-keys:
+					record(codexEvent{Event: "lost", Text: key})
+				case <-deaf:
+					deaf = nil
+				}
+			}
+		}
+		chosen := choose(keys, record, review)
 		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
 		if chosen != 2 {
 			return
@@ -497,7 +511,19 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 // takes its brief on, and tells the CFO, as cfo notify does, which hooks the
 // session loads.
 func TestANativeSpawnContinuesPastTheHookReviewWithoutTrusting(t *testing.T) {
-	f := newNativeFixture(t, harness.Codex, "hooks")
+	for _, mode := range []string{"hooks", "hooks-deaf"} {
+		t.Run(mode, func(t *testing.T) { continuesPastTheHookReview(t, mode) })
+	}
+}
+
+// continuesPastTheHookReview runs one spawn past the hook review, in mode
+// "hooks-deaf" at a review that loses the keys it gets in its first second, as
+// Codex 0.154 did live.
+func continuesPastTheHookReview(t *testing.T, mode string) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 5 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, mode)
 	hooks := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"siqshift-hook --event session-start"}]}]}}`
 	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json"), []byte(hooks), 0o600); err != nil {
 		t.Fatal(err)
