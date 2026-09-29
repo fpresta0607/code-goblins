@@ -38,7 +38,8 @@ const nativeSpawnHost = "native-spawn-host"
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
-// ("unmoved"), or each turn can end a moment after it starts ("turns"), where
+// ("unmoved"), each turn can end a moment after it starts ("turns"), or typed
+// text can show only once its console is resized ("undrawn"), where
 // by default a turn never ends.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
@@ -212,7 +213,25 @@ func fakeHarness() {
 	composer("Ask Codex to do anything")
 	var line strings.Builder
 	late := false
-	for key := range keys {
+	resized := make(chan struct{}, 1)
+	if mode == "undrawn" {
+		go watchWidth(resized)
+	}
+	for {
+		var key string
+		select {
+		case next, open := <-keys:
+			if !open {
+				return
+			}
+			key = next
+		case <-resized:
+			// As an idle Codex 0.154 does, typed text shows only at a redraw.
+			if line.Len() > 0 {
+				composer(line.String())
+			}
+			continue
+		}
 		// A burst of typing is drawn once, as a terminal program does.
 		burst := []string{key}
 		for more := true; more; {
@@ -257,9 +276,29 @@ func fakeHarness() {
 		switch {
 		case late:
 			draw("", "  Something needs an answer first. Continue? (y/n)")
-		case line.Len() > 0:
+		case line.Len() > 0 && mode != "undrawn":
 			composer(line.String())
 		}
+	}
+}
+
+// watchWidth signals resized each time its console's width changes.
+func watchWidth(resized chan<- struct{}) {
+	out := windows.Handle(os.Stdout.Fd())
+	var last int16
+	for {
+		var info windows.ConsoleScreenBufferInfo
+		if windows.GetConsoleScreenBufferInfo(out, &info) == nil {
+			width := info.Window.Right - info.Window.Left
+			if last != 0 && width != last {
+				select {
+				case resized <- struct{}{}:
+				default:
+				}
+			}
+			last = width
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -462,7 +501,7 @@ func ended(pid int) bool {
 // not shown yet or its focus not shown for a moment after a move, is read
 // again until its focus shows, and answered as one drawn at once.
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn"} {
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn"} {
 		t.Run(name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
