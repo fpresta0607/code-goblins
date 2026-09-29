@@ -257,7 +257,25 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		value = strings.TrimRight(string(data), "\r\n")
+		value = string(data)
+		// Windows PowerShell 5.1 with a UTF-8 console and a BOM-bearing
+		// $OutputEncoding writes two BOMs, so strip every leading one.
+		removedBOMCount := 0
+		for {
+			unmarked, hasBOM := strings.CutPrefix(value, "\ufeff")
+			if !hasBOM {
+				unmarked, hasBOM = strings.CutPrefix(value, "\u00ef\u00bb\u00bf")
+			}
+			if !hasBOM {
+				break
+			}
+			value = unmarked
+			removedBOMCount++
+		}
+		value = strings.TrimRight(value, "\r\n")
+		if removedBOMCount > 0 {
+			fmt.Fprintf(stdout, "cfo auth store: leading byte-order marks removed from stdin: %d\n", removedBOMCount)
+		}
 	}
 	if strings.TrimSpace(value) == "" {
 		fmt.Fprintln(stderr, "cfo auth store: refusing to store an empty value")
