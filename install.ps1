@@ -415,7 +415,10 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # The native build's folder is appended to PATH, so a script left earlier
-    # on it, such as npm's claude.cmd, still wins until the user removes it.    $claude = Get-Command claude -ErrorAction SilentlyContinue
+    # on it, such as npm's claude.cmd, still wins until the user removes it.
+    # Warn only once the native build is installed: until then the script is
+    # the only working claude.
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
     if ($claude -and [IO.Path]::GetExtension($claude.Source) -ne ".exe" -and (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe"))) {
         Write-Host ("WARN     {0,-20} resolves to {1}, a script a native terminal cannot start; run: npm.cmd uninstall -g @anthropic-ai/claude-code" -f "claude", $claude.Source)
         $failedInstalls += "claude: npm.cmd uninstall -g @anthropic-ai/claude-code"
