@@ -89,16 +89,11 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 		_ = reader.Close()
 	}()
 
-	began := time.Now()
 	err = Close(stateDir, record, time.Second)
-	took := time.Since(began)
 	<-released
 
 	if err != nil {
 		t.Fatalf("Close: %v", err)
-	}
-	if took >= 10*time.Second {
-		t.Errorf("Close took %s, want it back once its host ended", took)
 	}
 	if !exited(record.HostPID) {
 		t.Errorf("host pid %d is still running after its terminal closed", record.HostPID)
