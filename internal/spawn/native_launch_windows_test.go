@@ -157,7 +157,9 @@ func fakeHarness() {
 	if chosen == 0 {
 		return
 	}
-	if mode == "hooks" || mode == "hooks-deaf" {
+	// hookReview shows the hook review and reports whether it was answered
+	// with Continue without trusting.
+	hookReview := func() bool {
 		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
 		review := func(focus int) {
 			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
@@ -179,9 +181,10 @@ func fakeHarness() {
 		}
 		chosen := choose(keys, record, review)
 		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
-		if chosen != 2 {
-			return
-		}
+		return chosen == 2
+	}
+	if (mode == "hooks" || mode == "hooks-deaf") && !hookReview() {
+		return
 	}
 	trust := []string{"1. Yes, continue", "2. No, quit"}
 	chosen = choose(keys, record, func(focus int) {
@@ -196,6 +199,15 @@ func fakeHarness() {
 	}
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
+	}
+	if mode == "hooks-late" {
+		// As Codex 0.154 does, the composer shows a moment before the hook
+		// review is drawn over it, and keys typed meanwhile reach the review.
+		composer("Ask Codex to do anything")
+		time.Sleep(time.Second)
+		if !hookReview() {
+			return
+		}
 	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
@@ -511,13 +523,14 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 // takes its brief on, and tells the CFO, as cfo notify does, which hooks the
 // session loads.
 func TestANativeSpawnContinuesPastTheHookReviewWithoutTrusting(t *testing.T) {
-	for _, mode := range []string{"hooks", "hooks-deaf"} {
+	for _, mode := range []string{"hooks", "hooks-deaf", "hooks-late"} {
 		t.Run(mode, func(t *testing.T) { continuesPastTheHookReview(t, mode) })
 	}
 }
 
-// continuesPastTheHookReview runs one spawn past the hook review, in mode
-// "hooks-deaf" at a review that loses the keys it gets in its first second, as
+// continuesPastTheHookReview runs one spawn past the hook review: in mode
+// "hooks-deaf" at a review that loses the keys it gets in its first second, and
+// in mode "hooks-late" at a review drawn a second after the composer, both as
 // Codex 0.154 did live.
 func continuesPastTheHookReview(t *testing.T, mode string) {
 	previous := nativeKeyEffect

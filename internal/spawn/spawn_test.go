@@ -1048,6 +1048,30 @@ func TestALateTrustPromptTakesOneEnterAndTheHookReviewStopsTheSpawn(t *testing.T
 	}
 }
 
+// Codex 0.154 draws its composer a moment before its hook review, so a brief
+// typed at the first sight of the composer goes into the review. A typed
+// launch waits until the composer has shown throughout the settle, here sees
+// the review, and stops before typing anything.
+func TestATypedLaunchWaitsOutAComposerAReviewIsDrawnOver(t *testing.T) {
+	fixture := newFixture(t)
+	review := "Hooks need review\n  2 hooks are new or changed.\n\n› 1. Review hooks\n  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n"
+	fixture.runner.composerScreen = "PS C:\\work> \n"
+	fixture.runner.lateScreens = []string{codexComposer, codexComposer, review, review}
+	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
+		TypedLaunch: true, Executable: "codex", Instruction: "Read the brief.",
+		Dir: fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
+	}}
+
+	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
+
+	if err == nil || !strings.Contains(err.Error(), "the hook review prompt") {
+		t.Fatalf("startHarness error = %v, want the spawn stopped at the hook review", err)
+	}
+	if fixture.runner.brief != "" {
+		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
+	}
+}
+
 func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
 	fixture := newFixture(t)
 	typedScreens(fixture.runner, harness.Pi)

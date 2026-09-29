@@ -44,6 +44,9 @@ var (
 	// nativeDialogSettle is how long a startup dialog shows before its first
 	// key: a harness draws a dialog before it reads keys.
 	nativeDialogSettle = 2 * time.Second
+	// nativeReadySettle is how long a harness's composer stays ready, with no
+	// dialog drawn over it, before anything is typed into it.
+	nativeReadySettle = 2 * time.Second
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -89,11 +92,15 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 // awaitNativeReady reads the terminal's screen until the harness's composer
 // waits for input, answering each startup dialog it recognizes on the way.
 // Only a screen read successfully counts, so seeing no dialog can only come
-// from a screen that shows none. It returns what a dialog answered without
-// trust left untrusted, in the dialog's own words, or nothing.
+// from a screen that shows none. The composer counts as ready once it has
+// read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
+// its hook review over it a second later, and a brief typed at the first sight
+// of the composer went into the review. It returns what a dialog answered
+// without trust left untrusted, in the dialog's own words, or nothing.
 func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (string, error) {
 	deadline := time.Now().Add(nativeStartup)
 	var untrusted string
+	ready := 0
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
@@ -108,9 +115,12 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
 				return "", err
 			}
+			ready = 0
 			continue
 		}
-		if screens.IsReady(screen) {
+		if !screens.IsReady(screen) {
+			ready = 0
+		} else if ready++; ready > readySettleReads() {
 			return untrusted, nil
 		}
 		if time.Now().After(deadline) {
@@ -120,6 +130,12 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 			return "", err
 		}
 	}
+}
+
+// readySettleReads is how many reads in a row, nativePoll apart, span
+// nativeReadySettle.
+func readySettleReads() int {
+	return int(nativeReadySettle / nativePoll)
 }
 
 // reportUntrusted tells the CFO, as cfo notify does, that the harness in

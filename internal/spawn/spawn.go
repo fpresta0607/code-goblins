@@ -971,10 +971,13 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // once a later screen that has changed still shows it, so a frame not yet
 // redrawn never takes a second key. Any other dialog the harness is known to
 // show stops the spawn, since a brief typed into a dialog is lost or taken as
-// its answer.
+// its answer, and the composer counts as shown only once it has shown on every
+// read throughout nativeReadySettle, since a harness can draw a dialog over it
+// a moment later.
 func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
 	var screen, confirmed []string
 	var readErr error
+	ready := 0
 	poll := nativePoll
 	for attempt := 0; attempt < int(nativeStartup/nativePoll); attempt++ {
 		if attempt > 0 {
@@ -988,7 +991,7 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 			if herdr.WaitError(ctx, err) {
 				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
 			}
-			readErr = err
+			readErr, ready = err, 0
 			continue
 		}
 		screen, readErr = read, nil
@@ -1008,13 +1011,15 @@ func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend,
 					return fmt.Errorf("spawn: wait between %s's dialog keys: %w", kind, err)
 				}
 			}
-			confirmed, poll = screen, launchConfirmPoll
+			confirmed, poll, ready = screen, launchConfirmPoll, 0
 			continue
 		}
 		if found {
 			return fmt.Errorf("spawn: %s shows %s where its composer should be, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
 		}
-		if screens.IsReady(screen) {
+		if !screens.IsReady(screen) {
+			ready = 0
+		} else if ready++; ready > readySettleReads() {
 			return nil
 		}
 	}
