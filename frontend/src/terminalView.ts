@@ -1,6 +1,7 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
+import { terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
 
@@ -254,11 +255,8 @@ export class TerminalView {
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
       return false;
     }
-    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
-      event.preventDefault();
-      if (down) this.copy();
-      return false;
-    }
+    const shortcut = terminalKey(event, this.term, this.copy);
+    if (shortcut !== null) return shortcut;
     const size = event.ctrlKey && !event.altKey && !event.metaKey ? fontSizeFor(event.key, this.term.options.fontSize ?? DEFAULT_FONT_SIZE) : null;
     if (size !== null) {
       event.preventDefault();

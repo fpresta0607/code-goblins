@@ -9,17 +9,33 @@ test("while the panel is dragged the screen keeps its grid, scaled whole into th
   for (const [room, screen] of [[{ width: 0, height: 900 }, { width: 1200, height: 900 }], [{ width: 600, height: 900 }, { width: 0, height: 0 }]] as const) assert.equal(previewScale(room, screen), 1, "nothing measured yet keeps it as it is");
 });
 
-test("Unicode paste uses UTF-8 bytes including one complete bracketed wrapper", () => {
-  const limit = Math.floor((maxInputBytes - 12) / 3);
-  const accepted = bracketedPaste("界".repeat(limit));
-  assert.ok(inputBytes(accepted) <= maxInputBytes);
-  assert.ok(accepted.startsWith("\x1b[200~") && accepted.endsWith("\x1b[201~"));
-  assert.throws(() => bracketedPaste("界".repeat(limit + 1)), /nothing was sent/);
-  assert.throws(() => bracketedPaste("🙂".repeat(16382)), /nothing was sent/);
-  assert.equal(bracketedPaste("one\n\x1b[201~two"), "\x1b[200~one\ntwo\x1b[201~");
+test("large Unicode paste retains one bracketed wrapper and normalizes clipboard line endings", () => {
+  for (const text of ["", "small", "界".repeat(30000), "🙂".repeat(20000)]) {
+    assert.equal(bracketedPaste(text), "\x1b[200~" + text + "\x1b[201~");
+  }
+  assert.equal(bracketedPaste("one\n\x1b[201~two\r\nthree"), "\x1b[200~one\rtwo\rthree\x1b[201~");
 });
 
 const typed = (text: string): PaneCommand => ({ type: "terminal.input", text });
+
+test("large Unicode input is split at character boundaries and stays ahead of later keys", () => {
+  const text = "\x1b[200~first\r" + "🙂界".repeat(20000) + "\rlast\x1b[201~";
+  const queue: PaneCommand[] = [];
+  queueInput(queue, text);
+  queueInput(queue, "\r");
+  const pieces = queue.map((command) => command.type === "terminal.input" ? command.text : "");
+  assert.ok(pieces.every((piece) => inputBytes(piece) <= maxInputBytes));
+  assert.equal(pieces.join(""), text + "\r");
+  for (const piece of pieces) assert.equal(new TextDecoder("utf-8", { fatal: true }).decode(new TextEncoder().encode(piece)), piece);
+});
+
+test("a paste must fit Herdr's encoded request before any input is queued", () => {
+  const limit = 1024 * 1024 - 1024;
+  assert.equal(inputBytes(JSON.stringify(bracketedPaste("x".repeat(limit - 24)))), limit);
+  for (const text of ["x".repeat(limit - 23), "界".repeat(350000), "\x00".repeat(180000), "<".repeat(180000), "\u2028".repeat(180000)]) {
+    assert.throws(() => bracketedPaste(text), /Herdr.*limit/);
+  }
+});
 
 test("typing coalesces adjacent text, preserving Unicode, and keeps control keys and pastes apart", () => {
   const queue: PaneCommand[] = [];

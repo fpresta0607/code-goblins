@@ -260,6 +260,17 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
+Hold **Shift** while selecting if the running program has taken the mouse.
+**Ctrl+C** copies selected text; without a selection it interrupts the running program.
+**Ctrl+Shift+C** always copies, and **Ctrl+V** or **Ctrl+Shift+V** pastes the clipboard, including multiline text and large selections.
+The browser's right-click Paste command uses the same paste path.
+The program's paste mode is respected; a Herdr view refuses a paste that exceeds its 1 MiB encoded request limit without sending any text.
+Multiline paste into a native Codex goblin on Windows still does not arrive as a paste and can submit the first line.
+Codex 0.154 turns virtual-terminal input off, its Windows crossterm reader has no paste decoder, and ConPTY drops the bracketed-paste markers ([Microsoft terminal issue 18094](https://github.com/microsoft/terminal/issues/18094)).
+Until that separate limitation is resolved, keep multiline content in a local file and give Codex a single-line instruction to read it.
+**Shift+Enter** sends a modified Enter for agents that use it to insert a newline; **Enter** sends ordinary Enter.
+**Escape**, **Tab**, **Shift+Tab**, the arrow keys, **Home**, **End**, **Page Up**, **Page Down**, **Ctrl+A/E/U/K/W/L/R/D/Z** and **Alt** combinations go to the program.
+The advertised font-size, terminal-switching, dictation and **Shift+Escape** shortcuts remain the board's; the Herdr history view also uses **Shift+PageUp**, **Shift+PageDown** and **Escape** to navigate history.
 
 <p align="center">
   <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Task and Terminal pill with Open in terminal, Restore and Close" width="900" />

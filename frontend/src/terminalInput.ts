@@ -125,6 +125,17 @@ export function wheelTurn(view: { sized: boolean; refused: boolean }): "scroll" 
 // Adjacent printable keystrokes travel as one input; control keys, escape
 // sequences and pastes stay inputs of their own, in order.
 export function queueInput(queue: PaneCommand[], text: string) {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length > maxInputBytes) {
+    const decoder = new TextDecoder();
+    for (let start = 0; start < bytes.length;) {
+      let end = Math.min(start + maxInputBytes, bytes.length);
+      while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
+      queue.push({ type: "terminal.input", text: decoder.decode(bytes.subarray(start, end)) });
+      start = end;
+    }
+    return;
+  }
   const plain = (input: string) => !!input && [...input].every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
   const prior = queue[queue.length - 1];
   if (prior?.type === "terminal.input" && plain(prior.text) && plain(text) && inputBytes(prior.text + text) <= 4096) queue[queue.length - 1] = { type: "terminal.input", text: prior.text + text };
@@ -174,9 +185,11 @@ export function previewScale(room: { width: number; height: number }, screen: { 
 export const PANEL_RESIZED = "board-panel-resized";
 
 export function bracketedPaste(text: string): string {
-  const input = "\x1b[200~" + text.replaceAll("\x1b[200~", "").replaceAll("\x1b[201~", "") + "\x1b[201~";
-  if (inputBytes(input) > maxInputBytes) throw new Error("Paste exceeds 64 KiB. Paste a smaller selection; nothing was sent.");
-  return input;
+  const paste = "\x1b[200~" + text.replaceAll("\x1b[200~", "").replaceAll("\x1b[201~", "").replace(/\r?\n/g, "\r") + "\x1b[201~";
+  // Match Go's JSON escaping and leave room for Herdr's request envelope.
+  const encoded = JSON.stringify(paste).replace(/[<>&\u2028\u2029]/g, (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
+  if (inputBytes(encoded) > 1024 * 1024 - 1024) throw new Error("Paste exceeds Herdr's encoded request limit. Paste a smaller selection; nothing was sent.");
+  return paste;
 }
 
 // A cell's size in em, before the terminal has drawn one to measure: a
