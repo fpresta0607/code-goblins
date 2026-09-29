@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // A viewer that stops reading is dropped once it is further behind than a
@@ -167,6 +171,114 @@ func TestHistoryKeepsTheLastOfResizesWithNoOutputBetween(t *testing.T) {
 	}
 	if want := []geometry{{1, 120, 30}}; !reflect.DeepEqual(told, want) {
 		t.Errorf("the live viewer was told %v, want %v", told, want)
+	}
+}
+
+// Output keeps flowing while the pseudo console applies a resize, which can
+// need its output drained to finish: what the terminal writes meanwhile is
+// kept, before the size, which is marked once the resize is known applied.
+func TestHistoryKeepsOutputWrittenWhileAResizeApplies(t *testing.T) {
+	output := newHistory(80, 24)
+	_, _, live, detach := output.attach()
+	defer detach()
+	output.write([]byte("before"))
+
+	err := output.resize(100, 30, func() error {
+		// The host's output reader writes on a goroutine of its own.
+		written := make(chan struct{})
+		go func() {
+			output.write([]byte("during"))
+			close(written)
+		}()
+		select {
+		case <-written:
+			return nil
+		case <-time.After(5 * time.Second):
+			return errors.New("no output could be written while the resize applied")
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output.write([]byte("after"))
+
+	past, sizes, _, detachLate := output.attach()
+	detachLate()
+	taken, told, _ := live.next()
+	if want := []geometry{{0, 80, 24}, {12, 100, 30}}; string(past) != "beforeduringafter" || !reflect.DeepEqual(sizes, want) {
+		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, "beforeduringafter", want)
+	}
+	if want := []geometry{{12, 100, 30}}; string(taken) != "beforeduringafter" || !reflect.DeepEqual(told, want) {
+		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, "beforeduringafter", want)
+	}
+}
+
+// Output written while other goroutines resize the terminal is all kept, in
+// order, and each size lands between two writes, never inside one, in the
+// order the resizes were made, for a live viewer and a late replay alike.
+func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
+	output := newHistory(80, 24)
+	_, _, live, detach := output.attach()
+	defer detach()
+	var mu sync.Mutex
+	var written strings.Builder
+	boundaries := map[int]bool{0: true}
+	var working sync.WaitGroup
+	working.Add(2)
+	go func() {
+		defer working.Done()
+		for i := range 2000 {
+			chunk := fmt.Sprintf("<%d>", i)
+			mu.Lock()
+			output.write([]byte(chunk))
+			written.WriteString(chunk)
+			boundaries[written.Len()] = true
+			mu.Unlock()
+		}
+	}()
+	go func() {
+		defer working.Done()
+		for i := range 200 {
+			_ = output.resize(20+i, 5+i%40, func() error {
+				runtime.Gosched()
+				return nil
+			})
+		}
+	}()
+	working.Wait()
+	output.write([]byte("<end>"))
+	written.WriteString("<end>")
+
+	var taken strings.Builder
+	var marks []geometry
+	for !strings.HasSuffix(taken.String(), "<end>") {
+		chunk, sizes, open := live.next()
+		if !open {
+			t.Fatal("the live viewer was dropped")
+		}
+		for _, size := range sizes {
+			marks = append(marks, geometry{At: taken.Len() + size.At, Cols: size.Cols, Rows: size.Rows})
+		}
+		taken.Write(chunk)
+	}
+
+	if taken.String() != written.String() {
+		t.Fatalf("the live viewer took %d bytes that differ from the %d written", taken.Len(), written.Len())
+	}
+	_, replayed, _, detachLate := output.attach()
+	detachLate()
+	for name, sizes := range map[string][]geometry{"live": marks, "replayed": replayed[1:]} {
+		if len(sizes) == 0 || sizes[len(sizes)-1].Cols != 219 {
+			t.Errorf("%s sizes end %v, want the last resize, 219 columns", name, sizes[max(0, len(sizes)-1):])
+		}
+		for i, size := range sizes {
+			if !boundaries[size.At] {
+				t.Errorf("%s size %v falls inside a write", name, size)
+			}
+			if i > 0 && (size.Cols <= sizes[i-1].Cols || size.At < sizes[i-1].At) {
+				t.Errorf("%s size %v comes after %v, out of the order the resizes were made", name, size, sizes[i-1])
+			}
+		}
 	}
 }
 

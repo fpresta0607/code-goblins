@@ -50,8 +50,8 @@ func TestMain(m *testing.M) {
 
 // echoChild answers one typed line at a time: the terminal its host says it
 // runs in, its terminal's size, a grandchild it starts, an exit code, a flood
-// of output before an exit code, a spill of output it keeps running after, its
-// screen as it reads it itself, a screen read attaching to its console, a
+// of output before an exit code, a spill of output it keeps running after,
+// two seconds of streamed lines, its screen as it reads it itself, a screen read attaching to its console, a
 // Ctrl-C, leaving its console, or the line itself.
 func echoChild() {
 	// A Ctrl-C typed to the terminal is reported, not obeyed.
@@ -120,6 +120,13 @@ func echoChild() {
 			}
 			fmt.Println("last words")
 			os.Exit(code)
+		case line == "stream":
+			// Numbered lines for two seconds, as a busy program prints.
+			for i, until := 0, time.Now().Add(2*time.Second); time.Now().Before(until); i++ {
+				fmt.Printf("line %06d %s\n", i, strings.Repeat("s", 60))
+				time.Sleep(time.Millisecond)
+			}
+			fmt.Println("streamed")
 		case line == "spill":
 			for i := 0; i < 2000; i++ {
 				fmt.Println(strings.Repeat("s", 100))
@@ -395,6 +402,62 @@ func TestEveryViewerIsToldEachResizeAtItsPlaceInTheOutput(t *testing.T) {
 		v.waitFor(t, `size 80x25\r[\s\S]*\[size 100x30\][\s\S]*size 100x30`)
 	}
 	plain.waitFor(t, "size 100x30")
+}
+
+// Resizes made narrow and wide from another client while the terminal
+// prints continuously never stall its output or the host, reach a
+// size-aware viewer in the order they were made, and leave the program
+// reading the last size once they stop. ConPTY takes each resize on a thread
+// of its own and reports no boundary in its output, so output right around a
+// resize can still be drawn for the size before it; the full repaints the
+// program makes at the last size are what a viewer is left showing.
+func TestResizesDuringContinuousOutputArriveInOrder(t *testing.T) {
+	_, record := launch(t)
+	watching := view(t, record)
+	watching.waitFor(t, "ready")
+	resizer, err := Dial(record)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer resizer.Close()
+	typeLine(t, watching, "stream")
+	watching.waitFor(t, "line 000010")
+
+	var sizes []string
+	for i := range 20 {
+		cols, rows := 120+i, 40
+		if i%2 == 1 {
+			cols, rows = 60+i, 20
+		}
+		if err := resizer.Resize(cols, rows); err != nil {
+			t.Fatalf("Resize %dx%d: %v", cols, rows, err)
+		}
+		sizes = append(sizes, fmt.Sprintf("%dx%d", cols, rows))
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	watching.waitFor(t, "streamed")
+	// The first size is the one the history starts at.
+	marks := regexp.MustCompile(`\[size (\d+x\d+)\]`).FindAllStringSubmatch(watching.screen.String(), -1)
+	if len(marks) < 2 {
+		t.Fatalf("the viewer was told sizes %v, want the resizes after the first", marks)
+	}
+	marks = marks[1:]
+	next := 0
+	for _, mark := range marks {
+		for next < len(sizes) && sizes[next] != mark[1] {
+			next++
+		}
+		if next == len(sizes) {
+			t.Fatalf("the viewer was told sizes %v, not in the order %v they were made", marks, sizes)
+		}
+	}
+	if len(marks) == 0 || marks[len(marks)-1][1] != sizes[len(sizes)-1] {
+		t.Fatalf("the viewer was told sizes ending %v, want the last resize %s", marks[max(0, len(marks)-1):], sizes[len(sizes)-1])
+	}
+	stop := askForSize(watching)
+	defer stop()
+	watching.waitFor(t, "size "+sizes[len(sizes)-1])
 }
 
 // A viewer that connects later replays the history at the sizes it was
