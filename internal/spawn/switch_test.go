@@ -52,6 +52,12 @@ type switchRunner struct {
 	menuShowing  bool
 	menuAnswered bool
 	interrupted  bool
+	// quitsOnSecondInterrupt never takes a typed stop command, and an
+	// interrupt first clears the composer holding it: the harness exits on
+	// the second.
+	quitsOnSecondInterrupt bool
+	interrupts             int
+	tabCloseFails          bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -81,11 +87,19 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		if len(req.Args) >= 2 && req.Args[0] == "pane" && req.Args[1] == "report-agent" {
 			r.restarted = true
 		}
+		if r.tabCloseFails && len(req.Args) >= 2 && req.Args[0] == "tab" && req.Args[1] == "close" {
+			return execx.Result{}, errors.New("herdr server unreachable")
+		}
 	}
 	// A typed slash command is the harness being told to exit, so the fake
 	// agent becomes stoppable again - otherwise a second switch in one test
 	// would find an agent that can never die.
-	if req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-text" && strings.HasPrefix(req.Args[3], "/") {
+	if r.quitsOnSecondInterrupt && req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-keys" && req.Args[3] == "ctrl+c" {
+		if r.interrupts++; r.interrupts == 2 {
+			r.neverStops, r.agentGets = false, r.stopAfter
+		}
+	}
+	if !r.quitsOnSecondInterrupt && req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-text" && strings.HasPrefix(req.Args[3], "/") {
 		r.restarted = false
 		r.agentGets = 0
 		r.exitPending = r.exitMenu && !r.menuAnswered
@@ -278,6 +292,9 @@ func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) 
 	if !strings.Contains(fixture.runner.prompt, result.Handoff) {
 		t.Errorf("delivered instruction = %q, want it to point at the handoff", fixture.runner.prompt)
 	}
+	if !strings.Contains(fixture.runner.prompt, "ask it again with cfo notify --blocked") {
+		t.Errorf("delivered instruction = %q, want the new harness told to ask again a question the restart cancelled", fixture.runner.prompt)
+	}
 }
 
 func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
@@ -367,6 +384,23 @@ func TestSwitchStopsTheOldHarnessBeforeStartingTheNew(t *testing.T) {
 	}
 	if !contains(fixture.runner.keys, "escape") {
 		t.Errorf("keys = %v, want the stream interrupted before the stop command", fixture.runner.keys)
+	}
+}
+
+// A harness that never took its stop command still holds it in its composer,
+// so the first interrupt only clears it, as Codex 0.154 did in a Herdr pane on
+// 2026-09-29; the switch interrupts once more, and the harness exits.
+func TestSwitchInterruptsAgainWhenTheFirstOnlyClearsTheComposer(t *testing.T) {
+	f := newSwitchFixture(t)
+	f.runner.neverStops, f.runner.quitsOnSecondInterrupt = true, true
+
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "other-model", Session: "fleet"})
+
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if f.runner.interrupts != 2 {
+		t.Errorf("interrupts = %d, want 2", f.runner.interrupts)
 	}
 }
 
@@ -1139,6 +1173,24 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 	})
 	if !started {
 		t.Fatalf("relaunch did not start agent %q; herdr calls %v", "gb-"+fixture.meta.ID, fixture.runner.herdrCalls)
+	}
+}
+
+// A move refused over the old session's leftovers names the rerun that moves
+// the goblin, not one that would relaunch it in its Herdr pane.
+func TestSwitchNamesTheMoveInTheRerunOverLeftovers(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
+		return []Leftover{{PID: 38804, Executable: "node.exe", CommandLine: "node lavish-axi server --port 4387"}}, nil
+	}
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Native: true, Session: "fleet"})
+
+	if err == nil || !strings.HasSuffix(err.Error(), "run:\n  cfo switch "+fixture.meta.ID+" --native") {
+		t.Fatalf("err = %v, want the refusal to end with the rerun that moves the goblin", err)
+	}
+	if after, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID); readErr != nil || after.Backend != "herdr" || after.HerdrPaneID != fixture.meta.HerdrPaneID {
+		t.Errorf("task record = %+v, %v; want it still in its Herdr pane", after, readErr)
 	}
 }
 

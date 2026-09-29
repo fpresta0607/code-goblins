@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,9 @@ var (
 	// nativeTypedPace is the time allowed per typed character, on top of
 	// nativeKeyEffect, for a harness that can take typed text in slowly.
 	nativeTypedPace = 50 * time.Millisecond
+	// nativeTypedCap bounds how long typed text may keep arriving in a
+	// harness that takes it in slowly.
+	nativeTypedCap = 10 * time.Minute
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -374,14 +378,20 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most
-// typedWait. A harness that holds typed text undrawn until its next
-// redraw is made to redraw while the text does not show: every
+// typedWait. A harness that can take typed text in slowly is given
+// nativeKeyEffect more each time its screen changes while the text is still
+// arriving, up to nativeTypedCap: live after the 2026-09-29 reboot a resumed
+// Codex took a pointer line in at about a character a second. Such a harness,
+// which can also hold typed text undrawn until its next redraw, is made to
+// redraw while the text does not show: every
 // nativeRedrawNudge the terminal is widened by one column for a poll and set
 // back, which a harness takes as a resize and never as input.
 func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) error {
 	within := typedWait(screens, typed)
-	deadline := time.Now().Add(within)
-	nudged := time.Now()
+	began := time.Now()
+	deadline := began.Add(within)
+	nudged := began
+	var last []string
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
@@ -390,8 +400,17 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 		if screens.Shows(screen, typed) {
 			return nil
 		}
+		if screens.Undrawn && last != nil && !slices.Equal(screen, last) {
+			if extended := time.Now().Add(nativeKeyEffect); extended.After(deadline) {
+				deadline = extended
+			}
+			if limit := began.Add(nativeTypedCap); deadline.After(limit) {
+				deadline = limit
+			}
+		}
+		last = screen
 		if time.Now().After(deadline) {
-			return fmt.Errorf("not within %s; its screen ends:\n%s", within, host.ScreenTail(screen, 8))
+			return fmt.Errorf("not within %s, nor %s after its screen last changed; its screen ends:\n%s", within, nativeKeyEffect, host.ScreenTail(screen, 8))
 		}
 		if screens.Undrawn && time.Since(nudged) >= nativeRedrawNudge {
 			if err := s.nudgeRedraw(ctx, client, screen); err != nil {
