@@ -181,7 +181,7 @@ export class TerminalView {
     if (this.disposed) return;
     this.resizeGrid(cols, rows);
     this.owner = this.claimed?.cols === cols && this.claimed.rows === rows;
-    if (this.owner && this.claimedAt < 0) this.claimedAt = this.consumed;
+    if (this.owner && this.claimedAt < 0 && this.history >= 0 && this.consumed >= this.history) this.claimedAt = this.consumed;
     this.readyIfDrawn();
   }
 

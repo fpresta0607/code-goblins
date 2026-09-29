@@ -81,6 +81,57 @@ test("a resized panel changes the grid only when the terminal takes its size", a
   await expect.poll(() => probedWidths(relay)).toEqual([claimed.cols, claimed.cols, smaller.cols]);
 });
 
+// A view that reconnects replays a history whose first size is the one it
+// claims; that is not the terminal taking its claim, so live output before
+// the terminal takes it leaves the view out of sight until its fallback.
+test("a size replayed from the history does not show a view before its repaint", async ({ page }) => {
+  const relay: Relay = { typed: [], resizes: [], send: () => {} };
+  let connections = 0;
+  let drop = () => {};
+  await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    const connection = ++connections;
+    let isReplayed = false;
+    if (connection === 1) {
+      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      socket.send(JSON.stringify({ type: "size", ...HOST_SIZE }));
+      drop = () => socket.close({ code: 1001 });
+    }
+    socket.onMessage((data) => {
+      if (typeof data !== "string") { relay.typed.push(data.toString("utf8")); return; }
+      const message: unknown = JSON.parse(data);
+      if (typeof message !== "object" || message === null || !("type" in message) || message.type !== "resize" || !("cols" in message) || !("rows" in message)) return;
+      const claim = { cols: Number(message.cols), rows: Number(message.rows) };
+      relay.resizes.push(claim);
+      if (connection === 2 && !isReplayed) {
+        isReplayed = true;
+        const history = Buffer.from("hist!");
+        socket.send(JSON.stringify({ type: "history", bytes: history.length }));
+        socket.send(size(claim.cols, claim.rows));
+        socket.send(history);
+        socket.send(widthProbe());
+      }
+    });
+  });
+  await page.goto("/tests/fixtures/terminal-geometry.html");
+  await expect.poll(() => relay.resizes.length).toBeGreaterThan(0);
+  await settled(relay);
+  await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
+  const shownAfter = page.evaluate(() => new Promise<number>((resolve) => {
+    const container = document.querySelector(".terminal-view")!.parentElement!;
+    let stagedAt = -1;
+    new MutationObserver(() => {
+      const isStaged = container.querySelector(".terminal-view.staged") !== null;
+      if (isStaged && stagedAt < 0) stagedAt = performance.now();
+      if (!isStaged && stagedAt >= 0) resolve(performance.now() - stagedAt);
+    }).observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  }));
+
+  drop();
+
+  await expect.poll(() => probedWidths(relay), { intervals: [10] }).toHaveLength(1);
+  expect(await shownAfter, "the view was shown before the terminal took its claim").toBeGreaterThanOrEqual(600);
+});
+
 // The probe's answer arrives as typing, so this test does not probe after the
 // other window's size.
 test("typing takes the terminal back from a size another window gave it", async ({ page }) => {

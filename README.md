@@ -245,7 +245,10 @@ The monitor supervises it from its terminal as it does a goblin in Herdr, and it
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `cfo switch <id>` resumes it in its own session.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
-The board and an Open in Windows Terminal window can show the same terminal at once: each draws every piece of output at the size it was written for, and the one you type into gives the terminal its size, as does a board view that answers the program's terminal queries.
+The board and an Open in Windows Terminal window can show the same terminal at once.
+A board view draws every piece of output at the size it was written for.
+The Open window draws on its own window's grid and takes the terminal's size back with its next key.
+Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
