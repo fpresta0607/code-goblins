@@ -353,7 +353,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	codexServers, err := codexMCPServers(target.Harness)
 	if err != nil {
-		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
+		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
