@@ -51,6 +51,9 @@ var (
 	// nativeRedrawNudge is how long typed text may stay undrawn before a
 	// harness that holds it so is made to redraw.
 	nativeRedrawNudge = time.Second
+	// nativeTypedPace is the time allowed per typed character, on top of
+	// nativeKeyEffect, for a harness that can take typed text in slowly.
+	nativeTypedPace = 50 * time.Millisecond
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -303,12 +306,13 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 }
 
 // awaitTyped reads the terminal's screen until it shows typed, for at most
-// nativeKeyEffect. A harness that holds typed text undrawn until its next
+// typedWait. A harness that holds typed text undrawn until its next
 // redraw is made to redraw while the text does not show: every
 // nativeRedrawNudge the terminal is widened by one column for a poll and set
 // back, which a harness takes as a resize and never as input.
 func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) error {
-	deadline := time.Now().Add(nativeKeyEffect)
+	within := typedWait(screens, typed)
+	deadline := time.Now().Add(within)
 	nudged := time.Now()
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
@@ -319,7 +323,7 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("not within %s; its screen ends:\n%s", nativeKeyEffect, host.ScreenTail(screen, 8))
+			return fmt.Errorf("not within %s; its screen ends:\n%s", within, host.ScreenTail(screen, 8))
 		}
 		if screens.Undrawn && time.Since(nudged) >= nativeRedrawNudge {
 			if err := s.nudgeRedraw(ctx, client, screen); err != nil {
@@ -331,6 +335,17 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 			return err
 		}
 	}
+}
+
+// typedWait is how long typed takes to show in the harness's composer: a key's
+// effect, and for a harness that can take typed text in slowly, as an idle
+// Codex 0.154 took a 2,940-character brief at about 17 characters a second,
+// nativeTypedPace for each character on top.
+func typedWait(screens harness.Screens, typed string) time.Duration {
+	if !screens.Undrawn {
+		return nativeKeyEffect
+	}
+	return nativeKeyEffect + time.Duration(utf8.RuneCountInString(typed))*nativeTypedPace
 }
 
 // nudgeRedraw widens the terminal by one column for a poll, long enough for
