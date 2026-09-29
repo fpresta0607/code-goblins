@@ -322,6 +322,9 @@ func TestQueuedStopShowsFailureAfterWritingItsLifecycle(t *testing.T) {
 	if index < 0 || snapshot.Tasks[index].ActionError == "" || snapshot.Tasks[index].Phase != "queued" {
 		t.Fatalf("failed Stop is not visible: %+v", snapshot.Tasks)
 	}
+	if history := finishedTasks(h, time.Now()); slices.ContainsFunc(history, func(task Task) bool { return task.ID == "finished:"+queued.Row.ID }) {
+		t.Fatalf("failed Stop shows the queued task as Completed: %+v", history)
+	}
 }
 
 func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigabytes(t *testing.T) {

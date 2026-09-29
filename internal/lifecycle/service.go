@@ -213,9 +213,11 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 			return record, err
 		}
 	}
-	detail := "lifecycle-" + record.Phase + ": " + state.NormalizeStatusDetail(strings.Join(append([]string{record.Reason}, record.Kept...), "; "))
-	if err := state.AppendStatus(service.StateDir, record.ID, detail); err != nil {
-		return record, err
+	if record.Generation != "queued" || record.Phase == "stopped" {
+		detail := "lifecycle-" + record.Phase + ": " + state.NormalizeStatusDetail(strings.Join(append([]string{record.Reason}, record.Kept...), "; "))
+		if err := state.AppendStatus(service.StateDir, record.ID, detail); err != nil {
+			return record, err
+		}
 	}
 	if err := service.Operations.Notify(record); err != nil {
 		return record, err

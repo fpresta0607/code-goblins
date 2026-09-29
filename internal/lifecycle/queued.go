@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -37,6 +38,10 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		}
 		if prior.Phase == "stopped" {
 			return service.finish(prior)
+		}
+		if prior.Phase == "failed" {
+			finished, finishErr := service.finish(prior)
+			return finished, errors.Join(finishErr, errors.New(strings.Join(prior.Problems, "; ")))
 		}
 		if prior.Phase == "stopping" {
 			outcome, err := state.ReadOutcome(h.State, request.ID)
