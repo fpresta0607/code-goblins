@@ -280,6 +280,12 @@ func fakeHarness() {
 			case key == "\x1b[A" || key == "\x1b[B":
 			default:
 				line.WriteString(key)
+				if mode == "trickle" {
+					// As a resumed Codex 0.154 did, typed text is taken
+					// in a character at a time.
+					time.Sleep(40 * time.Millisecond)
+					composer(line.String())
+				}
 			}
 		}
 		switch {
@@ -565,6 +571,25 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 				t.Errorf("screen = %q, %v; want codex working", host.ScreenTail(screen, 0), err)
 			}
 		})
+	}
+}
+
+// A harness that takes typed text in slowly keeps its delivery waiting while
+// the text keeps arriving, however long the text: here each character takes
+// 40 ms against a wait of a few seconds.
+func TestTypedTextStillArrivingIsWaitedFor(t *testing.T) {
+	previousEffect, previousPace := nativeKeyEffect, nativeTypedPace
+	nativeKeyEffect, nativeTypedPace = 3*time.Second, 0
+	t.Cleanup(func() { nativeKeyEffect, nativeTypedPace = previousEffect, previousPace })
+	f := newNativeFixture(t, harness.Codex, "trickle")
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the pointer once", submitted)
 	}
 }
 
