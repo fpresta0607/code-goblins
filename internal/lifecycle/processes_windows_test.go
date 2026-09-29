@@ -73,7 +73,7 @@ func TestLifecycleProcessFixture(t *testing.T) {
 	time.Sleep(time.Minute)
 }
 
-func TestTerminateWaitsForATerminatedOrExitingProcessToExit(t *testing.T) {
+func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testing.T) {
 	cases := []struct {
 		name       string
 		stopErr    error
