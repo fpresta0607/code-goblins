@@ -62,7 +62,7 @@ func TestANativeGoblinSwitchesInPlace(t *testing.T) {
 		t.Errorf("the first terminal's host pid %d still runs beside its replacement", first.HostPID)
 	}
 	submitted := submittedLines(t, f, 3)
-	if len(submitted) < 3 || submitted[1] != "/exit" || !strings.Contains(submitted[2], result.Handoff) || result.Handoff == "" {
+	if len(submitted) < 3 || submitted[1] != "/exit" || !strings.Contains(delivered(t, submitted[2]), result.Handoff) || result.Handoff == "" {
 		t.Errorf("submitted = %q with handoff %q; want the instruction, /exit, then the new harness pointed at the handoff", submitted, result.Handoff)
 	}
 	if launches := len(named(f.events(t), "env")); launches != 2 {
@@ -251,7 +251,7 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume --last ") {
 		t.Fatalf("launches = %+v, want the second with the harness's resume arguments first", launches)
 	}
-	if submitted := submittedLines(t, f, 2); !strings.Contains(submitted[len(submitted)-1], "Your session was restarted") {
+	if submitted := submittedLines(t, f, 2); !strings.Contains(delivered(t, submitted[len(submitted)-1]), "Your session was restarted") {
 		t.Errorf("submitted = %q, want the resumed harness told to continue", submitted)
 	}
 }

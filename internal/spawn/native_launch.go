@@ -93,7 +93,43 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 			return record, err
 		}
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction(), launch.Env["CFO_SPAWN_GEN"])
+	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
+	if err != nil {
+		return record, err
+	}
+	return record, s.deliverNativeInstruction(ctx, record, screens, instruction, launch.Env["CFO_SPAWN_GEN"])
+}
+
+// typedInstructionLimit is the longest instruction typed whole into a harness
+// that takes typed text in slowly.
+const typedInstructionLimit = 400
+
+// typedInstruction is what is typed to deliver instruction to the harness in
+// native terminal id: the instruction itself, or, for a harness that takes
+// typed text in slowly and an instruction longer than typedInstructionLimit,
+// a line pointing at the task's instruction.md, where the whole instruction is
+// written. Live after the 2026-09-29 reboot an idle Codex 0.154 took a
+// 2,940-character brief in at about 17 characters a second, and took an Enter
+// pressed while the rest still arrived as part of the text.
+func (s Service) typedInstruction(id string, screens harness.Screens, instruction string) (string, error) {
+	if !screens.Undrawn || utf8.RuneCountInString(instruction) <= typedInstructionLimit {
+		return instruction, nil
+	}
+	dir := filepath.Join(s.StateDir, "tasktmp", id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("spawn: write the instruction for native terminal %s: %w", id, err)
+	}
+	path := filepath.Join(dir, "instruction.md")
+	if err := os.WriteFile(path, []byte(instruction+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("spawn: write the instruction for native terminal %s: %w", id, err)
+	}
+	return instructionPointer(path), nil
+}
+
+// instructionPointer is the line typed in place of an instruction written to
+// path.
+func instructionPointer(path string) string {
+	return "Read " + path + " and follow it exactly: it is your instruction from the CFO."
 }
 
 // awaitNativeReady reads the terminal's screen until the harness's composer

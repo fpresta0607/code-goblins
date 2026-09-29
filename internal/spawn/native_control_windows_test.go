@@ -42,7 +42,7 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	if unknownErr == nil || !strings.Contains(unknownErr.Error(), "unsupported key") {
 		t.Errorf("SendNativeKey F5 = %v, want it refused", unknownErr)
 	}
-	want := []string{spawnInstruction(f.brief, "task-7"), "CFO: run the tests", ""}
+	want := []string{spawnPointer(t, f.fixture), "CFO: run the tests", ""}
 	var submitted []string
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
@@ -97,7 +97,7 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	if took >= nativeReadGrace {
 		t.Errorf("SendNative took %s, want it back without waiting on the ended harness's screen", took)
 	}
-	want := []string{spawnInstruction(f.brief, "task-7"), "/exit"}
+	want := []string{spawnPointer(t, f.fixture), "/exit"}
 	var submitted []string
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
@@ -149,7 +149,7 @@ func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 	if !errors.Is(err, fleet.ErrQueuedBehindTurn) {
 		t.Errorf("SendNative = %v, want it queued behind the turn", err)
 	}
-	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnInstruction(f.brief, "task-7"), "CFO: run the tests"}) {
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
 		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }
