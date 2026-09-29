@@ -214,4 +214,51 @@ func TestStopQueuedRecordsFailureWhenRemovalIsBlocked(t *testing.T) {
 	if _, err := state.ReadOutcome(h.State, "task"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("an outcome claims the stop: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(h.State, "task.status")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a status log marks the queued task as ended: %v", err)
+	}
+}
+
+func TestStopQueuedReplaysAFailedOperationAndAcceptsAFreshOne(t *testing.T) {
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	backlog := filepath.Join(h.Data, "backlog.md")
+	content := []byte("## Queued\n- **task** - Fix login (repo: example)\n")
+	if err := os.WriteFile(backlog, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		t.Fatal(err)
+	}
+	failed := Request{ID: "task", Operation: "stop-1", Action: "stop", Reason: "Not needed"}
+	if _, err := StopQueued(h, failed, ""); !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("stop error=%v, want backlog lock refusal", err)
+	}
+	if err := lock.ReleaseExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		t.Fatal(err)
+	}
+
+	replayed, replayErr := StopQueued(h, failed, "")
+
+	if replayErr == nil || !strings.Contains(replayErr.Error(), lock.ErrHeld.Error()) || replayed.Phase != "failed" {
+		t.Errorf("replayed stop=%+v %v, want the recorded failure", replayed, replayErr)
+	}
+	if got, err := os.ReadFile(backlog); err != nil || string(got) != string(content) {
+		t.Errorf("replayed failure removed the row: %q %v", got, err)
+	}
+	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 {
+		t.Errorf("notifications=%+v %v, want the one failure notice", pending, err)
+	}
+
+	fresh, freshErr := StopQueued(h, Request{ID: "task", Operation: "stop-2", Action: "stop", Reason: "Not needed"}, "")
+
+	if freshErr != nil || fresh.Phase != "stopped" || !fresh.NoticeSent {
+		t.Errorf("fresh stop=%+v %v", fresh, freshErr)
+	}
+	if _, err := fleet.ReadQueuedTask(h, "task"); !errors.Is(err, fleet.ErrNotQueued) {
+		t.Errorf("fresh stop kept the row: %v", err)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil || len(pending) != 2 {
+		t.Errorf("notifications=%+v %v, want one failure and one stop", pending, err)
+	}
 }
