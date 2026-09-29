@@ -12,15 +12,20 @@ import (
 
 // cfo switch --native moves a task into a native terminal with no other
 // option, keeping its harness, model and effort; with no option at all there
-// is nothing to switch.
+// is nothing to switch, and a change of harness, model or effort is a separate
+// switch after the move.
 func TestRunSwitchMovesATaskIntoANativeTerminal(t *testing.T) {
 	for name, test := range map[string]struct {
-		args   []string
-		exit   int
-		native bool
+		args    []string
+		exit    int
+		native  bool
+		refusal string
 	}{
-		"native":     {[]string{"--native"}, 0, true},
-		"no options": {nil, 2, false},
+		"native":              {[]string{"--native"}, 0, true, ""},
+		"no options":          {nil, 2, false, "--native"},
+		"native with harness": {[]string{"--native", "--harness", "claude"}, 2, false, "--native keeps the task's harness, model and effort"},
+		"native with model":   {[]string{"--native", "--model", "gpt-5"}, 2, false, "--native keeps the task's harness, model and effort"},
+		"native with effort":  {[]string{"--effort", "high", "--native"}, 2, false, "--native keeps the task's harness, model and effort"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testCommandRuntime(t)
@@ -38,8 +43,8 @@ func TestRunSwitchMovesATaskIntoANativeTerminal(t *testing.T) {
 				t.Fatalf("exit = %d, want %d; stderr=%s", exit, test.exit, stderr.String())
 			}
 			switch {
-			case test.exit != 0 && (got != nil || !strings.Contains(stderr.String(), "--native")):
-				t.Errorf("request = %+v, stderr = %q; want refused naming --native among the options", got, stderr.String())
+			case test.exit != 0 && (got != nil || !strings.Contains(stderr.String(), test.refusal)):
+				t.Errorf("request = %+v, stderr = %q; want refused saying %q", got, stderr.String(), test.refusal)
 			case test.exit == 0 && (got == nil || got.Native != test.native || got.Harness != "" || got.Model != "" || got.Effort != ""):
 				t.Errorf("request = %+v, want Native with the harness, model and effort left as they are", got)
 			}

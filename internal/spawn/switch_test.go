@@ -57,6 +57,7 @@ type switchRunner struct {
 	// the second.
 	quitsOnSecondInterrupt bool
 	interrupts             int
+	tabCloseFails          bool
 }
 
 func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -85,6 +86,9 @@ func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result
 		// agent again.
 		if len(req.Args) >= 2 && req.Args[0] == "pane" && req.Args[1] == "report-agent" {
 			r.restarted = true
+		}
+		if r.tabCloseFails && len(req.Args) >= 2 && req.Args[0] == "tab" && req.Args[1] == "close" {
+			return execx.Result{}, errors.New("herdr server unreachable")
 		}
 	}
 	// A typed slash command is the harness being told to exit, so the fake
@@ -287,6 +291,9 @@ func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) 
 	// It arrives through the native agent prompt, not as typed composer text.
 	if !strings.Contains(fixture.runner.prompt, result.Handoff) {
 		t.Errorf("delivered instruction = %q, want it to point at the handoff", fixture.runner.prompt)
+	}
+	if !strings.Contains(fixture.runner.prompt, "ask it again with cfo notify --blocked") {
+		t.Errorf("delivered instruction = %q, want the new harness told to ask again a question the restart cancelled", fixture.runner.prompt)
 	}
 }
 
@@ -1166,6 +1173,24 @@ func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
 	})
 	if !started {
 		t.Fatalf("relaunch did not start agent %q; herdr calls %v", "gb-"+fixture.meta.ID, fixture.runner.herdrCalls)
+	}
+}
+
+// A move refused over the old session's leftovers names the rerun that moves
+// the goblin, not one that would relaunch it in its Herdr pane.
+func TestSwitchNamesTheMoveInTheRerunOverLeftovers(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
+		return []Leftover{{PID: 38804, Executable: "node.exe", CommandLine: "node lavish-axi server --port 4387"}}, nil
+	}
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Native: true, Session: "fleet"})
+
+	if err == nil || !strings.HasSuffix(err.Error(), "run:\n  cfo switch "+fixture.meta.ID+" --native") {
+		t.Fatalf("err = %v, want the refusal to end with the rerun that moves the goblin", err)
+	}
+	if after, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID); readErr != nil || after.Backend != "herdr" || after.HerdrPaneID != fixture.meta.HerdrPaneID {
+		t.Errorf("task record = %+v, %v; want it still in its Herdr pane", after, readErr)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -406,5 +407,38 @@ func TestAHerdrGoblinMovesIntoANativeTerminalInPlace(t *testing.T) {
 	})
 	if !closed {
 		t.Errorf("herdr calls = %v, want the task's old tab %s closed", f.runner.herdrCalls, meta.HerdrTabID)
+	}
+}
+
+// A move whose native launch fails after the Herdr stop says what the native
+// terminal holds and closes the task's old Herdr tab, which holds only a shell
+// once the harness stopped; a tab that will not close is named with its
+// session, to be closed by hand.
+func TestAFailedMoveNamesTheNativeTerminalAndClosesTheHerdrTab(t *testing.T) {
+	for name, tabCloseFails := range map[string]bool{"tab closes": false, "tab will not close": true} {
+		t.Run(name, func(t *testing.T) {
+			f := newSwitchFixture(t)
+			f.runner.tabCloseFails = tabCloseFails
+			f.service.UserEnvironment = func() ([]string, error) { return nil, errors.New("user token unreadable") }
+
+			_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Native: true, Session: "fleet"})
+
+			if err == nil || !strings.Contains(err.Error(), "the native terminal now has no harness") || strings.Contains(err.Error(), "the pane") {
+				t.Fatalf("err = %v, want the recovery to say the native terminal has no harness", err)
+			}
+			closeAsked := slices.ContainsFunc(f.runner.herdrCalls, func(call execx.Request) bool {
+				return len(call.Args) >= 3 && slices.Equal(call.Args[:3], []string{"tab", "close", f.meta.HerdrTabID})
+			})
+			if !closeAsked {
+				t.Errorf("herdr calls = %v, want the task's old tab %s closed", f.runner.herdrCalls, f.meta.HerdrTabID)
+			}
+			byHand := "the task's old tab " + f.meta.HerdrTabID + " in session " + f.meta.HerdrSession + " could not be closed"
+			if strings.Contains(err.Error(), byHand) != tabCloseFails {
+				t.Errorf("err = %v, want it to name the tab to close by hand only when closing it failed", err)
+			}
+			if moved, readErr := state.ReadTaskMeta(f.stateDir, f.meta.ID); readErr != nil || moved.Backend != "native" || moved.HerdrTabID != "" {
+				t.Errorf("task record = %+v, %v; want it recorded native, out of Herdr", moved, readErr)
+			}
+		})
 	}
 }

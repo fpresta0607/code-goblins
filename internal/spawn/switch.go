@@ -254,12 +254,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// start later with no registered agent. Switch refuses over them instead.
 	if !native {
 		if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
-			rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
-			if target.Model != "" {
-				rerun += " --model " + target.Model
-			}
-			if target.Effort != "" {
-				rerun += " --effort " + target.Effort
+			rerun := "cfo switch " + req.ID
+			if moving {
+				rerun += " --native"
+			} else {
+				rerun += " --harness " + string(target.Harness)
+				if target.Model != "" {
+					rerun += " --model " + target.Model
+				}
+				if target.Effort != "" {
+					rerun += " --effort " + target.Effort
+				}
 			}
 			if req.ForceDirty {
 				rerun += " --force-dirty"
@@ -285,8 +290,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	// A task moving out of Herdr is recorded as native before its terminal
-	// starts, so its first native hook finds it; its Herdr tab closes once
-	// the native terminal has taken over.
+	// starts, so its first native hook finds it; its Herdr tab holds only a
+	// shell once the harness stopped, so it closes once the launch returns,
+	// whether or not the native terminal took over.
 	herdrSession, herdrTab := paneTarget.Session, meta.HerdrTabID
 	if moving {
 		meta.Backend, meta.Window = "native", "native"
@@ -299,6 +305,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
 	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers)
+	var tabNotice string
+	if moving {
+		if closeErr := terminals.CloseTab(ctx, herdrSession, herdrTab); closeErr != nil {
+			tabNotice = fmt.Sprintf("herdr: the task's old tab %s in session %s could not be closed (%v); close it by hand, it holds no harness", herdrTab, herdrSession, closeErr)
+		}
+	}
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
@@ -311,7 +323,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		var recovery string
 		var status herdr.AgentStatus
 		var statusErr error
+		place := "the pane"
 		if native || moving {
+			place = "the native terminal"
 			status = herdr.AgentDead
 			if nativeTerminalRuns(s.StateDir, meta.ID) {
 				status = herdr.AgentAlive
@@ -321,11 +335,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 		switch {
 		case statusErr == nil && status == herdr.AgentAlive:
-			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
-				to, worktreePath, req.ID)
+			recovery = fmt.Sprintf("%s still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer %s directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
+				place, to, worktreePath, place, req.ID)
 		case statusErr == nil && (status == herdr.AgentDead || status == herdr.AgentMissing):
-			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
-				from, to, worktreePath, req.ID)
+			recovery = fmt.Sprintf("%s now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+				place, from, to, worktreePath, req.ID)
 		default:
 			recovery = fmt.Sprintf("herdr could not verify what the pane holds (%s), so a working %s may still be running in it. Work in %s is untouched. Inspect it with `cfo peek %s` before any further `cfo switch`, which would stop a running harness.",
 				statusErr, to, worktreePath, req.ID)
@@ -334,6 +348,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
+		if tabNotice != "" {
+			err = fmt.Errorf("%w\n%s", err, tabNotice)
+		}
 		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); appendErr != nil {
 			err = errors.Join(err, appendErr)
 		}
@@ -364,10 +381,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
-	if moving {
-		if err := terminals.CloseTab(ctx, herdrSession, herdrTab); err != nil {
-			result.Output += fmt.Sprintf("\nherdr: the task's old tab %s in session %s could not be closed (%v); close it by hand, it holds no harness", herdrTab, herdrSession, err)
-		}
+	if tabNotice != "" {
+		result.Output += "\n" + tabNotice
 	}
 	return result, nil
 }
@@ -749,7 +764,7 @@ func handoffInstruction(handoff, briefPath, id string) string {
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work." + notifyInstruction(id)
+	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(id)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {

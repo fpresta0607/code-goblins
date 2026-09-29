@@ -32,6 +32,10 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, "cfo switch: one of --harness, --model, --effort, or --native is required")
 		return 2
 	}
+	if *native && (*harnessName != "" || *model != "" || *effort != "") {
+		fmt.Fprintln(stderr, "cfo switch: --native keeps the task's harness, model and effort; change them with a separate cfo switch after the move")
+		return 2
+	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
 		fmt.Fprintln(stderr, "cfo switch: --harness must be claude, codex, pi, or kimi")
 		return 2
