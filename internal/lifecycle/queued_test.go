@@ -1,8 +1,10 @@
 package lifecycle
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -25,6 +27,9 @@ func TestStopQueuedResumesAfterRowRemovalAndReportsOnce(t *testing.T) {
 			}
 			request := Request{ID: "task", Operation: "stop-1", Action: "stop", Reason: "Not needed"}
 			if isInterrupted {
+				if err := fleet.WriteQueuedBrief(h, queued); err != nil {
+					t.Fatal(err)
+				}
 				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task", Operation: request.Operation, Generation: "queued", RequestGeneration: "queued", Action: "stop", Phase: "stopping", Title: queued.Row.Title, Project: queued.Row.Repo, Reason: request.Reason}); err != nil {
 					t.Fatal(err)
 				}
@@ -89,5 +94,83 @@ func TestStopFinishesAnInterruptedArchiveWithoutRemovingAReplacementRow(t *testi
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(content) {
 		t.Fatalf("replacement row changed: %q %v", got, err)
+	}
+}
+
+func TestStopQueuedKeepsTheTaskBrief(t *testing.T) {
+	for _, test := range []struct {
+		name, existing string
+		want           []string
+	}{
+		{name: "missing brief", want: []string{"## Project\n\nexample", "Fix login", "First detail line.\nSecond detail line."}},
+		{name: "existing brief", existing: "# Brief task\n\nThe CFO's own brief.\n", want: []string{"# Brief task\n\nThe CFO's own brief.\n"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			backlog := filepath.Join(h.Data, "backlog.md")
+			if err := os.WriteFile(backlog, []byte("## Queued\n- **task** - Fix login (repo: example)\n  First detail line.\n  Second detail line.\n- **next** - Leave this task\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			brief := filepath.Join(h.Data, "task", "brief.md")
+			if test.existing != "" {
+				if err := os.MkdirAll(filepath.Dir(brief), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(brief, []byte(test.existing), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			record, err := StopQueued(h, Request{ID: "task", Operation: "stop-1", Action: "stop"}, "")
+
+			if err != nil || record.Phase != "stopped" || len(record.Kept) != 1 || record.Kept[0] != "task brief" {
+				t.Fatalf("stop=%+v %v", record, err)
+			}
+			kept, err := os.ReadFile(brief)
+			if err != nil {
+				t.Fatal("stop lost the task brief:", err)
+			}
+			for _, want := range test.want {
+				if !strings.Contains(string(kept), want) {
+					t.Errorf("brief lacks %q: %s", want, kept)
+				}
+			}
+			if test.existing != "" && string(kept) != test.existing {
+				t.Errorf("existing brief changed: %q", kept)
+			}
+			if _, err := fleet.ReadQueuedTask(h, "task"); err == nil {
+				t.Fatal("stopped task is still queued")
+			}
+			if _, err := fleet.ReadQueuedTask(h, "next"); err != nil {
+				t.Fatal("stop removed the unrelated task", err)
+			}
+		})
+	}
+}
+
+func TestStopQueuedKeepsTheRowWhenItsBriefCannotBeWritten(t *testing.T) {
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	backlog := filepath.Join(h.Data, "backlog.md")
+	content := []byte("## Queued\n- **task** - Fix login (repo: example)\n  Only copy of this detail.\n")
+	if err := os.WriteFile(backlog, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "task"), []byte("not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := StopQueued(h, Request{ID: "task", Operation: "stop-1", Action: "stop"}, "")
+
+	if err == nil {
+		t.Fatalf("stop claimed success without a brief: %+v", record)
+	}
+	if got, err := os.ReadFile(backlog); err != nil || string(got) != string(content) {
+		t.Fatalf("row changed after the brief failed: %q %v", got, err)
+	}
+	if _, err := state.ReadLifecycle(h.State, "task"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a lifecycle record claims the stop: %v", err)
+	}
+	if _, err := state.ReadOutcome(h.State, "task"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an outcome claims the stop: %v", err)
 	}
 }

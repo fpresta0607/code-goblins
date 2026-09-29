@@ -50,11 +50,12 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		return record, errors.New("task session ended; an active task request cannot stop a replacement queued task")
 	}
 	queued, err := fleet.ReadQueuedTask(h, request.ID)
+	isRowRemoved := errors.Is(err, fleet.ErrNotQueued) || err == nil && queued.IsBriefOnly
+	if isRowRemoved && prior.Operation == request.Operation && prior.Generation == "queued" && prior.Phase == "stopping" {
+		prior.Phase = "stopped"
+		return service.finish(prior)
+	}
 	if err != nil {
-		if errors.Is(err, fleet.ErrNotQueued) && prior.Operation == request.Operation && prior.Generation == "queued" && prior.Phase == "stopping" {
-			prior.Phase = "stopped"
-			return service.finish(prior)
-		}
 		return record, err
 	}
 	if revision == "" {
@@ -62,6 +63,9 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 	}
 	if queued.Revision != revision {
 		return record, fleet.ErrQueueChanged
+	}
+	if err := fleet.WriteQueuedBrief(h, queued); err != nil && !errors.Is(err, os.ErrExist) {
+		return record, err
 	}
 	now := time.Now().UTC()
 	record = state.Lifecycle{ID: request.ID, Generation: "queued", RequestGeneration: "queued", Operation: request.Operation, Action: "stop", Phase: "stopping", Title: queued.Row.Title, Project: queued.Row.Repo, Started: now, Updated: now, Reason: request.Reason, Kept: []string{"task brief"}}
