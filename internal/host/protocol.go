@@ -21,9 +21,12 @@ const (
 	// frameHello opens a connection: the client's version and token, then
 	// the host's version or its refusal.
 	frameHello byte = 'h'
-	// frameOutput carries terminal output to a client. The first one after
-	// the handshake is the history, even when it is empty, so the client
-	// knows where the replay ends and the live output begins.
+	// frameOutput carries terminal output to a client. For a viewer that did
+	// not ask for sizes, the first one after the handshake is the history,
+	// even when it is empty, so the client knows where the replay ends and
+	// the live output begins. A viewer that asked for sizes learns the
+	// history's length from the handshake's History instead, and may receive
+	// the history as several output frames around size frames.
 	frameOutput byte = 'o'
 	// frameInput carries typed bytes to the terminal.
 	frameInput byte = 'i'
