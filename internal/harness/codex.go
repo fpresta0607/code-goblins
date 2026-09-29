@@ -3,9 +3,11 @@ package harness
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,13 +24,9 @@ import (
 // key. A quoted name comes back without its quotes. No configuration defines
 // none.
 func CodexMCPServers() ([]string, error) {
-	home := os.Getenv("CODEX_HOME")
-	if home == "" {
-		profile, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("harness: locate the Codex configuration: %w", err)
-		}
-		home = filepath.Join(profile, ".codex")
+	home, err := codexHome()
+	if err != nil {
+		return nil, err
 	}
 	file, err := os.Open(filepath.Join(home, "config.toml"))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -64,6 +62,62 @@ func CodexMCPServers() ([]string, error) {
 	}
 	slices.Sort(names)
 	return slices.Compact(names), nil
+}
+
+// codexHome is the folder of the operator's Codex configuration: CODEX_HOME,
+// or .codex under the user's profile.
+func codexHome() (string, error) {
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return home, nil
+	}
+	profile, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("harness: locate the Codex configuration: %w", err)
+	}
+	return filepath.Join(profile, ".codex"), nil
+}
+
+// CodexHooks lists the command hooks a Codex session started in dir loads,
+// one "<event>: <command>" each: the operator's hooks.json in the Codex
+// configuration folder, then the project's .codex/hooks.json in dir. A file
+// that is not there lists none.
+func CodexHooks(dir string) ([]string, error) {
+	home, err := codexHome()
+	if err != nil {
+		return nil, err
+	}
+	var hooks []string
+	for _, path := range []string{filepath.Join(home, "hooks.json"), filepath.Join(dir, ".codex", "hooks.json")} {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("harness: read Codex hooks: %w", err)
+		}
+		var file struct {
+			Hooks map[string][]struct {
+				Hooks []struct {
+					Type    string `json:"type"`
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"hooks"`
+		}
+		if err := json.Unmarshal(data, &file); err != nil {
+			return nil, fmt.Errorf("harness: read Codex hooks in %s: %w", path, err)
+		}
+		events := slices.Sorted(maps.Keys(file.Hooks))
+		for _, event := range events {
+			for _, group := range file.Hooks[event] {
+				for _, hook := range group.Hooks {
+					if hook.Type == "command" {
+						hooks = append(hooks, event+": "+hook.Command)
+					}
+				}
+			}
+		}
+	}
+	return hooks, nil
 }
 
 // unquotedKey is a TOML key segment without the quotes of a quoted key.

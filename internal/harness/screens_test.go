@@ -1,6 +1,9 @@
 package harness
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Claude's trust dialog focuses "No, exit" first. Only the focus on "Yes, I
 // trust this folder" is its answer, and the dialog is recognized however its
@@ -28,7 +31,9 @@ func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 }
 
 // Codex's update prompt is answered with Skip, never Update now or Skip until
-// next version, and its hook review prompt is never answered.
+// next version, and its hook review prompt only with Continue without
+// trusting, never Review hooks or Trust all, its summary row saying how many
+// hooks were left untrusted.
 func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
 	update := []string{"  ✨ Update available! 0.154.0 -> 0.157.0", "", "  1. Update now (runs `npm install -g @openai/codex`)", "  2. Skip", "  3. Skip until next version"}
@@ -41,12 +46,15 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 			t.Errorf("focus on %q: dialog %q, chosen %v; want %v", focused, dialog.Name, dialog.Chosen(focused), want)
 		}
 	}
-	hooks := []string{"  Hooks need review", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
+	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
 	dialog, found := screens.Dialog(hooks)
-	for _, option := range []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"} {
-		if !found || dialog.Chosen(option) {
-			t.Errorf("hook review prompt (found %v) chooses %q, want it never answered", found, option)
+	for option, want := range map[string]bool{"1. Review hooks": false, "2. Trust all and continue": false, "3. Continue without trusting (hooks won't run)": true} {
+		if !found || dialog.Chosen(option) != want {
+			t.Errorf("hook review prompt (found %v) chooses %q: %v, want %v", found, option, dialog.Chosen(option), want)
 		}
+	}
+	if dialog.Summary == nil || dialog.Summary.FindString(strings.Join(hooks, "\n")) != "2 hooks are new or changed" {
+		t.Errorf("hook review summary = %v, want it to find \"2 hooks are new or changed\"", dialog.Summary)
 	}
 }
 

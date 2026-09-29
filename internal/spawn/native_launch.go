@@ -17,6 +17,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // A native terminal starts at the size goblins --native starts the CFO at.
@@ -69,8 +71,14 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
-	if err := s.awaitNativeReady(ctx, record, screens); err != nil {
+	untrusted, err := s.awaitNativeReady(ctx, record, screens)
+	if err != nil {
 		return record, err
+	}
+	if untrusted != "" {
+		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
+			return record, err
+		}
 	}
 	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction(), launch.Env["CFO_SPAWN_GEN"])
 }
@@ -78,30 +86,62 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 // awaitNativeReady reads the terminal's screen until the harness's composer
 // waits for input, answering each startup dialog it recognizes on the way.
 // Only a screen read successfully counts, so seeing no dialog can only come
-// from a screen that shows none.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) error {
+// from a screen that shows none. It returns what a dialog answered without
+// trust left untrusted, in the dialog's own words, or nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (string, error) {
 	deadline := time.Now().Add(nativeStartup)
+	var untrusted string
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
-			return fmt.Errorf("spawn: %w", err)
+			return "", fmt.Errorf("spawn: %w", err)
 		}
 		if dialog, found := screens.Dialog(screen); found {
+			if dialog.Summary != nil {
+				if untrusted = dialog.Summary.FindString(strings.Join(screen, "\n")); untrusted == "" {
+					untrusted = dialog.Name
+				}
+			}
 			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
-				return err
+				return "", err
 			}
 			continue
 		}
 		if screens.IsReady(screen) {
-			return nil
+			return untrusted, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			return "", fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return err
+			return "", err
 		}
 	}
+}
+
+// reportUntrusted tells the CFO, as cfo notify does, that the harness in
+// native terminal id started without trusting the hooks its startup asked to
+// review, so they do not run, and names the hooks a Codex session in dir
+// loads: trusting a hook is the Overlord's decision, never a spawn's.
+func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary string) error {
+	detail := fmt.Sprintf("%s started without trusting its hooks, so they do not run (%s)", kind, summary)
+	if kind == harness.Codex {
+		hooks, err := harness.CodexHooks(dir)
+		if err != nil {
+			return fmt.Errorf("spawn: name the hooks %s started without: %w", kind, err)
+		}
+		if len(hooks) > 0 {
+			detail += "; the hooks it loads: " + strings.Join(hooks, "; ")
+		}
+	}
+	line := "working: " + bounded(state.NormalizeStatusDetail(detail+". Only the Overlord trusts hooks."), 1000)
+	if err := state.AppendStatus(s.StateDir, id, line); err != nil {
+		return fmt.Errorf("spawn: report the hooks %s started without: %w", kind, err)
+	}
+	if _, err := wake.Append(s.StateDir, "notify", id, line); err != nil {
+		return fmt.Errorf("spawn: report the hooks %s started without: %w", kind, err)
+	}
+	return nil
 }
 
 // answerDialog answers one recognized startup dialog. It moves the focus down

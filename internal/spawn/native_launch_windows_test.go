@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // The test binary plays every part of a native spawn: with nativeSpawnHost
@@ -157,12 +158,16 @@ func fakeHarness() {
 		return
 	}
 	if mode == "hooks" {
-		draw("", "  Hooks need review", "  1 hook is new or changed.", "  Hooks can run outside the sandbox after you trust them.", "",
-			"› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)", "", "  Press enter to confirm or esc to go back")
-		for key := range keys {
-			record(codexEvent{Event: "answered the hook prompt", Text: key})
+		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
+		chosen := choose(keys, record, func(focus int) {
+			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
+			rows = append(rows, focusRows(hooks, focus)...)
+			draw(append(rows, "", "  Press enter to confirm or esc to go back")...)
+		})
+		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
+		if chosen != 2 {
+			return
 		}
-		return
 	}
 	trust := []string{"1. Yes, continue", "2. No, quit"}
 	chosen = choose(keys, record, func(focus int) {
@@ -486,31 +491,42 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 	}
 }
 
-// A prompt no spawn may answer, here codex's hook review, stops the spawn,
-// naming the terminal and the prompt, without a key typed at it; the spawn's
-// teardown ends the terminal, codex and its host, and retires the task.
-func TestANativeSpawnStopsAtAPromptItMayNotAnswer(t *testing.T) {
+// Codex asks at every start to review hooks that are new or changed. Trusting
+// a hook is the Overlord's decision, never a spawn's, yet the goblin must not
+// stop there: the spawn continues without trusting them, so they do not run,
+// takes its brief on, and tells the CFO, as cfo notify does, which hooks the
+// session loads.
+func TestANativeSpawnContinuesPastTheHookReviewWithoutTrusting(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "hooks")
+	hooks := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"siqshift-hook --event session-start"}]}]}}`
+	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json"), []byte(hooks), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := f.service.Spawn(context.Background(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "native terminal task-7") || !strings.Contains(err.Error(), "the hook review prompt") {
-		t.Fatalf("Spawn error = %v, want the hook review prompt in native terminal task-7", err)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 	events := f.events(t)
-	if answered := named(events, "answered the hook prompt"); len(answered) != 0 {
-		t.Errorf("keys typed at the hook review prompt: %+v", answered)
+	if answered := named(events, "hook prompt"); len(answered) != 1 || answered[0].Text != "3. Continue without trusting (hooks won't run)" {
+		t.Errorf("hook prompt answers = %+v, want Continue without trusting once", answered)
 	}
-	terminal, found := f.terminal()
-	codex := named(events, "env")[0].PID
-	if !found || !ended(terminal.HostPID) || !ended(codex) {
-		t.Errorf("host %+v (recorded %v) and codex pid %d, want both ended", terminal, found, codex)
+	if blind := append(named(events, "typed blind"), named(events, "typed into a list")...); len(blind) != 0 {
+		t.Errorf("keys typed where no screen asked for them: %+v", blind)
 	}
-	if _, err := os.Stat(filepath.Join(f.stateDir, "task-7.meta")); !os.IsNotExist(err) {
-		t.Errorf("the task record is still there: %v", err)
+	if submitted := named(events, "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
 	}
-	if f.git.returned != 1 {
-		t.Errorf("worktree returned %d times, want once", f.git.returned)
+	status, err := os.ReadFile(filepath.Join(f.stateDir, "task-7.status"))
+	if err != nil || !strings.Contains(string(status), "working: codex started without trusting its hooks, so they do not run (2 hooks are new or changed); the hooks it loads: SessionStart: siqshift-hook --event session-start") {
+		t.Errorf("status = %q, %v; want the untrusted hooks reported", status, err)
+	}
+	pending, err := wake.Pending(f.stateDir)
+	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
+		return record.Kind == "notify" && record.Key == "task-7" && strings.Contains(record.Detail, "siqshift-hook --event session-start")
+	}) {
+		t.Errorf("wake queue = %+v, %v; want a notify naming the untrusted hook", pending, err)
 	}
 }
 

@@ -28,12 +28,15 @@ type Screens struct {
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
 // shows, by moving the focus, the option whose row starts with Focus, down to
 // the option that starts with Accept, then confirming that option with Enter.
-// A dialog without Accept is never answered: it stops the spawn.
+// A dialog without Accept is never answered: it stops the spawn. Summary marks
+// a dialog whose answer leaves untrusted what it lists: the row it matches says
+// how much, and the spawn reports it.
 type Dialog struct {
 	Name    string
 	Markers []string
 	Focus   string
 	Accept  string
+	Summary *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -62,8 +65,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Dialogs: []Dialog{
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: "›", Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: "›", Accept: "1. Yes, continue"},
-				// Trusting hooks is the Overlord's decision, never a spawn's.
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›"},
+				// Trusting hooks is the Overlord's decision, never a spawn's: a
+				// goblin continues without trusting them, so they do not run,
+				// and the spawn reports them.
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›", Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
 			},
 			// Captured live on Codex 0.154: the empty composer shows its
 			// placeholder, at start and after a turn, above a footer naming the
