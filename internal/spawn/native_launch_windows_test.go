@@ -38,8 +38,9 @@ const nativeSpawnHost = "native-spawn-host"
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
-// ("unmoved"), each turn can end a moment after it starts ("turns"), or typed
-// text can show only once its console is resized ("undrawn"), where
+// ("unmoved"), each turn can end a moment after it starts ("turns"), typed
+// text can show only once its console is resized ("undrawn"), or the first
+// Enter can be taken as part of the text ("swallow"), where
 // by default a turn never ends.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
@@ -212,7 +213,7 @@ func fakeHarness() {
 	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
-	late := false
+	late, swallowed := false, false
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
 		go watchWidth(resized)
@@ -253,6 +254,11 @@ func fakeHarness() {
 					record(codexEvent{Event: "entered at a late prompt"})
 				}
 				late = true
+			case key == "\r" && mode == "swallow" && !swallowed:
+				// As Codex 0.154 did, the Enter ending a paste is taken as
+				// part of it, and the text stays in the composer.
+				swallowed = true
+				record(codexEvent{Event: "swallowed enter"})
 			case key == "\r":
 				record(codexEvent{Event: "submitted", Text: line.String()})
 				// Like codex, it ends at a submitted /exit.
@@ -501,7 +507,7 @@ func ended(pid int) bool {
 // not shown yet or its focus not shown for a moment after a move, is read
 // again until its focus shows, and answered as one drawn at once.
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn"} {
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "an Enter taken as part of the paste": "swallow"} {
 		t.Run(name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")

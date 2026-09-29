@@ -256,6 +256,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		within = nativeQueuedProof
 	}
 	deadline := time.Now().Add(within)
+	pressed, presses := time.Now(), 0
 	for {
 		if s.PromptSince != nil {
 			if taken, err := s.PromptSince(record.ID, generation, submitted); err == nil && taken {
@@ -269,6 +270,17 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
+		// A harness that takes the Enter ending a paste as part of it leaves
+		// the text in its composer: Enter is pressed again while the text
+		// still shows and no turn has started, further apart each time. An
+		// Enter on an empty composer submits nothing, so the text is never
+		// handed over twice.
+		if !busy && screens.PasteTakesEnter && presses < submitRetries && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
+			if err := pressNativeEnter(record); err != nil {
+				return err
+			}
+			pressed, presses = time.Now(), presses+1
+		}
 		if time.Now().After(deadline) {
 			if busy {
 				return fmt.Errorf("spawn: native terminal %s took the text while its harness was in a turn, and no hook reported the harness taking it within %s: %w", record.ID, within, fleet.ErrQueuedBehindTurn)
@@ -279,6 +291,19 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			return err
 		}
 	}
+}
+
+// pressNativeEnter presses Enter in native terminal record.
+func pressNativeEnter(record host.Record) error {
+	client, err := host.Dial(record)
+	if err != nil {
+		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte("\r")); err != nil {
+		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+	}
+	return nil
 }
 
 // submitNative types the instruction into the harness's composer and submits
