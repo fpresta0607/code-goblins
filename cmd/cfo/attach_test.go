@@ -95,6 +95,22 @@ func (c *console) waitFor(t *testing.T, text string) {
 	}
 }
 
+// askForSizeUntil types "size" with typeSize every 200 ms until what the
+// console shows reads as isRead. ConPTY applies a resize on its own thread,
+// so the program can still read the old size just after one.
+func (c *console) askForSizeUntil(t *testing.T, typeSize func() error, isRead func(shown string) bool) {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); !isRead(c.shown()); time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			shown := c.shown()
+			t.Fatalf("the program never read the size it was waited for; the console shows %q", shown[max(0, len(shown)-400):])
+		}
+		if err := typeSize(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // hostAttachTestTerminal hosts native terminal id in this test process,
 // running attachTestProgram, and closes it when the test ends.
 func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
@@ -240,24 +256,16 @@ func TestAttachTakesTheTerminalBackWhenTypedIntoAfterAnotherViewerResizedIt(t *t
 	if err := board.Resize(120, 40); err != nil {
 		t.Fatal(err)
 	}
-	if err := board.Input([]byte("size\r")); err != nil {
-		t.Fatal(err)
-	}
-	c.waitFor(t, "size 120x40")
+	c.askForSizeUntil(t, func() error { return board.Input([]byte("size\r")) }, func(shown string) bool {
+		return strings.Contains(shown, "size 120x40")
+	})
 
-	if _, err := c.Write([]byte("size\r")); err != nil {
-		t.Fatal(err)
-	}
-
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		shown := c.shown()
-		if strings.Contains(shown[strings.LastIndex(shown, "size 120x40"):], "size 100x30") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("typing in cfo attach did not take the terminal back; the console shows %q", shown[max(0, len(shown)-400):])
-		}
-	}
+	c.askForSizeUntil(t, func() error {
+		_, err := c.Write([]byte("size\r"))
+		return err
+	}, func(shown string) bool {
+		return strings.Contains(shown[strings.LastIndex(shown, "size 120x40"):], "size 100x30")
+	})
 }
 
 // cfo attach asks its console for Windows key events itself, so keys reach

@@ -247,11 +247,13 @@ func (v *viewer) show(event Event) {
 }
 
 // waitFor reads events until the screen matches pattern, and returns the
-// match.
+// match. It fails after 15 seconds even while no event arrives.
 func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 	t.Helper()
 	expression := regexp.MustCompile(pattern)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+	_ = v.pipe.SetReadDeadline(time.Now().Add(15 * time.Second))
+	defer v.pipe.SetReadDeadline(time.Time{})
+	for {
 		if match := expression.FindStringSubmatch(v.screen.String()); match != nil {
 			return match
 		}
@@ -259,6 +261,9 @@ func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 			break
 		}
 		event, err := v.Next()
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			break
+		}
 		if err != nil {
 			t.Fatalf("Next: %v, while waiting for %q on:\n%q", err, pattern, v.screen.String())
 		}
@@ -285,6 +290,29 @@ func typeLine(t *testing.T, v *viewer, line string) {
 	t.Helper()
 	if err := v.Input([]byte(line + "\r")); err != nil {
 		t.Fatalf("Input %q: %v", line, err)
+	}
+}
+
+// askForSize types "size" into the terminal every 200 ms until the returned
+// stop is called. ConPTY applies a resize on its own thread, so the program
+// can still read the old size just after one.
+func askForSize(v *viewer) (stop func()) {
+	stopped, ended := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(ended)
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for v.Input([]byte("size\r")) == nil {
+			select {
+			case <-stopped:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		close(stopped)
+		<-ended
 	}
 }
 
@@ -321,7 +349,8 @@ func TestAViewerResizesTheTerminal(t *testing.T) {
 	if err := v.Resize(100, 30); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	typeLine(t, v, "size")
+	stop := askForSize(v)
+	defer stop()
 
 	v.waitFor(t, "size 100x30")
 }
@@ -359,7 +388,8 @@ func TestEveryViewerIsToldEachResizeAtItsPlaceInTheOutput(t *testing.T) {
 	if err := resizing.Resize(100, 30); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	typeLine(t, watching, "size")
+	stop := askForSize(watching)
+	defer stop()
 
 	for _, v := range []*viewer{watching, resizing} {
 		v.waitFor(t, `size 80x25\r[\s\S]*\[size 100x30\][\s\S]*size 100x30`)
