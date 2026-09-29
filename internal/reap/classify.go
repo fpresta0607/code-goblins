@@ -405,10 +405,12 @@ var harnessSignatures = []string{
 // flag is absent.
 var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 
-// desktopAppMarker is the install path of the Overlord's Claude Desktop
-// application. It is a packaged app, so every one of its processes runs from
-// under WindowsApps\Claude_<version>_<publisher>\app\claude.exe.
-const desktopAppMarker = `\windowsapps\claude_`
+// desktopAppMarkers are the install paths of the Overlord's desktop
+// applications. Each is a packaged app whose own processes run from under
+// WindowsApps: Claude Desktop from Claude_<version>_<publisher>\app\claude.exe,
+// and the Codex app from OpenAI.Codex_<version>_<publisher>\app\ChatGPT.exe,
+// whose codex.exe app server runs from outside the package as its child.
+var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`}
 
 // gateExecutable supervises a no-mistakes review round and launches the
 // reviewer harnesses under it. Those harnesses are as supervised as a goblin
@@ -1309,10 +1311,12 @@ func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) boo
 	return false
 }
 
-// isDesktopApp matches the packaged desktop application by its install path,
-// which every one of its processes carries.
+// isDesktopApp matches a packaged desktop application's own process by its
+// install path; whatever it starts outside the package is found as its
+// descendant.
 func isDesktopApp(process Process) bool {
-	return strings.Contains(normalizePath(process.CommandLine), desktopAppMarker)
+	command := normalizePath(process.CommandLine)
+	return slices.ContainsFunc(desktopAppMarkers, func(marker string) bool { return strings.Contains(command, marker) })
 }
 
 // isGateSupervisor matches no-mistakes, whose children are the reviewer
