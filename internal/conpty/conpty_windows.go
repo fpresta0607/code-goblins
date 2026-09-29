@@ -33,14 +33,15 @@ type Spec struct {
 // a process that asks to break away (a goblin host, a detached serve), which
 // leaves the job and outlives Close.
 type Console struct {
-	pc      windows.Handle
-	in      *os.File
-	out     *os.File
-	process windows.Handle
-	job     windows.Handle
-	pid     int
-	done    chan struct{}
-	code    uint32
+	pc         windows.Handle
+	in         *os.File
+	out        *os.File
+	process    windows.Handle
+	job        windows.Handle
+	scheduling *jobScheduling
+	pid        int
+	done       chan struct{}
+	code       uint32
 
 	mu     sync.Mutex
 	closed bool
@@ -68,6 +69,9 @@ func Start(spec Spec) (*Console, error) {
 	if err != nil {
 		return nil, fmt.Errorf("conpty: command line: %w", err)
 	}
+	if err := interactiveScheduling(windows.CurrentProcess()); err != nil {
+		return nil, fmt.Errorf("conpty: host scheduling: %w", err)
+	}
 
 	var inRead, inWrite, outRead, outWrite windows.Handle
 	if err := windows.CreatePipe(&inRead, &inWrite, nil, 0); err != nil {
@@ -83,7 +87,7 @@ func Start(spec Spec) (*Console, error) {
 		out:  os.NewFile(uintptr(outRead), "conpty-output"),
 		done: make(chan struct{}),
 	}
-	err = windows.CreatePseudoConsole(windows.Coord{X: int16(spec.Cols), Y: int16(spec.Rows)}, inRead, outWrite, 0, &c.pc)
+	err = createInteractiveConsole(windows.Coord{X: int16(spec.Cols), Y: int16(spec.Rows)}, inRead, outWrite, &c.pc)
 	// The pseudo console holds its own copies of these ends.
 	windows.CloseHandle(inRead)
 	windows.CloseHandle(outWrite)
@@ -148,13 +152,28 @@ func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: assign job: %w", err)
 	}
+	if err := interactiveScheduling(info.Process); err != nil {
+		windows.TerminateJobObject(job, 1)
+		windows.CloseHandle(info.Process)
+		windows.CloseHandle(job)
+		return fmt.Errorf("conpty: child scheduling: %w", err)
+	}
+	scheduling, err := monitorJobScheduling(job)
+	if err != nil {
+		windows.TerminateJobObject(job, 1)
+		windows.CloseHandle(info.Process)
+		windows.CloseHandle(job)
+		return err
+	}
 	if _, err := windows.ResumeThread(info.Thread); err != nil {
 		windows.TerminateJobObject(job, 1)
+		scheduling.close()
 		windows.CloseHandle(info.Process)
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: resume process: %w", err)
 	}
 	c.process, c.job, c.pid = info.Process, job, int(info.ProcessId)
+	c.scheduling = scheduling
 	return nil
 }
 
@@ -183,6 +202,9 @@ func (c *Console) Read(p []byte) (int, error) {
 
 // Write types p into the terminal as the process's input.
 func (c *Console) Write(p []byte) (int, error) {
+	if err := c.scheduling.reconcile(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
 	return c.in.Write(p)
 }
 
@@ -230,6 +252,7 @@ func (c *Console) Close() error {
 	<-c.done
 	c.in.Close()
 	c.out.Close()
+	c.scheduling.close()
 	windows.CloseHandle(c.process)
 	windows.CloseHandle(c.job)
 	if err != nil {

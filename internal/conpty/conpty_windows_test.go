@@ -53,12 +53,14 @@ func echoChild() {
 		case line == "cwd":
 			dir, _ := os.Getwd()
 			fmt.Println("cwd", dir)
-		case line == "spawn":
+		case line == "spawn" || line == "spawn-attached":
 			grandchild := exec.Command(os.Args[0])
 			grandchild.Env = append(os.Environ(), childMode+"=sleep")
 			// Detached from the console, like a dev server a harness leaves
 			// running: closing the console does not end it, only the job does.
-			grandchild.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+			if line == "spawn" {
+				grandchild.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+			}
 			if err := grandchild.Start(); err != nil {
 				fmt.Println("spawn error", err)
 				continue

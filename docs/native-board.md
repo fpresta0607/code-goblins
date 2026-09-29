@@ -282,6 +282,18 @@ A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N c
 Gate custody and the task's generation are checked when the view opens and on every five-second tick; a key sent under custody closes the view with the gate's reason and is not typed, and a resize sent under custody is ignored, so the terminal keeps its size until a resize arrives after custody ends.
 The terminal's end closes the view with its exit code in the reason.
 
+Native hosts explicitly disable Windows execution-speed throttling for themselves, their new system console server, and the suspended terminal process before it runs.
+A hidden console has no foreground window to earn interactive scheduling automatically; on a loaded hybrid processor, automatic scheduling can leave it competing on saturated efficiency cores while performance cores are parked.
+The policy changes neither process priority, processor affinity nor the machine's power plan, and preserves other process power controls.
+The console server is selected from direct children created within a serialized `CreatePseudoConsole` call, with its creation time and system image checked through the open handle used to set the policy; existing consoles are left alone.
+The terminal's existing job applies interactive scheduling to automatically managed descendants, including a harness launched through cmd or node, while preserving a descendant's explicit EcoQoS choice.
+This intentionally gives the terminal's ordinary process tree an interactive default, including background tools that have not chosen their own power policy; it can use more processor power than Windows' automatic background policy.
+Processes that break away from the job are excluded, and every descendant is checked against the exact job through its open handle before any change.
+Job notifications handle new processes, with job-local reconciliation at most once per second when input arrives because Windows does not guarantee notification delivery.
+Descendant scheduling errors are logged and cannot discard terminal input; required host, console-server and initial-process policy failures refuse startup.
+The latency regression uses one native console event per read, as libuv does, and checks key p95 below 50 ms, maximum at most 250 ms and an ordered 2,000-character burst within two seconds during idle and continuous output.
+Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
+
 The board draws a native terminal with xterm at the panel's size: the view measures the cell xterm drew and fits the columns and rows the panel holds with an even inset of at least 10 px, and sends them as the resize, so the program and the view agree on the size.
 The spare width is split between left and right, the bottom keeps the same space, so the last row, the input line, sits that far from the panel's bottom, and the spare height, under a row, goes above the grid; no space is kept for a scroll bar, since none is drawn.
 xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is unavailable or its context is lost.
