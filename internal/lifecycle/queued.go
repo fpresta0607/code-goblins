@@ -73,7 +73,10 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		return record, err
 	}
 	if err := fleet.RemoveQueuedTask(h, request.ID, revision); err != nil {
-		return record, err
+		record.Phase = "failed"
+		record.Problems = append(record.Problems, err.Error())
+		finished, finishErr := service.finish(record)
+		return finished, errors.Join(err, finishErr)
 	}
 	record.Phase = "stopped"
 	return service.finish(record)
