@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -532,10 +533,10 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.waitForSize(t, "100x30")
 }
 
-// A resize from any view reaches every other view of the terminal, so a second
-// window draws the output at the size the terminal now has, and the view that
-// sent it is never told its own size back as if another view had taken it.
-func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
+// A resize from any view reaches every view of the terminal, the one that
+// sent it too, as the size the terminal took, so each view sizes its screen
+// when the terminal did rather than ahead of it.
+func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	hostTask(t, h)
 	first := openNativeView(t, server, viewQuery)
@@ -546,10 +547,60 @@ func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
 	first.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 
 	second.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
-	first.send(t, websocket.MessageBinary, "size")
-	first.waitFor(t, "size 100x30")
-	if first.shows(`"type":"size"`) {
-		t.Error("the view that sized the terminal was told its own size")
+	first.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
+	first.waitForSize(t, "100x30")
+}
+
+// A resize made straight through the host, as cfo attach in the Open window
+// makes one, reaches the board's views as the size the terminal took, so a
+// view never draws the terminal's output on a grid of another size.
+func TestANativeViewIsToldOfAResizeMadeThroughTheHost(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attached, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer attached.Close()
+
+	if err := attached.Resize(120, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	v.waitFor(t, `{"type":"size","cols":120,"rows":30}`)
+}
+
+// A view is told a size between the output the terminal drew before it and
+// the output after it, even while that earlier output still waits for the
+// view to acknowledge what it has, so it never draws old output on the new
+// grid.
+func TestANativeViewIsToldEachSizeBetweenTheOutputDrawnBeforeAndAfterIt(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalWindow = 16
+	hostTask(t, h)
+	resizing := openNativeView(t, server, viewQuery)
+	resizing.ackAll()
+	resizing.waitFor(t, "program ready")
+	held := openNativeView(t, server, viewQuery)
+	resizing.send(t, websocket.MessageBinary, "size\r")
+	resizing.waitFor(t, "size 80x24")
+
+	resizing.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	resizing.waitForSize(t, "100x30")
+	held.ackAll()
+
+	held.waitFor(t, "size 100x30")
+	held.mu.Lock()
+	screen := held.screen.String()
+	held.mu.Unlock()
+	if pattern := `size 80x24[\s\S]*\{"type":"size","cols":100,"rows":30\}[\s\S]*size 100x30`; !regexp.MustCompile(pattern).MatchString(screen) {
+		t.Errorf("the held view was shown %q, want the new size between the output before and after it", screen)
 	}
 }
 
@@ -565,7 +616,7 @@ func TestANativeTerminalKeepsItsSizeForAViewTooSmallToUse(t *testing.T) {
 	v.send(t, websocket.MessageBinary, "size\r")
 
 	v.waitFor(t, "size 80x24")
-	if v.shows(`"type":"size"`) {
+	if v.shows(`"cols":1,`) {
 		t.Error("the views were told of a size the terminal never took")
 	}
 }

@@ -3,6 +3,8 @@ package host
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -10,14 +12,14 @@ import (
 // A viewer that stops reading is dropped once it is further behind than a
 // replay reaches, rather than waited on, and the others keep receiving.
 func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
-	output := newHistory()
-	_, stalled, _ := output.attach()
-	_, reading, _ := output.attach()
+	output := newHistory(80, 24)
+	_, _, stalled, _ := output.attach()
+	_, _, reading, _ := output.attach()
 	chunk := []byte(strings.Repeat("x", 64<<10))
 	received := 0
 	for i := 0; i < 2*historyLimit/len(chunk); i++ {
 		output.write(chunk)
-		taken, _ := reading.next()
+		taken, _, _ := reading.next()
 		received += len(taken)
 	}
 
@@ -36,8 +38,8 @@ func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {
 // A viewer still reading through a burst of output is not dropped, however
 // many writes the burst came in: ConPTY writes about one chunk per line.
 func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
-	output := newHistory()
-	_, viewer, _ := output.attach()
+	output := newHistory(80, 24)
+	_, _, viewer, _ := output.attach()
 	line := []byte(strings.Repeat("s", 100) + "\r\n")
 	for i := 0; i < 2000; i++ {
 		output.write(line)
@@ -45,7 +47,7 @@ func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
 	output.end()
 
 	received := 0
-	for taken, open := viewer.next(); open; taken, open = viewer.next() {
+	for taken, _, open := viewer.next(); open; taken, _, open = viewer.next() {
 		received += len(taken)
 	}
 
@@ -58,13 +60,13 @@ func TestHistoryKeepsAViewerThatFallsBehindDuringABurst(t *testing.T) {
 // the output kept for them is trimmed to its tail once it passes twice the
 // limit.
 func TestHistoryKeepsOnlyTheLatestOutput(t *testing.T) {
-	output := newHistory()
+	output := newHistory(80, 24)
 	for _, fill := range []string{"a", "b", "c"} {
 		output.write(bytes.Repeat([]byte(fill), historyLimit))
 	}
 	output.write([]byte("latest"))
 
-	past, _, detach := output.attach()
+	past, _, _, detach := output.attach()
 	defer detach()
 
 	if len(past) != historyLimit || past[0] != 'c' || !strings.HasSuffix(string(past), "latest") {
@@ -92,10 +94,10 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 		"on the limit itself": {"a\x1b[K", 1, "\x1b[Kbb"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			output := newHistory()
+			output := newHistory(80, 24)
 			output.write([]byte(replay.head + strings.Repeat("b", historyLimit+replay.cut-len(replay.head))))
 
-			past, _, detach := output.attach()
+			past, _, _, detach := output.attach()
 			detach()
 
 			if !strings.HasPrefix(string(past), replay.want) || len(past) > historyLimit {
@@ -104,7 +106,7 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 		})
 	}
 	t.Run("trimming", func(t *testing.T) {
-		output := newHistory()
+		output := newHistory(80, 24)
 		// The trim falls five bytes into the colour code.
 		output.write([]byte(strings.Repeat("a", historyLimit) + colour + "\r\n"))
 		output.write([]byte(strings.Repeat("c", historyLimit+5-len(colour)-2)))
@@ -115,19 +117,92 @@ func TestHistoryReplayStartsOnABoundary(t *testing.T) {
 	})
 }
 
+// A resize is marked at its place in the output, for a late viewer's replay
+// and for every live viewer, once it took; a resize that failed is not.
+func TestHistoryMarksEachResizeAtItsPlace(t *testing.T) {
+	output := newHistory(80, 24)
+	_, _, live, detach := output.attach()
+	defer detach()
+	output.write([]byte("before"))
+	if err := output.resize(100, 30, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.resize(1, 1, func() error { return errors.New("refused") }); err == nil {
+		t.Fatal("a failed resize reported success")
+	}
+	output.write([]byte("after"))
+
+	past, sizes, _, detachLate := output.attach()
+	detachLate()
+	taken, told, _ := live.next()
+
+	if want := []geometry{{0, 80, 24}, {6, 100, 30}}; string(past) != "beforeafter" || !reflect.DeepEqual(sizes, want) {
+		t.Errorf("the replay is %q at %v, want %q at %v", past, sizes, "beforeafter", want)
+	}
+	if want := []geometry{{6, 100, 30}}; string(taken) != "beforeafter" || !reflect.DeepEqual(told, want) {
+		t.Errorf("the live viewer took %q with %v, want %q with %v", taken, told, "beforeafter", want)
+	}
+}
+
+// Of resizes with no output between them only the last is kept, since
+// nothing was drawn at the others, so resizing a window keeps no more sizes
+// than the output it draws.
+func TestHistoryKeepsTheLastOfResizesWithNoOutputBetween(t *testing.T) {
+	output := newHistory(80, 24)
+	_, _, live, detach := output.attach()
+	defer detach()
+	output.write([]byte("x"))
+	for cols := 90; cols <= 120; cols += 10 {
+		if err := output.resize(cols, 30, func() error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, sizes, _, detachLate := output.attach()
+	detachLate()
+	_, told, _ := live.next()
+
+	if want := []geometry{{0, 80, 24}, {1, 120, 30}}; !reflect.DeepEqual(sizes, want) {
+		t.Errorf("the replay's sizes are %v, want %v", sizes, want)
+	}
+	if want := []geometry{{1, 120, 30}}; !reflect.DeepEqual(told, want) {
+		t.Errorf("the live viewer was told %v, want %v", told, want)
+	}
+}
+
+// Trimming the kept output keeps the size its new start was written at, and
+// moves the later sizes with the output.
+func TestHistoryTrimKeepsTheSizeItsStartWasWrittenAt(t *testing.T) {
+	output := newHistory(80, 24)
+	output.write(bytes.Repeat([]byte("a"), historyLimit))
+	_ = output.resize(100, 30, func() error { return nil })
+	output.write(bytes.Repeat([]byte("b"), historyLimit))
+	_ = output.resize(120, 40, func() error { return nil })
+	// The trim falls ten bytes into the b's, which have no line or escape
+	// sequence to start on.
+	output.write(bytes.Repeat([]byte("c"), 10))
+
+	past, sizes, _, detach := output.attach()
+	detach()
+
+	if want := []geometry{{0, 100, 30}, {historyLimit - 10, 120, 40}}; past[0] != 'b' || !reflect.DeepEqual(sizes, want) {
+		t.Errorf("the replay starts %q at %v, want the b's at %v", past[0], sizes, want)
+	}
+}
+
 // A viewer that attaches after the terminal ended gets the history and an
 // ended feed.
 func TestHistoryAfterTheEndStillReplays(t *testing.T) {
-	output := newHistory()
+	output := newHistory(80, 24)
 	output.write([]byte("last words"))
 	output.end()
 
-	past, feed, _ := output.attach()
+	past, _, feed, _ := output.attach()
 
 	if string(past) != "last words" {
 		t.Errorf("history = %q, want the last words", past)
 	}
-	if _, open := feed.next(); open {
+	if _, _, open := feed.next(); open {
 		t.Error("the feed of an ended terminal is still open")
 	}
 }

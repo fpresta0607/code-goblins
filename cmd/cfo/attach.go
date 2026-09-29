@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -75,7 +76,9 @@ func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 // attachNative shows native terminal id in this console until the terminal
 // ends, which returns its exit code, or the Overlord presses Ctrl-], which
 // leaves it running and returns 0. Keys reach the terminal as this console
-// reads them, and the terminal follows this console's size.
+// reads them, and the terminal follows this console's size: when another
+// viewer, such as the board, gave it another size, the next key typed here
+// takes it back first.
 func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 	record, err := host.ReadRecord(stateDir, id)
 	if err != nil {
@@ -88,7 +91,7 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo attach: a native terminal is shown in a console, and this command has none")
 		return 1
 	}
-	client, err := host.Dial(record)
+	client, err := host.View(record)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo attach: native terminal %s does not answer: %v\n", id, err)
 		return 1
@@ -114,6 +117,10 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 	}
 	cols, rows := size()
 	_ = client.Resize(cols, rows)
+	// isOwner is whether the terminal has this console's size, as far as the
+	// sizes the host told say.
+	var isOwner atomic.Bool
+	isOwner.Store(true)
 
 	type ending struct {
 		reason string
@@ -130,6 +137,10 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 			case event.Exited:
 				ended <- ending{fmt.Sprintf("The native terminal ended with exit code %d.", event.Code), int(event.Code)}
 				return
+			case event.Cols > 0:
+				c, r := size()
+				isOwner.Store(event.Cols == c && event.Rows == r)
+				continue
 			}
 			_, _ = stdout.Write(event.Output)
 		}
@@ -146,6 +157,12 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 			left := false
 			if at := detachAt(typed); at >= 0 {
 				typed, left = typed[:at], true
+			}
+			if len(typed) > 0 && !isOwner.Load() {
+				if c, r := size(); c > 0 {
+					isOwner.Store(true)
+					_ = client.Resize(c, r)
+				}
 			}
 			if len(typed) > 0 && client.Input(typed) != nil {
 				ended <- ending{"The native terminal's host stopped answering.", 1}

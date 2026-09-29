@@ -216,6 +216,50 @@ func TestAttachShowsANativeTerminalInThisConsole(t *testing.T) {
 	_ = client.Close()
 }
 
+// A board view that sizes the terminal while cfo attach shows it leaves the
+// attached console drawing output made for another grid; the next key typed
+// in cfo attach gives the terminal the console's size back before it arrives.
+func TestAttachTakesTheTerminalBackWhenTypedIntoAfterAnotherViewerResizedIt(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, "t1")
+	c := attachInConsole(t, stateDir, "t1")
+	c.waitFor(t, "ready")
+	if _, err := c.Write([]byte("size\r")); err != nil {
+		t.Fatal(err)
+	}
+	c.waitFor(t, "size 100x30")
+	record, err := host.ReadRecord(stateDir, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer board.Close()
+	if err := board.Resize(120, 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := board.Input([]byte("size\r")); err != nil {
+		t.Fatal(err)
+	}
+	c.waitFor(t, "size 120x40")
+
+	if _, err := c.Write([]byte("size\r")); err != nil {
+		t.Fatal(err)
+	}
+
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		shown := c.shown()
+		if strings.Contains(shown[strings.LastIndex(shown, "size 120x40"):], "size 100x30") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("typing in cfo attach did not take the terminal back; the console shows %q", shown[max(0, len(shown)-400):])
+		}
+	}
+}
+
 // cfo attach asks its console for Windows key events itself, so keys reach
 // the terminal exactly even once the host's history no longer holds the
 // pseudo console's own request for them. Ctrl-Z is one such key: read as a

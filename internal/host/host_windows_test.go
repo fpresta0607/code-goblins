@@ -206,7 +206,8 @@ func exited(pid int) bool {
 	return event == windows.WAIT_OBJECT_0
 }
 
-// viewer is a client and everything its terminal has shown it.
+// viewer is a client and everything its terminal has shown it, with each
+// size it was told marked "[size CxR]" at its place.
 type viewer struct {
 	*Client
 	screen bytes.Buffer
@@ -221,6 +222,28 @@ func connect(t *testing.T, record Record) *viewer {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return &viewer{Client: client}
+}
+
+// view connects a viewer that asks for sizes.
+func view(t *testing.T, record Record) *viewer {
+	t.Helper()
+	client, err := View(record)
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return &viewer{Client: client}
+}
+
+// show adds an event to what the viewer was shown.
+func (v *viewer) show(event Event) {
+	if event.Cols > 0 {
+		fmt.Fprintf(&v.screen, "[size %dx%d]", event.Cols, event.Rows)
+	}
+	v.screen.Write(event.Output)
+	if event.Exited {
+		v.exit = &event
+	}
 }
 
 // waitFor reads events until the screen matches pattern, and returns the
@@ -239,10 +262,7 @@ func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 		if err != nil {
 			t.Fatalf("Next: %v, while waiting for %q on:\n%q", err, pattern, v.screen.String())
 		}
-		v.screen.Write(event.Output)
-		if event.Exited {
-			v.exit = &event
-		}
+		v.show(event)
 	}
 	t.Fatalf("no %q on the screen:\n%q", pattern, v.screen.String())
 	return nil
@@ -256,10 +276,7 @@ func (v *viewer) waitForExit(t *testing.T) uint32 {
 		if err != nil {
 			t.Fatalf("Next: %v, while waiting for the terminal to end", err)
 		}
-		v.screen.Write(event.Output)
-		if event.Exited {
-			v.exit = &event
-		}
+		v.show(event)
 	}
 	return v.exit.Code
 }
@@ -322,6 +339,62 @@ func TestALateViewerSeesTheTerminalsHistory(t *testing.T) {
 
 	if err != nil || !strings.Contains(string(history.Output), "got before you came") {
 		t.Fatalf("the late viewer's first event = %q, %v; want the history", history.Output, err)
+	}
+}
+
+// Every viewer that asked for sizes is told each resize at its place in the
+// output, whichever viewer made it and the one that made it too, so each
+// draws the output before it at the old size and the output after it at the
+// new one. A viewer that did not ask is sent no size, which its Next would
+// refuse as an unknown frame.
+func TestEveryViewerIsToldEachResizeAtItsPlaceInTheOutput(t *testing.T) {
+	_, record := launch(t)
+	watching := view(t, record)
+	resizing := view(t, record)
+	plain := connect(t, record)
+	watching.waitFor(t, `^\[size 80x25\][\s\S]*ready`)
+	typeLine(t, watching, "size")
+	watching.waitFor(t, `size 80x25\r`)
+
+	if err := resizing.Resize(100, 30); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	typeLine(t, watching, "size")
+
+	for _, v := range []*viewer{watching, resizing} {
+		v.waitFor(t, `size 80x25\r[\s\S]*\[size 100x30\][\s\S]*size 100x30`)
+	}
+	plain.waitFor(t, "size 100x30")
+}
+
+// A viewer that connects later replays the history at the sizes it was
+// written at, each at its place, and is told how much of what it receives
+// is that history.
+func TestALateViewerReplaysTheHistoryAtItsSizes(t *testing.T) {
+	_, record := launch(t)
+	first := connect(t, record)
+	first.waitFor(t, "ready")
+	typeLine(t, first, "before")
+	first.waitFor(t, "got before")
+	if err := first.Resize(100, 30); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	typeLine(t, first, "after")
+	first.waitFor(t, "got after")
+
+	late := view(t, record)
+	replayed := &viewer{}
+	for output := 0; output < late.History(); {
+		event, err := late.Next()
+		if err != nil {
+			t.Fatalf("Next: %v, after %d of %d history bytes", err, output, late.History())
+		}
+		replayed.show(event)
+		output += len(event.Output)
+	}
+
+	if pattern := `^\[size 80x25\][\s\S]*got before[\s\S]*\[size 100x30\][\s\S]*got after`; !regexp.MustCompile(pattern).MatchString(replayed.screen.String()) {
+		t.Errorf("the replay is %q, want it to match %q", replayed.screen.String(), pattern)
 	}
 }
 
