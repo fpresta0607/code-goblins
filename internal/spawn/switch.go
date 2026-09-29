@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -275,7 +276,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, err
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
@@ -335,6 +336,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if result.Handoff != "" {
 		result.Output += "\nhandoff " + result.Handoff
 	}
+	if notice := containedNotice(nativeHost); notice != "" {
+		result.Output += "\n" + notice
+	}
 	return result, nil
 }
 
@@ -345,7 +349,7 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects included.
-func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath: briefPath,
@@ -356,7 +360,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 		MCPConfig: goblinMCPConfig(meta.TaskTmp),
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
+		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -368,7 +372,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	// work in a stopped harness would cost more than the missing credential.
 	preflight, err := s.preflightCredentials(ctx, project)
 	if err != nil {
-		return "", false, err
+		return "", false, host.Record{}, err
 	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	nativeEnvironment(launch.Env, meta)
@@ -389,7 +393,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
-			return "", false, err
+			return "", false, host.Record{}, err
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, id)
 	}
@@ -402,24 +406,22 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 		// terminal's environment, as its spawn gave them.
 		userEnv, err := s.userEnvironment()
 		if err != nil {
-			return handoff, resumed, fmt.Errorf("switch: read the user's environment: %w", err)
+			return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
 		}
-		if _, err := s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env); err != nil {
-			return handoff, resumed, err
-		}
-		return handoff, resumed, nil
+		nativeHost, err = s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env)
+		return handoff, resumed, nativeHost, err
 	}
 	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
-		return handoff, resumed, err
+		return handoff, resumed, host.Record{}, err
 	}
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
 		AgentName: "gb-" + id,
 		Harness:   target.Harness,
 		Launch:    launch,
 	}); err != nil {
-		return handoff, resumed, err
+		return handoff, resumed, host.Record{}, err
 	}
-	return handoff, resumed, nil
+	return handoff, resumed, host.Record{}, nil
 }
 
 // switchTarget is the harness, model, and effort the task should run after

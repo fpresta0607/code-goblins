@@ -1,10 +1,18 @@
 package spawn
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -59,6 +67,78 @@ func TestANativeGoblinSwitchesInPlace(t *testing.T) {
 	}
 	if launches := len(named(f.events(t), "env")); launches != 2 {
 		t.Errorf("the harness started %d times, want twice", launches)
+	}
+}
+
+// containedSwitch marks the copy of this test binary that switches a native
+// goblin from inside a job that forbids breaking away.
+const containedSwitch = "SPAWN_TEST_CONTAINED_SWITCH"
+
+// A switch whose new terminal could not leave the job of the process that
+// ran cfo names it in the switch's output, as a spawn does, since that
+// terminal ends when the job closes. The switch runs in a copy of this test
+// binary, put in such a job before it starts.
+func TestAContainedNativeSwitchIsReported(t *testing.T) {
+	notice := containedNotice(host.Record{ID: "task-7", Contained: true})
+	if os.Getenv(containedSwitch) != "" {
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		f := newNativeFixture(t, harness.Codex, "turns")
+		f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+		f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}}}}
+		if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+			t.Fatalf("Spawn: %v", err)
+		}
+		closeCurrentTerminal(t, f)
+		awaitComposer(t, f)
+		result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
+		if err != nil {
+			t.Fatalf("Switch: %v", err)
+		}
+		fmt.Println(result.Output)
+		return
+	}
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { windows.CloseHandle(job) })
+	var output bytes.Buffer
+	switcher := exec.Command(os.Args[0], "-test.run=^TestAContainedNativeSwitchIsReported$", "-test.count=1")
+	switcher.Env = append(os.Environ(), containedSwitch+"=1")
+	switcher.Stdout, switcher.Stderr = &output, &output
+	input, err := switcher.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := switcher.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = input.Close()
+		_ = switcher.Wait()
+	})
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(switcher.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(process)
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = input.Write([]byte("go\n"))
+	_ = input.Close()
+	err = switcher.Wait()
+
+	if err != nil || !strings.Contains(output.String(), notice) {
+		t.Errorf("the contained switch ended with %v and said:\n%s\nwant its output to carry %q", err, output.String(), notice)
 	}
 }
 

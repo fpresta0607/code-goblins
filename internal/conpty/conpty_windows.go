@@ -29,7 +29,9 @@ type Spec struct {
 }
 
 // Console is one running pseudo console and the process in it. The process
-// and everything it starts share a job object, so Close ends the whole tree.
+// and everything it starts share a job object, so Close ends them all, except
+// a process that asks to break away (a goblin host, a detached serve), which
+// leaves the job and outlives Close.
 type Console struct {
 	pc      windows.Handle
 	in      *os.File

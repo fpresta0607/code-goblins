@@ -154,7 +154,10 @@ func TestALaunchThatCannotBreakAwayReportsIt(t *testing.T) {
 	if err := launcher.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = launcher.Wait() })
+	t.Cleanup(func() {
+		_ = input.Close()
+		_ = launcher.Wait()
+	})
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(launcher.Process.Pid))
 	if err != nil {
 		t.Fatal(err)
