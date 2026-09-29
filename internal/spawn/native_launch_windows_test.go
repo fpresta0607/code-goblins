@@ -265,11 +265,14 @@ func fakeHarness() {
 				if line.String() == "/exit" {
 					return
 				}
-				// Unmoved, codex takes the line and never shows it working.
-				if mode != "unmoved" {
+				// Unmoved, codex takes the line, which leaves its composer as a
+				// submitted line does, and never shows it working.
+				if mode == "unmoved" {
+					composer("Ask Codex to do anything")
+				} else {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
-					line.Reset()
 				}
+				line.Reset()
 				if mode == "turns" {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
@@ -534,9 +537,12 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if trust := named(events, "trust prompt"); len(trust) != 1 || trust[0].Text != "1. Yes, continue" {
 				t.Errorf("trust prompt answers = %+v, want 1. Yes, continue once", trust)
 			}
-			instruction := spawnInstruction(f.brief, "task-7")
-			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != instruction {
-				t.Errorf("submitted = %+v, want the instruction once:\n%s", submitted, instruction)
+			pointer, written := typedBrief(t, f.fixture, "task-7")
+			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
+				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
+			}
+			if instruction := spawnInstruction(f.brief, "task-7"); written != instruction+"\n" {
+				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
 			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmpDir(t, f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
@@ -560,6 +566,41 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			}
 		})
 	}
+}
+
+// typedBrief is the line a native Codex spawn types for task id, pointing at
+// the task's instruction.md, and what that file holds.
+func typedBrief(t *testing.T, f *fixture, id string) (string, string) {
+	t.Helper()
+	path := filepath.Join(f.stateDir, "tasktmp", id, "instruction.md")
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the written instruction: %v", err)
+	}
+	return instructionPointer(path), string(written)
+}
+
+// delivered is what a typed line delivered: the instruction a pointer line
+// points at, or the line itself.
+func delivered(t *testing.T, line string) string {
+	t.Helper()
+	path, found := strings.CutPrefix(line, "Read ")
+	path, pointed := strings.CutSuffix(path, " and follow it exactly: it is your instruction from the CFO.")
+	if !found || !pointed {
+		return line
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the instruction %s points at: %v", line, err)
+	}
+	return string(written)
+}
+
+// spawnPointer is the line a native Codex spawn of task-7 typed.
+func spawnPointer(t *testing.T, f *fixture) string {
+	t.Helper()
+	pointer, _ := typedBrief(t, f, "task-7")
+	return pointer
 }
 
 // A harness that can take typed text in slowly, as an idle Codex 0.154 took a
