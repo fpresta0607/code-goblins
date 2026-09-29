@@ -133,9 +133,10 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 		_ = file.Close()
 		drift := current.Process.Start.Sub(process.Start)
 		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
+		conversation := current
 		current.Process = lock.Info{}
 		if err == nil && sameProcess && current == primary {
-			return described, nil
+			return described, saveCFOConversation(stateDir, conversation, session)
 		}
 	}
 	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
@@ -151,7 +152,7 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
 		return "", err
 	}
-	return described, nil
+	return described, saveCFOConversation(stateDir, primary, session)
 }
 
 // nativeHarness proves this process runs under the program in native
@@ -374,12 +375,13 @@ type cfoState struct {
 	// registered CFO names or, while it is starting, native terminal cfo,
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
-	terminal string
+	terminal   string
+	generation string
 }
 
 func readCFOState(stateDir string) cfoState {
 	if primary, live := livePrimary(stateDir); live {
-		return cfoState{registered: true, terminal: primary.Host}
+		return cfoState{registered: true, terminal: primary.Host, generation: fmt.Sprintf("%d:%d", primary.Process.PID, primary.Process.Start.UnixNano())}
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}

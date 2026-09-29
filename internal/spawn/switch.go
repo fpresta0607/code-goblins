@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -44,7 +45,8 @@ type SwitchRequest struct {
 	Session string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
-	BriefPath string
+	BriefPath     string
+	ResumeSession string
 }
 
 // SwitchResult reports what the switch changed.
@@ -118,6 +120,16 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	target := requestedTarget(meta, req)
+	var exactResumeArgs []string
+	if req.ResumeSession != "" {
+		if !target.same(meta) {
+			return SwitchResult{}, errors.New("recovery keeps the recorded harness, model and effort")
+		}
+		exactResumeArgs, err = onboarding.ResumeArgs(meta.Harness, req.ResumeSession)
+		if err != nil {
+			return SwitchResult{}, err
+		}
+	}
 	if target == (switchTarget{}) {
 		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
@@ -300,11 +312,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	launchMeta := meta
 	// Publish the replacement generation before its first native hook can run.
+	// Keep an exact recovery retryable if launch fails before its first hook.
+	meta.ResumeSession = req.ResumeSession
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, exactResumeArgs)
 	var tabNotice string
 	if moving {
 		if closeErr := terminals.CloseTab(ctx, herdrSession, herdrTab); closeErr != nil {
@@ -394,8 +408,12 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects and Codex's MCP servers included.
-func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string) (handoff string, resumed bool, nativeHost host.Record, err error) {
-	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers, exactResumeArgs []string) (handoff string, resumed bool, nativeHost host.Record, err error) {
+	resumeArgs := adapter.Control().ResumeArgs
+	if len(exactResumeArgs) > 0 {
+		resumeArgs = exactResumeArgs
+	}
+	resumed = target.Harness == harness.Kind(meta.Harness) && len(resumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -427,7 +445,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		control := adapter.Control()
 		// ResumeArgs lead because codex takes its resume as a subcommand.
-		launch.Args = append(append([]string{}, control.ResumeArgs...), launch.Args...)
+		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
 		launch.Instruction = resumeInstruction(meta, target)
 		launch.Resumed = true
 		// A resume can open the harness's interactive resume dialog before

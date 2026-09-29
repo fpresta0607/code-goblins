@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -39,7 +40,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run goblins from any folder for guided agent selection, installation and sign-in. It starts the CFO in the Code Goblins home, then offers Enter for the CFO terminal (default), B for the board, or Ctrl+click on the board address. A running CFO keeps its terminal and harness. goblins --harness claude|codex|pi chooses the remembered agent after verification. goblins --board explicitly opens the browser after starting or finding the CFO.
 
 commands:
   version   print the cfo version
@@ -48,6 +49,8 @@ commands:
   attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
+  setup     repeat quick start and choose the default agent; --installers prints this release's pinned installers
+  resume    restart the recorded CFO conversation and recover ended goblin sessions in place
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
@@ -150,6 +153,8 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
+	setupAgent         func(context.Context, string, string, bool, io.Writer, io.Writer) (string, error)
+	choose             func(io.Writer, string, []string, int) (int, error)
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -276,6 +281,8 @@ func defaultCommandRuntime() commandRuntime {
 		startNativeCFO:     startNativeCFO,
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
+		setupAgent:         setupAgent,
+		choose:             onboarding.ChooseConsole,
 	}
 }
 
@@ -287,6 +294,23 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if runtime.goblins && len(args) > 0 && args[0] == "resume" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: goblins resume")
+			return 2
+		}
+		return runResume(stdout, stderr, runtime)
+	}
+	if runtime.goblins && len(args) > 0 && args[0] == "setup" {
+		if len(args) == 2 && args[1] == "--installers" {
+			return printAgentInstallers(stdout)
+		}
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: goblins setup")
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, true, false, "")
+	}
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}

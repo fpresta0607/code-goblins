@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -101,14 +101,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// An unresolvable projects root still lists this home's own merges.
 	projects, _ := install.MachineProjectsRoot()
-	// The first-run page reads each agent's sign-in under the home folder;
-	// without one the board serves no first-run page.
-	var firstRun *supervisor.FirstRun
-	if userHome, err := os.UserHomeDir(); err != nil {
-		fmt.Fprintf(stderr, "cfo serve: the first-run page is off, the home folder is unknown: %v\n", err)
-	} else {
-		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot)
-	}
+	firstRun := firstRunOn(h)
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:          *example,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
@@ -120,7 +113,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Runs:             supervisor.OSRunLauncher{},
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
+		CFORecovery:      &supervisor.CFORecovery{State: h.State, Memory: supervisor.MachineMemory, Restart: func(ctx context.Context, record supervisor.CFOResume) error { return restartCFO(ctx, h, record) }},
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Spawn: spawnFromBoard},
+		TaskRecovery:     taskRecovery(h, runtime),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -152,27 +147,15 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	return 0
 }
 
-// firstRunOn is what the first-run page reads and changes on this machine for
-// the CFO home h. setMachine records the projects folder as this machine's
-// setting; an example board, such as a test fixture, never calls it and
-// records the folder for itself alone.
-func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error) *supervisor.FirstRun {
+func firstRunOn(h home.Home) *supervisor.FirstRun {
 	return &supervisor.FirstRun{
-		Home:         userHome,
-		LookPath:     exec.LookPath,
-		ProjectsRoot: install.MachineProjectsRoot,
-		SetProjectsRoot: func(root string) error {
-			if !example {
-				if err := setMachine(root); err != nil {
-					return err
-				}
-			}
-			// This supervisor, and the CFO it starts, read the process
-			// environment first, and it still holds the old root.
-			return os.Setenv(install.ProjectsRootVariable, root)
-		},
-		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(project string) error { return startNativeCFO(h.State, project, "claude") },
+		Home:         h.Root,
+		DefaultAgent: func() (string, error) { return cfoHarness(h.State) },
+		Detect:       quickstartDetector().Detect,
+		CFORuns:      func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO:     func(agent string) error { return startNativeCFO(h.State, h.Root, agent) },
+		Save:         func(agent string) error { return fsx.AtomicWriteFile(cfoHarnessPath(h.State), []byte(agent+"\n")) },
+		Memory:       supervisor.MachineMemory,
 	}
 }
 

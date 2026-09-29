@@ -252,6 +252,15 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("registering the same process again rewrote primary.json")
 	}
+	conversationFile, err := os.Open(filepath.Join(store.Home.State, "cfo-conversation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conversationFile.Close()
+	conversation, _, err := decodePrimary(conversationFile)
+	if err != nil || conversation.Process.Session != "session-2" {
+		t.Fatalf("recovery did not follow the new conversation: %+v, %v", conversation, err)
+	}
 	if err := store.supersedeQuestions(); err != nil {
 		t.Fatal(err)
 	}

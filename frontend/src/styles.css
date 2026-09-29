@@ -266,6 +266,10 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 /* The Command Center uses the approved generated modal, with real data only. */
 .question-modal { position: relative; color: #eef3f1; background: var(--level-3); border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 28px; padding: 40px; width: min(700px, calc(100vw - 28px)); max-height: 92dvh; box-shadow: var(--shadow-3), 0 0 0 1px #00000040; }
 .question-modal::backdrop { background: #02070bc4; backdrop-filter: blur(6px); }
+.question-modal.cfo-restart { width: min(620px, calc(100vw - 28px)); }
+.cfo-restart p { margin: 18px 0; line-height: 1.6; }
+.cfo-restart .restart-session { font-size: .875rem; overflow-wrap: anywhere; }
+.cfo-restart .first-run-actions { flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 .command-center-heading { display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--edge); padding: 0 0 20px; margin-bottom: 22px; }
 .command-center-heading .goblin-avatar { width: 88px; height: 88px; }
 .command-center-heading h2 { flex: 1; min-width: 0; font-size: clamp(1.5rem, 3vw, 1.875rem); line-height: 1.2; margin: 0; }

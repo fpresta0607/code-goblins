@@ -133,6 +133,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.startTask(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/cfo/resume" && r.Method == "GET":
+		h.cfoResume(w, r)
+	case r.URL.Path == "/api/cfo/restart" && r.Method == "POST":
+		h.restartCFO(w, r)
+	case r.URL.Path == "/api/tasks/resume" && r.Method == "POST":
+		h.resumeTasks(w, r)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
 		h.startCFO(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":

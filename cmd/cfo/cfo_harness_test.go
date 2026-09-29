@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,7 +26,9 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	harnessesOnPath(t, "codex", "pi")
 
 	chose, chooseOut, chooseErr := f.launch("--harness", "codex")
+	f.cfoTerminalRuns = false
 	later, laterOut, _ := f.launch()
+	f.cfoTerminalRuns = false
 	native, nativeOut, _ := f.launch("--native", "--harness", "pi")
 
 	if chose != 0 || later != 0 || native != 0 {
@@ -34,15 +37,15 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	if want := []string{"codex", "codex", "pi"}; !slices.Equal(f.harnesses, want) {
 		t.Errorf("harnesses started = %q, want %q", f.harnesses, want)
 	}
-	if len(f.cfoStarts) != 2 || len(f.nativeStarts) != 1 {
-		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
+	if len(f.cfoStarts) != 0 || len(f.nativeStarts) != 3 {
+		t.Errorf("starts in Herdr %q and native %q, want zero and three", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "The CFO starts as codex in "+f.project+".") || !strings.Contains(out, "A codex CFO has no wake path") {
+		if !strings.Contains(out, "The CFO starts as codex in "+f.home.Root+", in native terminal cfo.") || !strings.Contains(out, "A codex CFO has no wake path") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO has no wake path") {
+	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.home.Root+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO has no wake path") {
 		t.Errorf("stdout = %q, want the native pi start and its missing wake path", nativeOut)
 	}
 	if data, err := os.ReadFile(cfoHarnessPath(f.home.State)); err != nil || strings.TrimSpace(string(data)) != "pi" {
@@ -75,7 +78,7 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 		{"registered in Herdr", func(f *launcherFixture) { f.withLiveCFO() }},
 		{"unregistered in native terminal cfo", func(f *launcherFixture) { f.cfoTerminalRuns = true }},
 		{"an agent already in the cfo tab", func(f *launcherFixture) {
-			f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
+			f.withLiveCFO()
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -101,28 +104,13 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 	}
 }
 
-// The board's first-run page offers only Claude Code, so the CFO it starts is
-// claude whatever harness goblins remembers. With claude found only as a
-// script and codex not on PATH, neither start can reach a host.
-func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
-	// Arrange
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	h := home.Home{State: t.TempDir()}
-	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("codex\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
-
-	// Act
-	err := run.StartCFO(t.TempDir())
-
-	// Assert
-	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
-		t.Fatalf("first-run StartCFO error = %v, want claude looked up rather than codex", err)
+func TestTheFirstRunStartsTheChosenAgent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h)
+	err := run.StartCFO("codex")
+	if err == nil || !strings.Contains(err.Error(), "codex") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -167,6 +155,9 @@ func TestGoblinsRefusesAHarnessNotOnPath(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
 	harnessesOnPath(t)
+	f.runtime.setupAgent = func(context.Context, string, string, bool, io.Writer, io.Writer) (string, error) {
+		return "", fmt.Errorf("codex is not on PATH")
+	}
 
 	// Act
 	exit, _, stderr := f.launch("--harness", "codex")

@@ -51,7 +51,9 @@ type Options struct {
 	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
-	FirstRun *FirstRun
+	FirstRun     *FirstRun
+	CFORecovery  *CFORecovery
+	TaskRecovery *TaskRecovery
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
@@ -698,7 +700,8 @@ type Snapshot struct {
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
-	CFOTerminal string `json:"cfo_terminal"`
+	CFOTerminal   string `json:"cfo_terminal"`
+	CFOGeneration string `json:"cfo_generation"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -717,6 +720,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.mu.Unlock()
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting = cfo.terminal, cfo.registered || cfo.starting, cfo.starting
+	out.CFOGeneration = cfo.generation
 	// A starting CFO registers itself after sign-in, and one registered since
 	// the last check is no longer missing.
 	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {

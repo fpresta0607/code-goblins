@@ -32,6 +32,7 @@ type TaskMeta struct {
 	Model            string
 	Effort           string
 	SpawnGen         string
+	ResumeSession    string
 	PipelineClass    string
 	PipelineHash     string
 	Backend          string
@@ -212,6 +213,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		Model:            kv["model"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
+		ResumeSession:    kv["resume_session"],
 		PipelineClass:    kv["pipeline_class"],
 		PipelineHash:     kv["pipeline_hash"],
 		Backend:          kv["backend"],
@@ -291,6 +293,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"model":              meta.Model,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
+		"resume_session":     meta.ResumeSession,
 		"pipeline_class":     meta.PipelineClass,
 		"pipeline_hash":      meta.PipelineHash,
 		"backend":            meta.Backend,
@@ -330,6 +333,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"model", meta.Model},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
+		{"resume_session", meta.ResumeSession},
 		{"pipeline_class", meta.PipelineClass},
 		{"pipeline_hash", meta.PipelineHash},
 		{"backend", meta.Backend},

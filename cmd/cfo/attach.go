@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -202,6 +201,13 @@ func detachAt(keys []byte) int {
 // startNativeCFO starts harness as the CFO in native terminal cfo, in
 // project, in a host of its own that outlives this console.
 func startNativeCFO(stateDir, project, harness string) error {
+	if _, err := lock.AcquireExclusiveNamed(stateDir, ".cfo-launch.lock"); err != nil {
+		return err
+	}
+	defer lock.ReleaseExclusiveNamed(stateDir, ".cfo-launch.lock")
+	if supervisor.CFORuns(stateDir) {
+		return fmt.Errorf("the CFO already runs; open its terminal")
+	}
 	program, err := nativeCFOProgram(harness)
 	if err != nil {
 		return err
@@ -214,19 +220,7 @@ func startNativeCFO(stateDir, project, harness string) error {
 	return err
 }
 
-// nativeCFOProgram is the command line a native terminal starts harness with
-// as the CFO, as a native goblin's is: codex and pi install as npm script shims
-// and run through cmd /c. Claude Code must be its native build, claude.exe.
 func nativeCFOProgram(harness string) ([]string, error) {
-	if harness == "claude" {
-		path, err := exec.LookPath(harness)
-		if err != nil {
-			return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
-		}
-		if !strings.EqualFold(filepath.Ext(path), ".exe") {
-			return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
-		}
-	}
 	return spawn.NativeProgram(harness)
 }
 

@@ -107,6 +107,7 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  cfo_generation?: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -180,8 +181,8 @@ export interface FileDiff {
 // it, or why it offers none, the agents this machine has, and whether a CFO
 // already runs.
 export interface Setup {
-  projects_root: string;
-  checkouts: string[];
+  home: string;
+  default_agent: string;
   problem: string;
   agents: SetupAgent[];
   cfo_runs: boolean;
@@ -294,6 +295,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    cfo_generation: v.cfo_generation === undefined ? "" : string(v.cfo_generation),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
@@ -410,8 +412,8 @@ export function parseDiff(value: unknown): FileDiff {
 export function parseSetup(value: unknown): Setup {
   const v = object(value);
   return {
-    projects_root: string(v.projects_root),
-    checkouts: strings(v.checkouts),
+    home: string(v.home),
+    default_agent: string(v.default_agent),
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);

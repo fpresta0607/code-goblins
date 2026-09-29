@@ -77,6 +77,16 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 	f.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		goblins:     true,
+		setupAgent: func(_ context.Context, stateDir, chosen string, _ bool, _, _ io.Writer) (string, error) {
+			if chosen == "" {
+				return cfoHarness(stateDir)
+			}
+			if err := os.WriteFile(cfoHarnessPath(stateDir), []byte(chosen+"\n"), 0600); err != nil {
+				return "", err
+			}
+			return chosen, nil
+		},
+		choose: func(io.Writer, string, []string, int) (int, error) { return 0, nil },
 		startServe: func(h home.Home) (<-chan struct{}, error) {
 			f.starts++
 			return start(h)
@@ -112,6 +122,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		startNativeCFO: func(_, project, harness string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
+			f.cfoTerminalRuns = true
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -196,9 +207,8 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	}
 }
 
-// With no supervisor, goblins starts one, waits for its board, and opens the
-// board once; the next goblins finds it and only prints the link.
-func TestGoblinsStartsTheSupervisorAndOpensTheBoardOnce(t *testing.T) {
+// Starting a supervisor never opens a browser without a choice.
+func TestGoblinsStartsTheSupervisorWithoutOpeningTheBoard(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
 	var f *launcherFixture
 	f = newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
@@ -216,11 +226,11 @@ func TestGoblinsStartsTheSupervisorAndOpensTheBoardOnce(t *testing.T) {
 	if !strings.Contains(stdout, "  board   "+board+"\n") || !strings.Contains(stdout, "  status  CFO not connected · 0 goblins working · 0 waiting on you\n") {
 		t.Fatalf("stdout = %q, want the board line and the status line", stdout)
 	}
-	if len(f.opened) != 1 || f.opened[0] != board {
-		t.Fatalf("opened %q, want the board once", f.opened)
+	if len(f.opened) != 0 {
+		t.Fatalf("opened %q, want no browser opened", f.opened)
 	}
 
-	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 1 {
+	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 0 {
 		t.Fatalf("second launch: exit=%d starts=%d opened=%q stderr=%q, want no second start or tab", exit, f.starts, f.opened, stderr)
 	}
 }
@@ -265,10 +275,8 @@ func TestGoblinsGivesUpOnASupervisorThatNeverAnswers(t *testing.T) {
 }
 
 // goblins --board starts the supervisor when none runs and opens the board,
-// and starts, shows and attaches no CFO, which the board leaves to its own
-// first-run screen; run again, it finds the supervisor and opens the board
-// again, since opening it is what it is run for.
-func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
+// after ensuring a CFO runs; a later request reuses the same CFO.
+func TestGoblinsBoardStartsCFOAndOpensTheBoard(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
 	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
 		if err := writeBoardRecord(h.State, boardRecord{PID: 4242, URL: board}); err != nil {
@@ -289,8 +297,8 @@ func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	if !slices.Equal(f.opened, []string{board}) {
 		t.Fatalf("opened %q, want the board once", f.opened)
 	}
-	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
-		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	if len(f.nativeStarts) != 1 || f.nativeStarts[0] != f.home.Root || len(f.cfoStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want one native start in the home", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
 	}
 
 	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {

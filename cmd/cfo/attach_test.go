@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -407,22 +408,18 @@ func TestANativeCFOIsStartedWithoutTheLaunchersHerdrPane(t *testing.T) {
 	}
 }
 
-// A native terminal starts its program itself, with no shell to run a script
-// shim, so a claude found only as a script is refused before any host starts.
-func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
+func TestANativeCFOCanUseThePinnedInstallersScriptShim(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo quickstart shim\r\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	stateDir := t.TempDir()
-
-	err := startNativeCFO(stateDir, t.TempDir(), "claude")
-
-	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
-		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)
+	program, err := nativeCFOProgram("claude")
+	if err != nil || len(program) < 2 {
+		t.Fatalf("native program = %q, %v; want the installed shim", program, err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "hosts")); !os.IsNotExist(err) {
-		t.Errorf("hosts directory stat = %v, want no host started", err)
+	output, err := exec.Command(program[0], program[1:]...).Output()
+	if err != nil || strings.TrimSpace(string(output)) != "quickstart shim" {
+		t.Fatalf("shim output = %q, %v", output, err)
 	}
 }

@@ -10,7 +10,7 @@
 # cfo.exe and goblins.exe on your PATH, this window included, asks once for
 # the folder that holds your projects, installs the tools, skills and hooks
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
-# and ends by opening the board in the browser.
+# and ends with the guided terminal quick start.
 #
 # To work on it, in a clone:
 #
@@ -314,13 +314,15 @@
     #   powershell - an official install.ps1, fetched and run in a child shell so
     #                its own `exit` cannot kill this install
     #   manual     - no scriptable installer; print the manual step instead
+    $agentInstallers = & (Join-Path $InstallDir "goblins.exe") setup --installers | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) { throw "Could not read this release's agent installers" }
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "claude";              Kind = "npm";        Cmd = "npm.cmd install -g @anthropic-ai/claude-code" },
+        @{ Name = "claude";              Kind = "npm";        Cmd = $agentInstallers.claude },
         @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
-        @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
-        @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
+        @{ Name = "codex";               Kind = "npm";        Cmd = $agentInstallers.codex },
+        @{ Name = "pi";                  Kind = "npm";        Cmd = $agentInstallers.pi },
         @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
@@ -421,19 +423,17 @@
         }
     }
 
-    # Code Goblins in the Start menu opens the board, starting the supervisor
-    # when none runs; its console shows only minimized, for as long as that
-    # takes.
+    # Keep the quick start visible so install and sign-in choices can be read.
     $goblins = Join-Path $InstallDir "goblins.exe"
     $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
     try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $goblins
-        $shortcut.Arguments = "--board"
+        $shortcut.Arguments = ""
         $shortcut.WorkingDirectory = $InstallDir
-        $shortcut.WindowStyle = 7
-        $shortcut.Description = "Open the Code Goblins board"
+        $shortcut.WindowStyle = 1
+        $shortcut.Description = "Start the Code Goblins CFO"
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
     }
@@ -447,14 +447,11 @@
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
-    # Last, the board opens in the browser, starting the supervisor when none
-    # runs; the board shows the CFO, and its first-run screen while none is
-    # set up.
     Write-Host ""
-    & $goblins --board
+    & $goblins
     if ($LASTEXITCODE -ne 0) {
-        Write-Host ("WARN     {0,-20} the board did not open; see the lines above" -f "board")
-        $failedInstalls += "the board: run goblins --board"
+        Write-Host ("WARN     {0,-20} quick start did not finish; run goblins to continue" -f "quick start")
+        $failedInstalls += "quick start: run goblins"
     }
 
     if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
@@ -475,8 +472,8 @@
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens the board; open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens quick start; open a new terminal so cfo and goblins are on your PATH."
         exit $doctorExit
     }
-    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens the board, and goblins works in this window and in any new one."
+    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens quick start, and goblins works in this window and in any new one."
 } $args

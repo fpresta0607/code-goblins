@@ -111,8 +111,8 @@ To use Code Goblins, run this one line in any PowerShell window; it needs no clo
 irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
 
-It ends by opening the board in your browser, and `goblins` works in that same window at once.
-Code Goblins in the Start menu opens the board again at any time.
+It ends with a guided quick start, and `goblins` works in that same window at once.
+Code Goblins in the Start menu opens the same quick start at any time.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go:
 
@@ -122,7 +122,7 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
+Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and start the guided setup; run either again at any time to update.
 
 Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
@@ -133,10 +133,11 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 `goblins` and `cfo` are one program under two names: `goblins` is the one you type, the CFO and its scripts use `cfo`, and every command works under either.
 
 ```powershell
-goblins              # start the supervisor if needed, show the board's link and the fleet, then open the CFO
-goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
+goblins              # guided setup if needed; Enter opens the CFO terminal, B opens the board
+goblins setup        # detect agents, install or sign in, and choose the remembered default again
+goblins resume       # restart the exact CFO conversation and recover ended goblin sessions
 goblins --harness codex  # start the CFO as codex, claude or pi from now on; a running CFO keeps its harness
-goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
+goblins --board      # start or find the CFO, then explicitly open the board
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
@@ -147,13 +148,13 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
+It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and the fleet's status.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
-Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts the CFO in its remembered harness (Claude Code unless `goblins --harness` chose another) in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
-It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
-A CFO registered in a native terminal is shown in this terminal instead, and `goblins --native` starts a new CFO that way: the CFO runs in a native terminal of its own, so closing any window leaves it running, and `goblins attach` shows it again.
-With no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown rather than started again.
-`goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
+The CFO always starts in the Code Goblins home and works across your projects and files.
+An existing CFO keeps running; a new one starts in its own native terminal using your verified, remembered agent choice.
+The final screen marks Enter to open the CFO terminal as the default, and offers B or Ctrl+click on the address to open the board.
+The browser never opens implicitly.
+`goblins --board` explicitly opens it after starting or finding the CFO.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
@@ -163,10 +164,22 @@ In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] l
 
 ### Start the CFO
 
-Run `goblins` in the project you actually want to build, or anywhere to pick one from your projects folder: it starts the CFO there, in Herdr, as Claude Code unless `goblins --harness` chose Codex or pi, and brings you to it.
+Run `goblins` from any folder.
+On first run, choose Claude Code, Codex or pi with Up and Down, then press Enter to accept the recommendation.
+Setup offers the release's pinned installer if needed, opens the agent's own sign-in, and checks the result before remembering your choice.
+You complete sign-in yourself; for pi, use `/login`, select a provider with `/model`, then `/quit` to return for verification.
+Each step has a marked default, and Escape returns to agent selection.
+Use `goblins setup` to repeat the choice; later launches skip completed setup.
 Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it.
-Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen, where you pick the folder that holds your projects, the project the CFO starts in and the agent, then **Start the CFO**, and it opens in the board's terminal.
-The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
+The board's first-run page uses the same installed and authenticated agent checks and starts the CFO in its home.
+It offers no project picker or option to proceed without a CFO.
+
+`goblins resume` brings back the exact recorded CFO conversation and checks each goblin's task record after a reboot.
+If the CFO freezes while running, it stops that recorded process and restarts the same conversation under the same terminal ID; the board's **Restart CFO** button confirms the same action.
+Running goblins keep running, and recovered goblins keep their worktree, harness, model and effort.
+The report names every task as **Resumed**, **Already running**, **Waiting for memory**, or **Needs a hand**.
+Missing session records and unverifiable process identities require manual recovery; recovery never silently opens a different conversation.
+See [quick start and recovery](docs/install.md#quick-start-and-recovery) for trust prompts, memory limits and retry guidance.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.
@@ -197,7 +210,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
-- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed, each pull request once, under the repository it was opened in, even when a fork carries its upstream's merges; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
+- **Board** is task review. Real tasks sit in **Tasks**, **In progress** and **Completed**. Only verified delivery reaches Completed, each pull request once, under the repository it was opened in, even when a fork carries its upstream's merges; failed work and work awaiting review stay in progress with a plain status. Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history. The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal. While no CFO runs the board shows the first-run screen instead, with **Start the CFO** in its home and no option to skip it. A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
@@ -445,7 +458,7 @@ The control plane is local. Your coding harnesses may still call their model pro
 
 Code Goblins is becoming a native Windows desktop app.
 
-- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code goblins this way by default, codex and pi with `--backend native` until each is proven natively, and `goblins --native` starts the CFO so.
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code goblins this way by default, codex and pi with `--backend native` until each is proven natively, and `goblins` starts a new CFO that way.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 

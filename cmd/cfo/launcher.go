@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // boardRecord says where the running supervisor serves its board. cfo serve
@@ -99,51 +100,67 @@ var (
 	launcherPoll         = 250 * time.Millisecond
 )
 
-// runLauncher is goblins with no arguments, or with --native or --harness. It finds
-// the supervisor, or starts one detached from this terminal, prints the banner
-// with the board's link and the fleet's status, and opens the board in the
-// browser when this launch started the supervisor; a later goblins only
-// prints the link. native starts a new CFO in a native terminal rather than in
-// Herdr, and harness, when set, is the harness goblins starts the CFO as from
-// now on.
 func runLauncher(stdout, stderr io.Writer, runtime commandRuntime, native bool, harness string) int {
+	return runQuickstart(stdout, stderr, runtime, false, false, harness)
+}
+
+func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
+	return runQuickstart(stdout, stderr, runtime, false, true, "")
+}
+
+func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, isSetup, shouldOpenBoard bool, chosen string) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	ctx := context.Background()
-	board, started, ok := launchBoard(ctx, runtime, h, stdout, stderr)
-	if !ok {
-		return 1
-	}
-	if started {
-		if err := runtime.openURL(board); err != nil {
-			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+	_, isNative := runtime.nativeCFO(h.State)
+	_, isHerdr := runtime.liveCFO(h.State)
+	isRunning := isNative || isHerdr || runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal)
+	if isSetup || chosen != "" || !isRunning {
+		chosen, err = runtime.setupAgent(ctx, h.State, chosen, isSetup, stdout, stderr)
+		if err != nil {
+			fmt.Fprintln(stderr, "goblins:", err)
+			return 1
 		}
 	}
-	return startCFOSession(ctx, runtime, h.State, native, harness, stdout, stderr)
-}
-
-// runBoardLauncher is goblins --board. It finds or starts the supervisor as
-// goblins does and opens the board in the browser every time, and starts or
-// shows no CFO in this terminal: the board shows the CFO, and its first-run
-// screen while none is registered.
-func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
-	h, err := runtime.resolveHome()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
+	if isRunning && chosen != "" {
+		fmt.Fprintf(stdout, "The CFO already runs, and keeps its harness; %s is the harness goblins starts the next CFO as.\n", chosen)
 	}
-	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	board, _, ok := launchBoard(ctx, runtime, h, stdout, stderr)
 	if !ok {
 		return 1
 	}
-	if err := runtime.openURL(board); err != nil {
-		fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+	session, err := ensureCFOSession(ctx, runtime, h, chosen, stdout, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "goblins:", err)
 		return 1
 	}
-	return 0
+	if !shouldOpenBoard {
+		title := fmt.Sprintf("Your CFO terminal is running\nHome  %s\nBoard \x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\  (Ctrl+click to open)", h.Root, board, board)
+		choice, err := runtime.choose(stdout, title, []string{"Open CFO terminal (Default)", "[B] Open the board"}, 0)
+		if err != nil {
+			fmt.Fprintln(stderr, "goblins:", err)
+			return 1
+		}
+		shouldOpenBoard = choice == 1
+	}
+	if shouldOpenBoard {
+		if err := runtime.openURL(board); err != nil {
+			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+			return 1
+		}
+		return 0
+	}
+	if session.nativeID != "" {
+		return runtime.attachNative(h.State, session.nativeID, stdout, stderr)
+	}
+	if os.Getenv("HERDR_PANE_ID") != "" {
+		fmt.Fprintln(stdout, "The CFO is in front in Herdr.")
+		return 0
+	}
+	return runtime.attachHerdr(session.herdrSession)
 }
 
 // launchBoard finds the supervisor, or starts one detached from this

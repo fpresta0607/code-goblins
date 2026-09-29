@@ -28,7 +28,7 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
         if (entry === CFO_KEY) {
           const view = cfoView(snapshot);
           return <div className="deck-slot" key={entry} hidden={!here}>
-            {view.kind === "host" ? <HostTerminal query={view.query} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            {view.kind === "host" ? <HostTerminal key={snapshot.cfo_generation || snapshot.cfo_terminal} query={view.query} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
               : view.kind === "herdr" ? <NativeTerminal instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
               : <TerminalEmpty text={view.text} />}
           </div>;
