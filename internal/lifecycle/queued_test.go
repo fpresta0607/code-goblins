@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -172,5 +173,45 @@ func TestStopQueuedKeepsTheRowWhenItsBriefCannotBeWritten(t *testing.T) {
 	}
 	if _, err := state.ReadOutcome(h.State, "task"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("an outcome claims the stop: %v", err)
+	}
+}
+
+func TestStopQueuedRecordsFailureWhenRemovalIsBlocked(t *testing.T) {
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	backlog := filepath.Join(h.Data, "backlog.md")
+	content := []byte("## Queued\n- **task** - Fix login (repo: example)\n  Keep this detail.\n")
+	if err := os.WriteFile(backlog, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := lock.ReleaseExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+			t.Error(err)
+		}
+	})
+
+	record, err := StopQueued(h, Request{ID: "task", Operation: "stop-1", Action: "stop"}, "")
+
+	if !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("stop error=%v, want backlog lock refusal", err)
+	}
+	if record.Phase != "failed" || len(record.Problems) != 1 || !strings.Contains(record.Problems[0], lock.ErrHeld.Error()) {
+		t.Errorf("failed stop=%+v", record)
+	}
+	saved, err := state.ReadLifecycle(h.State, "task")
+	if err != nil || saved.Phase != "failed" || len(saved.Problems) != 1 || !strings.Contains(saved.Problems[0], lock.ErrHeld.Error()) || !saved.NoticeSent {
+		t.Errorf("saved failure=%+v %v", saved, err)
+	}
+	if got, err := os.ReadFile(backlog); err != nil || string(got) != string(content) {
+		t.Errorf("row changed after removal failed: %q %v", got, err)
+	}
+	brief, err := os.ReadFile(filepath.Join(h.Data, "task", "brief.md"))
+	if err != nil || !strings.Contains(string(brief), "Keep this detail.") {
+		t.Errorf("brief lost after removal failed: %q %v", brief, err)
+	}
+	if _, err := state.ReadOutcome(h.State, "task"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an outcome claims the stop: %v", err)
 	}
 }
