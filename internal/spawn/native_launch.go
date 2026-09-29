@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sys/windows"
 
@@ -47,6 +48,9 @@ var (
 	// nativeReadySettle is how long a harness's composer stays ready, with no
 	// dialog drawn over it, before anything is typed into it.
 	nativeReadySettle = 2 * time.Second
+	// nativeRedrawNudge is how long typed text may stay undrawn before a
+	// harness that holds it so is made to redraw.
+	nativeRedrawNudge = time.Second
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -286,7 +290,7 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := client.Input([]byte(instruction)); err != nil {
 		return fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 	}
-	if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return screens.Shows(screen, instruction) }); err != nil {
+	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
 		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
 	if err := s.sleep(ctx, settle); err != nil {
@@ -296,6 +300,57 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
 	return nil
+}
+
+// awaitTyped reads the terminal's screen until it shows typed, for at most
+// nativeKeyEffect. A harness that holds typed text undrawn until its next
+// redraw is made to redraw while the text does not show: every
+// nativeRedrawNudge the terminal is widened by one column for a poll and set
+// back, which a harness takes as a resize and never as input.
+func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) error {
+	deadline := time.Now().Add(nativeKeyEffect)
+	nudged := time.Now()
+	for {
+		screen, err := s.readNativeScreen(ctx, record)
+		if err != nil {
+			return err
+		}
+		if screens.Shows(screen, typed) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("not within %s; its screen ends:\n%s", nativeKeyEffect, host.ScreenTail(screen, 8))
+		}
+		if screens.Undrawn && time.Since(nudged) >= nativeRedrawNudge {
+			if err := s.nudgeRedraw(ctx, client, screen); err != nil {
+				return fmt.Errorf("resize native terminal %s so it redraws: %w", record.ID, err)
+			}
+			nudged = time.Now()
+		}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return err
+		}
+	}
+}
+
+// nudgeRedraw widens the terminal by one column for a poll, long enough for
+// its program to redraw at that width, and sets it back to the size screen
+// shows: as many rows as it has and as many columns as its widest row.
+func (s Service) nudgeRedraw(ctx context.Context, client *host.Client, screen []string) error {
+	cols := 0
+	for _, row := range screen {
+		cols = max(cols, utf8.RuneCountInString(row))
+	}
+	if cols < 2 || len(screen) < 2 {
+		return nil
+	}
+	if err := client.Resize(cols+1, len(screen)); err != nil {
+		return err
+	}
+	if err := s.sleep(ctx, nativePoll); err != nil {
+		return err
+	}
+	return client.Resize(cols, len(screen))
 }
 
 // awaitScreen reads the terminal's screen until done holds, for at most

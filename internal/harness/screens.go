@@ -23,6 +23,10 @@ type Screens struct {
 	// take the Enter that ends it as part of the paste, leaving the text in
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
+	// Undrawn says the harness can hold typed text without drawing it until
+	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
+	// on 2026-09-29.
+	Undrawn bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -81,6 +85,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
+			Undrawn:         true,
 		}, true
 	case Pi:
 		return Screens{
