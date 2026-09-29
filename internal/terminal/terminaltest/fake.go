@@ -163,6 +163,10 @@ func (f *Fake) Capture(_ context.Context, target herdr.Target, lines int, _ bool
 	return f.Screen, f.record("Capture", target.String(), strconv.Itoa(lines))
 }
 
+func (f *Fake) VisibleScreen(_ context.Context, target herdr.Target) (string, error) {
+	return f.Screen, f.record("VisibleScreen", target.String())
+}
+
 func (f *Fake) CaptureEvidence(_ context.Context, target herdr.Target) ([]byte, error) {
 	return f.Evidence, f.record("CaptureEvidence", target.String())
 }

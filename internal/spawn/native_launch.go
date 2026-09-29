@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sys/windows"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // A native terminal starts at the size goblins --native starts the CFO at.
@@ -39,6 +42,18 @@ var (
 	nativeAccepted  = 90 * time.Second
 	nativeReadGrace = 10 * time.Second
 	nativeCloseWait = 15 * time.Second
+	// nativeDialogSettle is how long a startup dialog shows before its first
+	// key: a harness draws a dialog before it reads keys.
+	nativeDialogSettle = 2 * time.Second
+	// nativeReadySettle is how long a harness's composer stays ready, with no
+	// dialog drawn over it, before anything is typed into it.
+	nativeReadySettle = 2 * time.Second
+	// nativeRedrawNudge is how long typed text may stay undrawn before a
+	// harness that holds it so is made to redraw.
+	nativeRedrawNudge = time.Second
+	// nativeTypedPace is the time allowed per typed character, on top of
+	// nativeKeyEffect, for a harness that can take typed text in slowly.
+	nativeTypedPace = 50 * time.Millisecond
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -69,39 +84,133 @@ func (s Service) startNativeHarness(ctx context.Context, id string, kind harness
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
-	if err := s.awaitNativeReady(ctx, record, screens); err != nil {
+	untrusted, err := s.awaitNativeReady(ctx, record, screens)
+	if err != nil {
 		return record, err
 	}
-	return record, s.deliverNativeInstruction(ctx, record, screens, launch.PromptInstruction(), launch.Env["CFO_SPAWN_GEN"])
+	if untrusted != "" {
+		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
+			return record, err
+		}
+	}
+	instruction, err := s.typedInstruction(id, screens, launch.PromptInstruction())
+	if err != nil {
+		return record, err
+	}
+	return record, s.deliverNativeInstruction(ctx, record, screens, instruction, launch.Env["CFO_SPAWN_GEN"])
+}
+
+// typedInstructionLimit is the longest instruction typed whole into a harness
+// that takes typed text in slowly.
+const typedInstructionLimit = 400
+
+// typedInstruction is what is typed to deliver instruction to the harness in
+// native terminal id: the instruction itself, or, for a harness that takes
+// typed text in slowly and an instruction longer than typedInstructionLimit,
+// a line pointing at the task's instruction.md, where the whole instruction is
+// written. Live after the 2026-09-29 reboot an idle Codex 0.154 took a
+// 2,940-character brief in at about 17 characters a second, and took an Enter
+// pressed while the rest still arrived as part of the text.
+func (s Service) typedInstruction(id string, screens harness.Screens, instruction string) (string, error) {
+	if !screens.Undrawn || utf8.RuneCountInString(instruction) <= typedInstructionLimit {
+		return instruction, nil
+	}
+	dir := filepath.Join(s.StateDir, "tasktmp", id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("spawn: write the instruction for native terminal %s: %w", id, err)
+	}
+	path := filepath.Join(dir, "instruction.md")
+	if err := os.WriteFile(path, []byte(instruction+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("spawn: write the instruction for native terminal %s: %w", id, err)
+	}
+	return instructionPointer(path), nil
+}
+
+// instructionPointer is the line typed in place of an instruction written to
+// path.
+func instructionPointer(path string) string {
+	return "Read " + path + " and follow it exactly: it is your instruction from the CFO."
 }
 
 // awaitNativeReady reads the terminal's screen until the harness's composer
 // waits for input, answering each startup dialog it recognizes on the way.
 // Only a screen read successfully counts, so seeing no dialog can only come
-// from a screen that shows none.
-func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) error {
+// from a screen that shows none. The composer counts as ready once it has
+// read so throughout nativeReadySettle: Codex 0.154 drew its composer, then
+// its hook review over it a second later, and a brief typed at the first sight
+// of the composer went into the review. It returns what a dialog answered
+// without trust left untrusted, in the dialog's own words, or nothing.
+func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (string, error) {
 	deadline := time.Now().Add(nativeStartup)
+	var untrusted string
+	ready := 0
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
-			return fmt.Errorf("spawn: %w", err)
+			return "", fmt.Errorf("spawn: %w", err)
 		}
 		if dialog, found := screens.Dialog(screen); found {
-			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
-				return err
+			if dialog.Summary != nil {
+				if untrusted = dialog.Summary.FindString(strings.Join(screen, "\n")); untrusted == "" {
+					untrusted = dialog.Name
+				}
 			}
+			if err := s.answerDialog(ctx, record, dialog, screen); err != nil {
+				return "", err
+			}
+			ready = 0
 			continue
 		}
-		if screens.IsReady(screen) {
-			return nil
+		if !screens.IsReady(screen) {
+			ready = 0
+		} else if ready++; ready > readySettleReads() {
+			return untrusted, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
+			return "", fmt.Errorf("spawn: native terminal %s showed neither a dialog it knows nor its harness's composer within %s; its screen ends:\n%s", record.ID, nativeStartup, host.ScreenTail(screen, 8))
 		}
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return err
+			return "", err
 		}
 	}
+}
+
+// readySettleReads is how many reads in a row, nativePoll apart, span
+// nativeReadySettle.
+func readySettleReads() int {
+	return int(nativeReadySettle / nativePoll)
+}
+
+// reportUntrusted tells the CFO, as cfo notify does, that the harness in
+// native terminal id started without trusting the hooks its startup asked to
+// review, so they do not run, and names the hooks a Codex session in dir, the
+// task's worktree, loads: trusting a hook is the Overlord's decision, never a
+// spawn's. The harness already runs, so a hook that cannot be named is
+// reported, never a reason to stop.
+func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary string) error {
+	detail := fmt.Sprintf("%s started without trusting its hooks, so they do not run (%s)", kind, summary)
+	if kind == harness.Codex {
+		var hooks []string
+		meta, err := state.ReadTaskMeta(s.StateDir, id)
+		if err == nil {
+			hooks, err = harness.CodexHooks(meta.Project, dir)
+		}
+		if len(hooks) > 0 {
+			detail += "; the hooks it loads: " + strings.Join(hooks, "; ")
+		}
+		if err != nil {
+			detail += "; not every hook could be named: " + err.Error()
+		}
+		detail += "; config.toml [hooks] tables are not named"
+	}
+	line := "working: " + bounded(state.NormalizeStatusDetail(detail+". Only the Overlord trusts hooks."), 1000)
+	if err := state.AppendStatus(s.StateDir, id, line); err != nil {
+		return fmt.Errorf("spawn: report the hooks %s started without: %w", kind, err)
+	}
+	if _, err := wake.Append(s.StateDir, "notify", id, line); err != nil {
+		return fmt.Errorf("spawn: report the hooks %s started without: %w", kind, err)
+	}
+	return nil
 }
 
 // answerDialog answers one recognized startup dialog. It moves the focus down
@@ -113,8 +222,20 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	if dialog.Accept == "" {
 		return fmt.Errorf("spawn: native terminal %s shows %s, which a spawn never answers; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
 	}
+	// Codex 0.154 drew its hook review before it read keys: a Down sent the
+	// moment the review showed was lost, and the focus never moved. The first
+	// key waits until the dialog has shown for a moment.
+	if err := s.sleep(ctx, nativeDialogSettle); err != nil {
+		return err
+	}
+	screen, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return fmt.Errorf("spawn: %w", err)
+	}
+	if !dialog.Shows(screen) {
+		return nil
+	}
 	if _, ok := dialog.Focused(screen); !ok {
-		var err error
 		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
 			_, ok := dialog.Focused(screen)
 			return ok || !dialog.Shows(screen)
@@ -178,6 +299,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		within = nativeQueuedProof
 	}
 	deadline := time.Now().Add(within)
+	pressed, presses := time.Now(), 0
 	for {
 		if s.PromptSince != nil {
 			if taken, err := s.PromptSince(record.ID, generation, submitted); err == nil && taken {
@@ -191,6 +313,17 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
+		// A harness that takes the Enter ending a paste as part of it leaves
+		// the text in its composer: Enter is pressed again while the text
+		// still shows and no turn has started, further apart each time. An
+		// Enter on an empty composer submits nothing, so the text is never
+		// handed over twice.
+		if !busy && screens.PasteTakesEnter && presses < submitRetries && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
+			if err := pressNativeEnter(record); err != nil {
+				return err
+			}
+			pressed, presses = time.Now(), presses+1
+		}
 		if time.Now().After(deadline) {
 			if busy {
 				return fmt.Errorf("spawn: native terminal %s took the text while its harness was in a turn, and no hook reported the harness taking it within %s: %w", record.ID, within, fleet.ErrQueuedBehindTurn)
@@ -201,6 +334,19 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			return err
 		}
 	}
+}
+
+// pressNativeEnter presses Enter in native terminal record.
+func pressNativeEnter(record host.Record) error {
+	client, err := host.Dial(record)
+	if err != nil {
+		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte("\r")); err != nil {
+		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+	}
+	return nil
 }
 
 // submitNative types the instruction into the harness's composer and submits
@@ -215,7 +361,7 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := client.Input([]byte(instruction)); err != nil {
 		return fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
 	}
-	if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return screens.Shows(screen, instruction) }); err != nil {
+	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
 		return fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
 	}
 	if err := s.sleep(ctx, settle); err != nil {
@@ -225,6 +371,69 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
 	return nil
+}
+
+// awaitTyped reads the terminal's screen until it shows typed, for at most
+// typedWait. A harness that holds typed text undrawn until its next
+// redraw is made to redraw while the text does not show: every
+// nativeRedrawNudge the terminal is widened by one column for a poll and set
+// back, which a harness takes as a resize and never as input.
+func (s Service) awaitTyped(ctx context.Context, client *host.Client, record host.Record, screens harness.Screens, typed string) error {
+	within := typedWait(screens, typed)
+	deadline := time.Now().Add(within)
+	nudged := time.Now()
+	for {
+		screen, err := s.readNativeScreen(ctx, record)
+		if err != nil {
+			return err
+		}
+		if screens.Shows(screen, typed) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("not within %s; its screen ends:\n%s", within, host.ScreenTail(screen, 8))
+		}
+		if screens.Undrawn && time.Since(nudged) >= nativeRedrawNudge {
+			if err := s.nudgeRedraw(ctx, client, screen); err != nil {
+				return fmt.Errorf("resize native terminal %s so it redraws: %w", record.ID, err)
+			}
+			nudged = time.Now()
+		}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return err
+		}
+	}
+}
+
+// typedWait is how long typed takes to show in the harness's composer: a key's
+// effect, and for a harness that can take typed text in slowly, as an idle
+// Codex 0.154 took a 2,940-character brief at about 17 characters a second,
+// nativeTypedPace for each character on top.
+func typedWait(screens harness.Screens, typed string) time.Duration {
+	if !screens.Undrawn {
+		return nativeKeyEffect
+	}
+	return nativeKeyEffect + time.Duration(utf8.RuneCountInString(typed))*nativeTypedPace
+}
+
+// nudgeRedraw widens the terminal by one column for a poll, long enough for
+// its program to redraw at that width, and sets it back to the size screen
+// shows: as many rows as it has and as many columns as its widest row.
+func (s Service) nudgeRedraw(ctx context.Context, client *host.Client, screen []string) error {
+	cols := 0
+	for _, row := range screen {
+		cols = max(cols, utf8.RuneCountInString(row))
+	}
+	if cols < 2 || len(screen) < 2 {
+		return nil
+	}
+	if err := client.Resize(cols+1, len(screen)); err != nil {
+		return err
+	}
+	if err := s.sleep(ctx, nativePoll); err != nil {
+		return err
+	}
+	return client.Resize(cols, len(screen))
 }
 
 // awaitScreen reads the terminal's screen until done holds, for at most

@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -62,6 +63,17 @@ type agentFake struct {
 	// revisionOnly moves revision without state_change_seq and without
 	// leaving idle. This is the observed kimi shape, not a hypothetical.
 	revisionOnly bool
+	// agent is the harness Herdr names for the pane, claude when empty;
+	// screens is what the pane shows before any key and after each one, the
+	// last holding; keys are the keys sent to it, after keyRefusals refused.
+	agent       string
+	screens     []string
+	keys        []string
+	keyRefusals int
+	// readFailure fails every pane read as Herdr failing to run at all;
+	// readRefusals refuses that many pane reads with a nonzero exit first.
+	readFailure  error
+	readRefusals int
 
 	probing         bool
 	accepted        bool
@@ -88,7 +100,26 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		f.probing = true
 		return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"` + args[2] + `"}}}`)}, nil
 	case len(args) >= 4 && args[0] == "pane" && (args[1] == "send-text" || args[1] == "send-keys"):
+		if args[1] == "send-keys" {
+			if f.keyRefusals > 0 {
+				f.keyRefusals--
+				return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
+			}
+			f.keys = append(f.keys, args[3])
+		}
 		return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
+	case len(args) >= 3 && args[0] == "pane" && args[1] == "read":
+		if f.readFailure != nil {
+			return execx.Result{}, f.readFailure
+		}
+		if f.readRefusals > 0 {
+			f.readRefusals--
+			return execx.Result{ExitCode: 1, Stderr: []byte("pane read: pane busy")}, nil
+		}
+		if len(f.screens) == 0 {
+			return execx.Result{}, nil
+		}
+		return execx.Result{Stdout: []byte(f.screens[min(len(f.keys), len(f.screens)-1)])}, nil
 	case len(args) >= 3 && args[0] == "agent" && args[1] == "prompt":
 		f.promptCalls++
 		if f.promptRefusals > 0 {
@@ -145,7 +176,11 @@ func (f *agentFake) Run(_ context.Context, request execx.Request) (execx.Result,
 		if status == "" {
 			status = "idle"
 		}
-		body := `{"result":{"agent":{"agent":"claude","agent_status":"` + status +
+		agent := f.agent
+		if agent == "" {
+			agent = "claude"
+		}
+		body := `{"result":{"agent":{"agent":"` + agent + `","agent_status":"` + status +
 			`","state_change_seq":` + strconv.FormatInt(f.seq, 10) +
 			`,"revision":` + strconv.FormatInt(f.revision, 10) + `}}}`
 		return execx.Result{Stdout: []byte(body)}, nil
@@ -187,6 +222,102 @@ func newAgentSender(f *agentFake) Sender {
 // which carries no task metadata.
 func newExplicitPaneSender(f *agentFake) Sender {
 	return senderFor(f, &fakeResolver{target: fakeTarget})
+}
+
+// On 2026-09-28 cfo send and board answers to Codex goblins, submitted
+// through Herdr's agent prompt, sat in Codex's composer, idle or mid-turn:
+// Codex read the typing as a paste and took the Enter that ended it as part
+// of the paste. A message still showing is submitted again, further apart
+// each time, until an idle Codex shows a turn on it or the message leaves the
+// composer; on the scratch proof an Enter half a second after the prompt was
+// taken as part of the paste too, while one a few seconds later submitted.
+func TestSenderTextSubmitsAMessageCodexLeftInItsComposer(t *testing.T) {
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	working := "› CFO: ship it\n\n• Working (2s • esc to interrupt)\n› Ask Codex to do anything\n  100% context left\n"
+	idle := "› Ask Codex to do anything\n  100% context left\n"
+	for name, test := range map[string]struct {
+		status  string
+		screens []string
+		enters  int
+	}{
+		"idle, taken on the first Enter again":        {"idle", []string{stuck, working}, 1},
+		"idle, taken only on a later Enter":           {"idle", []string{stuck, stuck, working}, 2},
+		"mid-turn, taken once it leaves the composer": {"working", []string{stuck, idle}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := newAgentFake(agentFake{agent: "codex", status: test.status, screens: test.screens})
+
+			err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+			if err != nil {
+				t.Fatalf("Text: %v", err)
+			}
+			if fake.promptCalls != 1 || len(fake.keys) != test.enters || slices.ContainsFunc(fake.keys, func(key string) bool { return key != "enter" }) {
+				t.Errorf("prompts %d, keys %q; want one prompt and %d Enters for the message left in the composer", fake.promptCalls, fake.keys, test.enters)
+			}
+		})
+	}
+}
+
+// Codex's transcript echoes a message it took, so a message that still shows
+// after agent prompt may already be delivered. Herdr refusing the Enter that
+// would submit it again is reported as an unconfirmed delivery, never as one
+// that sent nothing, which would invite a second send.
+func TestSenderTextReportsARefusedResubmitUnconfirmed(t *testing.T) {
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	fake := newAgentFake(agentFake{agent: "codex", status: "idle", screens: []string{stuck}, keyRefusals: 1})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), "pane busy") {
+		t.Fatalf("Text = %v, want an unconfirmed delivery wrapping Herdr's refusal", err)
+	}
+	if fake.promptCalls != 1 || len(fake.keys) != 0 {
+		t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter taken", fake.promptCalls, fake.keys)
+	}
+}
+
+// Once agent prompt has taken the message, a composer Herdr cannot read leaves
+// its delivery unconfirmed, never an error that reads as nothing sent, whether
+// Herdr fails to run or refuses every read.
+func TestSenderTextReportsAnUnreadableComposerAfterThePromptUnconfirmed(t *testing.T) {
+	for name, test := range map[string]struct {
+		shape agentFake
+		cause string
+	}{
+		"herdr fails to run":       {agentFake{agent: "codex", status: "idle", readFailure: errors.New("herdr stopped answering")}, "herdr stopped answering"},
+		"herdr refuses every read": {agentFake{agent: "codex", status: "idle", readRefusals: submitRetries}, "pane busy"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := newAgentFake(test.shape)
+
+			err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+			if err == nil || !strings.Contains(err.Error(), "unconfirmed") || !strings.Contains(err.Error(), test.cause) {
+				t.Fatalf("Text = %v, want an unconfirmed delivery wrapping the failed read", err)
+			}
+			if fake.promptCalls != 1 || len(fake.keys) != 0 {
+				t.Errorf("prompts %d, keys %q; want the message submitted once and no Enter", fake.promptCalls, fake.keys)
+			}
+		})
+	}
+}
+
+// A composer read Herdr refuses for a moment is tried again at the next press,
+// and a later read decides the resubmit as if none had been refused.
+func TestSenderTextResubmitsAfterAComposerReadRefusedOnce(t *testing.T) {
+	stuck := "› CFO: ship it\n\n  tab to queue message    100% context left\n"
+	working := "› CFO: ship it\n\n• Working (2s • esc to interrupt)\n› Ask Codex to do anything\n  100% context left\n"
+	fake := newAgentFake(agentFake{agent: "codex", status: "idle", screens: []string{stuck, working}, readRefusals: 1})
+
+	err := newAgentSender(fake).Text(context.Background(), "task-7", "ship it")
+
+	if err != nil {
+		t.Fatalf("Text: %v", err)
+	}
+	if fake.promptCalls != 1 || !slices.Equal(fake.keys, []string{"enter"}) {
+		t.Errorf("prompts %d, keys %q; want one prompt and one Enter once the composer was read", fake.promptCalls, fake.keys)
+	}
 }
 
 // The message goes through the native agent channel and nothing is typed into

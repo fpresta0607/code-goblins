@@ -516,6 +516,21 @@ func TestPaneOperationsUseCorrectPrimitiveAndCaptureTail(t *testing.T) {
 	})
 }
 
+func TestVisibleScreenReadsOnlyTheVisibleRows(t *testing.T) {
+	runner := &fakeRunner{replies: []runnerReply{rawReply("PS C:\\work> \n")}}
+	var sleeps []time.Duration
+	client := newTestClient(runner, &sleeps)
+
+	got, err := client.VisibleScreen(context.Background(), Target{Session: "fleet", Pane: "w1:p2"})
+
+	if err != nil || got != "PS C:\\work> \n" {
+		t.Fatalf("VisibleScreen = %q, %v", got, err)
+	}
+	assertRequests(t, runner.Requests(), []execx.Request{
+		command("herdr", "pane", "read", "w1:p2", "--source", "visible", "--session", "fleet"),
+	})
+}
+
 func TestAgentStartAndPromptUseNativeCommands(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{rawReply(""), rawReply(""), rawReply(""), rawReply("")}}
 	var sleeps []time.Duration

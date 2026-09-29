@@ -19,17 +19,28 @@ type Screens struct {
 	Working *regexp.Regexp
 	// Pasted is how the composer shows typed text it collapsed as a paste.
 	Pasted []string
+	// PasteTakesEnter says the harness reads fast typing as a paste and can
+	// take the Enter that ends it as part of the paste, leaving the text in
+	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
+	PasteTakesEnter bool
+	// Undrawn says the harness can hold typed text without drawing it until
+	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
+	// on 2026-09-29.
+	Undrawn bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
 // shows, by moving the focus, the option whose row starts with Focus, down to
 // the option that starts with Accept, then confirming that option with Enter.
-// A dialog without Accept is never answered: it stops the spawn.
+// A dialog without Accept is never answered: it stops the spawn. Summary marks
+// a dialog whose answer leaves untrusted what it lists: the row it matches says
+// how much, and the spawn reports it.
 type Dialog struct {
 	Name    string
 	Markers []string
 	Focus   string
 	Accept  string
+	Summary *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -58,17 +69,24 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Dialogs: []Dialog{
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: "›", Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: "›", Accept: "1. Yes, continue"},
-				// Trusting hooks is the Overlord's decision, never a spawn's.
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›"},
+				// Trusting hooks is the Overlord's decision, never a spawn's: a
+				// goblin continues without trusting them, so they do not run,
+				// and the spawn reports them.
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›", Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
 			},
-			// Codex's composer, working and paste texts are its known ones,
-			// not yet seen in a capture on this machine (CFO decision 2353):
-			// the first live native codex spawn checks them. A turn in progress
-			// shows only in the status row, as in "• Working (5s • esc to
-			// interrupt)": a reply may say "Working" anywhere else.
-			Ready:   regexp.MustCompile(`context left`),
-			Working: regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
-			Pasted:  []string{"[Pasted Content"},
+			// Captured live on Codex 0.154: the empty composer shows its
+			// placeholder, at start and after a turn (the binary also holds
+			// "Ask a follow-up question"), above a footer naming the
+			// model and folder ("gpt-6-astra low · ~\..."); a footer that
+			// counts the context left shows while text waits behind a turn. A
+			// turn in progress shows only in the status row, as in "• Working
+			// (5s • esc to interrupt)", whose glyph alternates with ◦: a reply
+			// may say "Working" anywhere else.
+			Ready:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
+			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
+			Pasted:          []string{"[Pasted Content"},
+			PasteTakesEnter: true,
+			Undrawn:         true,
 		}, true
 	case Pi:
 		return Screens{

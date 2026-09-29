@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -29,6 +30,9 @@ const (
 	// every harness measured, with room for a loaded host.
 	confirmBudget = 5 * time.Second
 	confirmPolls  = 10
+	// submitRetries is how many more times a message a harness left in its
+	// composer is submitted.
+	submitRetries = 3
 
 	// typeSettle lets a pane take typed text before Enter submits it, and
 	// completionSettle is the longer wait a message that opens a harness
@@ -63,13 +67,16 @@ type Sender struct {
 // selector whose agent is gone is refused outright and never typed into: a
 // goblin is addressed through its agent or not at all.
 //
-// Neither mode types into a composer and reads the text back afterwards. That
-// is what this did, and it is unreliable for the same reason spawn's
-// instruction read-back was: a harness renders a submitted prompt however it
-// likes, and Claude Code renders anything it treats as a paste as a collapsed
+// Neither mode proves delivery by reading the composer back. That is what
+// this did, and it is unreliable for the same reason spawn's instruction
+// read-back was: a harness renders a submitted prompt however it likes, and
+// Claude Code renders anything it treats as a paste as a collapsed
 // placeholder. The composer then never shows the message, every submit reads
 // as unconfirmed, and a message the CFO believes was delivered is silently
-// lost mid-turn.
+// lost mid-turn. The one read-back left is for a harness that takes the
+// ending Enter as part of a paste, such as Codex: while its pane still shows
+// the message, Enter is pressed again (see submitLeftInComposer), and the
+// delivery is still confirmed by the counters alone.
 func (s Sender) Text(ctx context.Context, raw string, message string) error {
 	target, addressedExplicitly, err := s.target(ctx, raw)
 	if err != nil {
@@ -113,6 +120,11 @@ func (s Sender) Text(ctx context.Context, raw string, message string) error {
 
 	if err := s.Terminal.AgentPrompt(ctx, target, message); err != nil {
 		return fmt.Errorf("fleet: submit text for %s: %w", target, err)
+	}
+	if screens, ok := harness.NativeScreens(harness.Kind(before.Agent)); ok && screens.PasteTakesEnter {
+		if err := s.submitLeftInComposer(ctx, target, screens, message, before.Status == herdr.AgentWorking); err != nil {
+			return err
+		}
 	}
 
 	// The prompt is submitted once. `agent prompt` submits on success, so a
@@ -210,6 +222,49 @@ func preSubmitRead[T any](ctx context.Context, sleep func(context.Context, time.
 		lastErr = err
 	}
 	return zero, lastErr
+}
+
+// submitLeftInComposer presses Enter again while the message still shows on
+// the pane after `agent prompt` returned, which is how a harness that took the
+// ending Enter as part of a paste leaves it, whether it was idle or mid-turn:
+// one, two and three seconds apart, at most submitRetries times. A goblin that
+// was idle has taken the message once it shows a turn. The harness is the one
+// Herdr names for the pane, never a recorded one. No Enter can deliver the
+// message twice: a submitted message leaves the composer, and an Enter on an
+// empty composer submits nothing. A read that fails for a moment is tried
+// again at the next press. The message may already be taken when Herdr cannot
+// read the pane at all or refuses an Enter, so either is reported as an
+// unconfirmed delivery, never as one that sent nothing.
+func (s Sender) submitLeftInComposer(ctx context.Context, target herdr.Target, screens harness.Screens, message string, wasWorking bool) error {
+	var lastReadErr error
+	for press := 1; press <= submitRetries; press++ {
+		if err := s.sleep(ctx, time.Duration(press)*time.Second); err != nil {
+			return fmt.Errorf("%w; the wait before reading %s's composer ended: %w", unconfirmed(target, herdr.SubmitPending), target, err)
+		}
+		capture, err := s.Terminal.VisibleScreen(ctx, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("%w; %s's composer could not be read: %w", unconfirmed(target, herdr.SubmitPending), target, err)
+			}
+			lastReadErr = err
+			continue
+		}
+		lastReadErr = nil
+		screen := strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n")
+		if !wasWorking && screens.IsWorking(screen) {
+			return nil
+		}
+		if !screens.Shows(screen, message) {
+			return nil
+		}
+		if err := s.Terminal.SendKey(ctx, target, "Enter"); err != nil {
+			return fmt.Errorf("%w; submitting the text left in %s's composer was refused: %w", unconfirmed(target, herdr.SubmitPending), target, err)
+		}
+	}
+	if lastReadErr != nil {
+		return fmt.Errorf("%w; %s's composer could not be read: %w", unconfirmed(target, herdr.SubmitPending), target, lastReadErr)
+	}
+	return nil
 }
 
 // TypeSettleFor is how long to wait after typing message before Enter submits

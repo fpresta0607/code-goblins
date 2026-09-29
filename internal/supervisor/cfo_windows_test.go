@@ -115,6 +115,10 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		body = fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.pid)
 	case len(a) >= 2 && a[0] == "pane" && a[1] == "get":
 		body = `{"result":{"pane":{"pane_id":"w1:p1"}}}`
+	case len(a) >= 2 && a[0] == "pane" && a[1] == "read":
+		// The pane's screen: an empty Codex composer, as one that took the
+		// message it was sent shows.
+		return execx.Result{Stdout: []byte("› Ask Codex to do anything\n  100% context left\n")}, nil
 	case len(a) >= 2 && a[0] == "agent" && a[1] == "get":
 		body = fmt.Sprintf(`{"result":{"agent":{"agent":"codex","agent_status":"idle","revision":%d,"state_change_seq":%d}}}`, 10+len(r.prompts), 10+len(r.prompts))
 		if r.busy {

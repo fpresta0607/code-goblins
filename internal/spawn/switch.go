@@ -206,6 +206,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: resolve worktree manifest: %w", err)
 	}
+	// A Codex goblin turns off the operator's MCP servers, and a server it
+	// cannot turn off is refused while the old harness still runs.
+	codexServers, err := codexMCPServers(target.Harness)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w", err)
+	}
 	// A relaunch reuses the task's own Go temporary directory and recreates it
 	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
 	// the path and the directory are knowable now - an unresolvable user cache
@@ -276,7 +282,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		return SwitchResult{}, err
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
@@ -348,16 +354,17 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
-// Switch and handed in, redirects included.
-func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// Switch and handed in, redirects and Codex's MCP servers included.
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: briefPath,
-		TaskTmp:   meta.TaskTmp,
-		GoTmp:     goTmp,
-		Model:     target.Model,
-		Effort:    target.Effort,
-		MCPConfig: goblinMCPConfig(meta.TaskTmp),
+		BriefPath:       briefPath,
+		TaskTmp:         meta.TaskTmp,
+		GoTmp:           goTmp,
+		Model:           target.Model,
+		Effort:          target.Effort,
+		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		CodexMCPServers: codexServers,
 	})
 	if err != nil {
 		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
