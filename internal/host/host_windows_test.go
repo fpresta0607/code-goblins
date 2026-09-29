@@ -398,6 +398,121 @@ func TestALateViewerReplaysTheHistoryAtItsSizes(t *testing.T) {
 	}
 }
 
+// frame is one frame a scripted host sends.
+type frame struct {
+	kind    byte
+	payload []byte
+}
+
+// scriptedHost serves one connection as a host that answers the handshake
+// with answer, sends frames and closes the connection, and returns the record
+// that names it and the hello the client said.
+func scriptedHost(t *testing.T, answer hello, frames ...frame) (Record, <-chan hello) {
+	t.Helper()
+	name, err := pipeName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipes, err := listen(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { windows.CloseHandle(pipes.waiting) })
+	said := make(chan hello, 1)
+	go func() {
+		defer close(said)
+		connection, err := pipes.accept()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		greeting, err := readHello(connection)
+		if err != nil {
+			return
+		}
+		said <- greeting
+		if writeHello(connection, answer) != nil {
+			return
+		}
+		for _, f := range frames {
+			if writeFrame(connection, f.kind, f.payload) != nil {
+				return
+			}
+		}
+	}()
+	return Record{ID: "old", Pipe: name, Token: "token", Version: Version, HostPID: os.Getpid()}, said
+}
+
+// A host from before sizes were told answers View as it answers any viewer,
+// with its history as its first output, so View counts that output as the
+// history and Next still returns it first, then the live output.
+func TestAViewOfAHostThatTellsNoSizesCountsItsFirstOutputAsTheHistory(t *testing.T) {
+	record, said := scriptedHost(t, hello{Version: Version}, frame{frameOutput, []byte("old history")}, frame{frameOutput, []byte("live")})
+
+	client, err := View(record)
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	defer client.Close()
+
+	if greeting := <-said; !greeting.Sizes {
+		t.Errorf("View said %+v, want it to ask for sizes", greeting)
+	}
+	if client.IsToldSizes() {
+		t.Error("the client expects sizes from a host that tells none")
+	}
+	if client.History() != len("old history") {
+		t.Errorf("History = %d, want the first output's %d bytes", client.History(), len("old history"))
+	}
+	for _, want := range []string{"old history", "live"} {
+		event, err := client.Next()
+		if err != nil || string(event.Output) != want || event.Cols != 0 || event.Exited {
+			t.Fatalf("Next = %+v, %v; want the output %q", event, err, want)
+		}
+	}
+}
+
+// A host from before sizes were told that ends the connection before the
+// history it owes every viewer is refused by View rather than viewed with no
+// history.
+func TestAViewOfAHostThatSendsNoHistoryIsAnError(t *testing.T) {
+	record, _ := scriptedHost(t, hello{Version: Version})
+
+	client, err := View(record)
+
+	if err == nil {
+		_ = client.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "read the history") {
+		t.Fatalf("View error = %v, want the missing history named", err)
+	}
+}
+
+// A size frame whose payload is not a width and a height is refused by Next
+// rather than read as a size.
+func TestAMalformedSizeFrameIsRefused(t *testing.T) {
+	for name, payload := range map[string][]byte{
+		"short": {0, 100, 0},
+		"long":  {0, 100, 0, 30, 0},
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			record, _ := scriptedHost(t, hello{Version: Version, Sizes: true}, frame{frameSize, payload})
+			client, err := View(record)
+			if err != nil {
+				t.Fatalf("View: %v", err)
+			}
+			defer client.Close()
+
+			event, err := client.Next()
+
+			if err == nil || !strings.Contains(err.Error(), "malformed size frame") {
+				t.Fatalf("Next = %+v, %v; want the size frame refused", event, err)
+			}
+		})
+	}
+}
+
 // A client that types and never reads reaches the terminal, even while the
 // host has more history for it than the pipe holds.
 func TestAClientThatNeverReadsStillTypesIntoTheTerminal(t *testing.T) {
