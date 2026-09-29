@@ -24,11 +24,12 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	model := flags.String("model", "", "model for the new harness")
 	effort := flags.String("effort", "", "reasoning effort for the new harness")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
+	native := flags.Bool("native", false, "move a task running in Herdr into a native terminal of its own, resuming its session")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if *harnessName == "" && *model == "" && *effort == "" {
-		fmt.Fprintln(stderr, "cfo switch: one of --harness, --model, or --effort is required")
+	if *harnessName == "" && *model == "" && *effort == "" && !*native {
+		fmt.Fprintln(stderr, "cfo switch: one of --harness, --model, --effort, or --native is required")
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
@@ -47,6 +48,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		Model:      *model,
 		Effort:     *effort,
 		ForceDirty: *forceDirty,
+		Native:     *native,
 		Session:    herdrSession(),
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	})

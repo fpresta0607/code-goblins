@@ -37,7 +37,11 @@ type SwitchRequest struct {
 	Model      string
 	Effort     string
 	ForceDirty bool
-	Session    string
+	// Native moves a task that runs in Herdr into a native terminal of its
+	// own, under the same id, in the same worktree and branch, resuming its
+	// harness's session there.
+	Native  bool
+	Session string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
 	BriefPath string
@@ -96,6 +100,10 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if meta.Backend != "herdr" && !native {
 		return SwitchResult{}, fmt.Errorf("switch: task %s runs in backend %q, which switch cannot reach", req.ID, meta.Backend)
 	}
+	if req.Native && native {
+		return SwitchResult{}, fmt.Errorf("switch: task %s already runs in a native terminal", req.ID)
+	}
+	moving := req.Native
 	if !native && s.Terminals == nil {
 		return SwitchResult{}, errors.New("switch: terminal backend is required")
 	}
@@ -127,7 +135,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		paneTarget = herdr.Target{Session: session, Pane: meta.HerdrPaneID}
 	}
 
-	if target.same(meta) {
+	if target.same(meta) && !moving {
 		var alive bool
 		if native {
 			alive = nativeTerminalRuns(s.StateDir, meta.ID)
@@ -147,7 +155,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if native {
+	if native || moving {
 		if _, ok := harness.NativeScreens(target.Harness); !ok {
 			return SwitchResult{}, fmt.Errorf("switch: %s cannot run in a native terminal yet; task %s was left running as it was", target.Harness, req.ID)
 		}
@@ -190,7 +198,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	isResumeInPlace := native && target.same(meta)
+	isResumeInPlace := (native || moving) && target.same(meta)
 	if dirty != "" && !req.ForceDirty && !isResumeInPlace {
 		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
@@ -276,6 +284,14 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
+	// A task moving out of Herdr is recorded as native before its terminal
+	// starts, so its first native hook finds it; its Herdr tab closes once
+	// the native terminal has taken over.
+	herdrSession, herdrTab := paneTarget.Session, meta.HerdrTabID
+	if moving {
+		meta.Backend, meta.Window = "native", "native"
+		meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
+	}
 	launchMeta := meta
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
@@ -295,7 +311,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		var recovery string
 		var status herdr.AgentStatus
 		var statusErr error
-		if native {
+		if native || moving {
 			status = herdr.AgentDead
 			if nativeTerminalRuns(s.StateDir, meta.ID) {
 				status = herdr.AgentAlive
@@ -332,6 +348,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	} else {
 		line += " (resumed in place)"
 	}
+	if moving {
+		line += " in a native terminal, out of Herdr"
+	}
 	if err := state.AppendStatus(s.StateDir, req.ID, line); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: record switch: %w", err)
 	}
@@ -344,6 +363,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
+	}
+	if moving {
+		if err := terminals.CloseTab(ctx, herdrSession, herdrTab); err != nil {
+			result.Output += fmt.Sprintf("\nherdr: the task's old tab %s in session %s could not be closed (%v); close it by hand, it holds no harness", herdrTab, herdrSession, err)
+		}
 	}
 	return result, nil
 }

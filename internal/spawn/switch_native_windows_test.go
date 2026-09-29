@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -334,4 +335,76 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 			}
 		}
 	})
+}
+
+// A goblin running in Herdr moves into a native terminal in place: its
+// harness stops in its Herdr pane, the same task id, worktree and branch get
+// a native terminal of their own where the harness resumes its session with
+// its resume arguments, the task is recorded as native with no Herdr pane, and
+// its Herdr tab closes. On 2026-09-29 Herdr, restored after a reboot, had
+// relaunched two goblins' sessions by itself without their environment.
+func TestAHerdrGoblinMovesIntoANativeTerminalInPlace(t *testing.T) {
+	f := newSwitchFixture(t)
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	copyFile(t, program, filepath.Join(bin, "codex.exe"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The premise: the codex this move starts is the fake, never the real one
+	// on this machine.
+	if found, err := exec.LookPath("codex"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "codex.exe")) {
+		t.Fatalf("codex resolves to %q, %v; want the fake", found, err)
+	}
+	f.service.UserEnvironment = func() ([]string, error) { return os.Environ(), nil }
+	record := filepath.Join(t.TempDir(), "codex.jsonl")
+	t.Setenv(fakeCodexRecord, record)
+	t.Setenv(fakeCodexMode, "")
+	f.service.Sleep = nil
+	f.service.HostCommand = []string{program, nativeSpawnHost}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/quit", ResumeArgs: []string{"resume", "--last"}}}}}
+	meta := f.meta
+	meta.Harness, meta.Model, meta.Effort = string(harness.Codex), "default", "default"
+	if err := state.WriteTaskMeta(f.stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if running, err := host.ReadRecord(f.stateDir, meta.ID); err == nil {
+			if err := host.Close(f.stateDir, running, nativeCloseWait); err != nil {
+				t.Errorf("close the native terminal: %v", err)
+			}
+		}
+	})
+
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: meta.ID, Native: true, Session: "fleet"})
+
+	if err != nil {
+		data, _ := os.ReadFile(record)
+		t.Fatalf("Switch: %v\nfake codex recorded:\n%s", err, data)
+	}
+	moved, err := state.ReadTaskMeta(f.stateDir, meta.ID)
+	if err != nil || moved.Backend != "native" || moved.Window != "native" || moved.HerdrPaneID != "" || moved.HerdrTabID != "" || moved.Worktree != meta.Worktree || moved.SpawnGen == meta.SpawnGen {
+		t.Errorf("task record = %+v, %v; want it native, out of Herdr, in the same worktree, a new generation", moved, err)
+	}
+	if !result.Resumed || result.Handoff != "" {
+		t.Errorf("result = %+v, want the session resumed in place", result)
+	}
+	if terminal, err := host.ReadRecord(f.stateDir, meta.ID); err != nil || !host.Running(terminal) {
+		t.Errorf("native terminal %s = %+v, %v; want it running", meta.ID, terminal, err)
+	}
+	fake := &nativeFixture{fixture: f.base, record: record}
+	events := fake.events(t)
+	if launches := named(events, "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume --last ") {
+		t.Errorf("launches = %+v, want codex started once with its resume arguments first", launches)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+		t.Errorf("submitted = %+v, want the resumed session told to continue once", submitted)
+	}
+	closed := slices.ContainsFunc(f.runner.herdrCalls, func(call execx.Request) bool {
+		return slices.Contains(call.Args, "tab") && slices.Contains(call.Args, "close") && slices.Contains(call.Args, meta.HerdrTabID)
+	})
+	if !closed {
+		t.Errorf("herdr calls = %v, want the task's old tab %s closed", f.runner.herdrCalls, meta.HerdrTabID)
+	}
 }
