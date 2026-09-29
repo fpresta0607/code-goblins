@@ -753,7 +753,7 @@ func handoffInstruction(handoff, briefPath, id string) string {
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
-	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off.",
+	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked.",
 		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta.ID)
 }
 

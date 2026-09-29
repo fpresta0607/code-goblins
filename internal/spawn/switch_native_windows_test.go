@@ -398,8 +398,8 @@ func TestAHerdrGoblinMovesIntoANativeTerminalInPlace(t *testing.T) {
 	if launches := named(events, "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume --last ") {
 		t.Errorf("launches = %+v, want codex started once with its resume arguments first", launches)
 	}
-	if submitted := named(events, "submitted"); len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
-		t.Errorf("submitted = %+v, want the resumed session told to continue once", submitted)
+	if submitted := named(events, "submitted"); len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") || !strings.Contains(delivered(t, submitted[0].Text), "ask it again with cfo notify --blocked") {
+		t.Errorf("submitted = %+v, want the resumed session told to continue, and to ask again a question the restart cancelled, once", submitted)
 	}
 	closed := slices.ContainsFunc(f.runner.herdrCalls, func(call execx.Request) bool {
 		return slices.Contains(call.Args, "tab") && slices.Contains(call.Args, "close") && slices.Contains(call.Args, meta.HerdrTabID)
