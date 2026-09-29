@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 )
@@ -101,9 +102,26 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "claude.exe"), program, 0o700); err != nil {
+		claudePath := filepath.Join(dir, "claude.exe")
+		if err := os.WriteFile(claudePath, program, 0o700); err != nil {
 			t.Fatal(err)
 		}
+		// Antivirus can still hold the freshly written program when the test
+		// ends, so remove it with retries before t.TempDir's cleanup runs.
+		t.Cleanup(func() {
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				err := os.Remove(claudePath)
+				if err == nil {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Errorf("remove %s: %v", claudePath, err)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
 		return
 	}
 	script := "@echo off\r\necho " + name + " 1.0.0\r\n"
