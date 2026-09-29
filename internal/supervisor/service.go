@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
+	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -69,6 +70,8 @@ type Service struct {
 	presentationChecked  time.Time
 	presentationIdentity string
 	registration         string
+	connectionChecks     *connections.Cache
+	connectionInspector  *connections.Inspector
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
@@ -124,7 +127,16 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	return s, nil
 }
 
-func (s *Service) Close() { s.cancel(); <-s.done }
+func (s *Service) Close() {
+	s.cancel()
+	<-s.done
+	s.mu.Lock()
+	checks := s.connectionChecks
+	s.mu.Unlock()
+	if checks != nil {
+		checks.Close()
+	}
+}
 
 func (s *Service) Done() <-chan struct{} { return s.done }
 

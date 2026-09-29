@@ -146,11 +146,11 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
 
 // The task view of the goblin panel: where the work lives, what changed and
 // what happened, below the panel header.
-export function TaskView({ task, snapshot, connected, reviews }: {
-  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
+export function TaskView({ task, snapshot, connected, reviews, onRepair }: {
+  task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; onRepair?: (key: string) => void;
 }) {
   return <div className="panel-content">
-      <WorkspaceDetails task={task} />
+      <WorkspaceDetails task={task} onRepair={onRepair} />
       {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure title="Activity"><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}

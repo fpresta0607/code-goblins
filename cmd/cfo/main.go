@@ -349,6 +349,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDrain(h, args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr, runtime)
+	case "connection-repair":
+		return runConnectionRepair(args[1:], stdout, stderr)
 	case "project":
 		return runProject(args[1:], stdout, stderr, runtime)
 	case "route":

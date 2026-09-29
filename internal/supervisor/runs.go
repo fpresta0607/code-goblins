@@ -43,7 +43,8 @@ const (
 var runShells = []string{"powershell", "pwsh", "bash"}
 
 // Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. Only the registered primary CFO creates one.
+// click from the Command Center. The registered primary CFO can create one;
+// the board can also create a connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
 // executes that file, never anything the browser sends.
 type Run struct {
@@ -70,6 +71,9 @@ type Run struct {
 	ExpiresAt  time.Time  `json:"expires_at"`
 	RanAt      *time.Time `json:"ran_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+
+	ConnectionTask       string `json:"connection_task,omitempty"`
+	ConnectionGeneration string `json:"connection_generation,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -376,6 +380,15 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 		return Evaluation{}, fmt.Errorf("%w: the run item changed; nothing ran", ErrRejected)
 	}
 	r := runs[i]
+	if r.ConnectionTask != "" {
+		meta, err := s.connectionTask(r.ConnectionTask, r.ConnectionGeneration)
+		if err == nil {
+			err = s.verifyWorkspace(ctx, meta)
+		}
+		if err != nil {
+			return Evaluation{}, errors.Join(ErrRejected, err, s.completeRun(ctx, r, nil, "the task changed; nothing ran"))
+		}
+	}
 	dir := runDir(s.Store.Home.State, r)
 	name, _ := runScript(r)
 	script := filepath.Join(dir, name)
@@ -447,6 +460,10 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		return err
 	}
 	err = appendRunAudit(s.Store.Home.State, r, code, time.Now().UTC())
+	if r.ConnectionTask != "" {
+		checks, _ := s.connections()
+		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
+	}
 	text := fmt.Sprintf("Run item %s (%s) did not finish: %s.", r.ID, r.Title, reason)
 	if code != nil {
 		text = fmt.Sprintf("Run item %s (%s) finished with exit code %d.", r.ID, r.Title, *code)
