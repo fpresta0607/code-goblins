@@ -55,6 +55,13 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 		if still, err := recorded(); err == nil && !still {
 			return nil
 		}
+		// A host whose removal a reader kept refusing ends with its record
+		// still there: its end is what this waits for, and the record goes
+		// with it.
+		if !Running(launched) {
+			removeRecord(stateDir, launched.ID, launched.HostPID)
+			return nil
+		}
 	}
 	return fmt.Errorf("the host of native terminal %s did not end", launched.ID)
 }
