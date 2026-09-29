@@ -370,7 +370,7 @@ Start records a new folder as the machine's projects root, as `cfo install --pro
 Only Claude Code can start today, since goblins can wake only a Claude Code CFO, and a Claude Code the terminal cannot start itself (anything but `claude.exe`) says so.
 Start is refused, with the reason, while a CFO runs or is starting, for a folder that is not a full path, cannot be read or holds no checkout, and for a project that is not one of its checkouts; an example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
 After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open terminal, which leads back to the first-run page.
-Keys pass through raw, the terminal follows the console's size, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
+Keys pass through raw, the terminal follows the console's size, taken back with the next key after another viewer resized it, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
 `cfo peek gb-<id>`, the form fleet-view suggests, reads a native task's terminal as `cfo peek <id>` does.
