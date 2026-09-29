@@ -556,6 +556,22 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 	}
 }
 
+// A harness that can take typed text in slowly, as an idle Codex 0.154 took a
+// 2,940-character brief at about 17 characters a second, is given time for
+// each character; any other is given a key's effect.
+func TestTypedTextIsGivenTimeByItsLengthWhereAHarnessTakesItInSlowly(t *testing.T) {
+	codex, _ := harness.NativeScreens(harness.Codex)
+	claude, _ := harness.NativeScreens(harness.Claude)
+	brief := strings.Repeat("x", 2940)
+
+	if got, want := typedWait(codex, brief), nativeKeyEffect+2940*nativeTypedPace; got != want {
+		t.Errorf("codex: wait = %s, want %s", got, want)
+	}
+	if got := typedWait(claude, brief); got != nativeKeyEffect {
+		t.Errorf("claude: wait = %s, want %s", got, nativeKeyEffect)
+	}
+}
+
 // Codex asks at every start to review hooks that are new or changed. Trusting
 // a hook is the Overlord's decision, never a spawn's, yet the goblin must not
 // stop there: the spawn continues without trusting them, so they do not run,
