@@ -90,8 +90,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	case Pi:
 		return Screens{
-			// Its focused option has not been seen, so it is never answered.
-			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}}},
+			// Captured on pi 0.85.1 started without --approve: "→ Trust" is
+			// focused first, above "Trust parent folder", "Trust (this session
+			// only)", "Do not trust" and "Do not trust (this session only)".
+			// Trusting for this session only matches --approve and saves
+			// nothing to pi's trust store; a pi that does not offer it still
+			// stops the spawn with the prompt named.
+			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}, Focus: "→", Accept: "Trust (this session only)"}},
 			// The context meter in the footer's last row, as in "0.0%/1.0M
 			// (auto)", which the session's token counts and cost lead once a
 			// turn has run: "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)".
