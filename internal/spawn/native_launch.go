@@ -408,3 +408,13 @@ func inheritedSession(name string) bool {
 	}
 	return false
 }
+
+// containedNotice warns, for a native terminal whose host could not leave the
+// job of the process that launched it, that the terminal ends when that job
+// closes; it is empty for a host that left.
+func containedNotice(record host.Record) string {
+	if !record.Contained {
+		return ""
+	}
+	return "warning: native terminal " + record.ID + " could not leave the job of the process that ran cfo, so it ends when that job closes (see its host log)"
+}

@@ -24,6 +24,10 @@ type Record struct {
 	HostPID  int       `json:"host_pid"`
 	ChildPID int       `json:"child_pid"`
 	Started  time.Time `json:"started"`
+	// Contained is what Launch knows and no record keeps: its launcher's job
+	// forbids breaking away, so the host runs inside that job and ends when
+	// the job closes.
+	Contained bool `json:"-"`
 }
 
 func recordPath(stateDir, id string) string {
