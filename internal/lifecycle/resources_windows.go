@@ -35,11 +35,6 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 		return resources, errors.New("task scratch directory does not match its task identity")
 	}
 	resources.Directories = []string{meta.Worktree, meta.TaskTmp}
-	goTmp, err := state.GoTmpDir(stateDir, meta.ID)
-	if err != nil {
-		return resources, err
-	}
-	resources.Directories = append(resources.Directories, goTmp)
 	slug := strings.Map(func(value rune) rune {
 		if value >= 'a' && value <= 'z' || value >= '0' && value <= '9' {
 			return value
