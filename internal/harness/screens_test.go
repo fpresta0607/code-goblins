@@ -58,6 +58,26 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	}
 }
 
+// Pi's project trust prompt, captured on pi 0.85.1 started without --approve,
+// focuses "Trust" first and is answered only with "Trust (this session
+// only)", which saves nothing to pi's trust store.
+func TestPisTrustPromptIsAnsweredOnlyForThisSession(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	screen := []string{" Trust project folder?", " C:\\dev\\app", "", " This allows pi to load .pi settings and resources, install missing project packages, and execute project extensions.", "", " → Trust", " Trust parent folder", " (C:\\dev)", " Trust (this session only)", " Do not trust", " Do not trust (this session only)", "", " ↑↓ navigate enter select escape/ctrl+c cancel"}
+
+	dialog, found := screens.Dialog(screen)
+	focused, ok := dialog.Focused(screen)
+
+	if !found || !ok || focused != "Trust" {
+		t.Fatalf("Dialog found %v, focused %q (%v); want the trust prompt focused on \"Trust\"", found, focused, ok)
+	}
+	for option, want := range map[string]bool{"Trust": false, "Trust parent folder": false, "Trust (this session only)": true, "Do not trust": false, "Do not trust (this session only)": false} {
+		if got := dialog.Chosen(option); got != want {
+			t.Errorf("Chosen(%q) = %v, want %v", option, got, want)
+		}
+	}
+}
+
 // Each harness's composer reads as ready only while no turn runs.
 func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 	for kind, test := range map[Kind]struct {
@@ -110,6 +130,18 @@ func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 		if got := screens.IsWorking(test.screen); got != test.working {
 			t.Errorf("%s: working = %v, want %v", name, got, test.working)
 		}
+	}
+}
+
+// After its first turn pi's footer leads with the session's token counts and
+// cost, so its context meter is found anywhere in the row, as seen live on pi
+// 0.85.1.
+func TestPisComposerIsReadyAfterItsFirstTurn(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	ready := []string{"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)                                   (openrouter) z-ai/glm-5.3-flash • high"}
+
+	if !screens.IsReady(ready) {
+		t.Errorf("%q reads as not ready; want ready", ready)
 	}
 }
 

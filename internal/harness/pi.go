@@ -15,6 +15,7 @@ type piCapabilities struct {
 	thinking  bool
 	extension bool
 	tuiMode   bool
+	approve   bool
 	efforts   map[string]bool
 }
 
@@ -52,10 +53,17 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// execute the npm .cmd shim pi installs as; pi launches typed instead.
 	launch.TypedLaunch = true
 	launch.Executable = "pi"
-	// Pi asks "Trust project folder?" in every fresh worktree. Unlike kimi's
-	// dialog, pi highlights "Trust" by default, so a bare Enter confirms it.
-	launch.ConfirmMarkers = []string{"Trust project folder?"}
-	launch.ConfirmKeys = []string{"enter"}
+	// Pi asks "Trust project folder?" in a folder with project files of its
+	// own (.pi settings, extensions, skills and the like). A Pi that can
+	// trust them for one run is told to, so it never asks and saves nothing
+	// to its trust store; an older one highlights "Trust" by default, so a
+	// bare Enter confirms it.
+	if capabilities.approve {
+		launch.Args = append(launch.Args, "--approve")
+	} else {
+		launch.ConfirmMarkers = []string{"Trust project folder?"}
+		launch.ConfirmKeys = []string{"enter"}
+	}
 	if capabilities.tuiMode {
 		launch.Args = append(launch.Args, "--tui-mode", "regular")
 	}
@@ -100,6 +108,7 @@ func parsePiHelp(help string) piCapabilities {
 		thinking:  optionAdvertised(help, "--thinking"),
 		extension: optionAdvertised(help, "--extension"),
 		tuiMode:   optionAdvertised(help, "--tui-mode"),
+		approve:   optionAdvertised(help, "--approve"),
 		efforts:   map[string]bool{},
 	}
 	thinkingLine, advertised := advertisedOptionLine(help, "--thinking")

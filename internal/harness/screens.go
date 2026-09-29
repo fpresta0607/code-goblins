@@ -90,11 +90,17 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	case Pi:
 		return Screens{
-			// Its focused option has not been seen, so it is never answered.
-			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}}},
-			// The context meter that starts the footer's last row, as in
-			// "0.0%/1.0M (auto)".
-			Ready: regexp.MustCompile(`^\d+(\.\d+)?%/`),
+			// Captured on pi 0.85.1 started without --approve: "→ Trust" is
+			// focused first, above "Trust parent folder", "Trust (this session
+			// only)", "Do not trust" and "Do not trust (this session only)".
+			// Trusting for this session only matches --approve and saves
+			// nothing to pi's trust store; a pi that does not offer it still
+			// stops the spawn with the prompt named.
+			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}, Focus: "→", Accept: "Trust (this session only)"}},
+			// The context meter in the footer's last row, as in "0.0%/1.0M
+			// (auto)", which the session's token counts and cost lead once a
+			// turn has run: "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)".
+			Ready: regexp.MustCompile(`(^|\s)\d+(\.\d+)?%/\d`),
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
@@ -105,12 +111,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 
 // NativeDefault reports whether a spawn that names no backend starts kind in a
 // native terminal, which it does only once kind's native launch has been
-// proven live. Codex's composer, working and paste texts are not yet seen in a
-// capture and pi's trust prompt is never answered, so codex and pi, like kimi,
-// which has no native screens, start in Herdr until a live native spawn proves
-// them.
+// proven live: Claude Code; pi, proven on pi 0.85.1 (started with --approve,
+// so it never asks to trust the folder); and codex, proven on Codex 0.154.
+// Kimi, which has no native screens, starts in Herdr.
 func NativeDefault(kind Kind) bool {
-	return kind == Claude
+	return kind == Claude || kind == Pi || kind == Codex
 }
 
 // Dialog returns the dialog screen shows, if any.

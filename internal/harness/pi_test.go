@@ -59,6 +59,36 @@ Options:
 	}
 }
 
+// A Pi that can trust a folder's project files for one run is told to, so it
+// never asks, and nothing is saved to its trust store; one that cannot is
+// answered at its prompt as before.
+func TestPiTrustsProjectFilesForItsRunWhenItCanSayTo(t *testing.T) {
+	adapter := DefaultRegistry().Adapters[Pi]
+	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(`
+Options:
+  --tui-mode <mode>              TUI mode: regular (default) or fullscreen
+  --approve, -a                  Trust project-local files for this run
+  --no-approve, -na              Ignore project-local files for this run
+`)}, nil
+	}}
+	if err := adapter.Validate(context.Background(), runner); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
+
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got, want := launch.Args, []string{"--approve", "--tui-mode", "regular"}; !equalStrings(got, want) {
+		t.Errorf("Args = %#v, want %#v", got, want)
+	}
+	if len(launch.ConfirmMarkers) != 0 || len(launch.ConfirmKeys) != 0 {
+		t.Errorf("ConfirmMarkers = %#v, ConfirmKeys = %#v, want none: Pi never asks", launch.ConfirmMarkers, launch.ConfirmKeys)
+	}
+}
+
 func TestPiRefusesRequestedFlagsMissingFromHelp(t *testing.T) {
 	registry := DefaultRegistry()
 	adapter, err := registry.Get(Pi)
