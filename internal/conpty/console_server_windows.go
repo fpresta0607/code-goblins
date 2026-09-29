@@ -19,11 +19,11 @@ func createInteractiveConsole(size windows.Coord, input, output windows.Handle, 
 	consoleCreation.Lock()
 	defer consoleCreation.Unlock()
 	var started, finished windows.Filetime
-	windows.GetSystemTimeAsFileTime(&started)
+	windows.GetSystemTimePreciseAsFileTime(&started)
 	if err := windows.CreatePseudoConsole(size, input, output, 0, console); err != nil {
 		return err
 	}
-	windows.GetSystemTimeAsFileTime(&finished)
+	windows.GetSystemTimePreciseAsFileTime(&finished)
 	if err := scheduleConsoleServer(started, finished); err != nil {
 		windows.ClosePseudoConsole(*console)
 		return err

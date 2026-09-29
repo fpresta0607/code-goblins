@@ -281,3 +281,17 @@ func TestNewConsoleDoesNotChangeExistingConsoleScheduling(t *testing.T) {
 		t.Fatal("consoles share a process")
 	}
 }
+
+// Each start must find its console server even when the pseudo console is
+// created within one tick of the coarse system clock.
+func TestRepeatedStartsEachFindTheirConsoleServer(t *testing.T) {
+	for attempt := range 40 {
+		console, err := Start(Spec{Cols: 80, Rows: 25, Args: []string{os.Args[0]}, Env: append(os.Environ(), childMode+"=sleep")})
+		if err != nil {
+			t.Fatalf("start %d: %v", attempt, err)
+		}
+		if err := console.Close(); err != nil {
+			t.Fatalf("close %d: %v", attempt, err)
+		}
+	}
+}
