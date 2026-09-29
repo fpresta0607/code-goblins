@@ -41,6 +41,9 @@ var (
 	nativeAccepted  = 90 * time.Second
 	nativeReadGrace = 10 * time.Second
 	nativeCloseWait = 15 * time.Second
+	// nativeDialogSettle is how long a startup dialog shows before its first
+	// key: a harness draws a dialog before it reads keys.
+	nativeDialogSettle = 2 * time.Second
 	// nativeQueuedProof bounds how long a delivery to a harness already in
 	// a turn waits for a hook to report it taken, in case the turn was ending.
 	nativeQueuedProof = 5 * time.Second
@@ -153,8 +156,20 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	if dialog.Accept == "" {
 		return fmt.Errorf("spawn: native terminal %s shows %s, which a spawn never answers; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
 	}
+	// Codex 0.154 drew its hook review before it read keys: a Down sent the
+	// moment the review showed was lost, and the focus never moved. The first
+	// key waits until the dialog has shown for a moment.
+	if err := s.sleep(ctx, nativeDialogSettle); err != nil {
+		return err
+	}
+	screen, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return fmt.Errorf("spawn: %w", err)
+	}
+	if !dialog.Shows(screen) {
+		return nil
+	}
 	if _, ok := dialog.Focused(screen); !ok {
-		var err error
 		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
 			_, ok := dialog.Focused(screen)
 			return ok || !dialog.Shows(screen)
