@@ -221,8 +221,10 @@ func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
 	_, _, live, detach := output.attach()
 	defer detach()
 	var mu sync.Mutex
+	output.write([]byte("<start>"))
 	var written strings.Builder
-	boundaries := map[int]bool{0: true}
+	written.WriteString("<start>")
+	boundaries := map[int]bool{written.Len(): true}
 	var working sync.WaitGroup
 	working.Add(2)
 	go func() {
@@ -267,6 +269,9 @@ func TestHistoryPlacesConcurrentResizesBetweenWrites(t *testing.T) {
 	}
 	_, replayed, _, detachLate := output.attach()
 	detachLate()
+	if replayed[0] != (geometry{At: 0, Cols: 80, Rows: 24}) {
+		t.Fatalf("the replay starts at size %v, want the initial 80x24 at byte 0", replayed[0])
+	}
 	for name, sizes := range map[string][]geometry{"live": marks, "replayed": replayed[1:]} {
 		if len(sizes) == 0 || sizes[len(sizes)-1].Cols != 219 {
 			t.Errorf("%s sizes end %v, want the last resize, 219 columns", name, sizes[max(0, len(sizes)-1):])

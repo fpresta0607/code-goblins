@@ -436,7 +436,9 @@ func TestResizesDuringContinuousOutputArriveInOrder(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	last := sizes[len(sizes)-1]
 	watching.waitFor(t, "streamed")
+	watching.waitFor(t, regexp.QuoteMeta("[size "+last+"]"))
 	// The first size is the one the history starts at.
 	marks := regexp.MustCompile(`\[size (\d+x\d+)\]`).FindAllStringSubmatch(watching.screen.String(), -1)
 	if len(marks) < 2 {
@@ -452,12 +454,12 @@ func TestResizesDuringContinuousOutputArriveInOrder(t *testing.T) {
 			t.Fatalf("the viewer was told sizes %v, not in the order %v they were made", marks, sizes)
 		}
 	}
-	if len(marks) == 0 || marks[len(marks)-1][1] != sizes[len(sizes)-1] {
-		t.Fatalf("the viewer was told sizes ending %v, want the last resize %s", marks[max(0, len(marks)-1):], sizes[len(sizes)-1])
+	if len(marks) == 0 || marks[len(marks)-1][1] != last {
+		t.Fatalf("the viewer was told sizes ending %v, want the last resize %s", marks[max(0, len(marks)-1):], last)
 	}
 	stop := askForSize(watching)
 	defer stop()
-	watching.waitFor(t, "size "+sizes[len(sizes)-1])
+	watching.waitFor(t, "size "+last+"\r")
 }
 
 // A viewer that connects later replays the history at the sizes it was
