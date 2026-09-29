@@ -409,12 +409,12 @@ func TestRunSpawnRefusesALaneNamingAnUnknownHarness(t *testing.T) {
 }
 
 // A routed spawn that names no backend takes it from the harness the lane
-// table chose, so a lane that routes to codex or kimi starts in Herdr while a
-// Claude or pi lane starts natively.
+// table chose, so a lane that routes to kimi starts in Herdr while a Claude,
+// pi or codex lane starts natively.
 func TestRunSpawnTakesTheDefaultBackendFromTheRoutedHarness(t *testing.T) {
 	for harnessName, wantBackend := range map[string]string{
 		"claude": "native",
-		"codex":  "herdr",
+		"codex":  "native",
 		"pi":     "native",
 		"kimi":   "herdr",
 	} {
