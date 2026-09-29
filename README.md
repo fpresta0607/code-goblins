@@ -424,7 +424,7 @@ The core is intentionally local-first:
 - `internal/spawn/` — task dispatch and worktree preparation.
 - `internal/herdr/` — terminal/session integration.
 - `internal/terminal/` - the terminal backend that the fleet commands, the board's supervisor, the monitor and the CFO launcher drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
-- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object that ends with the terminal, for the native terminal host; a process that asks to break away (a goblin host, a detached serve) leaves the job, and everything else ends with the terminal.
+- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object, for the native terminal host; a process that asks to break away (a goblin host, a detached serve) leaves the job, and everything else ends with the terminal.
 - `internal/host/` - `cfo host`: one goblin terminal per process, outliving the supervisor and every window, served over a named pipe only this Windows user can open; its screen is read from its console, exactly as the terminal's program sees it, for `cfo peek`.
 - `internal/fleet/` — fleet truth, targeting, steering and inspection.
 - `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
