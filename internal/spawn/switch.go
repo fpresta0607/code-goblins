@@ -569,17 +569,20 @@ func (s Service) stopHarness(ctx context.Context, client terminal.Backend, targe
 			}
 		}
 	}
-	if err := client.SendKey(ctx, target, "Ctrl-C"); err != nil {
-		return fmt.Errorf("switch: interrupt the harness after it ignored %q: %w", control.StopCommand, err)
+	// A first interrupt at a composer still holding text, the stop command
+	// among it when the harness never took it, only clears the composer, as
+	// Codex 0.154 did live; a second one exits an idle harness. At a shell
+	// prompt an interrupt does nothing.
+	for interrupt := 0; interrupt < 2; interrupt++ {
+		if err := client.SendKey(ctx, target, "Ctrl-C"); err != nil {
+			return fmt.Errorf("switch: interrupt the harness after it ignored %q: %w", control.StopCommand, err)
+		}
+		stopped, err := s.waitForStop(ctx, client, target, stopTries)
+		if err != nil || stopped {
+			return err
+		}
 	}
-	stopped, err := s.waitForStop(ctx, client, target, stopTries)
-	if err != nil {
-		return err
-	}
-	if !stopped {
-		return fmt.Errorf("switch: harness on pane %s is still running after %q and an interrupt; refusing to start a second one beside it", target.Pane, control.StopCommand)
-	}
-	return nil
+	return fmt.Errorf("switch: harness on pane %s is still running after %q and two interrupts; refusing to start a second one beside it", target.Pane, control.StopCommand)
 }
 
 // Leftover is a process a stopped harness left running, named by
