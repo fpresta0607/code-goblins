@@ -91,7 +91,7 @@ The production-proof layer is intentionally fail-closed: delivery evidence must 
 Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
 
 Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history.
-For stdin, `cfo auth store` removes trailing line breaks and leading byte-order marks, including the Windows PowerShell mojibake form, and reports BOM removal without exposing the value.
+For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.
 All other content is preserved.
 
 ### Recovery instead of babysitting
