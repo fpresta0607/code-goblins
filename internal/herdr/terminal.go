@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,15 @@ func pasteText(text string) (string, bool) {
 		return "", false
 	}
 	return strings.CutSuffix(inside, "\x1b[201~")
+}
+
+var pasteEscapes = regexp.MustCompile(`\x1b(?:\[20[01]~)?`)
+
+// CleanPaste reframes a complete paste without any escape inside it, so no
+// pasted text can end the paste early and be typed as keys.
+func CleanPaste(paste string) string {
+	inside, _ := pasteText(paste)
+	return "\x1b[200~" + pasteEscapes.ReplaceAllString(inside, "") + "\x1b[201~"
 }
 
 func (c TerminalCommand) Validate() error {

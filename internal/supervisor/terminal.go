@@ -206,7 +206,7 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		if !strings.HasSuffix(l.paste.String(), "\x1b[201~") {
 			return nil
 		}
-		command.Text = l.paste.String()
+		command.Text = herdr.CleanPaste(l.paste.String())
 		l.paste.Reset()
 		if err := command.Validate(); err != nil {
 			l.closed = true
