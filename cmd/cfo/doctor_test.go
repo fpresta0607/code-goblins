@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 )
@@ -87,9 +88,42 @@ func TestRunDoctorSaysWhenThereAreNoLanes(t *testing.T) {
 }
 
 // fakeDoctorTool writes a .bat that answers --version, so a temp PATH can
-// stand in for a fully provisioned machine.
+// stand in for a fully provisioned machine. Claude Code must be a program, as
+// its native build is, so claude is this test binary copied as claude.exe,
+// which TestMain answers as it.
 func fakeDoctorTool(t *testing.T, dir, name string) {
 	t.Helper()
+	if name == "claude" {
+		self, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		program, err := os.ReadFile(self)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claudePath := filepath.Join(dir, "claude.exe")
+		if err := os.WriteFile(claudePath, program, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// Antivirus can still hold the freshly written program when the test
+		// ends, so remove it with retries before t.TempDir's cleanup runs.
+		t.Cleanup(func() {
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				err := os.Remove(claudePath)
+				if err == nil {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Errorf("remove %s: %v", claudePath, err)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+		return
+	}
 	script := "@echo off\r\necho " + name + " 1.0.0\r\n"
 	if err := os.WriteFile(filepath.Join(dir, name+".bat"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -118,6 +152,31 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0: a missing winget must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
+// Without Herdr, doctor says who needs it and how to get it, and stays
+// healthy: a goblin or CFO in a native terminal needs no Herdr.
+func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi", "kimi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	want := "OPTIONAL herdr not found on PATH (install: irm https://herdr.dev/install.ps1 | iex) - only a goblin or CFO started in Herdr needs it"
+	if !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "MISSING") {
+		t.Errorf("stdout lacks %q or reports something missing\n%s", want, stdout.String())
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: a missing Herdr must not make doctor unhealthy\n%s", exit, stdout.String())
 	}
 }
 
