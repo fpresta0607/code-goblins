@@ -48,7 +48,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude and pi and herdr for codex and kimi until each is proven natively")
+	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude, pi and codex and herdr for kimi")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
