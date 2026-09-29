@@ -2,6 +2,7 @@ package harness
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,6 +65,17 @@ func CodexMCPServers() ([]string, error) {
 	return slices.Compact(names), nil
 }
 
+// CheckCodexMCPServers refuses a server name Codex's -c override cannot
+// address in a dotted key, since a goblin would start that server.
+func CheckCodexMCPServers(names []string) error {
+	for _, name := range names {
+		if !bareKey.MatchString(name) {
+			return fmt.Errorf("harness: Codex's MCP server %q cannot be turned off with a -c override, so a goblin would start it", name)
+		}
+	}
+	return nil
+}
+
 // codexHome is the folder of the operator's Codex configuration: CODEX_HOME,
 // or .codex under the user's profile.
 func codexHome() (string, error) {
@@ -77,47 +89,62 @@ func codexHome() (string, error) {
 	return filepath.Join(profile, ".codex"), nil
 }
 
-// CodexHooks lists the command hooks a Codex session started in dir loads,
-// one "<event>: <command>" each: the operator's hooks.json in the Codex
-// configuration folder, then the project's .codex/hooks.json in dir. A file
-// that is not there lists none.
-func CodexHooks(dir string) ([]string, error) {
+// CodexHooks lists the command hooks a Codex session started in worktree, a
+// worktree of project, loads, one "<event>: <command>" each: the operator's
+// hooks.json in the Codex configuration folder, then the project's
+// .codex/hooks.json in its main checkout, from which Codex takes a worktree's
+// project hooks, then the worktree's own when it differs from the main
+// checkout's. A file that is not there lists none; one that cannot be read or
+// parsed lists none and is named in the error, while the others are still
+// listed. The [hooks] tables of config.toml are not read.
+func CodexHooks(project, worktree string) ([]string, error) {
 	home, err := codexHome()
 	if err != nil {
 		return nil, err
 	}
-	var hooks []string
-	for _, path := range []string{filepath.Join(home, "hooks.json"), filepath.Join(dir, ".codex", "hooks.json")} {
-		data, err := os.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("harness: read Codex hooks: %w", err)
-		}
-		var file struct {
-			Hooks map[string][]struct {
-				Hooks []struct {
-					Type    string `json:"type"`
-					Command string `json:"command"`
-				} `json:"hooks"`
+	hooks, _, homeErr := codexHooksIn(filepath.Join(home, "hooks.json"))
+	projectHooks, projectFile, projectErr := codexHooksIn(filepath.Join(project, ".codex", "hooks.json"))
+	hooks = append(hooks, projectHooks...)
+	errs := []error{homeErr, projectErr}
+	if worktreeHooks, worktreeFile, err := codexHooksIn(filepath.Join(worktree, ".codex", "hooks.json")); !bytes.Equal(worktreeFile, projectFile) {
+		hooks = append(hooks, worktreeHooks...)
+		errs = append(errs, err)
+	}
+	return hooks, errors.Join(errs...)
+}
+
+// codexHooksIn lists the command hooks of the Codex hooks file at path and
+// returns what the file holds; a file that is not there holds nothing.
+func codexHooksIn(path string) ([]string, []byte, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("harness: read Codex hooks: %w", err)
+	}
+	var file struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
 			} `json:"hooks"`
-		}
-		if err := json.Unmarshal(data, &file); err != nil {
-			return nil, fmt.Errorf("harness: read Codex hooks in %s: %w", path, err)
-		}
-		events := slices.Sorted(maps.Keys(file.Hooks))
-		for _, event := range events {
-			for _, group := range file.Hooks[event] {
-				for _, hook := range group.Hooks {
-					if hook.Type == "command" {
-						hooks = append(hooks, event+": "+hook.Command)
-					}
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, data, fmt.Errorf("harness: read Codex hooks in %s: %w", path, err)
+	}
+	var hooks []string
+	for _, event := range slices.Sorted(maps.Keys(file.Hooks)) {
+		for _, group := range file.Hooks[event] {
+			for _, hook := range group.Hooks {
+				if hook.Type == "command" {
+					hooks = append(hooks, event+": "+hook.Command)
 				}
 			}
 		}
 	}
-	return hooks, nil
+	return hooks, data, nil
 }
 
 // unquotedKey is a TOML key segment without the quotes of a quoted key.
@@ -175,10 +202,10 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
+	if err := CheckCodexMCPServers(spec.CodexMCPServers); err != nil {
+		return Launch{}, err
+	}
 	for _, name := range spec.CodexMCPServers {
-		if !bareKey.MatchString(name) {
-			return Launch{}, fmt.Errorf("harness: Codex's MCP server %q cannot be turned off with a -c override, so a goblin would start it", name)
-		}
 		launch.Args = append(launch.Args, "-c", "mcp_servers."+name+".enabled=false")
 	}
 	if hasValue(spec.Model) {

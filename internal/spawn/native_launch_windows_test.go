@@ -671,6 +671,39 @@ func continuesPastTheHookReview(t *testing.T, mode string) {
 	}
 }
 
+// A hooks file that cannot be parsed never stops a spawn whose Codex already
+// runs past the hook review: the report still reaches the CFO, naming the file
+// in place of its hooks.
+func TestANativeSpawnReportsHooksItCannotNameWithoutStopping(t *testing.T) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 5 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, "hooks")
+	broken := filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json")
+	if err := os.WriteFile(broken, []byte(`{"hooks":{"SessionStart":{"type":"command"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+	status, err := os.ReadFile(filepath.Join(f.stateDir, "task-7.status"))
+	if err != nil || !strings.Contains(string(status), "working: codex started without trusting its hooks") || !strings.Contains(string(status), "not every hook could be named: harness: read Codex hooks in "+broken) {
+		t.Errorf("status = %q, %v; want the untrusted hooks reported with the unreadable file named", status, err)
+	}
+	pending, err := wake.Pending(f.stateDir)
+	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
+		return record.Kind == "notify" && record.Key == "task-7" && strings.Contains(record.Detail, broken)
+	}) {
+		t.Errorf("wake queue = %+v, %v; want a notify naming the unreadable hooks file", pending, err)
+	}
+}
+
 // A failed native spawn closes only a terminal it launched: one that already
 // runs under the task's id refuses the spawn's host, and the spawn's teardown
 // leaves it running while it returns the worktree and retires the task.

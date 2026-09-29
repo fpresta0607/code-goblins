@@ -75,13 +75,14 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›", Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
 			},
 			// Captured live on Codex 0.154: the empty composer shows its
-			// placeholder, at start and after a turn, above a footer naming the
+			// placeholder, at start and after a turn (the binary also holds
+			// "Ask a follow-up question"), above a footer naming the
 			// model and folder ("gpt-6-astra low · ~\..."); a footer that
 			// counts the context left shows while text waits behind a turn. A
 			// turn in progress shows only in the status row, as in "• Working
 			// (5s • esc to interrupt)", whose glyph alternates with ◦: a reply
 			// may say "Working" anywhere else.
-			Ready:           regexp.MustCompile(`^› Ask Codex to do anything|context left`),
+			Ready:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
 			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,

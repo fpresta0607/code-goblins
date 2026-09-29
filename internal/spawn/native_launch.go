@@ -183,18 +183,25 @@ func readySettleReads() int {
 
 // reportUntrusted tells the CFO, as cfo notify does, that the harness in
 // native terminal id started without trusting the hooks its startup asked to
-// review, so they do not run, and names the hooks a Codex session in dir
-// loads: trusting a hook is the Overlord's decision, never a spawn's.
+// review, so they do not run, and names the hooks a Codex session in dir, the
+// task's worktree, loads: trusting a hook is the Overlord's decision, never a
+// spawn's. The harness already runs, so a hook that cannot be named is
+// reported, never a reason to stop.
 func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary string) error {
 	detail := fmt.Sprintf("%s started without trusting its hooks, so they do not run (%s)", kind, summary)
 	if kind == harness.Codex {
-		hooks, err := harness.CodexHooks(dir)
-		if err != nil {
-			return fmt.Errorf("spawn: name the hooks %s started without: %w", kind, err)
+		var hooks []string
+		meta, err := state.ReadTaskMeta(s.StateDir, id)
+		if err == nil {
+			hooks, err = harness.CodexHooks(meta.Project, dir)
 		}
 		if len(hooks) > 0 {
 			detail += "; the hooks it loads: " + strings.Join(hooks, "; ")
 		}
+		if err != nil {
+			detail += "; not every hook could be named: " + err.Error()
+		}
+		detail += "; config.toml [hooks] tables are not named"
 	}
 	line := "working: " + bounded(state.NormalizeStatusDetail(detail+". Only the Overlord trusts hooks."), 1000)
 	if err := state.AppendStatus(s.StateDir, id, line); err != nil {

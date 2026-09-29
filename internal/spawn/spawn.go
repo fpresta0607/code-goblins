@@ -481,12 +481,17 @@ func goblinMCPConfig(taskTmp string) string {
 }
 
 // codexMCPServers names the operator's Codex MCP servers a Codex goblin turns
-// off; any other harness has none to turn off.
+// off, and refuses one it cannot turn off; any other harness has none to turn
+// off.
 func codexMCPServers(kind harness.Kind) ([]string, error) {
 	if kind != harness.Codex {
 		return nil, nil
 	}
-	return harness.CodexMCPServers()
+	servers, err := harness.CodexMCPServers()
+	if err != nil {
+		return nil, err
+	}
+	return servers, harness.CheckCodexMCPServers(servers)
 }
 
 // reservedLaunchEnv names the environment the launch contract owns. It is

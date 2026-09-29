@@ -101,6 +101,7 @@ func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
 		"after a turn":   {[]string{"› Reply with the single word ok and nothing else.", "• ok", "› Ask Codex to do anything", footer + " · Reply with ok"}, true, false},
 		"working":        {[]string{"› Reply with the single word ok and nothing else.", "• Working (0s • esc to interrupt)", "› Ask Codex to do anything", footer}, false, true},
 		"working, later": {[]string{"› Reply with the single word ok and nothing else.", "◦ Working (4s • esc to interrupt)", "› Ask Codex to do anything", footer + " · renaming... ⠏"}, false, true},
+		"follow-up":      {[]string{"› Reply with the single word ok and nothing else.", "• ok", "› Ask a follow-up question", footer}, true, false},
 		"text typed":     {[]string{"› Reply with the single word ok and nothing else.", footer}, false, false},
 	} {
 		if got := screens.IsReady(test.screen); got != test.ready {

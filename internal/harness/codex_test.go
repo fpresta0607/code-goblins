@@ -248,42 +248,73 @@ func TestCodexMCPServersWithoutAConfiguration(t *testing.T) {
 }
 
 // A spawn that continues past Codex's hook review names the hooks the session
-// loads: the operator's hooks.json, then the project's, each command hook as
-// its event and command; a file that is not there lists none.
+// loads: the operator's hooks.json, then the project's in its main checkout,
+// from which Codex takes a worktree's project hooks, then the worktree's own
+// only when it differs, each command hook as its event and command; a file
+// that is not there lists none.
 func TestCodexHooksListsTheCommandHooksASessionLoads(t *testing.T) {
-	home, dir := t.TempDir(), t.TempDir()
+	home, project, worktree := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	operator := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"herdr-state session"}]},{"hooks":[{"type":"command","command":"siqshift --event session-start"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"siqshift --event session-end"}]}]}}`
-	project := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"},{"type":"prompt","command":"not a command"}]}]}}`
+	main := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"},{"type":"prompt","command":"not a command"}]}]}}`
+	edited := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblin hook stop"}]}]}}`
+	operatorHooks := []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start"}
 	for name, test := range map[string]struct {
-		operator, project string
-		want              []string
+		operator, main, worktree string
+		want                     []string
 	}{
-		"none":          {"", "", nil},
-		"operator only": {operator, "", []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start"}},
-		"both":          {operator, project, []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start", "Stop: cfo hook stop"}},
+		"none":                  {"", "", "", nil},
+		"operator only":         {operator, "", "", operatorHooks},
+		"main checkout":         {operator, main, "", append(slices.Clone(operatorHooks), "Stop: cfo hook stop")},
+		"worktree as main":      {operator, main, main, append(slices.Clone(operatorHooks), "Stop: cfo hook stop")},
+		"worktree differs":      {operator, main, edited, append(slices.Clone(operatorHooks), "Stop: cfo hook stop", "Stop: goblin hook stop")},
+		"worktree without main": {"", "", main, []string{"Stop: cfo hook stop"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			write := func(path, content string) {
-				_ = os.Remove(path)
-				if content == "" {
-					return
-				}
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			write(filepath.Join(home, "hooks.json"), test.operator)
-			write(filepath.Join(dir, ".codex", "hooks.json"), test.project)
+			writeHooks(t, filepath.Join(home, "hooks.json"), test.operator)
+			writeHooks(t, filepath.Join(project, ".codex", "hooks.json"), test.main)
+			writeHooks(t, filepath.Join(worktree, ".codex", "hooks.json"), test.worktree)
 
-			hooks, err := CodexHooks(dir)
+			hooks, err := CodexHooks(project, worktree)
 
 			if err != nil || !slices.Equal(hooks, test.want) {
 				t.Errorf("CodexHooks = %q, %v; want %q", hooks, err, test.want)
 			}
 		})
+	}
+}
+
+// A hooks file that cannot be parsed is named in the error while the hooks of
+// every other file are still listed.
+func TestCodexHooksListsTheOthersWhenOneFileCannotBeParsed(t *testing.T) {
+	home, project, worktree := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	broken := filepath.Join(home, "hooks.json")
+	writeHooks(t, broken, `{"hooks":{"SessionStart":{"type":"command"}}}`)
+	writeHooks(t, filepath.Join(project, ".codex", "hooks.json"), `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"}]}]}}`)
+
+	hooks, err := CodexHooks(project, worktree)
+
+	if !slices.Equal(hooks, []string{"Stop: cfo hook stop"}) {
+		t.Errorf("CodexHooks = %q, want the project's hook still listed", hooks)
+	}
+	if err == nil || !strings.Contains(err.Error(), broken) {
+		t.Errorf("CodexHooks error = %v, want %s named", err, broken)
+	}
+}
+
+// writeHooks writes content to the hooks file at path, or removes the file for
+// no content.
+func writeHooks(t *testing.T, path, content string) {
+	t.Helper()
+	_ = os.Remove(path)
+	if content == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

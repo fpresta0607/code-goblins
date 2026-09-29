@@ -1005,6 +1005,42 @@ func TestSwitchRefusesAMalformedManifestBeforeStoppingTheHarness(t *testing.T) {
 	}
 }
 
+// A Codex MCP server the operator's configuration names in a form a -c
+// override cannot address is knowable before anything is touched, so a switch
+// to Codex refuses it while the old harness still runs rather than leaving the
+// goblin with no harness at all.
+func TestSwitchRefusesAnUnaddressableCodexMCPServerBeforeStoppingTheHarness(t *testing.T) {
+	fixture := newSwitchFixture(t)
+	fixture.service.Harness.Adapters[harness.Codex] = fixtureAdapter{events: &fixture.base.events, specs: &fixture.base.specs}
+	config := "[mcp_servers.\"my.server\"]\ncommand = \"npx\"\n"
+	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := len(fixture.runner.literals)
+
+	_, err := fixture.service.Switch(context.Background(), SwitchRequest{
+		ID:      fixture.meta.ID,
+		Harness: harness.Codex,
+		Session: "fleet",
+	})
+
+	if err == nil || !strings.Contains(err.Error(), `"my.server"`) {
+		t.Fatalf("err = %v, want a refusal naming the server", err)
+	}
+	if contains(fixture.runner.keys, "escape") {
+		t.Errorf("keys = %v, want no stop sequence sent", fixture.runner.keys)
+	}
+	for _, literal := range fixture.runner.literals[before:] {
+		if strings.HasPrefix(literal, "/") {
+			t.Errorf("the harness stop command was sent before the MCP servers were checked: %q", literal)
+		}
+	}
+	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
+		t.Errorf("a refused switch still mutated metadata: %+v", after)
+	}
+}
+
 // launchLiteral returns the most recent typed literal that carries a harness
 // launch, identified by the environment prefix every launch line renders. A
 // switch sends two - the original launch and the relaunch - and these
