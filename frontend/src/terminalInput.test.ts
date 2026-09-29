@@ -39,6 +39,23 @@ test("large Unicode input is split at character boundaries and stays ahead of la
   for (const piece of pieces) assert.equal(new TextDecoder("utf-8", { fatal: true }).decode(new TextEncoder().encode(piece)), piece);
 });
 
+test("a split paste ends with its whole closing marker, so keys typed at once stay apart", () => {
+  for (const chunks of [1, 2]) {
+    for (let tail = 1; tail <= 5; tail++) {
+      const unicode = "界🙂".repeat(1000);
+      const paste = "\x1b[200~" + unicode + "x".repeat(chunks * maxInputBytes + tail - 12 - inputBytes(unicode)) + "\x1b[201~";
+      assert.equal(inputBytes(paste), chunks * maxInputBytes + tail);
+      const queue: PaneCommand[] = [];
+      for (const text of [paste, "o", "k界", "\r"]) queueInput(queue, text);
+      const pieces = queue.map((command) => command.type === "terminal.input" ? command.text : "");
+      const closing = pieces.findIndex((piece) => piece.endsWith("\x1b[201~"));
+      assert.equal(pieces.slice(0, closing + 1).join(""), paste, `tail ${tail}`);
+      assert.deepEqual(pieces.slice(closing + 1), ["ok界", "\r"], `tail ${tail}`);
+      assert.ok(pieces.every((piece) => inputBytes(piece) <= maxInputBytes));
+    }
+  }
+});
+
 test("a paste must fit Herdr's encoded request before any input is queued", () => {
   const limit = 1024 * 1024 - 1024;
   assert.equal(inputBytes(JSON.stringify(bracketedPaste("x".repeat(limit - 24)))), limit);

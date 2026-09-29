@@ -128,8 +128,10 @@ export function queueInput(queue: PaneCommand[], text: string) {
   const bytes = new TextEncoder().encode(text);
   if (bytes.length > maxInputBytes) {
     const decoder = new TextDecoder();
+    const last = text.endsWith("\x1b[201~") ? bytes.length - 6 : bytes.length;
     for (let start = 0; start < bytes.length;) {
       let end = Math.min(start + maxInputBytes, bytes.length);
+      if (end > last && end < bytes.length) end = last;
       while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
       queue.push({ type: "terminal.input", text: decoder.decode(bytes.subarray(start, end)) });
       start = end;
@@ -184,9 +186,15 @@ export function previewScale(room: { width: number; height: number }, screen: { 
 // The window event the panel's divider sends once a drag ends.
 export const PANEL_RESIZED = "board-panel-resized";
 
-export function bracketedPaste(text: string): string {
+// Pasted text keeps no escape, so it cannot end its paste early and type the
+// rest as keys.
+export function stripPasteEscapes(text: string): string {
   // eslint-disable-next-line no-control-regex
-  const paste = "\x1b[200~" + text.replace(/\x1b(?:\[20[01]~)?/g, "").replace(/\r?\n/g, "\r") + "\x1b[201~";
+  return text.replace(/\x1b(?:\[20[01]~)?/g, "");
+}
+
+export function bracketedPaste(text: string): string {
+  const paste = "\x1b[200~" + stripPasteEscapes(text).replace(/\r?\n/g, "\r") + "\x1b[201~";
   // Match Go's JSON escaping and leave room for Herdr's request envelope.
   const encoded = JSON.stringify(paste).replace(/[<>&\u2028\u2029]/g, (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
   if (inputBytes(encoded) > 1024 * 1024 - 1024) throw new Error("Paste exceeds Herdr's encoded request limit. Paste a smaller selection; nothing was sent.");

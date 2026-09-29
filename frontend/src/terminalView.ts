@@ -3,6 +3,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
 import { terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
+import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -93,6 +94,7 @@ export class TerminalView {
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
+    this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
     this.resize = new ResizeObserver(() => this.refit());
@@ -121,7 +123,7 @@ export class TerminalView {
   // paste types text into the terminal the way a paste does, so a program
   // that asked for bracketed paste receives it as one.
   paste(text: string): void {
-    this.term.paste(text);
+    this.term.paste(stripPasteEscapes(text));
   }
 
   setFont(size: number): void {
@@ -139,6 +141,7 @@ export class TerminalView {
     this.rendered.dispose();
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
+    this.element.removeEventListener("paste", this.pasteClipboard, true);
     window.removeEventListener("pointerup", this.copy);
     this.socket.onclose = null;
     this.socket.close(1000);
@@ -269,6 +272,13 @@ export class TerminalView {
   private readonly copy = (): void => {
     if (!this.term.hasSelection()) return;
     navigator.clipboard.writeText(this.term.getSelection()).then(() => this.events.copied(), () => {});
+  };
+
+  private readonly pasteClipboard = (event: ClipboardEvent): void => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const text = event.clipboardData?.getData("text/plain");
+    if (text) this.paste(text);
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.
