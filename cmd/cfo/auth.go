@@ -258,12 +258,19 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 			return 1
 		}
 		value = strings.TrimRight(string(data), "\r\n")
-		for _, prefix := range []string{"\ufeff", "\u00ef\u00bb\u00bf"} {
-			if strings.HasPrefix(value, prefix) {
-				value = strings.TrimPrefix(value, prefix)
-				fmt.Fprintln(stdout, "cfo auth store: removed a leading byte-order mark from stdin")
+		// Windows PowerShell 5.1 with a UTF-8 console and a BOM-bearing
+		// $OutputEncoding writes two BOMs, so strip every leading one.
+		unmarked := value
+		for {
+			trimmed := strings.TrimPrefix(strings.TrimPrefix(unmarked, "\ufeff"), "\u00ef\u00bb\u00bf")
+			if trimmed == unmarked {
 				break
 			}
+			unmarked = trimmed
+		}
+		if unmarked != value {
+			value = unmarked
+			fmt.Fprintln(stdout, "cfo auth store: removed a leading byte-order mark from stdin")
 		}
 	}
 	if strings.TrimSpace(value) == "" {

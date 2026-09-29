@@ -25,13 +25,15 @@ func TestAuthStorePreservesStdinExceptLeadingBOMAndTrailingLineBreaks(t *testing
 		{"partial mojibake", "\u00ef\u00bbfake-token\n", "\u00ef\u00bbfake-token", false},
 		{"embedded BOMs", "fake-\ufeff\u00ef\u00bb\u00bftoken\n", "fake-\ufeff\u00ef\u00bb\u00bftoken", false},
 		{"BOM after space", " \ufefffake-token\n", " \ufefffake-token", false},
-		{"only first BOM", "\ufeff\ufefffake-token\n", "\ufefffake-token", true},
-		{"only first mojibake BOM", "\u00ef\u00bb\u00bf\u00ef\u00bb\u00bffake-token\n", "\u00ef\u00bb\u00bffake-token", true},
+		{"repeated BOMs", "\ufeff\ufefffake-token\r\n", "fake-token", true},
+		{"repeated mojibake BOMs", "\u00ef\u00bb\u00bf\u00ef\u00bb\u00bffake-token\n", "fake-token", true},
+		{"mixed BOMs", "\ufeff\u00ef\u00bb\u00bffake-token\n", "fake-token", true},
 		{"BOM with whitespace", "\ufeff \tfake-token\t \n", " \tfake-token\t ", true},
 		{"embedded line break", "fake\r\ntoken\r\n", "fake\r\ntoken", false},
 		{"empty input", "", "", false},
 		{"only unicode BOM", "\ufeff\r\n", "", true},
 		{"only mojibake BOM", "\u00ef\u00bb\u00bf\r\n", "", true},
+		{"only repeated BOMs", "\ufeff\ufeff\r\n", "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("CFO_HOME", "")
