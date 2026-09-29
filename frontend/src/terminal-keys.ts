@@ -6,7 +6,10 @@ export function terminalKey(event: KeyboardEvent, terminal: Terminal, copy: () =
     if (event.key.toLowerCase() === "v") return false;
     if (event.key.toLowerCase() === "c" && (event.shiftKey || terminal.hasSelection())) {
       event.preventDefault();
-      if (event.type === "keydown") copy();
+      if (event.type === "keydown") {
+        copy();
+        if (!event.shiftKey) terminal.clearSelection();
+      }
       return false;
     }
   }

@@ -185,7 +185,8 @@ export function previewScale(room: { width: number; height: number }, screen: { 
 export const PANEL_RESIZED = "board-panel-resized";
 
 export function bracketedPaste(text: string): string {
-  const paste = "\x1b[200~" + text.replaceAll("\x1b[200~", "").replaceAll("\x1b[201~", "").replace(/\r?\n/g, "\r") + "\x1b[201~";
+  // eslint-disable-next-line no-control-regex
+  const paste = "\x1b[200~" + text.replace(/\x1b(?:\[20[01]~)?/g, "").replace(/\r?\n/g, "\r") + "\x1b[201~";
   // Match Go's JSON escaping and leave room for Herdr's request envelope.
   const encoded = JSON.stringify(paste).replace(/[<>&\u2028\u2029]/g, (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
   if (inputBytes(encoded) > 1024 * 1024 - 1024) throw new Error("Paste exceeds Herdr's encoded request limit. Paste a smaller selection; nothing was sent.");
