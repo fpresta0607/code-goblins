@@ -258,6 +258,13 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 			return 1
 		}
 		value = strings.TrimRight(string(data), "\r\n")
+		for _, prefix := range []string{"\ufeff", "\u00ef\u00bb\u00bf"} {
+			if strings.HasPrefix(value, prefix) {
+				value = strings.TrimPrefix(value, prefix)
+				fmt.Fprintln(stdout, "cfo auth store: removed a leading byte-order mark from stdin")
+				break
+			}
+		}
 	}
 	if strings.TrimSpace(value) == "" {
 		fmt.Fprintln(stderr, "cfo auth store: refusing to store an empty value")
