@@ -114,7 +114,10 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Codex opens an "Update available!" prompt before its composer whenever
 	// a newer release is out, and a spawn's brief typed into that prompt
 	// leaves Codex. A goblin never needs the prompt, so it is never checked.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false"}
+	// Its animations are off: in a terminal that says it is an xterm, a Herdr
+	// pane's among them, idle Codex draws braille dots over every empty cell,
+	// the spaces of its composer included, which hides a message it holds.
+	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
