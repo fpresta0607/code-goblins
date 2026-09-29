@@ -64,8 +64,9 @@ type LaunchSpec struct {
 // TypedLaunch is the fallback for harnesses Herdr cannot start natively
 // (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
 // execute the npm .cmd shims codex and pi install as): the command is typed
-// into the prepared pane shell, and Herdr detects the agent. Both paths send
-// the instruction through the verified native prompt channel after startup.
+// into the prepared pane shell, and Herdr detects the agent. Its instruction
+// is typed into the harness's composer as pane text once the composer shows
+// on screen, never through `herdr agent prompt`.
 // SecretsFile, when set, is dot-sourced by the prefix instead of the values
 // being typed into the pane. A credential typed inline would sit in the
 // pane's scrollback and in every `cfo peek`, so the pane only ever sees the
