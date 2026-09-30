@@ -311,7 +311,7 @@ test("a connector pulses only when a goblin reports something new", () => {
 test("a pulse ends with its own report however many snapshots follow", () => {
   const snapshot = (activity: string) => parseSnapshot({healthy:true, tasks:[{id:"a", phase:"working", verified:false, activity}]});
   let seen = fleetTraffic(null, snapshot("working: tests")).signatures;
-  let traffic: Record<string, number> = {};
+  let traffic: Record<string, number[]> = {};
   const report = (activity: string, at: number) => {
     const { signatures, moved } = fleetTraffic(seen, snapshot(activity));
     seen = signatures;
@@ -320,13 +320,16 @@ test("a pulse ends with its own report however many snapshots follow", () => {
   };
   const first = report("working: gate review", 1000);
   for (let at = 1001; at < 1010; at++) assert.deepEqual(report("working: gate review", at), []);
-  assert.deepEqual(traffic, {a:1000});
+  assert.deepEqual(traffic, {a:[1000]});
   traffic = expireTraffic(traffic, first, 1000);
   assert.deepEqual(traffic, {});
   const older = report("working: lint", 2000);
-  report("working: push", 3000);
+  const newer = report("working: push", 3000);
+  assert.deepEqual(traffic, {a:[2000, 3000]});
   traffic = expireTraffic(traffic, older, 2000);
-  assert.deepEqual(traffic, {a:3000});
+  assert.deepEqual(traffic, {a:[3000]});
+  traffic = expireTraffic(traffic, newer, 3000);
+  assert.deepEqual(traffic, {});
 });
 
 test("every status reads as plain words, never the old evidence jargon", () => {

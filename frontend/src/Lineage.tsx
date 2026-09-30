@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BoardActivity, Session, Snapshot } from "./types";
-import { activityDisplay, presentationShownOn } from "./activity";
+import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { asksOverlord, nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
@@ -12,7 +12,7 @@ export interface Selection { session?: string; task?: string }
 export function Lineage({ snapshot, project, selected, onSelect, effects, presentations }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
-  effects: BoardActivity[];
+  effects: ActivityEffect[];
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
@@ -41,6 +41,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
     const owner = ownsTaskSession(node, task);
     const title = sessionTitle(node, task);
     const activity = activityDisplay(effects,node.id,node.parent);
+    const glow = activity.received || activity.created;
     const isCollapsed = collapsed.has(node.id);
     const parent = byID.get(node.parent);
     const relation = node.parent
@@ -48,12 +49,12 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
         : snapshot.retired.includes(node.parent) ? "Retired parent" : "Parent unreported"
       : node.role === "cfo" ? "" : "Parent unknown / unlinked";
     return <li key={node.id} className="workflow-branch">
-      {activity.communication && <span key={activity.communication.id} className="compact-communication-pulse" aria-hidden="true" />}
-      {activity.creation && <span key={activity.creation.id} className="compact-creation-highlight" aria-hidden="true" />}
+      {activity.communication && <span key={activity.communication.id} ref={playFrom(activity.communication.expires - EFFECT_MS)} className="compact-communication-pulse" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
+      {activity.creation && <span key={activity.creation.id} ref={playFrom(activity.creation.expires - EFFECT_MS)} className="compact-creation-highlight" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       <div className="node-group">
         {relation && <p className="node-relation">{relation}{ancestors.size >= 3 && parent && " · Parent: " + sessionTitle(parent, snapshot.tasks.find((task) => task.id === parent.task_id))}</p>}
         <div className={"workflow-node role-" + node.role + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
-          {(activity.received || activity.created) && <span key={(activity.received || activity.created)?.id} className="activity-glow" aria-hidden="true" />}
+          {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
