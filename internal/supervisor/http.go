@@ -310,6 +310,10 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Invalid task path")
 		return
 	}
+	if parts[1] == "handoff" {
+		h.taskHandoff(w, parts[0])
+		return
+	}
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, parts[0])
 	if err != nil {
 		apiError(w, 404, "Task metadata unavailable")

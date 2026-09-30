@@ -691,8 +691,11 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity string `json:"activity"`
-	Report   string `json:"report"`
+	Activity   string    `json:"activity"`
+	Report     string    `json:"report"`
+	LastReport string    `json:"last_report"`
+	Handoff    bool      `json:"handoff"`
+	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -875,6 +878,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
 		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
+		lastReport, _ := taskSessionSummary(lines, spawnTime(meta.SpawnGen))
 		if _, detail, ok := waitingQuestion(decisions, id); ok {
 			activity = detail
 		}
@@ -885,7 +889,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -995,6 +999,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			continue
 		}
 		out.Tasks = append(out.Tasks, done)
+	}
+	archived := archivedTasks(s.Store.Home)
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		id := strings.TrimPrefix(task.ID, "finished:")
+		if state.ValidTaskID(id) == nil {
+			if file, err := openTaskHandoff(s.Store.Home, id, archived); err == nil {
+				task.Handoff = true
+				file.Close()
+			}
+		}
 	}
 	if len(out.Decisions) > 100 {
 		out.Decisions = out.Decisions[len(out.Decisions)-100:]

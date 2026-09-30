@@ -217,7 +217,7 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
-On a narrow screen the columns stack and a card's name, repo and status wrap onto more lines rather than end in an ellipsis, so nothing is cut off or scrolls sideways; anything still shortened shows in full in a tip on hover or keyboard focus.
+On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
@@ -272,7 +272,14 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 A long status line shows its first three lines with **Show more**, which opens the whole line, and **Show less** closes it again.
-A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued, paused or stopped task, or one cleanup archived, has no live terminal, so its panel is its Task view alone, with no pill.
+When a session is retired, paused or stopped, its Terminal view shows that state, the recorded time when known, and the goblin's last report when available.
+**Open handoff** opens its saved handoff as plain text when that file is available.
+An open terminal follows its task into retired history instead of losing the panel or trying to reconnect to a retired session.
+A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
+While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
+After a failed resume it reads **Resume failed. See Task for details.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
+A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
 Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
