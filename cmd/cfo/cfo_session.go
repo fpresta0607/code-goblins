@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
@@ -71,7 +72,8 @@ func cfoHarness(stateDir string) (string, error) {
 // attaches with the CFO's tab in front. Inside a Herdr pane there is nothing
 // to attach. A harness chosen is remembered first, and a CFO already running
 // keeps the harness it runs.
-func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir string, native bool, chosen string, stdout, stderr io.Writer) int {
+func startCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, native bool, chosen string, stdout, stderr io.Writer) int {
+	stateDir := h.State
 	if chosen != "" {
 		if _, err := exec.LookPath(chosen); err != nil {
 			fmt.Fprintf(stderr, "goblins: %s is not on PATH, so the CFO cannot start as it; install it or choose another with goblins --harness\n", chosen)
@@ -116,7 +118,7 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, stateDir strin
 			return 1
 		}
 		if native {
-			if err := runtime.startNativeCFO(stateDir, project, harness); err != nil {
+			if err := runtime.startNativeCFO(h, project, harness); err != nil {
 				fmt.Fprintf(stderr, "goblins: the CFO could not be started in a native terminal: %v\n", err)
 				return 1
 			}

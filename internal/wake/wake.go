@@ -60,6 +60,7 @@ type Record struct {
 	Kind   string    `json:"kind"`
 	Key    string    `json:"key"`
 	Detail string    `json:"detail"`
+	Once   string    `json:"once,omitempty"`
 	// Answered is the answer this blocking notify received outside the
 	// queue, and AnsweredBy who gave it: AnsweredByOverlord on the board or
 	// AnsweredByCFO with cfo answer. Pending attaches both from their own
@@ -230,6 +231,10 @@ func AckThrough(dir string, seq int) error {
 		for _, rec := range records {
 			if rec.Seq > seq {
 				kept = append(kept, rec)
+			} else if rec.Once != "" {
+				if err := keepOnce(dir, rec); err != nil {
+					return err
+				}
 			}
 		}
 		floor, err := readAckFloor(dir)

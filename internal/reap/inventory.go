@@ -91,7 +91,15 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 			continue
 		}
 		verb := c.latestVerb(id)
-		inv.Tasks = append(inv.Tasks, Task{ID: id, Meta: meta, Verb: verb, Terminal: IsTerminal(verb)})
+		task := Task{ID: id, Meta: meta, Verb: verb, Terminal: IsTerminal(verb)}
+		lifecycle, lifecycleErr := state.ReadLifecycle(c.Home.State, id)
+		if lifecycleErr != nil && !errors.Is(lifecycleErr, os.ErrNotExist) {
+			notes = append(notes, fmt.Sprintf("lifecycle/%s.json: UNREADABLE (%s)", id, lifecycleErr))
+			task.IsPaused = true
+		} else if lifecycle.Generation == meta.SpawnGen && lifecycle.Phase != "running" && lifecycle.Phase != "stopped" {
+			task.IsPaused = true
+		}
+		inv.Tasks = append(inv.Tasks, task)
 	}
 
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)

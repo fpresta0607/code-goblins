@@ -122,6 +122,79 @@ func TestArgumentsSplitsACommandLineTheWayTheProgramReadIt(t *testing.T) {
 	}
 }
 
+// One read of the parameter block must return what the two separate reads do.
+func TestParametersReadsTheDirectoryAndArgumentsTogether(t *testing.T) {
+	dir := t.TempDir()
+	command := exec.Command("cmd.exe", "/d", "/k", "rem", "two words")
+	command.Dir = dir
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatalf("could not start a child process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = command.Process.Kill()
+		_, _ = command.Process.Wait()
+	})
+
+	var directory string
+	var args []string
+	for attempt := 0; attempt < 50; attempt++ {
+		if directory, args, err = Parameters(command.Process.Pid); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("Parameters(child): %v", err)
+	}
+	if !sameDir(directory, dir) {
+		t.Errorf("directory = %q, want %q", directory, dir)
+	}
+	want := []string{"/d", "/k", "rem", "two words"}
+	if len(args) != len(want)+1 || !reflect.DeepEqual(args[1:], want) {
+		t.Errorf("arguments = %q, want the program and then %q", args, want)
+	}
+}
+
+func TestParametersRefusesAPIDThatIsNotRunning(t *testing.T) {
+	directory, args, err := Parameters(0x7FFFFFF0)
+	if !errors.Is(err, ErrDirectoryUnreadable) || !errors.Is(err, ErrCommandLineUnreadable) {
+		t.Errorf("err = %v, want both values reported unreadable", err)
+	}
+	if directory != "" || args != nil {
+		t.Errorf("Parameters(unused pid) = %q %q, want nothing alongside an error", directory, args)
+	}
+}
+
+func TestParametersReadsArgumentsBeyondTheFirstParameterPage(t *testing.T) {
+	directory := t.TempDir()
+	argument := strings.Repeat("two words ", 400)
+	command := exec.Command(os.Args[0], "-test.run=^TestParametersLongArgumentFixture$", argument)
+	command.Dir = directory
+	command.Env = append(os.Environ(), "CFO_PARAMETER_FIXTURE=1")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
+	gotDirectory, arguments, err := Parameters(command.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameDir(gotDirectory, directory) || len(arguments) != 3 || arguments[2] != argument {
+		t.Fatalf("directory or long argument changed: directory=%q argument count=%d", gotDirectory, len(arguments))
+	}
+}
+
+func TestParametersLongArgumentFixture(t *testing.T) {
+	if os.Getenv("CFO_PARAMETER_FIXTURE") == "1" {
+		time.Sleep(time.Minute)
+	}
+}
+
 // sameDir compares two Windows paths allowing for case and a trailing
 // separator, which the parameter block and os.Getwd spell differently.
 func sameDir(left, right string) bool {

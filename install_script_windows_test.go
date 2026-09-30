@@ -145,6 +145,101 @@ func serveRelease(t *testing.T, binary []byte, sums string) string {
 	return release.URL
 }
 
+// runPin runs tools/pin-installer.ps1 in shell, as release.yml does, and
+// returns where it was told to write the release's install script.
+func runPin(t *testing.T, shell, repository, tag, publisher string) (destination, output string, err error) {
+	t.Helper()
+	pin, err := filepath.Abs(filepath.Join("tools", "pin-installer.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination = filepath.Join(t.TempDir(), "release", "install.ps1")
+	out, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", repository, "-Tag", tag, "-Publisher", publisher, "-Destination", destination).CombinedOutput()
+	return destination, string(out), err
+}
+
+// The install script a release publishes downloads that release's own files:
+// from the repository that published it, a fork's included, at its tag,
+// never from the latest release or from another repository.
+func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
+			t.Run(filepath.Base(shell)+" "+repository, func(t *testing.T) {
+				// Arrange
+				script, output, err := runPin(t, shell, repository, "v1.2.3", "Code Goblins Test Publisher")
+				if err != nil {
+					t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
+				}
+				// The stand-in for Invoke-WebRequest says what the script
+				// downloads and reaches nothing.
+				offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
+
+				// Act
+				output, local, temp, err := runStrippedPowerShell(t, shell, "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+
+				// Assert
+				want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/cfo.exe"
+				if err == nil || !strings.Contains(output, want) {
+					t.Fatalf("install = %v, want it to download from %s:\n%s", err, want, output)
+				}
+				assertNothingInstalled(t, local, temp)
+			})
+		}
+	}
+}
+
+// The pin writes no install script it cannot pin as given, so a release
+// never publishes one that downloads or trusts something else.
+func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		for name, test := range map[string]struct{ repository, tag, publisher string }{
+			"a repository that is not owner/name": {"https://github.com/fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher"},
+			"a tag that is not a release's":       {"fpresta0607/code-goblins", "main", "Code Goblins Test Publisher"},
+			"a publisher PowerShell would expand": {"fpresta0607/code-goblins", "v1.2.3", "Goblins $env:USERNAME"},
+			"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				// Act
+				script, output, err := runPin(t, shell, test.repository, test.tag, test.publisher)
+
+				// Assert
+				if err == nil {
+					t.Fatalf("pin-installer.ps1 accepted %+v:\n%s", test, output)
+				}
+				if _, statErr := os.Stat(script); !os.IsNotExist(statErr) {
+					t.Errorf("pin-installer.ps1 wrote %s (%v), want nothing written", script, statErr)
+				}
+			})
+		}
+	}
+}
+
+// The install script a release publishes names the release's publisher, and
+// it refuses a download that is not validly signed by that publisher, however
+// well it matches its sum.
+func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
+	binary := []byte("a build nobody signed")
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			// Arrange
+			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
+			if err != nil {
+				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
+			}
+			base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+
+			// Act
+			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+
+			// Assert
+			if err == nil || !strings.Contains(output, "The downloaded cfo.exe is not validly signed by Code Goblins Test Publisher") {
+				t.Fatalf("install = %v, want the unsigned download refused:\n%s", err, output)
+			}
+			assertNothingInstalled(t, local, temp)
+		})
+	}
+}
+
 // The one-line install refuses a download that does not match the release's
 // SHA256SUMS before it runs anything: nothing is installed, and the download
 // is gone.
@@ -174,7 +269,8 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 
 // The check lets a download that matches through, so the refusals above are
 // the checksum's doing. The stand-in binary is not a program, so it goes no
-// further than being run.
+// further than being run. The repository's own script names no publisher,
+// and says it checks the sums only.
 func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) {
 	binary := []byte("not a program")
 	sum := sha256.Sum256(binary)
@@ -188,6 +284,9 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 
 				if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
 					t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
+				}
+				if !strings.Contains(output, "names no publisher, so the download is checked against the release's SHA256SUMS only") {
+					t.Errorf("an unpinned script does not say it checks sums only:\n%s", output)
 				}
 				if err == nil {
 					t.Fatalf("install succeeded with a stand-in binary that cannot run:\n%s", output)

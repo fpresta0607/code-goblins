@@ -133,7 +133,7 @@ func TestGoblinsNativeBringsALiveHerdrCFOToTheFront(t *testing.T) {
 // A native CFO that cannot start is reported, and nothing is shown.
 func TestGoblinsNativeReportsACFOThatCannotStart(t *testing.T) {
 	f := newSessionFixture(t)
-	f.runtime.startNativeCFO = func(string, string, string) error { return errors.New("claude is not on PATH") }
+	f.runtime.startNativeCFO = func(home.Home, string, string) error { return errors.New("claude is not on PATH") }
 
 	exit, _, stderr := f.launch("--native")
 

@@ -113,10 +113,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace.with-pane { grid-template-columns: minmax(0, 1fr) 10px minmax(420px, 1fr); column-gap: 0; }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--edge); border-radius: 18px; box-shadow: inset 0 2px 18px #0009; background: linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
-.task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
+.task-board { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; min-height: 100%; padding: 24px; }
 /* The CFO pinned above the columns opens its terminal, and is the one place
    on the board that says Waiting on you. */
-.task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
+.task-board:has(> .cfo-pin) { grid-template-rows: auto; }
 .cfo-pin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: #0f1820e6; box-shadow: var(--shadow-1); }
 .cfo-pin .goblin-avatar { flex: none; width: 44px; height: 44px; }
 .cfo-pin .pin-copy { display: grid; flex: 1 1 10rem; min-width: 0; }
@@ -442,11 +442,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .view-switch button { min-width: 0; padding-inline: 16px; }
   .topbar-controls { gap: 10px; }
 }
-/* Three columns need room for a 260 px card in each; below that the columns
-   stack and the cards share the width. */
+/* A narrow board stops filling the canvas height and tightens its columns. */
 @container (max-width: 960px) {
-  .task-board { grid-template-columns: minmax(0, 1fr); min-height: auto; }
-  .task-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+  .task-board { min-height: auto; }
   .board-column h2 { margin-bottom: 14px; }
   .column-empty { padding: 0 0 12px; }
 }
@@ -915,3 +913,60 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .pane-divider::after { content: ""; width: 3px; height: 56px; margin: auto; border-radius: 3px; background: var(--edge-lit); opacity: 0; transition: opacity .12s ease; }
 .pane-divider:hover::after, .pane-divider:focus-visible::after { opacity: 1; background: var(--mint); }
 @media (max-width: 50rem) { .pane-divider { display: none; } }
+
+.board-column { container-type: inline-size; }
+.board-column .task-cards { grid-template-columns: minmax(0, 1fr); }
+.task-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.task-controls .icon-button { width: 42px; height: 42px; min-height: 42px; border-radius: 50%; }
+.task-controls [aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.task-card-shell.has-controls .task-card { padding-right: 172px; min-height: 92px; }
+.task-card-shell > .task-controls { position: absolute; right: 12px; top: 22px; }
+.task-card-shell .card-terminal { top: 22px; right: 116px; width: 42px; height: 42px; border-radius: 50%; }
+.task-card-shell .card-foot { margin-right: 0; }
+.task-card-shell.history .task-card { padding-bottom: 44px; }
+.task-card-shell.history.has-pr .task-card { padding-bottom: 72px; }
+.card-history-id { position: absolute; bottom: 12px; left: 68px; right: 12px; }
+.task-card-shell.history .card-pr { left: 68px; right: auto; bottom: 36px; }
+.card-secondary { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.queue-block { color: var(--amber); font-size: .875rem; }
+.phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
+.phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
+.phase-stopped, .phase-stopping { color: var(--muted); }
+.phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
+.task-action-problem { margin: 10px 0; color: var(--amber); overflow-wrap: anywhere; }
+.task-action-progress { margin: 8px 0; color: var(--mint); }
+.lifecycle-panel { display: grid; gap: 24px; }
+.lifecycle-panel > .task-controls { justify-content: flex-end; }
+.lifecycle-details { display: grid; gap: 14px; border-top: 1px solid var(--edge); padding-top: 22px; }
+.lifecycle-details h3, .lifecycle-details p, .task-adjustment p { margin: 0; }
+.lifecycle-details ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.lifecycle-details li { display: flex; align-items: flex-start; gap: 12px; overflow-wrap: anywhere; }
+.lifecycle-details li .icon { color: var(--mint); flex: none; }
+.lifecycle-details time { color: var(--muted); font-weight: 400; }
+.task-adjustment { display: grid; gap: 16px; border-top: 1px solid var(--edge); padding-top: 24px; }
+.task-adjustment h3 { margin: 0; }
+.task-adjustment textarea { width: 100%; min-height: 170px; resize: vertical; line-height: 1.6; }
+.task-note { display: flex; gap: 14px; padding: 18px; border: 1px solid var(--edge); border-radius: 14px; background: var(--level-2); }
+.task-note > .icon { flex: none; }
+.task-note strong { color: var(--mint); font-weight: 500; }
+.task-note p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.stop-task-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 28px; border: 1px solid var(--edge-lit); border-radius: 20px; color: #edf4f3; background: #10202d; box-shadow: var(--shadow-3); text-align: center; }
+.stop-task-dialog::backdrop { background: #02090dbb; backdrop-filter: blur(3px); }
+.stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }
+.stop-task-dialog h2 { font-size: 1.75rem; margin: 0 0 8px; }
+.stop-task-dialog p { line-height: 1.55; }
+.stop-task-choices { display: grid; gap: 12px; margin: 18px 0; }
+.stop-task-choices button { width: 100%; min-height: 46px; }
+.preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: 12px; background: #163d3740; color: #9af2d7; }
+.preservation-notice .icon { flex: none; }
+.danger { color: #ff9292; }
+.stop-task-choices .danger { border-color: #fa7272; background: #0a1723; }
+.windows-teardown { display: block; font-size: max(16px, 1rem); line-height: 1.5; color: var(--amber); overflow-wrap: anywhere; }
+@container (max-width: 420px) {
+  .task-card-shell.has-controls .task-card { padding-right: 14px; padding-bottom: 68px; }
+  .task-card-shell > .task-controls { top: auto; bottom: 12px; }
+  .task-card-shell .card-terminal { top: auto; right: auto; left: 12px; bottom: 12px; }
+  .task-card-shell.has-pr .card-terminal { bottom: 40px; }
+  .task-card-shell.has-pr .task-card { padding-bottom: 98px; }
+  .task-card-shell.has-pr > .task-controls { bottom: 40px; }
+}

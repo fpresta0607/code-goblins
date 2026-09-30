@@ -122,7 +122,7 @@ func runLauncher(stdout, stderr io.Writer, runtime commandRuntime, native bool, 
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 		}
 	}
-	return startCFOSession(ctx, runtime, h.State, native, harness, stdout, stderr)
+	return startCFOSession(ctx, runtime, h, native, harness, stdout, stderr)
 }
 
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as

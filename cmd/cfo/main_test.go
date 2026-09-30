@@ -95,8 +95,10 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
-	// fakeDoctorTool's claude.exe is this binary answering --version.
-	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+	// fakeDoctorTool's claude.exe is this binary answering doctor's --version
+	// probe; run as claude.exe any other way, it is the native CFO test's
+	// harness, below.
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") && len(os.Args) == 2 && os.Args[1] == "--version" {
 		fmt.Println("claude 1.0.0")
 		os.Exit(0)
 	}
@@ -112,6 +114,14 @@ func TestMain(m *testing.M) {
 	}
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
+	}
+	// The native CFO test starts this binary as cfo host, and as the
+	// claude.exe its terminal runs.
+	if len(os.Args) > 1 && os.Args[1] == "host" {
+		os.Exit(runHost(os.Args[2:], os.Stderr))
+	}
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+		os.Exit(runFakeClaude())
 	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a

@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
 // ErrQueueChanged is an order that is not the queue backlog.md holds now: a
@@ -36,7 +37,11 @@ type queuedBlock struct {
 // stay where they are. added holds the row to write for each task in order
 // that has a brief and no row yet. An order that is not exactly the queue
 // the file holds, with added, is ErrQueueChanged and writes nothing.
-func ReorderQueued(h home.Home, order []string, added map[string]string, live map[string]bool) error {
+func ReorderQueued(h home.Home, order []string, added map[string]string, live map[string]bool) (err error) {
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".backlog.lock"); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, ".backlog.lock")) }()
 	path := filepath.Join(h.Data, "backlog.md")
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -2,6 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CFO_KEY, MAXIMIZED_KEYS, cfoView, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
+
+test("terminal shortcuts exclude ended sessions but retain a live goblin that delivered a PR", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "retired", generation: "g1", archived: true, verified: false },
+    { id: "paused", generation: "g1", phase: "paused", verified: false },
+    { id: "stopped", generation: "g1", phase: "stopped", verified: false },
+    { id: "delivered", generation: "g1", phase: "done", verified: true, report: "done", runtime: { state: "idle" } },
+  ] });
+  assert.deepEqual(switchOrder(snapshot.tasks).map((entry) => entry.key), [CFO_KEY, "delivered"]);
+});
 
 const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1", archived: false, ...changes }) as Task;
 const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; altGraph: boolean }> = {}) => {
@@ -25,6 +36,21 @@ test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows 
   assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
   assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true }), { kind: "host", query: "cfo=cfo" });
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
+});
+
+test("a resuming or stopping goblin shows its transition instead of connecting to the old generation", () => {
+  for (const backend of ["native", "herdr"]) {
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming" })), { kind: "empty", text: "Resuming session..." });
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "stopping" })), { kind: "empty", text: "Stopping session..." });
+  }
+});
+
+test("a failed resume shows no terminal until a retry is resuming", () => {
+  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  for (const backend of ["native", "herdr"]) {
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed. See Task for details." });
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming", lifecycle: failed })), { kind: "empty", text: "Resuming session..." });
+  }
 });
 
 test("the switcher lists the CFO first, then every goblin that has a terminal", () => {

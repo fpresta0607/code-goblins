@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -54,7 +56,13 @@ var (
 // OPEN, CLOSED or MERGED, or empty when it did not answer.
 type pullRequestState struct {
 	state string
+	title string
 	at    time.Time
+}
+
+type PullRequestInfo struct {
+	State string `json:"state"`
+	Title string `json:"title"`
 }
 
 // MergedPR is one pull request merged into a fleet repository.
@@ -416,11 +424,31 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 	return bounded(activity, 4000), pr
 }
 
+func taskSessionSummary(lines []string, spawned time.Time) (report string, retired time.Time) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
+		event = strings.TrimSpace(event)
+		kind, detail, _ := strings.Cut(event, ": ")
+		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via cfo cleanup")) {
+			if retired.IsZero() && report == "" {
+				retired = stamp
+			}
+		} else if report == "" && reportKind(event) != "" {
+			report = redact(bounded(event, 4000))
+		}
+	}
+	return report, retired
+}
+
 // finishedTasks are tasks cfo cleanup finished within the history window,
 // newest first. Cleanup leaves the status log in place with no task record
 // beside it; cfo reap later moves it into the archive as its own file, and
 // older archives keep it inside the task's archived directory.
-func finishedTasks(stateDir string, now time.Time) []Task {
+func finishedTasks(h home.Home, now time.Time) []Task {
+	stateDir := h.State
 	type finished struct {
 		at   time.Time
 		path string
@@ -464,13 +492,90 @@ func finishedTasks(stateDir string, now time.Time) []Task {
 		}
 	}
 	tasks := []Task{}
+	backlog, _ := fleet.ReadBacklog(h)
 	for id, f := range found {
 		lines, err := fsx.ReadLines(f.path)
 		if err != nil {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
-		tasks = append(tasks, Task{ID: "finished:" + id, Title: id, Dependencies: []string{}, Archived: true, Evaluation: Evaluation{Phase: "done", PR: pr, Reason: "Finished and cleaned up", At: f.at}})
+		report, retired := taskSessionSummary(lines, time.Time{})
+		phase, reason := "stopped", "Stopped without recorded delivery"
+		if pr != "" {
+			phase, reason = "done", "Delivered pull request; task cleaned up"
+		}
+		title, project := id, ""
+		for _, row := range append(append(backlog.Done, backlog.Queued...), backlog.Parked...) {
+			if row.Structured && row.ID == id {
+				title, project = row.Title, row.Repo
+				break
+			}
+		}
+		for _, brief := range []string{filepath.Join(h.Data, id, "brief.md"), filepath.Join(h.Data, "archive", "finished", id, "brief.md")} {
+			if project == "" {
+				project = briefProject(brief)
+			}
+			if title == id {
+				if content, err := os.ReadFile(brief); err == nil {
+					_, task, ok := strings.Cut(strings.ReplaceAll(string(content), "\r\n", "\n"), "## Task\n")
+					if ok {
+						first, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
+						if !strings.HasPrefix(first, "#") && first != "" {
+							title = bounded(first, 200)
+						}
+					}
+				}
+			}
+		}
+		if project != "" {
+			project = filepath.Base(project)
+		}
+		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Dependencies: []string{}, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
+	}
+	for _, directory := range []string{"outcomes", "lifecycle"} {
+		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
+		for _, entry := range entries {
+			id, ok := strings.CutSuffix(entry.Name(), ".json")
+			if !ok || state.ValidTaskID(id) != nil || exists(filepath.Join(stateDir, id+".meta")) {
+				continue
+			}
+			var task Task
+			var generation string
+			if directory == "outcomes" {
+				outcome, err := state.ReadOutcome(stateDir, id)
+				if err != nil {
+					continue
+				}
+				generation = outcome.Generation
+				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+			} else {
+				record, err := state.ReadLifecycle(stateDir, id)
+				if err != nil || record.Phase != "stopped" {
+					continue
+				}
+				generation = record.Generation
+				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
+					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
+				}
+			}
+			if task.Title == "" {
+				task.Title = id
+			}
+			if task.Project == "." {
+				task.Project = ""
+			}
+			if now.Sub(task.At) > historyWindow {
+				continue
+			}
+			if status, ok := found[id]; ok && generation != "queued" {
+				if lines, err := fsx.ReadLines(status.path); err == nil {
+					task.LastReport, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+				}
+			}
+			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })
+			tasks = append(tasks, task)
+		}
 	}
 	return newestHistory(tasks)
 }
@@ -484,10 +589,11 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 		for i := range history {
 			if history[i].PR == pr.PR {
 				history[i].Merged, found = true, true
+				history[i].Project, history[i].Branch = filepath.Base(pr.Project), pr.Branch
 			}
 		}
 		if !found {
-			history = append(history, Task{ID: "merged:" + pr.PR, Title: pr.Branch, Project: filepath.Base(pr.Project), Dependencies: []string{}, Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: pr.PR, Reason: "Pull request merged", At: time.Unix(pr.At, 0).UTC()}})
+			history = append(history, Task{ID: "merged:" + pr.PR, Title: "Pull request #" + filepath.Base(pr.PR), Branch: pr.Branch, Project: filepath.Base(pr.Project), Dependencies: []string{}, Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: pr.PR, Reason: "Pull request merged", At: time.Unix(pr.At, 0).UTC()}})
 		}
 	}
 	return newestHistory(history)
@@ -514,21 +620,26 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 	shown := map[string]bool{}
 	for i := range history {
 		task := &history[i]
-		if !strings.HasPrefix(task.ID, "finished:") || task.Merged || !githubPullRequest.MatchString(task.PR) {
+		if !githubPullRequest.MatchString(task.PR) {
 			continue
 		}
 		shown[task.PR] = true
 		known, ok := s.pullRequests[task.PR]
-		if !ok || (known.state != "MERGED" && known.state != "CLOSED" && now.Sub(known.at) >= pullRequestRecheck) {
+		if !ok || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
 			if budget.Err() != nil {
 				continue
 			}
 			answer, err := s.Options.PullRequestState(budget, task.PR)
 			errs = errors.Join(errs, err)
-			known = pullRequestState{state: answer, at: now}
+			known = pullRequestState{state: answer.State, title: answer.Title, at: now}
 			s.pullRequests[task.PR] = known
 		}
-		task.Merged, task.Closed = known.state == "MERGED", known.state == "CLOSED"
+		task.Merged, task.Closed = task.Merged || known.state == "MERGED", known.state == "CLOSED"
+		if known.title != "" {
+			task.Title = known.title
+		}
+		parts := strings.Split(task.PR, "/")
+		task.Project = parts[4]
 	}
 	maps.DeleteFunc(s.pullRequests, func(url string, _ pullRequestState) bool { return !shown[url] })
 	return errs
@@ -536,20 +647,24 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 
 // GitHubPullRequestState asks GitHub, through gh, whether a pull request is
 // OPEN, CLOSED or MERGED, for as long as the caller's context allows.
-func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (string, error) {
-	return func(ctx context.Context, url string) (string, error) {
-		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state", "--jq", ".state"}})
+func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (PullRequestInfo, error) {
+	return func(ctx context.Context, url string) (PullRequestInfo, error) {
+		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title"}})
 		if err != nil {
-			return "", fmt.Errorf("gh could not read %s: %w", url, err)
+			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %w", url, err)
 		}
 		if result.ExitCode != 0 {
-			return "", fmt.Errorf("gh could not read %s: %s", url, strings.TrimSpace(string(result.Stderr)))
+			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %s", url, strings.TrimSpace(string(result.Stderr)))
 		}
-		switch answer := strings.TrimSpace(string(result.Stdout)); answer {
+		var answer PullRequestInfo
+		if err := json.Unmarshal(result.Stdout, &answer); err != nil || strings.TrimSpace(answer.Title) == "" {
+			return PullRequestInfo{}, errors.New("gh returned incomplete pull request details")
+		}
+		switch answer.State {
 		case "OPEN", "CLOSED", "MERGED":
 			return answer, nil
 		default:
-			return "", fmt.Errorf("gh answered %q for the state of %s", answer, url)
+			return PullRequestInfo{}, fmt.Errorf("gh answered %q for the state of %s", answer.State, url)
 		}
 	}
 }
