@@ -191,12 +191,14 @@ Dragging a card or using Alt plus an arrow key changes only its saved browser po
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
 A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
-A connector pulses for a few seconds when its goblin reports a new status line or files a wake record.
+A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
 A child without its own reported native transport explains that limitation without borrowing its owning task's terminal or model.
 Bounded accepted-message receipts produce a brief travelling connector pulse and receiving-card glow where exact caller native identity proves the reported parent.
 Native-creation receipts instead produce a quiet birth highlight on that proven parent branch plus the child-card glow and entrance; creation is never rendered as a message receipt.
+Every pulse, card glow and birth highlight is its own layer over the connector or card, which plays out over the effect's whole life and fades before it is removed: a pulse's dash keeps travelling until the fade ends, so none freezes in place or vanishes at full strength, and the connector underneath never changes.
+Each effect runs on the clock of the report it shows, so one drawn late, on a branch expanded mid-pulse, joins its animation where it is and still ends on time.
 The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
 When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.
