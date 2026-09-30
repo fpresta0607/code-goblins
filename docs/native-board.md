@@ -199,6 +199,7 @@ Bounded accepted-message receipts produce a brief travelling connector pulse and
 Native-creation receipts instead produce a quiet birth highlight on that proven parent branch plus the child-card glow and entrance; creation is never rendered as a message receipt.
 Every pulse, card glow and birth highlight is its own layer over the connector or card, which plays out over the effect's whole life and fades before it is removed: a pulse's dash keeps travelling until the fade ends, so none freezes in place or vanishes at full strength, and the connector underneath never changes.
 Each effect runs on the clock of the report it shows, so one drawn late, on a branch expanded mid-pulse, joins its animation where it is and still ends on time.
+A newer report on the same connector plays its own pulse while the earlier one finishes and fades.
 The caller convention is `CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`, with native `CODEX_THREAD_ID` fallback; same-harness or directory/time resemblance never establishes a sender.
 When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.

@@ -61,6 +61,21 @@ for (const [mode, collapse, expand] of [["report", "Collapse descendants of", "E
   });
 }
 
+test("a newer report plays its own pulse while the earlier one finishes and fades", async ({ page }) => {
+  await page.goto("/tests/fixtures/pulse-end.html#report");
+  const elements = await page.locator("#effects *").count();
+
+  await page.getByRole("button", { name: "Report" }).click();
+  await page.waitForTimeout(1000);
+  await page.getByRole("button", { name: "Follow up" }).click();
+  const seen = await pulseEnds(page);
+
+  expect(seen.peak).toBeGreaterThan(.5);
+  expect({ leftVisible: seen.leftVisible, stale: seen.stale }).toEqual({ leftVisible: [], stale: [] });
+  expect(seen.elements).toBe(elements);
+  expect(seen.running).toBe(0);
+});
+
 test("a report that arrives while the board is hidden never plays later", async ({ page }) => {
   await page.goto("/tests/fixtures/pulse-end.html#report");
   await setHidden(page, true);

@@ -46,7 +46,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const drag = useRef<{ id: string; pointer: Point; start: Point } | null>(null);
   const pan = useRef<{ pointer: Point; scroll: Point } | null>(null);
   const signatures = useRef<Map<string, string> | null>(null);
-  const [traffic, setTraffic] = useState<Record<string, number>>({});
+  const [traffic, setTraffic] = useState<Record<string, number[]>>({});
   const pulses = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const { signatures: next, moved } = fleetTraffic(signatures.current, snapshot);
@@ -164,7 +164,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               const drop = Math.min((ey - sy) / 2, 56);
               const path = `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
               const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
-              const report = connected && node.task ? traffic[node.task.id] : undefined;
+              const reports = connected && node.task ? traffic[node.task.id] || [] : [];
               // Each pulse or birth highlight is its own overlay on the
               // connector, played out over its whole life and faded before
               // it is removed, so the connector itself never changes.
@@ -177,7 +177,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
                 {activity.creation && effect(activity.creation.id, "creating", activity.creation.expires - EFFECT_MS, EFFECT_MS)}
                 {activity.communication && effect(activity.communication.id, "communicating", activity.communication.expires - EFFECT_MS, EFFECT_MS)}
-                {report && effect("report:" + report, "communicating", report, PULSE_MS)}
+                {reports.map((report) => effect("report:" + report, "communicating", report, PULSE_MS))}
               </g>;
             })}
             {/* A goblin waiting on another goblin: a dashed line from the

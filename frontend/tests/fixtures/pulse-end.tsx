@@ -11,7 +11,7 @@ import "../../src/styles.css";
 // new: a status line (report), a message the CFO sent it (message) or its
 // native creation (created), in Orchestration or, with compact-, in the
 // narrow screen's nested list. Report and Watch start watching the effects
-// afresh.
+// afresh; Follow up reports again and keeps the watch already running.
 const mode = location.hash.slice(1);
 const session = (id: string, role: string, parent: string, task: string) => ({ id, native_id: id, harness: "codex", role, task_id: task, generation: "1", parent, relation: parent ? "Spawned" : "", phase: "working" });
 const base = {
@@ -28,16 +28,16 @@ function PulseEnd() {
     window.effectWatch?.stop();
     window.effectWatch = watchEffects(document.getElementById("effects")!);
   };
-  const report = () => {
+  const send = () => {
     const count = ++reports.current;
-    watch();
     const kind = mode.replace("compact-", "");
     setSnapshot(parseSnapshot(kind === "report"
       ? { ...base, revision: count, tasks: [{ ...base.tasks[0], activity: "working: step " + count }] }
       : { ...base, revision: count, activity: [{ id: "event-" + count, kind, task_id: "build", generation: "1", source: "cfo", target: "goblin", state: "accepted", at: new Date().toISOString() }] }));
   };
   return <main>
-    <button onClick={report}>Report</button>
+    <button onClick={() => { watch(); send(); }}>Report</button>
+    <button onClick={send}>Follow up</button>
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
