@@ -5,9 +5,10 @@ import { message, request } from "./api";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
-import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, inputBytes, JUMP_TO_BOTTOM, judgeLines, liveWheel, maxInputBytes, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
+import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
+import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -331,7 +332,6 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     };
     const send = (text: string) => {
       if (!text || !lease || abort.signal.aborted) return;
-      if (inputBytes(text) > maxInputBytes) { setError("Input exceeds 64 KiB. Use a smaller selection; nothing was sent."); return; }
       setError("");
       step("typed");
       queueInput(queue, text);
@@ -340,12 +340,16 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     term.onData(send);
     // Typing in the history types into the pane and returns to its live screen.
     past.onData((text) => { closeHistory(); send(text); });
-    const typePaste = (text: string) => { closeHistory(); try { send(bracketedPaste(text)); } catch (e: unknown) { setError(message(e)); } };
+    const typePaste = (text: string) => {
+      try { const paste = bracketedPaste(text); closeHistory(); send(paste); }
+      catch (error) { setError(message(error)); }
+    };
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
-      const text = event.clipboardData?.getData("text/plain");
-      if (text) typePaste(text);
+      const input = clipboardInput(event);
+      if (input && "text" in input) typePaste(input.text);
+      else if (input) { closeHistory(); send(input.key); }
     };
     element.addEventListener("paste", paste, true);
     pastElement.addEventListener("paste", paste, true);
@@ -405,11 +409,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
         if (event.type === "keydown") focusPill();
         return false;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
-        event.preventDefault();
-        if (event.type === "keydown") copy();
-        return false;
-      }
+      const shortcut = terminalKey(event, term, copy);
+      if (shortcut !== null) return shortcut;
       if (zoom(event)) return false;
       // Shift+PageUp opens the pane's history a screen up.
       if (event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown")) {
@@ -423,18 +424,19 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       event.stopPropagation();
       const dictated = dictate(event);
       if (dictated !== null) return dictated;
+      const shortcut = terminalKey(event, past, () => copy(past));
+      if (shortcut !== null) return shortcut;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
         if (event.type === "keydown") focusPill();
         return false;
       }
       const page = event.shiftKey && !event.ctrlKey && !event.altKey && (event.key === "PageUp" || event.key === "PageDown");
-      if (page || event.key === "Escape" || event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
+      if (page || event.key === "Escape") {
         event.preventDefault();
         if (event.type !== "keydown") return false;
         if (event.key === "Escape" || event.key === "PageDown" && atBottom()) closeHistory();
         else if (page) past.scrollLines((event.key === "PageUp" ? -1 : 1) * Math.max(1, past.rows - 1));
-        else copy(past);
         return false;
       }
       return true;

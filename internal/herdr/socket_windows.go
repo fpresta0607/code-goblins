@@ -115,7 +115,8 @@ func (c *Client) socketRead(ctx context.Context, method string, params map[strin
 // PaneInput types into a session's panes and reads their history with no
 // process per call, for a view that types key by key.
 type PaneInput interface {
-	// SendText types unsubmitted literal text into a pane.
+	// SendText types unsubmitted literal text into a pane, and a complete
+	// bracketed paste with the program's own paste mode.
 	SendText(ctx context.Context, pane, text string) error
 	// History returns up to lines of the pane's most recent output, history
 	// included, with its colors.
@@ -127,8 +128,12 @@ func (c *Client) PaneInput(ctx context.Context) (PaneInput, error) {
 	return c.cachedSocket(ctx)
 }
 
-// SendText types unsubmitted literal text into a pane, as pane send-text does.
+// SendText types keys literally and pastes with the program's paste mode.
 func (s Socket) SendText(ctx context.Context, pane, text string) error {
+	if text, isPaste := pasteText(text); isPaste {
+		_, err := s.request(ctx, "pane.send_input", map[string]string{"pane_id": pane, "text": text})
+		return err
+	}
 	_, err := s.request(ctx, "pane.send_text", map[string]any{"pane_id": pane, "text": text})
 	return err
 }

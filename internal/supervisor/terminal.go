@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +153,7 @@ type terminalLease struct {
 	// pane, checked when the view opens and on every tick rather than per key;
 	// nil lets input through.
 	custody error
+	paste   strings.Builder
 }
 
 // maxHistoryLines bounds one history read of a pane.
@@ -190,6 +192,27 @@ func (l *terminalLease) input(ctx context.Context, seq uint64, command herdr.Ter
 		l.closed = true
 		l.cancel()
 		return err
+	}
+	// Herdr applies the program's paste mode only to a complete paste.
+	// Keep transport chunks together, including a split closing marker.
+	if l.paste.Len() > 0 || command.Type == "terminal.input" && strings.HasPrefix(command.Text, "\x1b[200~") {
+		if command.Type != "terminal.input" || l.paste.Len()+len(command.Text) > herdr.MaxPasteBytes {
+			l.paste.Reset()
+			l.closed = true
+			l.cancel()
+			return errors.New("Paste exceeded Herdr's request limit or was interrupted by another operation; nothing from this paste was sent.")
+		}
+		l.paste.WriteString(command.Text)
+		if !strings.HasSuffix(l.paste.String(), "\x1b[201~") {
+			return nil
+		}
+		command.Text = herdr.CleanPaste(l.paste.String())
+		l.paste.Reset()
+		if err := command.Validate(); err != nil {
+			l.closed = true
+			l.cancel()
+			return err
+		}
 	}
 	if !l.control {
 		if err := l.panes.SendText(ctx, l.binding.Target.Pane, command.Text); err != nil {

@@ -1,7 +1,9 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
+import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
+import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -92,6 +94,7 @@ export class TerminalView {
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
+    this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
     this.resize = new ResizeObserver(() => this.refit());
@@ -120,7 +123,7 @@ export class TerminalView {
   // paste types text into the terminal the way a paste does, so a program
   // that asked for bracketed paste receives it as one.
   paste(text: string): void {
-    this.term.paste(text);
+    this.term.paste(stripPasteEscapes(text));
   }
 
   setFont(size: number): void {
@@ -138,6 +141,7 @@ export class TerminalView {
     this.rendered.dispose();
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
+    this.element.removeEventListener("paste", this.pasteClipboard, true);
     window.removeEventListener("pointerup", this.copy);
     this.socket.onclose = null;
     this.socket.close(1000);
@@ -254,11 +258,8 @@ export class TerminalView {
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
       return false;
     }
-    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
-      event.preventDefault();
-      if (down) this.copy();
-      return false;
-    }
+    const shortcut = terminalKey(event, this.term, this.copy);
+    if (shortcut !== null) return shortcut;
     const size = event.ctrlKey && !event.altKey && !event.metaKey ? fontSizeFor(event.key, this.term.options.fontSize ?? DEFAULT_FONT_SIZE) : null;
     if (size !== null) {
       event.preventDefault();
@@ -271,6 +272,14 @@ export class TerminalView {
   private readonly copy = (): void => {
     if (!this.term.hasSelection()) return;
     navigator.clipboard.writeText(this.term.getSelection()).then(() => this.events.copied(), () => {});
+  };
+
+  private readonly pasteClipboard = (event: ClipboardEvent): void => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const input = clipboardInput(event);
+    if (input && "text" in input) this.paste(input.text);
+    else if (input) this.term.input(input.key, true);
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.

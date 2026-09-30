@@ -12,6 +12,23 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr/herdrtest"
 )
 
+func TestPaneInputUsesTheProgramsPasteMode(t *testing.T) {
+	socket := herdrtest.NewSocket(t)
+	client := newTestClient(&fakeRunner{replies: []runnerReply{rawReply(socket.Status())}}, nil)
+	panes, err := client.PaneInput(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "one\r" + strings.Repeat("界", 25000)
+	if err := panes.SendText(context.Background(), "w1:p2", "\x1b[200~"+text+"\x1b[201~"); err != nil {
+		t.Fatal(err)
+	}
+	requests := socket.Requests()
+	if len(requests) != 1 || requests[0].Method != "pane.send_input" || requests[0].Params["text"] != text {
+		t.Fatal("paste must use one mode-aware request with the original text")
+	}
+}
+
 // A pane input asks Herdr's status for the socket once, then types every
 // input as one pane.send_text request on the session's socket: control keys,
 // a multi-byte paste and the board's largest input alike, and no process.
