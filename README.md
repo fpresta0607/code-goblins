@@ -124,6 +124,11 @@ cd code-goblins
 
 Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
 
+`cfo.exe` is not code-signed yet.
+The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
+A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
+[On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
+
 Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
