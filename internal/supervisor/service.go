@@ -757,6 +757,10 @@ type Snapshot struct {
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// CFOHarness names the harness the registered CFO runs, such as claude or
+	// codex, for the mark beside the CFO on the board; it is empty while no
+	// CFO is registered.
+	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -774,7 +778,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	s.mu.Unlock()
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting = cfo.terminal, cfo.registered || cfo.starting, cfo.starting
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
 	// A starting CFO registers itself after sign-in, and one registered since
 	// the last check is no longer missing.
 	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {
