@@ -63,8 +63,8 @@ jobs:
       - name: Run Go tests with isolated CFO state
         # go test's default of 10 minutes a package left too little headroom
         # here: internal/spawn takes about 6.5 minutes on this runner, and the
-        # root package reached the limit before its installer tests ran in
-        # parallel. 20 minutes is about three times the slowest package.
+        # root package reached the limit before its repeated installs were
+        # cut. 20 minutes is about three times the slowest package.
         run: go test ./... -count=1 -timeout 20m
         env:
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
