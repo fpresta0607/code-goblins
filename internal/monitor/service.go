@@ -883,9 +883,11 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 
 // pausedMissingObservation records a goblin that paused itself and whose
 // terminal is gone. Taken wakes would otherwise re-arm on every scan, so it
-// wakes the CFO once each pause resurface interval, as a paused goblin does,
-// with a wake that says the task is paused.
+// wakes the CFO once when the terminal goes and then once each pause
+// resurface interval, as a paused goblin does, with a wake that says the task
+// is paused.
 func (s Service) pausedMissingObservation(observation Observation, detail string, now time.Time) Observation {
+	gone := observation.Health == HealthPaused && observation.EndpointVerdict == ProbeMissing
 	observation.LastObserved = now
 	observation.EndpointVerdict = ProbeMissing
 	observation.Health = HealthPaused
@@ -894,7 +896,7 @@ func (s Service) pausedMissingObservation(observation Observation, detail string
 	observation.NextEscalation = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
-	due := observation.NextPauseResurface == nil || !now.Before(*observation.NextPauseResurface)
+	due := !gone || observation.NextPauseResurface == nil || !now.Before(*observation.NextPauseResurface)
 	if due && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, EndpointMissing, "the task is paused, and "+detail)
 		observation.PendingEvent = &event

@@ -329,8 +329,9 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 
 // A goblin that paused itself and then lost its terminal, as the paused
 // Codex goblins did when Defender quarantined their hosts' binary, tells the
-// CFO once per pause resurface interval that it is paused and its terminal is
-// gone, not on every scan after each wake is taken.
+// CFO on the first scan after the terminal goes and then once per pause
+// resurface interval that it is paused and its terminal is gone, not on every
+// scan after each wake is taken.
 func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
@@ -360,6 +361,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 
 	// Act
 	var wakes []Event
+	var wakeScans []int
 	for scan := 0; scan < 36; scan++ {
 		now = now.Add(5 * time.Minute)
 		result, err := service.Scan(context.Background())
@@ -370,6 +372,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 			continue
 		}
 		wakes = append(wakes, *result.Event)
+		wakeScans = append(wakeScans, scan)
 		if _, err := service.Publish(*result.Event); err != nil {
 			t.Fatal(err)
 		}
@@ -378,6 +381,9 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	// Assert
 	if len(wakes) == 0 || len(wakes) > 3 {
 		t.Fatalf("a paused task with no terminal woke the CFO %d times in 3 hours, want at least once and at most once an hour: %+v", len(wakes), wakes)
+	}
+	if wakeScans[0] != 0 {
+		t.Errorf("first wake came on scan %d (wake scans %v), want scan 0, the first scan after the terminal went", wakeScans[0], wakeScans)
 	}
 	for _, wake := range wakes {
 		if !strings.HasPrefix(wake.Detail, string(EndpointMissing)+": ") || !strings.Contains(wake.Detail, "paused") {
