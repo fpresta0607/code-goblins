@@ -12,12 +12,15 @@
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
 # and ends by opening the board in the browser.
 #
-# cfo.exe is not code-signed yet. The one-line install runs it only when it
-# matches the release's SHA256SUMS, and shows no SmartScreen prompt; a
-# cfo.exe saved from a browser gets SmartScreen's "Windows protected your
-# PC", and Smart App Control, where it is on, blocks it. "On a fresh PC" in
-# docs/install.md says how to check the checksum by hand and what to do if
-# Microsoft Defender flags it.
+# Releases are code-signed from the first signed release on; earlier ones
+# are not. The one-line install runs cfo.exe only when it matches the
+# release's SHA256SUMS and, for a signed release, carries a valid signature
+# from its publisher, and it shows no SmartScreen prompt. A cfo.exe saved
+# from a browser gets SmartScreen's "Windows protected your PC" while it is
+# unsigned or its certificate is still new, and Smart App Control, where it
+# is on, blocks an unsigned one. "On a fresh PC" in docs/install.md says how
+# to check the checksum by hand and what to do if Microsoft Defender flags
+# it.
 #
 # To work on it, in a clone:
 #
@@ -64,10 +67,17 @@
         $releaseBase = $env:CODE_GOBLINS_RELEASE_BASE.TrimEnd("/")
     }
 
+    # The copy of this script published with a release names the release's
+    # publisher here, and it installs only programs carrying a valid signature
+    # from that publisher. A copy that names none, such as a clone's run
+    # against a CI build, checks the release's SHA256SUMS alone and says so.
+    $releasePublisher = ""
+
     # Save-VerifiedRelease downloads the release's cfo.exe to $Path and keeps it
-    # only when it matches the release's SHA256SUMS. It returns $false when the
-    # release cannot be downloaded at all, and throws on a mismatch, leaving
-    # nothing at $Path.
+    # only when it matches the release's SHA256SUMS and, where this script
+    # names the release's publisher, is validly signed by it. It returns $false
+    # when the release cannot be downloaded at all, and throws on a mismatch,
+    # leaving nothing at $Path.
     function Save-VerifiedRelease([string]$Path) {
         $download = "$Path.download"
         $sums = "$Path.SHA256SUMS"
@@ -95,8 +105,24 @@
                 Write-Host "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$expected'"
                 throw "The downloaded cfo.exe does not match the release's SHA256SUMS, so it was not installed."
             }
+            $signed = ""
+            if ($releasePublisher) {
+                $signature = Get-AuthenticodeSignature -LiteralPath $download
+                $signer = ""
+                if ($signature.SignerCertificate) {
+                    $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
+                }
+                if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
+                    Write-Host "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
+                    throw "The downloaded cfo.exe is not validly signed by $releasePublisher, so it was not installed."
+                }
+                $signed = " and its signature by $releasePublisher"
+            }
+            else {
+                Write-Host "This copy of the install script names no publisher, so the download is checked against the release's SHA256SUMS only."
+            }
             Move-Item -LiteralPath $download -Destination $Path -Force
-            Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)."
+            Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)$signed."
             return $true
         }
         finally {
