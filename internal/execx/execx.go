@@ -100,15 +100,20 @@ func (OSRunner) Start(ctx context.Context, req Request) error {
 	return nil
 }
 
-// Command is exec.Command for every process a fleet program starts.
+// Command is exec.Command for every process a fleet program starts: the
+// process opens no console window (see hide).
 func Command(name string, arg ...string) *exec.Cmd {
-	return exec.Command(name, arg...)
+	cmd := exec.Command(name, arg...)
+	hide(cmd)
+	return cmd
 }
 
 // CommandContext is exec.CommandContext for every process a fleet program
-// starts.
+// starts: the process opens no console window (see hide).
 func CommandContext(ctx context.Context, name string, arg ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, name, arg...)
+	cmd := exec.CommandContext(ctx, name, arg...)
+	hide(cmd)
+	return cmd
 }
 
 func command(ctx context.Context, req Request) *exec.Cmd {
