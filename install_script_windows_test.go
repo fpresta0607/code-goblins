@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -52,26 +51,6 @@ func runInParallel(t *testing.T) {
 	t.Parallel()
 	installSlots <- struct{}{}
 	t.Cleanup(func() { <-installSlots })
-}
-
-// readStandIn is this test binary's content, read once: a copy stands in for
-// a program an install downloads and runs, such as cfo.exe.
-var readStandIn = sync.OnceValues(func() ([]byte, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return os.ReadFile(executable)
-})
-
-// standIn is this test binary's content, for a stand-in program.
-func standIn(t *testing.T) []byte {
-	t.Helper()
-	program, err := readStandIn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return program
 }
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
@@ -376,7 +355,14 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // was started and the file it was given.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	t.Parallel()
-	binary := standIn(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
@@ -622,8 +608,10 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			checkout := fakeCheckout(t)
 			newBuild := filepath.Join(t.TempDir(), "built")
-			// A running cfo.exe: ping, copied under that name, runs until the
-			// test stops it and needs no console.
+			// A running cfo.exe: ping, copied under that name, needs no console
+			// and runs for about 30 minutes, longer than a package may run, so
+			// the test stops it first, and a run cut off before its cleanup
+			// leaves nothing running for good.
 			running := filepath.Join(checkout, "cfo.exe")
 			ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
 			if err != nil {
@@ -632,7 +620,7 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 			if err := os.WriteFile(running, ping, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			old := exec.Command(running, "-t", "127.0.0.1")
+			old := exec.Command(running, "-n", "1800", "127.0.0.1")
 			old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 			if err := old.Start(); err != nil {
 				t.Fatal(err)
