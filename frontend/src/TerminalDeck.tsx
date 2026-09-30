@@ -24,7 +24,9 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
     const each = snapshot.tasks.find((task) => task.id === candidate);
     return !!each?.generation && !sessionEnd(each) && goblinView(each).kind === "herdr";
   };
-  if (shown && key && live[0] !== key) setLive(keepLive(live, key, herdr));
+  const front = shown && key ? key : live[0];
+  const next = front ? keepLive(live, front, herdr) : live;
+  if (next.length !== live.length || next.some((entry, index) => entry !== live[index])) setLive(next);
   const idle = idleView(task, node);
   return <div className="terminal-deck" hidden={!shown}>
     <div className="deck-stage">

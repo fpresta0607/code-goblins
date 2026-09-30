@@ -161,22 +161,40 @@ for (const phase of ["done", "stale", "unavailable"]) {
   });
 }
 
-type Connection = { task: string; generation: string; closed: boolean };
+type Connection = { task: string; generation: string; control: boolean; closed: boolean };
+type Pane = { task: string; generation: string; open: boolean };
+
+// Each mounted terminal opens one view of its pane; a shown Herdr pane may then
+// trade that view for a sized one, which still belongs to the same mount.
+function panesOf(connections: Connection[]): Pane[] {
+  const panes: Pane[] = [];
+  const latest = new Map<string, Pane>();
+  for (const connection of connections) {
+    let pane = latest.get(connection.task);
+    if (!connection.control || !pane) {
+      pane = { task: connection.task, generation: connection.generation, open: false };
+      panes.push(pane);
+      latest.set(connection.task, pane);
+    }
+    if (!connection.closed) pane.open = true;
+  }
+  return panes;
+}
 
 // Records each terminal transport the page opens and whether it was disposed:
-// a native terminal's socket to its host, or Herdr's unsized screen stream.
-async function watchConnections(page: Page, backend: "native" | "herdr"): Promise<() => Promise<Connection[]>> {
+// a native terminal's socket to its host, or Herdr's screen streams.
+async function watchConnections(page: Page, backend: "native" | "herdr"): Promise<() => Promise<Pane[]>> {
   if (backend === "native") {
     const opened: Connection[] = [];
     await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
       const query = new URL(socket.url()).searchParams;
-      const connection = { task: query.get("task") || "", generation: query.get("generation") || "", closed: false };
+      const connection = { task: query.get("task") || "", generation: query.get("generation") || "", control: false, closed: false };
       opened.push(connection);
       socket.onClose(() => { connection.closed = true; });
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
     });
-    return async () => opened.map((connection) => ({ ...connection }));
+    return async () => panesOf(opened);
   }
   await page.addInitScript(() => {
     const streams: Connection[] = [];
@@ -186,8 +204,8 @@ async function watchConnections(page: Page, backend: "native" | "herdr"): Promis
       if (resource !== "/api/terminal/stream") return originalFetch(resource, options);
       const body = JSON.parse(String(options?.body));
       const encoder = new TextEncoder();
-      const connection = { task: body.task, generation: body.generation, closed: false };
-      if (!body.control) streams.push(connection);
+      const connection = { task: body.task, generation: body.generation, control: !!body.control, closed: false };
+      streams.push(connection);
       return Promise.resolve(new Response(new ReadableStream({ start(controller) {
         controller.enqueue(encoder.encode(JSON.stringify({ type: "terminal.ready", lease: body.control ? "sized" : "observed", identity: "proof" }) + "\n"));
         controller.enqueue(encoder.encode(JSON.stringify({ type: "terminal.frame", encoding: "ansi", seq: 1, full: true, width: 80, height: 24, bytes: btoa("READY\r\n") }) + "\n"));
@@ -195,8 +213,9 @@ async function watchConnections(page: Page, backend: "native" | "herdr"): Promis
       } })));
     };
   });
+  await page.route("**/api/terminal/input", (route) => route.fulfill({ json: { seq: route.request().postDataJSON().seq } }));
   await page.route("**/api/terminal/history", (route) => route.fulfill({ json: { text: "READY", agent: "codex" } }));
-  return () => page.evaluate(() => (window as unknown as { streams: Connection[] }).streams.map((connection) => ({ ...connection })));
+  return async () => panesOf(await page.evaluate(() => (window as unknown as { streams: Connection[] }).streams.map((connection) => ({ ...connection }))));
 }
 
 for (const backend of ["native", "herdr"] as const) {
@@ -210,7 +229,7 @@ for (const backend of ["native", "herdr"] as const) {
     await page.evaluate(() => window.reportSession("working", "s2-9d41"));
 
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-    expect(await connections()).toEqual([{ task: "input-proof", generation: "s2-9d41", closed: false }]);
+    expect(await connections()).toEqual([{ task: "input-proof", generation: "s2-9d41", open: true }]);
   });
 
   test(`${backend}: stopping a paused session never connects to its ended generation`, async ({ page }) => {
@@ -242,8 +261,73 @@ test("an ended summary never takes a live Herdr stream from three open terminals
 
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
   expect(await connections()).toEqual([
-    { task: "alpha", generation: "c1-7f3a", closed: false },
-    { task: "beta", generation: "c2-7f3a", closed: false },
-    { task: "gamma", generation: "c3-7f3a", closed: false },
+    { task: "alpha", generation: "c1-7f3a", open: true },
+    { task: "beta", generation: "c2-7f3a", open: true },
+    { task: "gamma", generation: "c3-7f3a", open: true },
   ]);
 });
+
+const open = async (connections: () => Promise<Pane[]>) => (await connections()).filter((pane) => pane.open);
+
+test("a paused fourth Herdr goblin resumed while shown keeps at most three live streams", async ({ page }) => {
+  const connections = await watchConnections(page, "herdr");
+  await page.goto("/tests/fixtures/ended-session.html?phase=paused&backend=herdr&crew");
+  for (const id of ["alpha", "beta", "gamma"]) {
+    await page.evaluate((shown) => window.showTask(shown), id);
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  }
+  await page.evaluate(() => window.showTask("input-proof"));
+  await expect(page.getByRole("heading", { name: "Session paused" })).toBeVisible();
+
+  await page.evaluate(() => window.reportSession("resuming", "s1-4b8e"));
+  await expect(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.reportSession("working", "s2-9d41"));
+
+  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  await expect.poll(() => open(connections)).toEqual([
+    { task: "beta", generation: "c2-7f3a", open: true },
+    { task: "gamma", generation: "c3-7f3a", open: true },
+    { task: "input-proof", generation: "s2-9d41", open: true },
+  ]);
+  expect((await connections()).filter((connection) => connection.task === "alpha")).toEqual([{ task: "alpha", generation: "c1-7f3a", open: false }]);
+});
+
+test("a paused Herdr goblin resumed in the background stays within three live streams", async ({ page }) => {
+  const connections = await watchConnections(page, "herdr");
+  await page.goto("/tests/fixtures/ended-session.html?phase=paused&backend=herdr&crew");
+  await expect(page.getByRole("heading", { name: "Session paused" })).toBeVisible();
+  for (const id of ["alpha", "beta", "gamma"]) {
+    await page.evaluate((shown) => window.showTask(shown), id);
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  }
+
+  await page.evaluate(() => window.reportSession("resuming", "s1-4b8e"));
+  await page.evaluate(() => window.reportSession("working", "s2-9d41"));
+  await page.evaluate(() => window.showTask("beta"));
+
+  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  expect(await connections()).toEqual([
+    { task: "alpha", generation: "c1-7f3a", open: true },
+    { task: "beta", generation: "c2-7f3a", open: true },
+    { task: "gamma", generation: "c3-7f3a", open: true },
+  ]);
+});
+
+for (const backend of ["native", "herdr"] as const) {
+  test(`${backend}: a failed resume opens no transport and a retry connects only the resumed generation`, async ({ page }) => {
+    const connections = await watchConnections(page, backend);
+    await page.goto(`/tests/fixtures/ended-session.html?phase=paused&backend=${backend}`);
+    await expect(page.getByRole("heading", { name: "Session paused" })).toBeVisible();
+    await page.evaluate(() => window.reportSession("resuming", "s1-4b8e", { action: "resume", phase: "resuming" }));
+
+    await page.evaluate(() => window.reportSession("unavailable", "s2-9d41", { action: "resume", phase: "failed" }));
+    await expect.soft(page.getByText("Resume failed. See Task for details.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
+    await page.evaluate(() => window.reportSession("resuming", "s2-9d41", { action: "resume", phase: "failed" }));
+    await expect.soft(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+    await page.evaluate(() => window.reportSession("working", "s3-a17c"));
+
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    expect(await connections()).toEqual([{ task: "input-proof", generation: "s3-a17c", open: true }]);
+  });
+}

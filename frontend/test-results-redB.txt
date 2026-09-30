@@ -1,0 +1,198 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm.
+[WebServer] npm warn Unknown env config "store-dir". This will stop working in the next major version of npm.
+Running 5 tests using 1 worker
+[1/5] tests\ended-session.spec.ts:222:3 › native: resuming a paused session connects only once the resumed generation is live
+  1) tests\ended-session.spec.ts:222:3 › native: resuming a paused session connects only once the resumed generation is live 
+    Error: expect(locator).toBeVisible() failed
+    Locator: getByText('Resuming session...', { exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+    Call log:
+      - Expect "soft toBeVisible" getByText('Resuming session...', { exact: true }) with timeout 5000ms
+      - waiting for getByText('Resuming session...', { exact: true })
+      226 |
+      227 |     await page.evaluate(() => window.reportSession("resuming", "s1-4b8e"));
+    > 228 |     await expect.soft(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+          |                                                                               ^
+      229 |     await page.evaluate(() => window.reportSession("working", "s2-9d41"));
+      230 |
+      231 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    Error: expect(received).toEqual(expected) // deep equality
+    - Expected  - 0
+    + Received  + 5
+      Array [
+        Object {
+    +     "generation": "s1-4b8e",
+    +     "open": true,
+    +     "task": "input-proof",
+    +   },
+    +   Object {
+          "generation": "s2-9d41",
+          "open": true,
+          "task": "input-proof",
+        },
+      ]
+      230 |
+      231 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    > 232 |     expect(await connections()).toEqual([{ task: "input-proof", generation: "s2-9d41", open: true }]);
+          |                                 ^
+      233 |   });
+      234 |
+      235 |   test(`${backend}: stopping a paused session never connects to its ended generation`, async ({ page }) => {
+    Error Context: test-results\ended-session-native-resum-aa82d--resumed-generation-is-live\error-context.md
+[2/5] tests\ended-session.spec.ts:235:3 › native: stopping a paused session never connects to its ended generation
+  2) tests\ended-session.spec.ts:235:3 › native: stopping a paused session never connects to its ended generation 
+    Error: expect(locator).toBeVisible() failed
+    Locator: getByText('Stopping session...', { exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+    Call log:
+      - Expect "soft toBeVisible" getByText('Stopping session...', { exact: true }) with timeout 5000ms
+      - waiting for getByText('Stopping session...', { exact: true })
+      239 |
+      240 |     await page.evaluate(() => window.reportSession("stopping", "s1-4b8e"));
+    > 241 |     await expect.soft(page.getByText("Stopping session...", { exact: true })).toBeVisible();
+          |                                                                               ^
+      242 |     await page.evaluate(() => window.reportSession("stopped", "s1-4b8e"));
+      243 |
+      244 |     await expect(page.getByRole("heading", { name: "Session stopped" })).toBeVisible();
+    Error: expect(received).toEqual(expected) // deep equality
+    - Expected  - 1
+    + Received  + 7
+    - Array []
+    + Array [
+    +   Object {
+    +     "generation": "s1-4b8e",
+    +     "open": false,
+    +     "task": "input-proof",
+    +   },
+    + ]
+      244 |     await expect(page.getByRole("heading", { name: "Session stopped" })).toBeVisible();
+      245 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
+    > 246 |     expect(await connections()).toEqual([]);
+          |                                 ^
+      247 |   });
+      248 | }
+      249 |
+    Error Context: test-results\ended-session-native-stopp-03ffc-cts-to-its-ended-generation\error-context.md
+[3/5] tests\ended-session.spec.ts:222:3 › herdr: resuming a paused session connects only once the resumed generation is live
+  3) tests\ended-session.spec.ts:222:3 › herdr: resuming a paused session connects only once the resumed generation is live 
+    Error: expect(locator).toBeVisible() failed
+    Locator: getByText('Resuming session...', { exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+    Call log:
+      - Expect "soft toBeVisible" getByText('Resuming session...', { exact: true }) with timeout 5000ms
+      - waiting for getByText('Resuming session...', { exact: true })
+      226 |
+      227 |     await page.evaluate(() => window.reportSession("resuming", "s1-4b8e"));
+    > 228 |     await expect.soft(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+          |                                                                               ^
+      229 |     await page.evaluate(() => window.reportSession("working", "s2-9d41"));
+      230 |
+      231 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    Error: expect(received).toEqual(expected) // deep equality
+    - Expected  - 0
+    + Received  + 5
+      Array [
+        Object {
+    +     "generation": "s1-4b8e",
+    +     "open": false,
+    +     "task": "input-proof",
+    +   },
+    +   Object {
+          "generation": "s2-9d41",
+          "open": true,
+          "task": "input-proof",
+        },
+      ]
+      230 |
+      231 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    > 232 |     expect(await connections()).toEqual([{ task: "input-proof", generation: "s2-9d41", open: true }]);
+          |                                 ^
+      233 |   });
+      234 |
+      235 |   test(`${backend}: stopping a paused session never connects to its ended generation`, async ({ page }) => {
+    Error Context: test-results\ended-session-herdr-resumi-1090b--resumed-generation-is-live\error-context.md
+[4/5] tests\ended-session.spec.ts:235:3 › herdr: stopping a paused session never connects to its ended generation
+  4) tests\ended-session.spec.ts:235:3 › herdr: stopping a paused session never connects to its ended generation 
+    Error: expect(locator).toBeVisible() failed
+    Locator: getByText('Stopping session...', { exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+    Call log:
+      - Expect "soft toBeVisible" getByText('Stopping session...', { exact: true }) with timeout 5000ms
+      - waiting for getByText('Stopping session...', { exact: true })
+      239 |
+      240 |     await page.evaluate(() => window.reportSession("stopping", "s1-4b8e"));
+    > 241 |     await expect.soft(page.getByText("Stopping session...", { exact: true })).toBeVisible();
+          |                                                                               ^
+      242 |     await page.evaluate(() => window.reportSession("stopped", "s1-4b8e"));
+      243 |
+      244 |     await expect(page.getByRole("heading", { name: "Session stopped" })).toBeVisible();
+    Error: expect(received).toEqual(expected) // deep equality
+    - Expected  - 1
+    + Received  + 7
+    - Array []
+    + Array [
+    +   Object {
+    +     "generation": "s1-4b8e",
+    +     "open": false,
+    +     "task": "input-proof",
+    +   },
+    + ]
+      244 |     await expect(page.getByRole("heading", { name: "Session stopped" })).toBeVisible();
+      245 |     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
+    > 246 |     expect(await connections()).toEqual([]);
+          |                                 ^
+      247 |   });
+      248 | }
+      249 |
+    Error Context: test-results\ended-session-herdr-stoppi-4fdd4-cts-to-its-ended-generation\error-context.md
+[5/5] tests\ended-session.spec.ts:250:1 › an ended summary never takes a live Herdr stream from three open terminals
+  5) tests\ended-session.spec.ts:250:1 › an ended summary never takes a live Herdr stream from three open terminals 
+    Error: expect(received).toEqual(expected) // deep equality
+    - Expected  - 2
+    + Received  + 7
+      Array [
+        Object {
+          "generation": "c1-7f3a",
+    -     "open": true,
+    +     "open": false,
+          "task": "alpha",
+        },
+        Object {
+          "generation": "c2-7f3a",
+    -     "open": true,
+    +     "open": false,
+          "task": "beta",
+        },
+        Object {
+          "generation": "c3-7f3a",
+          "open": true,
+          "task": "gamma",
+    +   },
+    +   Object {
+    +     "generation": "c1-7f3a",
+    +     "open": true,
+    +     "task": "alpha",
+        },
+      ]
+      261 |
+      262 |   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    > 263 |   expect(await connections()).toEqual([
+          |                               ^
+      264 |     { task: "alpha", generation: "c1-7f3a", open: true },
+      265 |     { task: "beta", generation: "c2-7f3a", open: true },
+      266 |     { task: "gamma", generation: "c3-7f3a", open: true },
+    Error Context: test-results\ended-session-an-ended-sum-5aab5-m-from-three-open-terminals\error-context.md
+  5 failed
+    tests\ended-session.spec.ts:222:3 › native: resuming a paused session connects only once the resumed generation is live 
+    tests\ended-session.spec.ts:235:3 › native: stopping a paused session never connects to its ended generation 
+    tests\ended-session.spec.ts:222:3 › herdr: resuming a paused session connects only once the resumed generation is live 
+    tests\ended-session.spec.ts:235:3 › herdr: stopping a paused session never connects to its ended generation 
+    tests\ended-session.spec.ts:250:1 › an ended summary never takes a live Herdr stream from three open terminals 

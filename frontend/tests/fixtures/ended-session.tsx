@@ -6,7 +6,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 declare global {
-  interface Window { reportSession: (phase: string, generation?: string) => void; showTask: (id: string) => void }
+  interface Window { reportSession: (phase: string, generation?: string, lifecycle?: { action: string; phase: string }) => void; showTask: (id: string) => void }
 }
 
 const root = createRoot(document.getElementById("root")!);
@@ -17,9 +17,9 @@ const crew = parameters.has("crew") ? ["alpha", "beta", "gamma"].map((id, index)
   id, title: "Crew " + id, project: "code-goblins", backend: "herdr", harness: "codex", generation: "c" + (index + 1) + "-7f3a",
   session: "crew-" + id, phase: "working", verified: false, runtime: { state: "busy" },
 })) : [];
-let current = { phase: parameters.get("phase") || "working", generation: undefined as string | undefined, shown: "" };
+let current = { phase: parameters.get("phase") || "working", generation: undefined as string | undefined, lifecycle: undefined as { action: string; phase: string } | undefined, shown: "" };
 function render() {
-  const { phase, generation, shown } = current;
+  const { phase, generation, lifecycle, shown } = current;
   const isRetired = phase === "retired";
   const isMissing = parameters.has("missing");
   const snapshot = parseSnapshot({
@@ -34,6 +34,7 @@ function render() {
       at: isMissing ? "0001-01-01T00:00:00Z" : "2026-09-29T09:42:00Z", handoff: !isMissing,
       retired_at: isMissing || parameters.has("missing-time") ? "" : "2026-09-29T09:42:00Z",
       pr: "https://github.com/example/project/pull/218",
+      lifecycle: lifecycle && { ...lifecycle, at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false },
     }, ...crew],
     sessions: [{ id: "session-proof", native_id: "b45f3bd2-2b4e-4ee8-8140-3537f8485a36", role: "goblin", task_id: "input-proof", generation: "s1-4b8e", phase: "working" }],
   });
@@ -48,6 +49,6 @@ function render() {
     </div>
   </main>);
 }
-window.reportSession = (phase, generation) => flushSync(() => { current = { ...current, phase, generation }; render(); });
+window.reportSession = (phase, generation, lifecycle) => flushSync(() => { current = { ...current, phase, generation, lifecycle }; render(); });
 window.showTask = (id) => flushSync(() => { current = { ...current, shown: id }; render(); });
 render();

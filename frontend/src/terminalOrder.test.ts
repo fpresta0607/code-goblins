@@ -45,6 +45,14 @@ test("a resuming or stopping goblin shows its transition instead of connecting t
   }
 });
 
+test("a failed resume shows no terminal until a retry is resuming", () => {
+  const failed = { phase: "failed", action: "resume", at: "", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+  for (const backend of ["native", "herdr"]) {
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "unavailable", lifecycle: failed })), { kind: "empty", text: "Resume failed. See Task for details." });
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming", lifecycle: failed })), { kind: "empty", text: "Resuming session..." });
+  }
+});
+
 test("the switcher lists the CFO first, then every goblin that has a terminal", () => {
   const order = switchOrder([task("queued", { generation: "" }), task("alpha"), task("history", { archived: true }), task("beta")]);
   assert.deepEqual(order.map((entry) => entry.key), [CFO_KEY, "alpha", "beta"]);
