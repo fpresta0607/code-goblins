@@ -114,10 +114,13 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--edge); border-radius: 18px; box-shadow: inset 0 2px 18px #0009; background: linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 .task-board { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; min-height: 100%; padding: 24px; }
-/* The CFO pinned above the columns opens its terminal, and is the one place
-   on the board that says Waiting on you. */
+/* The CFO pinned above the columns is the one place on the board that says
+   Waiting on you. Its main action is Open Command Center, and its terminal is
+   on its icon and portrait. Hovered or focused, it rises over the columns so
+   its tooltips show in full. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto; }
-.cfo-pin { grid-column: 1 / -1; min-width: 0; }
+.cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
+.cfo-pin:hover, .cfo-pin:focus-within { z-index: 3; }
 /* The first-run page: one card over the workshop, the folder, the project
    the CFO starts in, the agents with what this machine has, and Start. */
 .first-run-region { display: grid; align-content: start; justify-items: center; flex: 1; min-height: 0; overflow: auto; padding: 40px 16px; border: 1px solid var(--edge); border-radius: 18px; background: linear-gradient(#07101599, #07101599), url('/assets/goblin-workshop.png') right bottom / cover; }
@@ -480,8 +483,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .command-center-menu > summary:hover { transform: var(--lift); box-shadow: var(--shadow-2); }
 .command-center-menu > summary .icon { width: 26px; height: 26px; }
 .count-badge { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--amber); color: #2b1d02; font-size: .9375rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 3px var(--level-2); }
-/* Alerts stack bottom right, newest at the bottom; each fades in, and out
-   when it leaves. The edge color says whether it needs him, failed or is done. */
+/* Alerts stack bottom right, newest at the bottom; each steps in as it
+   arrives and is gone when it leaves. The tab color says whether it needs him,
+   failed or is done. */
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
 /* Alerts and the CFO's banner are goblins' dialogue boxes in the workshop's
    own lantern-and-leather palette: the speaker's portrait, the speaker's name

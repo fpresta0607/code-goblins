@@ -88,6 +88,23 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
   await expect(button).toHaveCSS("outline-width", "2px");
 });
 
+test("the banner's portrait tooltip shows over the board column under it", async ({ page }) => {
+  await open(page);
+  await page.addStyleTag({ content: ".dialogue-portrait[data-tip]::after { pointer-events: auto; }" });
+  const portrait = box(page, "Waiting on you").locator("button.dialogue-portrait");
+  await portrait.hover();
+  const owner = await portrait.evaluate((element) => {
+    const column = document.querySelector(".board-column")!.getBoundingClientRect(), face = element.getBoundingClientRect();
+    const tip = getComputedStyle(element, "::after");
+    const bottom = face.bottom + 8 + [tip.height, tip.paddingTop, tip.paddingBottom, tip.borderTopWidth, tip.borderBottomWidth].reduce((sum, size) => sum + parseFloat(size), 0);
+    const x = face.left + 10, y = column.top + 4;
+    if (y >= bottom) return "the tooltip does not reach the column";
+    const hit = document.elementFromPoint(x, y);
+    return hit && element.closest(".cfo-pin")!.contains(hit) ? "banner" : hit?.className ?? "nothing";
+  });
+  expect(owner).toBe("banner");
+});
+
 test("with reduced motion the boxes just appear", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);

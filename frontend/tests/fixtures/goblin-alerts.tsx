@@ -10,6 +10,7 @@ import "../../src/styles.css";
 // stack after a goblin asks, one finishes and one fails. What each action
 // would open is written under the banners, and Open Command Center opens the
 // real Command Center: on a review waiting in it, or with ?nothing on none.
+// The waiting banner sits over a board column, as it does on the board.
 const base = { healthy: true, instance: "fixture", cfo_runs: true };
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
 const quiet = parseSnapshot({ ...base, tasks: [task("cg-board-kill"), task("pd-billing-admin"), task("cg-voice")] });
@@ -31,7 +32,10 @@ function Page() {
   const terminal = (source: HTMLElement) => setSaid("opened the CFO's terminal from its " + (source.classList.contains("dialogue-portrait") ? "portrait" : "icon"));
   const center = () => { setSaid("opened the Command Center"); setFocus({ key: "", at: Date.now() }); };
   return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover" }}>
-    <CfoPin snapshot={asking} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+    <section className="task-board" aria-label="Task board">
+      <CfoPin snapshot={asking} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
+      <section className="board-column" aria-label="Working"><h2>Working</h2></section>
+    </section>
     <CfoPin snapshot={quiet} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(target) => setSaid("opened " + (target.kind === "command" ? "the Command Center at " + target.key : target.id))} />
