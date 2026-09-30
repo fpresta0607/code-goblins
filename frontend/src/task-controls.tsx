@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { object, type Snapshot, type Task } from "./types";
 import type { CardStart } from "./TaskCard";
 import { message, request } from "./api";
@@ -6,8 +6,9 @@ import { queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 
-export function TaskControls({ task, snapshot, start, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; onAdjust: (source: HTMLElement) => void;
+// leading is a control shown first in the group, such as a card's terminal button.
+export function TaskControls({ task, snapshot, start, leading, onAdjust }: {
+  task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; onAdjust: (source: HTMLElement) => void;
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const [pending, setPending] = useState<{ action: string; revision: number | null } | null>(null);
@@ -37,6 +38,7 @@ export function TaskControls({ task, snapshot, start, onAdjust }: {
   if (task.archived || task.phase === "stopped") return null;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + (task.title || task.id)}>
+      {leading}
       {isQueued && start && !queueBlock(task) && <button className="icon-button raised" aria-label={"Start " + task.title} data-tip={start.blocked || "Start"} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" /></button>}
       {isQueued && <button className="icon-button raised" aria-label={"Adjust " + task.title} data-tip="Adjust" disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
       {canPause && <button className="icon-button raised" aria-label={"Pause " + task.title} data-tip="Pause" disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" /></button>}
