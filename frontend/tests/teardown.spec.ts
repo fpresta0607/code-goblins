@@ -17,6 +17,7 @@ test("paused, resumed and stopped cards show Windows teardown at a readable size
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Board", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Paused", exact: true })).not.toContainText("released");
   for (const phase of ["paused", "working", "stopped"]) {
     const card = page.locator(".task-card").filter({ hasText: `${phase} teardown fixture` });
     const notice = card.getByText("Finishing Windows teardown: chrome.exe pid 42", { exact: true });

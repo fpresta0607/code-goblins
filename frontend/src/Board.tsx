@@ -11,7 +11,7 @@ import { taskColumn } from "./workflow";
 const COLUMNS = [
   { name: "Tasks", list: "queued", hint: "Top starts first, when memory allows.", empty: "Nothing queued" },
   { name: "In progress", list: "progress", hint: "Top gets the CFO's attention first.", empty: "No work in progress" },
-  { name: "Paused", list: "", hint: "Work kept, resources released.", empty: "No paused tasks" },
+  { name: "Paused", list: "", hint: "Work kept for Resume.", empty: "No paused tasks" },
   { name: "Completed", list: "", hint: "History, newest first.", empty: "Delivered and stopped tasks will appear here" },
 ] as const;
 

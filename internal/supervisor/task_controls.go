@@ -30,7 +30,7 @@ type LifecycleStatus struct {
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Teardown: record.TeardownLabels(), Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume")}
+	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Teardown: record.TeardownLabels(), Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running")}
 }
 
 type taskChangeError struct {
