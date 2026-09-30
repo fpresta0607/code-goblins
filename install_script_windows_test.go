@@ -26,11 +26,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// windowsPowerShell is Windows PowerShell 5.1, present on every Windows and
+// the one install.cmd always starts.
+func windowsPowerShell() string {
+	return filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+}
+
 // oneLineShells are the PowerShells the one-line install must work in:
 // Windows PowerShell 5.1, always present, and PowerShell 7 where installed.
 func oneLineShells(t *testing.T) []string {
 	t.Helper()
-	shells := []string{filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")}
+	shells := []string{windowsPowerShell()}
 	if pwsh, err := exec.LookPath("pwsh.exe"); err == nil {
 		shells = append(shells, pwsh)
 	}
@@ -160,57 +166,57 @@ func runPin(t *testing.T, shell, repository, tag, publisher string) (destination
 
 // The install script a release publishes downloads that release's own files:
 // from the repository that published it, a fork's included, at its tag,
-// never from the latest release or from another repository.
+// never from the latest release or from another repository. The URL is the
+// pinned script's own text, the same whichever PowerShell runs it, so Windows
+// PowerShell alone checks it; the install workflow runs the whole install in
+// both PowerShells on a clean runner.
 func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
-			t.Run(filepath.Base(shell)+" "+repository, func(t *testing.T) {
-				// Arrange
-				script, output, err := runPin(t, shell, repository, "v1.2.3", "Code Goblins Test Publisher")
-				if err != nil {
-					t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
-				}
-				// The stand-in for Invoke-WebRequest says what the script
-				// downloads and reaches nothing.
-				offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
+	for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
+		t.Run(repository, func(t *testing.T) {
+			// Arrange
+			script, output, err := runPin(t, windowsPowerShell(), repository, "v1.2.3", "Code Goblins Test Publisher")
+			if err != nil {
+				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
+			}
+			// The stand-in for Invoke-WebRequest says what the script
+			// downloads and reaches nothing.
+			offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
 
-				// Act
-				output, local, temp, err := runStrippedPowerShell(t, shell, "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+			// Act
+			output, local, temp, err := runStrippedPowerShell(t, windowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
 
-				// Assert
-				want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/cfo.exe"
-				if err == nil || !strings.Contains(output, want) {
-					t.Fatalf("install = %v, want it to download from %s:\n%s", err, want, output)
-				}
-				assertNothingInstalled(t, local, temp)
-			})
-		}
+			// Assert
+			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/cfo.exe"
+			if err == nil || !strings.Contains(output, want) {
+				t.Fatalf("install = %v, want it to download from %s:\n%s", err, want, output)
+			}
+			assertNothingInstalled(t, local, temp)
+		})
 	}
 }
 
 // The pin writes no install script it cannot pin as given, so a release
-// never publishes one that downloads or trusts something else.
+// never publishes one that downloads or trusts something else. The pin runs
+// in one shell only, in release.yml, so one PowerShell checks its refusals.
 func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		for name, test := range map[string]struct{ repository, tag, publisher string }{
-			"a repository that is not owner/name": {"https://github.com/fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher"},
-			"a tag that is not a release's":       {"fpresta0607/code-goblins", "main", "Code Goblins Test Publisher"},
-			"a publisher PowerShell would expand": {"fpresta0607/code-goblins", "v1.2.3", "Goblins $env:USERNAME"},
-			"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
-		} {
-			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
-				// Act
-				script, output, err := runPin(t, shell, test.repository, test.tag, test.publisher)
+	for name, test := range map[string]struct{ repository, tag, publisher string }{
+		"a repository that is not owner/name": {"https://github.com/fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher"},
+		"a tag that is not a release's":       {"fpresta0607/code-goblins", "main", "Code Goblins Test Publisher"},
+		"a publisher PowerShell would expand": {"fpresta0607/code-goblins", "v1.2.3", "Goblins $env:USERNAME"},
+		"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			script, output, err := runPin(t, windowsPowerShell(), test.repository, test.tag, test.publisher)
 
-				// Assert
-				if err == nil {
-					t.Fatalf("pin-installer.ps1 accepted %+v:\n%s", test, output)
-				}
-				if _, statErr := os.Stat(script); !os.IsNotExist(statErr) {
-					t.Errorf("pin-installer.ps1 wrote %s (%v), want nothing written", script, statErr)
-				}
-			})
-		}
+			// Assert
+			if err == nil {
+				t.Fatalf("pin-installer.ps1 accepted %+v:\n%s", test, output)
+			}
+			if _, statErr := os.Stat(script); !os.IsNotExist(statErr) {
+				t.Errorf("pin-installer.ps1 wrote %s (%v), want nothing written", script, statErr)
+			}
+		})
 	}
 }
 
@@ -242,19 +248,24 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 
 // The one-line install refuses a download that does not match the release's
 // SHA256SUMS before it runs anything: nothing is installed, and the download
-// is gone.
+// is gone. The checksum comparison is the script's own, the same whichever
+// PowerShell runs it, so Windows PowerShell alone checks it; each PowerShell
+// reports a failed download its own way, so a missing release is checked in
+// both. The install workflow runs the whole install in both PowerShells on a
+// clean runner.
 func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *testing.T) {
 	binary := []byte("a build the release did not publish")
-	for _, shell := range oneLineShells(t) {
-		for name, test := range map[string]struct {
-			binary []byte
-			sums   string
-			want   string
-		}{
-			"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's SHA256SUMS"},
-			"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's SHA256SUMS"},
-			"no release at all":        {nil, "", "the release could not be downloaded"},
-		} {
+	for name, test := range map[string]struct {
+		binary []byte
+		sums   string
+		want   string
+		shells []string
+	}{
+		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's SHA256SUMS", []string{windowsPowerShell()}},
+		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's SHA256SUMS", []string{windowsPowerShell()}},
+		"no release at all":        {nil, "", "the release could not be downloaded", oneLineShells(t)},
+	} {
+		for _, shell := range test.shells {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
 				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, test.binary, test.sums))
 
@@ -270,30 +281,31 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 // The check lets a download that matches through, so the refusals above are
 // the checksum's doing. The stand-in binary is not a program, so it goes no
 // further than being run. The repository's own script names no publisher,
-// and says it checks the sums only.
+// and says it checks the sums only. The comparison is the script's own, the
+// same whichever PowerShell runs it, so Windows PowerShell alone checks it;
+// the install workflow runs the whole install in both PowerShells on a clean
+// runner.
 func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) {
 	binary := []byte("not a program")
 	sum := sha256.Sum256(binary)
-	for _, shell := range oneLineShells(t) {
-		for name, sums := range map[string]string{
-			"as release.yml writes it": fmt.Sprintf("%x  cfo.exe\n", sum),
-			"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
-		} {
-			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
-				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, binary, sums))
+	for name, sums := range map[string]string{
+		"as release.yml writes it": fmt.Sprintf("%x  cfo.exe\n", sum),
+		"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
+	} {
+		t.Run(name, func(t *testing.T) {
+			output, local, temp, err := runOneLineInstall(t, windowsPowerShell(), serveRelease(t, binary, sums))
 
-				if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
-					t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
-				}
-				if !strings.Contains(output, "names no publisher, so the download is checked against the release's SHA256SUMS only") {
-					t.Errorf("an unpinned script does not say it checks sums only:\n%s", output)
-				}
-				if err == nil {
-					t.Fatalf("install succeeded with a stand-in binary that cannot run:\n%s", output)
-				}
-				assertNothingInstalled(t, local, temp)
-			})
-		}
+			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
+				t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
+			}
+			if !strings.Contains(output, "names no publisher, so the download is checked against the release's SHA256SUMS only") {
+				t.Errorf("an unpinned script does not say it checks sums only:\n%s", output)
+			}
+			if err == nil {
+				t.Fatalf("install succeeded with a stand-in binary that cannot run:\n%s", output)
+			}
+			assertNothingInstalled(t, local, temp)
+		})
 	}
 }
 
@@ -414,68 +426,68 @@ func fakeCheckout(t *testing.T) string {
 }
 
 // A clone installs only through -Dev: run without it, the script names the
-// command and changes nothing, and -Dev anywhere but a clone is refused.
+// command and changes nothing, and -Dev anywhere but a clone is refused. A
+// -Dev install runs through install.cmd, which always starts Windows
+// PowerShell, so Windows PowerShell alone checks it; the install workflow runs
+// the whole install in both PowerShells on a clean runner.
 func TestACloneInstallsOnlyThroughDev(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		for name, test := range map[string]struct {
-			folder func(t *testing.T) string
-			args   []string
-			want   string
-		}{
-			"a clone without -Dev": {fakeCheckout, nil, `run: .\install.cmd -Dev`},
-			"-Dev outside a clone": {func(t *testing.T) string {
-				folder := t.TempDir()
-				source, err := os.ReadFile(installScript(t))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(folder, "install.ps1"), source, 0o644); err != nil {
-					t.Fatal(err)
-				}
-				return folder
-			}, []string{"-Dev"}, "-Dev builds Code Goblins from a clone"},
-		} {
-			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
-				var requests atomic.Int32
-				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					requests.Add(1)
-					http.NotFound(w, r)
-				}))
-				defer release.Close()
-				folder := test.folder(t)
+	for name, test := range map[string]struct {
+		folder func(t *testing.T) string
+		args   []string
+		want   string
+	}{
+		"a clone without -Dev": {fakeCheckout, nil, `run: .\install.cmd -Dev`},
+		"-Dev outside a clone": {func(t *testing.T) string {
+			folder := t.TempDir()
+			source, err := os.ReadFile(installScript(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(folder, "install.ps1"), source, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return folder
+		}, []string{"-Dev"}, "-Dev builds Code Goblins from a clone"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var requests atomic.Int32
+			release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				http.NotFound(w, r)
+			}))
+			defer release.Close()
+			folder := test.folder(t)
 
-				output, _, _, err := runStrippedPowerShell(t, shell, release.URL, append([]string{"-File", filepath.Join(folder, "install.ps1")}, test.args...)...)
+			output, _, _, err := runStrippedPowerShell(t, windowsPowerShell(), release.URL, append([]string{"-File", filepath.Join(folder, "install.ps1")}, test.args...)...)
 
-				if err == nil || !strings.Contains(output, test.want) {
-					t.Fatalf("install = %v, want it refused with %q:\n%s", err, test.want, output)
-				}
-				if n := requests.Load(); n != 0 {
-					t.Errorf("the refused install made %d download requests, want none", n)
-				}
-				if _, err := os.Stat(filepath.Join(folder, "cfo.exe")); !os.IsNotExist(err) {
-					t.Errorf("cfo.exe was left in %s (%v), want none", folder, err)
-				}
-			})
-		}
+			if err == nil || !strings.Contains(output, test.want) {
+				t.Fatalf("install = %v, want it refused with %q:\n%s", err, test.want, output)
+			}
+			if n := requests.Load(); n != 0 {
+				t.Errorf("the refused install made %d download requests, want none", n)
+			}
+			if _, err := os.Stat(filepath.Join(folder, "cfo.exe")); !os.IsNotExist(err) {
+				t.Errorf("cfo.exe was left in %s (%v), want none", folder, err)
+			}
+		})
 	}
 }
 
 // -Dev builds from source, so without Go it stops before building or changing
-// anything and names the install.
+// anything and names the install. A -Dev install runs through install.cmd,
+// which always starts Windows PowerShell, so Windows PowerShell alone checks
+// it; the install workflow runs the whole install in both PowerShells on a
+// clean runner.
 func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			checkout := fakeCheckout(t)
+	checkout := fakeCheckout(t)
 
-			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+	output, _, _, err := runStrippedPowerShell(t, windowsPowerShell(), serveRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 
-			if err == nil || !strings.Contains(output, "winget install -e --id GoLang.Go") || !strings.Contains(output, "needs Go") {
-				t.Fatalf("install = %v, want it stopped for Go with its install:\n%s", err, output)
-			}
-			if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
-				t.Errorf("the stopped install left %v, want nothing built", left)
-			}
-		})
+	if err == nil || !strings.Contains(output, "winget install -e --id GoLang.Go") || !strings.Contains(output, "needs Go") {
+		t.Fatalf("install = %v, want it stopped for Go with its install:\n%s", err, output)
+	}
+	if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
+		t.Errorf("the stopped install left %v, want nothing built", left)
 	}
 }
 
@@ -566,99 +578,101 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // terminal host keeps it on a working clone: the running copy moves aside,
 // and cfo.exe and goblins.exe both become the new build. A rerun after the
 // next pull replaces them again while that copy still runs, and removes
-// every old copy nothing runs.
+// every old copy nothing runs. A -Dev install runs through install.cmd, which
+// always starts Windows PowerShell, so Windows PowerShell alone checks it; the
+// install workflow runs the whole install in both PowerShells on a clean
+// runner.
 func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			checkout := fakeCheckout(t)
-			newBuild := filepath.Join(t.TempDir(), "built")
-			// A running cfo.exe: ping, copied under that name, runs long
-			// enough and needs no console.
-			running := filepath.Join(checkout, "cfo.exe")
-			ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(running, ping, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			old := exec.Command(running, "-n", "120", "127.0.0.1")
-			old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
-			if err := old.Start(); err != nil {
-				t.Fatal(err)
-			}
-			exited := make(chan struct{})
-			go func() {
-				_ = old.Wait()
-				close(exited)
-			}()
-			t.Cleanup(func() {
-				_ = old.Process.Kill()
-				<-exited
-			})
-			// go build -trimpath -o <path> ./cmd/cfo copies the new build to
-			// <path>; a build that would keep this machine's folders in the
-			// binary fails.
-			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n@copy /y \"" + newBuild + "\" \"%4\" >nul\r\n"}
+	checkout := fakeCheckout(t)
+	newBuild := filepath.Join(t.TempDir(), "built")
+	// A running cfo.exe: ping, copied under that name, needs no console and
+	// runs for about 30 minutes, longer than a package may run, so the test
+	// stops it first, and a run cut off before its cleanup leaves nothing
+	// running for good.
+	running := filepath.Join(checkout, "cfo.exe")
+	ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(running, ping, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := exec.Command(running, "-n", "1800", "127.0.0.1")
+	old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	if err := old.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() {
+		_ = old.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		_ = old.Process.Kill()
+		<-exited
+	})
+	// go build -trimpath -o <path> ./cmd/cfo copies the new build to
+	// <path>; a build that would keep this machine's folders in the
+	// binary fails.
+	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n@copy /y \"" + newBuild + "\" \"%4\" >nul\r\n"}
 
-			for _, build := range []string{"the build from this clone", "the build after the next pull"} {
-				if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
-					t.Fatal(err)
-				}
+	for _, build := range []string{"the build from this clone", "the build after the next pull"} {
+		if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
+			t.Fatal(err)
+		}
 
-				output, _, _, _ := runPowerShellWithStubs(t, shell, serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+		output, _, _, _ := runPowerShellWithStubs(t, windowsPowerShell(), serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 
-				if !strings.Contains(output, "Built cfo.exe and goblins.exe") {
-					t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
-				}
-				for _, name := range []string{"cfo.exe", "goblins.exe"} {
-					if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != build {
-						t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, build, output)
-					}
-				}
+		if !strings.Contains(output, "Built cfo.exe and goblins.exe") {
+			t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
+		}
+		for _, name := range []string{"cfo.exe", "goblins.exe"} {
+			if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != build {
+				t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, build, output)
 			}
-			select {
-			case <-exited:
-				t.Errorf("the running cfo.exe was stopped, want it left running under its old name")
-			default:
-			}
-			left, err := filepath.Glob(filepath.Join(checkout, "*.exe.*"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(left) != 1 {
-				t.Fatalf("copies left beside the build = %v, want only the one still running", left)
-			}
-			if kept, err := os.ReadFile(left[0]); err != nil || string(kept) != string(ping) {
-				t.Errorf("%s (%v) is not the copy still running", left[0], err)
-			}
-		})
+		}
+	}
+	select {
+	case <-exited:
+		t.Errorf("the running cfo.exe was stopped, want it left running under its old name")
+	default:
+	}
+	left, err := filepath.Glob(filepath.Join(checkout, "*.exe.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("copies left beside the build = %v, want only the one still running", left)
+	}
+	if kept, err := os.ReadFile(left[0]); err != nil || string(kept) != string(ping) {
+		t.Errorf("%s (%v) is not the copy still running", left[0], err)
 	}
 }
 
 // Without winget, an install that needs it for git or gh stops before it
-// downloads or changes anything, and names the one fix.
+// downloads or changes anything, and names the one fix. Which tools are
+// missing is the script's own check of the PATH, the same whichever
+// PowerShell runs it, so Windows PowerShell alone checks it; the install
+// workflow runs the whole install in both PowerShells on a clean runner.
 func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
-		for want, tools := range map[string][]string{"git and gh": nil, "gh": {"git"}} {
-			t.Run(filepath.Base(shell)+" needing "+want, func(t *testing.T) {
-				var requests atomic.Int32
-				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					requests.Add(1)
-					http.NotFound(w, r)
-				}))
-				defer release.Close()
+	for want, tools := range map[string][]string{"git and gh": nil, "gh": {"git"}} {
+		t.Run("needing "+want, func(t *testing.T) {
+			var requests atomic.Int32
+			release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				http.NotFound(w, r)
+			}))
+			defer release.Close()
 
-				output, local, temp, err := runPowerShellWith(t, shell, release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			output, local, temp, err := runPowerShellWith(t, windowsPowerShell(), release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
 
-				if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "winget is missing, and the install needs it for "+want+".") {
-					t.Fatalf("install = %v, want it stopped for winget with the App Installer fix:\n%s", err, output)
-				}
-				if n := requests.Load(); n != 0 {
-					t.Errorf("the install made %d download requests before stopping, want none", n)
-				}
-				assertNothingInstalled(t, local, temp)
-			})
-		}
+			if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "winget is missing, and the install needs it for "+want+".") {
+				t.Fatalf("install = %v, want it stopped for winget with the App Installer fix:\n%s", err, output)
+			}
+			if n := requests.Load(); n != 0 {
+				t.Errorf("the install made %d download requests before stopping, want none", n)
+			}
+			assertNothingInstalled(t, local, temp)
+		})
 	}
 }
