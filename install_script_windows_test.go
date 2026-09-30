@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -75,15 +76,58 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// windowsPowerShell is Windows PowerShell 5.1, which every Windows has: the
+// shell for install behavior that does not depend on the PowerShell running
+// it.
+func windowsPowerShell() string {
+	return filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+}
+
 // oneLineShells are the PowerShells the one-line install must work in:
 // Windows PowerShell 5.1, always present, and PowerShell 7 where installed.
 func oneLineShells(t *testing.T) []string {
 	t.Helper()
-	shells := []string{filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")}
+	shells := []string{windowsPowerShell()}
 	if pwsh, err := exec.LookPath("pwsh.exe"); err == nil {
 		shells = append(shells, pwsh)
 	}
 	return shells
+}
+
+// installSlots bounds how many installs the tests run at once. Each is a
+// PowerShell with a profile of its own, waiting mostly on process starts and
+// downloads, so a few at once finish sooner; CI's runner has four cores, and
+// more at once only slow every one down and cost memory.
+var installSlots = make(chan struct{}, 4)
+
+// runInParallel runs t alongside the other install tests, holding one of the
+// install slots while it runs. Every test that calls it keeps all of its
+// state in folders, servers and processes of its own.
+func runInParallel(t *testing.T) {
+	t.Helper()
+	t.Parallel()
+	installSlots <- struct{}{}
+	t.Cleanup(func() { <-installSlots })
+}
+
+// readStandIn is this test binary's content, read once: a copy stands in for
+// a program an install downloads and runs, such as cfo.exe or no-mistakes.exe.
+var readStandIn = sync.OnceValues(func() ([]byte, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(executable)
+})
+
+// standIn is this test binary's content, for a stand-in program.
+func standIn(t *testing.T) []byte {
+	t.Helper()
+	program, err := readStandIn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return program
 }
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
@@ -213,9 +257,11 @@ func runPin(t *testing.T, shell, repository, tag, publisher string) (destination
 // from the repository that published it, a fork's included, at its tag,
 // never from the latest release or from another repository.
 func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
 			t.Run(filepath.Base(shell)+" "+repository, func(t *testing.T) {
+				runInParallel(t)
 				// Arrange
 				script, output, err := runPin(t, shell, repository, "v1.2.3", "Code Goblins Test Publisher")
 				if err != nil {
@@ -242,6 +288,7 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 // The pin writes no install script it cannot pin as given, so a release
 // never publishes one that downloads or trusts something else.
 func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		for name, test := range map[string]struct{ repository, tag, publisher string }{
 			"a repository that is not owner/name": {"https://github.com/fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher"},
@@ -250,6 +297,7 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 			"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				runInParallel(t)
 				// Act
 				script, output, err := runPin(t, shell, test.repository, test.tag, test.publisher)
 
@@ -269,9 +317,11 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 // it refuses a download that is not validly signed by that publisher, however
 // well it matches its sum.
 func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
+	t.Parallel()
 	binary := []byte("a build nobody signed")
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
+			runInParallel(t)
 			// Arrange
 			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
 			if err != nil {
@@ -295,6 +345,7 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 // SHA256SUMS before it runs anything: nothing is installed, and the download
 // is gone.
 func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *testing.T) {
+	t.Parallel()
 	binary := []byte("a build the release did not publish")
 	for _, shell := range oneLineShells(t) {
 		for name, test := range map[string]struct {
@@ -307,6 +358,7 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 			"no release at all":        {nil, "", "the release could not be downloaded"},
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				runInParallel(t)
 				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, test.binary, test.sums))
 
 				if err == nil || !strings.Contains(output, test.want) {
@@ -323,6 +375,7 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 // further than being run. The repository's own script names no publisher,
 // and says it checks the sums only.
 func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) {
+	t.Parallel()
 	binary := []byte("not a program")
 	sum := sha256.Sum256(binary)
 	for _, shell := range oneLineShells(t) {
@@ -331,6 +384,7 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 			"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				runInParallel(t)
 				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, binary, sums))
 
 				if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
@@ -351,8 +405,10 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 // The one-line install runs in the caller's own session and leaves it exactly
 // as it was, even when it is refused.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
+			runInParallel(t)
 			caller := "$InstallDir = 'mine'; $Dev = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
 				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
 				"Write-Output \"InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
@@ -377,14 +433,8 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // and answered with a script naming its URL, and the child records how it
 // was started and the file it was given.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	binary := standIn(t)
 	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
@@ -392,6 +442,7 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	}
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
+			runInParallel(t)
 			record := filepath.Join(t.TempDir(), "record.txt")
 			stubs := map[string]string{
 				"git":        "@exit /b 0\r\n",
@@ -466,6 +517,7 @@ func fakeCheckout(t *testing.T) string {
 // A clone installs only through -Dev: run without it, the script names the
 // command and changes nothing, and -Dev anywhere but a clone is refused.
 func TestACloneInstallsOnlyThroughDev(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		for name, test := range map[string]struct {
 			folder func(t *testing.T) string
@@ -486,6 +538,7 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 			}, []string{"-Dev"}, "-Dev builds Code Goblins from a clone"},
 		} {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				runInParallel(t)
 				var requests atomic.Int32
 				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					requests.Add(1)
@@ -513,8 +566,10 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 // -Dev builds from source, so without Go it stops before building or changing
 // anything and names the install.
 func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
+			runInParallel(t)
 			checkout := fakeCheckout(t)
 
 			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
@@ -532,6 +587,7 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 // install.cmd runs install.ps1 under an execution policy that refuses to run
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
+	runInParallel(t)
 	checkout := fakeCheckout(t)
 	wrapper, err := os.ReadFile("install.cmd")
 	if err != nil {
@@ -567,6 +623,7 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 // as no-mistakes' own, lost New-TemporaryFile. install.cmd gives Windows
 // PowerShell its own module path.
 func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
+	runInParallel(t)
 	checkout := t.TempDir()
 	wrapper, err := os.ReadFile("install.cmd")
 	if err != nil {
@@ -622,8 +679,8 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			checkout := fakeCheckout(t)
 			newBuild := filepath.Join(t.TempDir(), "built")
-			// A running cfo.exe: ping, copied under that name, runs long
-			// enough and needs no console.
+			// A running cfo.exe: ping, copied under that name, runs until the
+			// test stops it and needs no console.
 			running := filepath.Join(checkout, "cfo.exe")
 			ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
 			if err != nil {
@@ -632,7 +689,7 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 			if err := os.WriteFile(running, ping, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			old := exec.Command(running, "-n", "120", "127.0.0.1")
+			old := exec.Command(running, "-t", "127.0.0.1")
 			old.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 			if err := old.Start(); err != nil {
 				t.Fatal(err)
@@ -689,9 +746,11 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 // Without winget, an install that needs it for git or gh stops before it
 // downloads or changes anything, and names the one fix.
 func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
+	t.Parallel()
 	for _, shell := range oneLineShells(t) {
 		for want, tools := range map[string][]string{"git and gh": nil, "gh": {"git"}} {
 			t.Run(filepath.Base(shell)+" needing "+want, func(t *testing.T) {
+				runInParallel(t)
 				var requests atomic.Int32
 				release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					requests.Add(1)

@@ -416,16 +416,30 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # rerunning the install updates a machine to it.
     $noMistakesVersion = "1.75.1"
 
+    # The one no-mistakes the install manages and ever replaces, where
+    # no-mistakes' own installer and its update put it.
+    $noMistakesProgram = Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe"
+
+    # Read-NoMistakesVersion returns the version $Program reports, such as
+    # 1.75.1, or "" when it reports none. Only stdout holds the version:
+    # stderr may carry an update notice that names another.
+    function Read-NoMistakesVersion([string]$Program) {
+        if ((& $Program --version 2>$null | Out-String) -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+)(\s|$)') {
+            return $Matches[1]
+        }
+        return ""
+    }
+
     # Install-NoMistakes installs the pinned no-mistakes release from $Release,
-    # its download folder, where no-mistakes' own installer puts it, once the
-    # archive matches the release's checksums.txt, and starts its daemon. An
-    # older no-mistakes' daemon is stopped first; no-mistakes refuses that
-    # while a gate runs, and the older no-mistakes then stays as it is.
+    # its download folder, as the managed copy, once the archive matches the
+    # release's checksums.txt, and starts its daemon. An older managed copy's
+    # daemon is stopped first; no-mistakes refuses that while a gate runs, and
+    # the older copy then stays as it is.
     function Install-NoMistakes([string]$Release) {
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
         $archive = "no-mistakes-v$noMistakesVersion-windows-$arch.zip"
-        $folder = Join-Path $env:LOCALAPPDATA "no-mistakes"
-        $target = Join-Path $folder "no-mistakes.exe"
+        $target = $noMistakesProgram
+        $folder = Split-Path -Parent $target
         $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $download | Out-Null
         try {
@@ -452,8 +466,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             if (Test-Path -LiteralPath "$target.old") {
                 Remove-Item -LiteralPath "$target.old" -Force -ErrorAction Stop
             }
-            if (Get-Command no-mistakes -ErrorAction SilentlyContinue) {
-                & no-mistakes daemon stop
+            if (Test-Path -LiteralPath $target) {
+                & $target daemon stop
                 if ($LASTEXITCODE -ne 0) {
                     throw "the installed no-mistakes stays as it is, since its daemon did not stop, which no-mistakes refuses while a gate runs; rerun the install once no gate runs"
                 }
@@ -520,19 +534,32 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
             $found = $null
         }
-        # A release older than the pinned one is updated where the install
-        # puts it. One elsewhere on PATH, which the install did not put there,
-        # is left alone, as is one that reports no version, such as a build of
-        # its own. Only stdout holds the version: stderr may carry an update
-        # notice that names another.
-        if ($found -and $tool.Kind -eq "release" -and (& $tool.Name --version 2>$null | Out-String) -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+)(\s|$)' -and [version]$Matches[1] -lt [version]$noMistakesVersion) {
-            if ($found.Source -ne (Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe")) {
-                Write-Host ("WARN     {0,-20} {1} is v{2}, older than the pinned v{3}, and comes first on PATH; run: no-mistakes update, or remove the older copy" -f $tool.Name, $found.Source, $Matches[1], $noMistakesVersion)
+        # The release is judged by the copy the install manages, whatever this
+        # window's PATH holds: a window opened before that copy was installed
+        # does not find it. An older copy that comes first on PATH from
+        # anywhere else is never replaced, only named. The managed copy is
+        # updated only when older than the pin; one that reports no version,
+        # such as a build of its own, is left alone.
+        if ($tool.Kind -eq "release") {
+            $pathVersion = if ($found) { Read-NoMistakesVersion $found.Source } else { "" }
+            if ($pathVersion -and $found.Source -ne $noMistakesProgram -and [version]$pathVersion -lt [version]$noMistakesVersion) {
+                Write-Host ("WARN     {0,-20} {1} is v{2}, older than the pinned v{3}, and comes first on PATH; run: no-mistakes update, or remove the older copy" -f $tool.Name, $found.Source, $pathVersion, $noMistakesVersion)
                 $failedInstalls += $tool.Name
                 continue
             }
-            Write-Host ("update   {0,-20} v{1} is older than the pinned v{2}" -f $tool.Name, $Matches[1], $noMistakesVersion)
-            $found = $null
+            if (Test-Path -LiteralPath $noMistakesProgram) {
+                $managedVersion = Read-NoMistakesVersion $noMistakesProgram
+                if ($managedVersion -and [version]$managedVersion -lt [version]$noMistakesVersion) {
+                    Write-Host ("update   {0,-20} v{1} is older than the pinned v{2}" -f $tool.Name, $managedVersion, $noMistakesVersion)
+                    $found = $null
+                }
+                else {
+                    if (Add-UserPath (Split-Path -Parent $noMistakesProgram)) {
+                        Write-Host ("ok       {0,-20} {1} added to your PATH" -f $tool.Name, (Split-Path -Parent $noMistakesProgram))
+                    }
+                    $found = Get-Command $noMistakesProgram
+                }
+            }
         }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
