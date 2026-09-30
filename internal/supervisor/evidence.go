@@ -424,6 +424,25 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 	return bounded(activity, 4000), pr
 }
 
+func taskSessionSummary(lines []string, spawned time.Time) (report string, retired time.Time) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
+		event = strings.TrimSpace(event)
+		kind, detail, _ := strings.Cut(event, ": ")
+		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via cfo cleanup")) {
+			if retired.IsZero() && report == "" {
+				retired = stamp
+			}
+		} else if report == "" && reportKind(event) != "" {
+			report = redact(bounded(event, 4000))
+		}
+	}
+	return report, retired
+}
+
 // finishedTasks are tasks cfo cleanup finished within the history window,
 // newest first. Cleanup leaves the status log in place with no task record
 // beside it; cfo reap later moves it into the archive as its own file, and
@@ -480,6 +499,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
+		report, retired := taskSessionSummary(lines, time.Time{})
 		phase, reason := "stopped", "Stopped without recorded delivery"
 		if pr != "" {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
@@ -510,7 +530,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 		if project != "" {
 			project = filepath.Base(project)
 		}
-		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Dependencies: []string{}, Archived: true, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
+		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Dependencies: []string{}, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
 	}
 	for _, directory := range []string{"outcomes", "lifecycle"} {
 		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
@@ -520,17 +540,20 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				continue
 			}
 			var task Task
+			var generation string
 			if directory == "outcomes" {
 				outcome, err := state.ReadOutcome(stateDir, id)
 				if err != nil {
 					continue
 				}
+				generation = outcome.Generation
 				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
+				generation = record.Generation
 				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
@@ -544,6 +567,11 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 			}
 			if now.Sub(task.At) > historyWindow {
 				continue
+			}
+			if status, ok := found[id]; ok && generation != "queued" {
+				if lines, err := fsx.ReadLines(status.path); err == nil {
+					task.LastReport, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+				}
 			}
 			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })
 			tasks = append(tasks, task)
