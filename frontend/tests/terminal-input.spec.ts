@@ -47,7 +47,7 @@ for (const backend of ["native", "herdr"] as const) {
     test("editing, navigation, modifiers and interrupt reach the program", async ({ page }) => {
       for (const [key, expected] of [
       ["Control+c", "\x03"], ["Escape", "\x1b"], ["Tab", "\t"], ["Shift+Tab", "\x1b[Z"],
-      ["Enter", "\r"], ["Shift+Enter", "\x1b[13;2u"],
+      ["Enter", "\r"], ["Shift+Enter", "\r"],
       ["ArrowUp", "\x1b[A"], ["ArrowDown", "\x1b[B"], ["ArrowRight", "\x1b[C"], ["ArrowLeft", "\x1b[D"],
       ["Home", "\x1b[H"], ["End", "\x1b[F"], ["PageUp", "\x1b[5~"], ["PageDown", "\x1b[6~"],
       ["Control+a", "\x01"], ["Control+e", "\x05"], ["Control+u", "\x15"], ["Control+k", "\x0b"],
@@ -114,6 +114,26 @@ for (const backend of ["native", "herdr"] as const) {
         await page.keyboard.press("Control+c");
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("SELECTABLE");
         expect(Buffer.concat(inputs).toString("utf8")).toBe("");
+      });
+
+      for (const [mode, enable, disable] of [["kitty keyboard", "\x1b[>1u", "\x1b[<u"], ["modifyOtherKeys", "\x1b[>4;2m", "\x1b[>4;0m"]]) {
+        test("Shift+Enter is a modified Enter only while " + mode + " is on", async ({ page }) => {
+          writeOutput(enable);
+          await page.keyboard.press("Shift+Enter");
+          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[13;2u");
+          inputs.length = 0;
+          writeOutput(disable);
+          await page.keyboard.press("Shift+Enter");
+          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\r");
+        });
+      }
+
+      test("the kitty keyboard query reports the program's current flags", async () => {
+        writeOutput("\x1b[?u");
+        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[?0u");
+        inputs.length = 0;
+        writeOutput("\x1b[>1u\x1b[?u");
+        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[?1u");
       });
 
       test("paste stops using brackets when the program turns that mode off", async ({ page }) => {

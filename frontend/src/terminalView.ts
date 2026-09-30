@@ -1,7 +1,7 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
-import { terminalKey } from "./terminal-keys";
+import { terminalKey, trackKeyboardModes } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
@@ -79,6 +79,7 @@ export class TerminalView {
     }
     this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
+    trackKeyboardModes(this.term);
     this.frames = new FrameWriter((data, done) => this.term.write(data, done), undefined, () => this.readyIfDrawn());
     void document.fonts.load(fontSize + 'px "JetBrains Mono"').then(() => {
       if (!this.disposed && document.fonts.check(fontSize + 'px "JetBrains Mono"')) { this.term.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT; this.refit(); }
