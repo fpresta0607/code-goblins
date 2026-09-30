@@ -95,8 +95,10 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
-	// fakeDoctorTool's claude.exe is this binary answering --version.
-	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+	// fakeDoctorTool's claude.exe is this binary answering doctor's --version
+	// probe; run as claude.exe any other way, it is the native CFO test's
+	// harness, below.
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") && len(os.Args) == 2 && os.Args[1] == "--version" {
 		fmt.Println("claude 1.0.0")
 		os.Exit(0)
 	}

@@ -502,6 +502,11 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 		"HERDR_PANE_ID":             "w9:p0",
 		"HERDR_TAB_ID":              "w9:t0",
 		"A_LAUNCHER_ONLY_VARIABLE":  "the launcher's",
+		// A Codex tool shell's terminal settings, which turned the CFO's
+		// terminal white on 2026-09-30.
+		"NO_COLOR": "1",
+		"TERM":     "dumb",
+		"CODEX_CI": "1",
 	}
 	for name, value := range launcher {
 		t.Setenv(name, value)
