@@ -49,6 +49,35 @@ func TestParseGateStatusReadsActiveStep(t *testing.T) {
 	}
 }
 
+// A goblin driving a gate repair round has an active step whose agent is
+// fixing what the step found, and axi status names each column of its row
+// in the block's header, which gained round_active_for after the format the
+// parser was written for. Read live on 2026-09-30 from a run in a ci fix
+// round.
+func TestParseGateStatusReadsAStepBeingFixedInTheCurrentFormat(t *testing.T) {
+	for name, test := range map[string]struct {
+		row          string
+		wantActive   time.Duration
+		wantActivity string
+	}{
+		"a step whose agent is fixing it": {`ci,fixing,19m24s,36s,"1s ago: claude producing output","48204",fix 1`, 19*time.Minute + 24*time.Second, "1s ago: claude producing output"},
+		"a running step":                  {`test,running,22m39s,22m39s,"quiet 22m30s ago: log: running tests: cfo gate test","",starting`, 22*time.Minute + 39*time.Second, "quiet 22m30s ago: log: running tests: cfo gate test"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			status := "run:\n  status: running\n  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:\n    " + test.row + "\nbranch_sync:\n  state: pipeline_owned\n"
+
+			// Act
+			got := parseGateStatus(status, GateSample{})
+
+			// Assert
+			if !got.Active || got.ActiveFor != test.wantActive || got.LastActivity != test.wantActivity {
+				t.Fatalf("parsed = %+v, want active for %v with last activity %q", got, test.wantActive, test.wantActivity)
+			}
+		})
+	}
+}
+
 func scanWorking(t *testing.T, service Service, probe *fakeProber, meta state.TaskMeta, now *time.Time, step time.Duration) ScanResult {
 	t.Helper()
 	probe.samples[meta.ID] = sampleForStatus(meta, herdr.AgentWorking, "Working...")
