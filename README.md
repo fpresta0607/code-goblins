@@ -234,6 +234,8 @@ Tasks is the order the CFO starts queued work in, saved as the order of the rows
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 
 The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and the 5 GB next-start mark.
+When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
+A line also warns when the kernel's paged pool passes 4 GB, which means a driver is leaking memory and a reboot frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
 The first eligible task is marked **Next up**; the board itself starts nothing on its own.
 A blocked task names the person, time or task it waits on and has no Start button or Next up mark.
