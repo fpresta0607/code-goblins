@@ -25,6 +25,7 @@ export interface ViewEvents {
   // Dictation sees every key first: false keeps it from the terminal, true
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
+  harness: () => string;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -260,6 +261,17 @@ export class TerminalView {
     }
     const shortcut = terminalKey(event, this.term, this.copy);
     if (shortcut !== null) return shortcut;
+    if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
+      // Claude reads LF as Ctrl+J. Codex's Windows reader needs the native
+      // Ctrl+J key down/up records: a bare LF loses its key identity in ConPTY.
+      const harness = this.events.harness();
+      const newline = harness === "claude" ? "\n" : harness === "codex" ? "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_" : null;
+      if (newline !== null) {
+        event.preventDefault();
+        if (down) this.term.input(newline, true);
+        return false;
+      }
+    }
     const size = event.ctrlKey && !event.altKey && !event.metaKey ? fontSizeFor(event.key, this.term.options.fontSize ?? DEFAULT_FONT_SIZE) : null;
     if (size !== null) {
       event.preventDefault();
