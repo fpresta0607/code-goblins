@@ -48,7 +48,11 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	judged := true
 	if s.Progress != nil && now.Sub(since) >= s.idleAfter()-jobSampleInterval {
 		var err error
-		jobs, _, err = s.sampleProgress(ctx, meta, sample, &observation, since, now)
+		if observation.JobSampledAt != nil && observation.JobSampledAt.Equal(now) {
+			jobs = observation.Jobs
+		} else {
+			jobs, _, err = s.sampleProgress(ctx, meta, sample, &observation, since, now)
+		}
 		if observation.EvidenceAt != nil && observation.EvidenceAt.After(since) {
 			since = *observation.EvidenceAt
 		}

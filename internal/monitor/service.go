@@ -371,13 +371,17 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// the gate and the goblin's own progress evidence, and wake only if
 		// nothing underneath is actually moving. A pane that shows work
 		// running is evidence that something is, so it holds back every wake
-		// but the gate's own: a gate step active past the budget is the
-		// gate's evidence of a wedge, whatever the pane shows.
+		// but the gate's own until nothing has moved for twice the budget: a
+		// gate step active past the budget is the gate's evidence of a wedge,
+		// whatever the pane shows.
 		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
 			if kind, detail := s.busyOverAge(ctx, meta, sample, &observation, now); kind != "" {
 				if running, ok := paneRunning(sample); ok && !strings.HasPrefix(kind, gateStepKind) {
-					tally.suppress(meta.ID, BusyTurnOverAge, observation.BusySince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
-					return workingObservation(observation, sample, now), sample
+					if quietSince(observation, *observation.BusySince, now) < 2*s.busyTurnMax() {
+						tally.suppress(meta.ID, BusyTurnOverAge, observation.BusySince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+						return workingObservation(observation, sample, now), sample
+					}
+					detail += "; its pane still shows work running: " + running
 				}
 				return s.busyOverAgeObservation(observation, kind, detail, now), sample
 			}
@@ -394,23 +398,22 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if sample.Status == herdr.AgentDone {
 			// A turn that ended with a background shell or a tool its pane
 			// still shows running resumes by itself when that work reports
-			// back, so nobody owes it an answer.
-			if running, ok := paneRunning(sample); ok {
-				if observation.IdleSince == nil {
-					observation.IdleSince = timePointer(now)
+			// back, so nobody owes it an answer while that work moves.
+			if running, ok := paneRunning(sample); ok && observation.Reason != AwaitingAnswer {
+				moving, lingering := s.paneWork(ctx, meta, sample, &observation, running, now)
+				if moving {
+					if observation.Reason != GoblinIdle {
+						tally.suppress(meta.ID, AwaitingAnswer, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+					}
+					return ownWorkObservation(observation, now), sample
 				}
-				if observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle {
-					tally.suppress(meta.ID, AwaitingAnswer, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
-				}
-				return ownWorkObservation(observation, now), sample
-			}
-			// A goblin already woken as idle at its prompt stays that one
-			// wake until it works again.
-			if observation.Health == HealthStale && observation.Reason == GoblinIdle {
+				detail += "; " + lingering
+			} else if observation.Health == HealthStale && observation.Reason == GoblinIdle {
+				// A goblin already woken as idle at its prompt stays that
+				// one wake until it works again.
 				observation.LastSeen = now
 				return observation, sample
-			}
-			if observation.Reason != AwaitingAnswer {
+			} else if observation.Reason != AwaitingAnswer {
 				// A goblin that ended its turn with a background job or a
 				// monitor still running resumes by itself when that work
 				// reports back, so nobody owes it an answer yet. A blocked
@@ -611,6 +614,7 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	if err != nil {
 		return nil, false, err
 	}
+	observation.Jobs = progress.Jobs
 	if len(progress.Jobs) == 0 {
 		observation.JobCPU = 0
 		observation.JobSampledAt = nil
@@ -660,6 +664,42 @@ func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample Endpoi
 		return true, ""
 	}
 	return false, noProgressFor(now.Sub(last)) + " and " + stalledJobs(jobs, min(now.Sub(*observation.JobSampledSince), now.Sub(last)))
+}
+
+// paneWork decides whether the work that running, a row of the goblin's pane,
+// shows is still moving now that its turn has ended. It is by the rule
+// ownWork applies to the goblin's own background jobs: while the goblin has
+// shown progress evidence within the busy budget of its turn ending, or before
+// its own processes' processor use has been read across a whole stall
+// interval. Otherwise the second result names the row and how long nothing
+// has moved, for the wake.
+func (s Service) paneWork(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, running string, now time.Time) (bool, string) {
+	if observation.IdleSince == nil {
+		observation.IdleSince = timePointer(now)
+	}
+	var jobs []string
+	measured, unreadable := false, ""
+	if s.Progress != nil {
+		var err error
+		jobs, measured, err = s.sampleProgress(ctx, meta, sample, observation, *observation.IdleSince, now)
+		if err != nil {
+			unreadable = "; progress evidence unreadable (" + err.Error() + ")"
+		}
+	}
+	quiet := quietSince(*observation, *observation.IdleSince, now)
+	if quiet < s.busyTurnMax() || len(jobs) > 0 && !measured {
+		return true, ""
+	}
+	return false, "its pane still shows work running (" + running + ") and " + noProgressFor(quiet) + unreadable
+}
+
+// quietSince is how long the goblin has shown no progress evidence since
+// stretch began.
+func quietSince(observation Observation, stretch, now time.Time) time.Duration {
+	if observation.EvidenceAt != nil && observation.EvidenceAt.After(stretch) {
+		return now.Sub(*observation.EvidenceAt)
+	}
+	return now.Sub(stretch)
 }
 
 // busyOverAgeObservation wakes once for a wedged working goblin and then
@@ -784,8 +824,8 @@ func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, ob
 // grace period. A goblin legitimately thinking or running a quiet subprocess
 // can sit at an unchanged pane for minutes; it is only stale once it has been
 // genuinely idle (no counter or status-log movement) for the idle threshold,
-// its pane shows no work running, and it is not waiting on a background job
-// or monitor of its own that is moving.
+// and neither work its pane shows running nor a background job or monitor of
+// its own is moving.
 func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time, tally *Tally) Observation {
 	if observation.IdleSince == nil {
 		observation.IdleSince = timePointer(now)
@@ -793,8 +833,10 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 	waiting, lingering := false, ""
 	if now.Sub(*observation.IdleSince) >= s.stallAfter() {
 		if running, ok := paneRunning(sample); ok {
-			tally.suppress(meta.ID, UnchangedIdle, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
-			waiting = true
+			waiting, lingering = s.paneWork(ctx, meta, sample, &observation, running, now)
+			if waiting {
+				tally.suppress(meta.ID, UnchangedIdle, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+			}
 		} else {
 			waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
 		}

@@ -77,6 +77,21 @@ func TestAGoblinIdleAtItsPromptWakesOnceAfterThreeMinutes(t *testing.T) {
 	}
 }
 
+// A scan reads a goblin's progress once: the idle clock reuses the reading
+// the ended turn's own-work check just made rather than reading the
+// transcript and every process again in the loop that stamps the heartbeat.
+func TestAScanReadsAnIdleGoblinsProgressOnce(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	service, probe, progress, _ := idleService(t, &now)
+
+	for scan := 1; scan <= 4; scan++ {
+		scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 1)
+		if progress.calls != scan {
+			t.Fatalf("after %d scans progress was read %d times, want once a scan", scan, progress.calls)
+		}
+	}
+}
+
 // Between turns reads the same: an idle Herdr agent at its prompt wakes as
 // goblin_idle before the ten-minute stall would.
 func TestAnIdleAgentBetweenTurnsWakesAsGoblinIdleFirst(t *testing.T) {

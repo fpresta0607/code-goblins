@@ -205,7 +205,7 @@ var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`Running…`),
 	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
-	regexp.MustCompile(`(^|·)\s*\d+ (shells?|background tasks?)\s*(·|$)`),
+	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
 }
 
 // RunningWork returns the first row of screen that shows a tool, a turn or a

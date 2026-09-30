@@ -333,16 +333,17 @@ func TestGateFlippingUnderAWorkingGoblinDoesNotRewake(t *testing.T) {
 
 // The second noise class: a goblin that ended its turn with a background job
 // or a monitor still running is waiting on its own work, not on anybody's
-// answer, whether its pane counts the job (a shell in Claude Code's footer) or
-// the job is using the processor. It wakes when that work is gone and the
-// goblin still has not moved.
+// answer, whether its pane counts the job (a shell in Claude Code's footer),
+// which holds it for the busy budget, or the job is using the processor. It
+// wakes when that work is gone and the goblin still has not moved.
 func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 	for name, job := range map[string]struct {
 		pane    string
 		cpuStep time.Duration
+		scans   int
 	}{
-		"its pane counts the job":    {pane: backgroundShellPane},
-		"the job uses the processor": {pane: "pane", cpuStep: 20 * time.Second},
+		"its pane counts the job":    {pane: backgroundShellPane, scans: 9},
+		"the job uses the processor": {pane: "pane", cpuStep: 20 * time.Second, scans: 15},
 	} {
 		t.Run(name, func(t *testing.T) {
 			now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
@@ -350,7 +351,7 @@ func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 41)"}}
 			progress.cpuStep = job.cpuStep
 
-			for range 15 {
+			for range job.scans {
 				r := scanPane(t, service, probe, herdr.AgentDone, job.pane, &now, time.Minute)
 				if r.Event != nil {
 					t.Fatalf("a goblin waiting on its own background job woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)

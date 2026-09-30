@@ -57,6 +57,28 @@ func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	}
 }
 
+// A tool the pane shows running holds busy_turn_over_age back for twice the
+// busy budget and no longer: a turn whose pane reads "Running…" with nothing
+// moving underneath for that long is wedged, and the wake names the row.
+func TestARunningToolWithNothingMovingWakesBusyTurnOverAgeAfterTwiceTheBudget(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	service, probe, _, _ := progressService(t, &now)
+
+	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
+	if early := scanIdle(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 19); len(early) != 0 {
+		t.Fatalf("woke inside twice the busy budget: %+v", early)
+	}
+	wakes := scanIdle(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 10)
+	if len(wakes) != 1 {
+		t.Fatalf("a turn with nothing moving past twice the budget raised %d wakes, want exactly one: %+v", len(wakes), wakes)
+	}
+	for _, want := range []string{string(BusyTurnOverAge) + ":", "no progress evidence (transcript write or processor use by its own processes) for 20m", "its pane still shows work running: ⎿  Running… (22s · timeout 10m)"} {
+		if !strings.Contains(wakes[0].Detail, want) {
+			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
+		}
+	}
+}
+
 // The pane holds back only what it is evidence against. A gate step active
 // past the budget is the gate's own evidence of a wedge, so it still wakes.
 func TestARunningToolDoesNotHoldBackAWedgedGateStep(t *testing.T) {
@@ -79,12 +101,13 @@ func TestARunningToolDoesNotHoldBackAWedgedGateStep(t *testing.T) {
 
 // A Claude Code goblin that ended its turn with a background shell still
 // running is waiting on its own work: the footer's shell count holds back the
-// awaiting_answer wake however long the shell sits idle, and the wake comes
-// once the count is gone.
-func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswer(t *testing.T) {
+// awaiting_answer wake past the busy budget while that work moves, and the
+// wake comes once the count is gone.
+func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswerWhileItMoves(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, progress, _ := progressService(t, &now)
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"powershell.exe (pid 44)"}, JobCPU: time.Second}
+	progress.cpuStep = 20 * time.Second
 
 	for range 15 {
 		r := scanPane(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, time.Minute)
@@ -99,25 +122,60 @@ func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswer(t *testing.T) {
 		t.Fatalf("tally = %+v, want one suppressed awaiting_answer naming the shell", counted)
 	}
 
-	progress.sample.Jobs = nil
+	progress.sample.Jobs, progress.cpuStep = nil, 0
 	r := scanPane(t, service, probe, herdr.AgentDone, "❯", &now, time.Minute)
 	if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
 		t.Fatalf("shell gone with the turn still over = %+v, want an awaiting-answer wake", r)
 	}
 }
 
-// Idle between turns with the pane still showing work is not a stall either.
-func TestARunningToolOnThePaneHoldsBackUnchangedIdle(t *testing.T) {
+// The footer's shell count holds the wake back only while something moves: a
+// dev server left running shows "1 shell" for as long as it lives, so once
+// the goblin has shown no progress evidence for the busy budget since its
+// turn ended it wakes once as awaiting its answer, naming the row.
+func TestABackgroundShellWithNothingMovingWakesAwaitingAnswerAfterTheBudget(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	service, probe, progress, _ := progressService(t, &now)
+	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"node.exe (pid 44)"}, JobCPU: time.Second}
+
+	if early := scanIdle(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, 10); len(early) != 0 {
+		t.Fatalf("woke inside the busy budget: %+v", early)
+	}
+	wakes := scanIdle(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, 10)
+	if len(wakes) != 1 {
+		t.Fatalf("a background shell with nothing moving raised %d wakes, want exactly one: %+v", len(wakes), wakes)
+	}
+	for _, want := range []string{string(AwaitingAnswer) + ":", "its pane still shows work running (⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage)", "no progress evidence (transcript write or processor use by its own processes) for 10m"} {
+		if !strings.Contains(wakes[0].Detail, want) {
+			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
+		}
+	}
+	if counted := readTally(t, service).Reasons[AwaitingAnswer]; counted == nil || counted.Suppressed != 1 || counted.Raised != 1 {
+		t.Fatalf("tally = %+v, want one suppressed and one raised awaiting_answer", counted)
+	}
+}
+
+// Idle between turns with the pane still showing work is not a stall while
+// the busy budget runs; once nothing has moved for it, it is, and the wake
+// names the row.
+func TestARunningToolOnThePaneHoldsBackUnchangedIdleForTheBudget(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	for range 12 {
-		if r := scanPane(t, service, probe, herdr.AgentIdle, runningToolPane, &now, time.Minute); r.Event != nil {
-			t.Fatalf("an idle reading of a pane that shows a running tool woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
-		}
+	if early := scanIdle(t, service, probe, herdr.AgentIdle, runningToolPane, &now, 10); len(early) != 0 {
+		t.Fatalf("an idle reading of a pane that shows a running tool woke inside the busy budget: %+v", early)
 	}
 	if counted := readTally(t, service).Reasons[UnchangedIdle]; counted == nil || counted.Suppressed != 1 {
 		t.Fatalf("tally = %+v, want one suppressed unchanged_idle", counted)
+	}
+	wakes := scanIdle(t, service, probe, herdr.AgentIdle, runningToolPane, &now, 5)
+	if len(wakes) != 1 {
+		t.Fatalf("a running tool with nothing moving raised %d wakes, want exactly one: %+v", len(wakes), wakes)
+	}
+	for _, want := range []string{string(UnchangedIdle) + ":", "its pane still shows work running (⎿  Running… (22s · timeout 10m)) and no progress evidence"} {
+		if !strings.Contains(wakes[0].Detail, want) {
+			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
+		}
 	}
 }
 
