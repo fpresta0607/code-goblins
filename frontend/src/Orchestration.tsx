@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { BoardActivity, Snapshot } from "./types";
 import { Avatar } from "./Avatar";
-import { activityDisplay, presentationShownOn } from "./activity";
+import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
@@ -28,7 +28,7 @@ function readLayout(): { positions: Record<string, Point>; error: string } {
 
 export function Orchestration({ snapshot, selected, connected, effects, onSelect, presentations }: {
   presentations:BoardActivity[];
-  snapshot: Snapshot; selected: string; connected: boolean; effects: BoardActivity[];
+  snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[];
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
@@ -51,7 +51,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   useEffect(() => {
     const { signatures: next, moved } = fleetTraffic(signatures.current, snapshot);
     signatures.current = next;
-    if (!moved.length) return;
+    // A report that lands while the board is hidden was never seen, so it
+    // never plays later.
+    if (!moved.length || document.hidden) return;
     const at = Date.now();
     setTraffic((prior) => reportTraffic(prior, moved, at));
     const timer = setTimeout(() => {
@@ -163,10 +165,19 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               const path = `M${sx},${sy} C${sx},${sy + drop} ${ex},${sy + drop} ${ex},${sy + 2 * drop} L${ex},${ey}`;
               const activity = activityDisplay(connected ? effects : [],node.session?.id || "",byID.get(node.parent || "")?.session?.id || "");
               const report = connected && node.task ? traffic[node.task.id] : undefined;
-              const communicating = activity.communication || report;
-              return <g key={node.id + ":" + (activity.communication?.id || activity.creation?.id || report || "")} className={"connection-line " + (communicating ? "communicating " : "") + (activity.creation ? "creating " : "") + "relation-" + node.relation}>
+              // Each pulse or birth highlight is its own overlay on the
+              // connector, played out over its whole life and faded before
+              // it is removed, so the connector itself never changes.
+              const effect = (key: string, kind: "communicating" | "creating", start: number, life: number) =>
+                <g key={key} ref={playFrom(start)} className={"connector-effect " + kind} style={{ animationDuration: life + "ms" }}>
+                  <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
+                  {kind === "communicating" && <path className="communication-pulse" d={path} />}
+                </g>;
+              return <g key={node.id} className={"connection-line relation-" + node.relation}>
                 <path d={path} /><circle cx={sx} cy={sy} r={4} /><circle cx={ex} cy={ey} r={4} />
-                {communicating && <path className="communication-pulse" d={path} />}
+                {activity.creation && effect(activity.creation.id, "creating", activity.creation.expires - EFFECT_MS, EFFECT_MS)}
+                {activity.communication && effect(activity.communication.id, "communicating", activity.communication.expires - EFFECT_MS, EFFECT_MS)}
+                {report && effect("report:" + report, "communicating", report, PULSE_MS)}
               </g>;
             })}
             {/* A goblin waiting on another goblin: a dashed line from the
@@ -201,7 +212,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             const children = nodes.some((child) => child.parent === node.id);
             const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking);
             return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
-              {effect && <span key={effect.id} className="activity-glow" aria-hidden="true" />}
+              {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
               <button className="flow-node-main" onPointerDown={(event) => startDrag(event, node)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
                 onKeyDown={(event) => {
                   if (!event.altKey || !event.key.startsWith("Arrow")) return;
