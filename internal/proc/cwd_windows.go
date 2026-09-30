@@ -3,6 +3,7 @@ package proc
 import (
 	"errors"
 	"fmt"
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -92,9 +93,8 @@ func Arguments(pid int) ([]string, error) {
 
 // Parameters returns the directory pid is running in and the arguments it was
 // started with, read through one handle and one walk of its parameter block.
-// Each read out of another process waits on its address space, and on a busy
-// machine that wait is milliseconds, so a caller that needs both for every
-// process makes a third fewer reads than WorkingDirectory and Arguments do.
+// A fresh first-page snapshot usually contains both strings, avoiding separate
+// remote reads for them. Values outside that snapshot are read individually.
 // A value that could not be read is empty, and err says why.
 func Parameters(pid int) (string, []string, error) {
 	unreadable := func(err error) (string, []string, error) {
@@ -109,17 +109,18 @@ func Parameters(pid int) (string, []string, error) {
 	if err != nil {
 		return unreadable(err)
 	}
-	// One read covers both descriptors, the directory's first.
-	descriptors := make([]byte, paramsOffsetCommandLine-paramsOffsetCurrentDirectory+16)
-	if err := readMemory(handle, parameters+paramsOffsetCurrentDirectory, descriptors); err != nil {
+	// Do not prefetch into the next page, which could have a guard on it.
+	pageSize := uintptr(os.Getpagesize())
+	snapshot := make([]byte, max(pageSize-parameters%pageSize, paramsOffsetCommandLine+16))
+	if err := readMemory(handle, parameters, snapshot); err != nil {
 		return unreadable(err)
 	}
-	directory, directoryErr := unicodeString(handle, pid, descriptors[:16])
+	directory, directoryErr := unicodeString(handle, pid, snapshot[paramsOffsetCurrentDirectory:], parameters, snapshot)
 	if directoryErr != nil {
 		directoryErr = fmt.Errorf("%w: %v", ErrDirectoryUnreadable, directoryErr)
 	}
 	var arguments []string
-	line, argumentsErr := unicodeString(handle, pid, descriptors[paramsOffsetCommandLine-paramsOffsetCurrentDirectory:])
+	line, argumentsErr := unicodeString(handle, pid, snapshot[paramsOffsetCommandLine:], parameters, snapshot)
 	if argumentsErr != nil {
 		argumentsErr = fmt.Errorf("%w: %v", ErrCommandLineUnreadable, argumentsErr)
 	} else {
@@ -164,7 +165,7 @@ func parameterString(pid int, offset uintptr) (string, error) {
 	if err := readMemory(handle, parameters+offset, descriptor); err != nil {
 		return "", err
 	}
-	return unicodeString(handle, pid, descriptor)
+	return unicodeString(handle, pid, descriptor, 0, nil)
 }
 
 // parameterBlock returns the address of pid's process parameter block.
@@ -185,7 +186,7 @@ func parameterBlock(handle syscall.Handle, pid int) (uintptr, error) {
 
 // unicodeString reads the value a 16-byte UNICODE_STRING descriptor, copied
 // out of pid's parameter block, points to.
-func unicodeString(handle syscall.Handle, pid int, descriptor []byte) (string, error) {
+func unicodeString(handle syscall.Handle, pid int, descriptor []byte, snapshotBase uintptr, snapshot []byte) (string, error) {
 	length := int(*(*uint16)(unsafe.Pointer(&descriptor[0])))
 	buffer := uintptr(*(*uint64)(unsafe.Pointer(&descriptor[unicodeStringBufferOffset])))
 	if length == 0 || buffer == 0 {
@@ -195,9 +196,15 @@ func unicodeString(handle syscall.Handle, pid int, descriptor []byte) (string, e
 		return "", fmt.Errorf("process %d reports a %d byte value", pid, length)
 	}
 
-	raw := make([]byte, length)
-	if err := readMemory(handle, buffer, raw); err != nil {
-		return "", err
+	var raw []byte
+	if length <= len(snapshot) && buffer >= snapshotBase && buffer-snapshotBase <= uintptr(len(snapshot)-length) {
+		offset := buffer - snapshotBase
+		raw = snapshot[offset : offset+uintptr(length)]
+	} else {
+		raw = make([]byte, length)
+		if err := readMemory(handle, buffer, raw); err != nil {
+			return "", err
+		}
 	}
 	return syscall.UTF16ToString(decodeUTF16(raw)), nil
 }

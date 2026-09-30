@@ -13,7 +13,7 @@ import (
 // Reading a process's directory and arguments waits on its address space, and
 // on a busy host each read takes milliseconds, so one reader spends seconds per
 // sweep. Parallel readers keep Pause and Stop within their deadline.
-const inventoryReaders = 16
+const inventoryReaders = 64
 
 func Inventory(ctx context.Context, directories []string, hosts []Identity) ([]Process, error) {
 	entries, err := proc.Processes()
