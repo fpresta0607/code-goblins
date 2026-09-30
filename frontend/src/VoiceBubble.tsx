@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import type { Voice } from "./useVoice";
+import type { SiqspeakState } from "./voice";
 
 const HINT_KEY = "cfo-voice-hint-v1";
 const BARS = 9;
@@ -8,7 +9,7 @@ const BARS = 9;
 const SAMPLE_MS = 70;
 const SHOWN = 5;
 
-const STATUS: Record<string, string> = {
+const STATUS: Record<SiqspeakState, string> = {
   running: "SIQspeak running",
   stopped: "SIQspeak is not running",
   missing: "SIQspeak was not found",
@@ -69,7 +70,8 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
   const status = voice.state ? STATUS[voice.state] : "";
   const tip = listening ? "Listening · release Ctrl+Shift+Space to type" : status || "Hold Ctrl+Shift+Space to dictate";
   const shown = voice.messages.slice(0, SHOWN);
-  const clipboard = typeof navigator !== "undefined" && !!navigator.clipboard;
+  // A page served over plain HTTP, such as across the tailnet, has no clipboard.
+  const clipboard = !!navigator.clipboard;
   // Escape closes the list from the bubble or from inside it.
   return <div className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
     {hint && !open && <div className="voice-card voice-hint" role="note">
