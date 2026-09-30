@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -289,5 +290,48 @@ func TestFinishedTaskDoesNotBorrowThePreviousGenerationsReport(t *testing.T) {
 	tasks := finishedTasks(home, now)
 	if len(tasks) != 1 || tasks[0].LastReport != "" || tasks[0].RetiredAt.IsZero() {
 		t.Fatalf("reused task borrowed a report: %+v", tasks)
+	}
+}
+
+func TestTaskHandoffReusesOneArchiveListingPerSnapshot(t *testing.T) {
+	store, home := testStore(t)
+	write := func(id string) {
+		path := filepath.Join(home.Data, "archive", "finished", id, "handoff.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("Handoff for "+id), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"retired-a", "retired-b"} {
+		if err := state.AppendStatus(home.State, id, "done: returned worktree C:/scratch/"+id+" via cfo cleanup"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("retired-a")
+	archived := archivedTasks(home)
+	file, err := openTaskHandoff(home, "retired-a", archived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	write("retired-b")
+
+	_, err = openTaskHandoff(home, "retired-b", archived)
+
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a task in the same snapshot listed the archive again: %v", err)
+	}
+	snapshot, err := (&Service{Store: store}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	available := map[string]bool{}
+	for _, task := range snapshot.Tasks {
+		available[task.ID] = task.Handoff
+	}
+	if !available["finished:retired-a"] || !available["finished:retired-b"] {
+		t.Fatalf("a new snapshot did not see every saved handoff: %v", available)
 	}
 }

@@ -996,11 +996,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		out.Tasks = append(out.Tasks, done)
 	}
+	archived := archivedTasks(s.Store.Home)
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
-			if file, err := openTaskHandoff(s.Store.Home, id); err == nil {
+			if file, err := openTaskHandoff(s.Store.Home, id, archived); err == nil {
 				task.Handoff = true
 				file.Close()
 			}

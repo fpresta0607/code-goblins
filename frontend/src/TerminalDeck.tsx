@@ -19,7 +19,11 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
   const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
-  const herdr = (candidate: string) => candidate === CFO_KEY ? cfoView(snapshot).kind === "herdr" : snapshot.tasks.find((each) => each.id === candidate)?.backend !== "native";
+  const herdr = (candidate: string) => {
+    if (candidate === CFO_KEY) return cfoView(snapshot).kind === "herdr";
+    const each = snapshot.tasks.find((task) => task.id === candidate);
+    return !!each?.generation && !sessionEnd(each) && goblinView(each).kind === "herdr";
+  };
   if (shown && key && live[0] !== key) setLive(keepLive(live, key, herdr));
   const idle = idleView(task, node);
   return <div className="terminal-deck" hidden={!shown}>
@@ -44,7 +48,8 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
         return <div className="deck-slot" key={entry} hidden={!here}>
           {view.kind === "host"
             ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
-            : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />}
+            : view.kind === "herdr" ? <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            : <TerminalEmpty text={view.text} />}
         </div>;
       })}
       {/* A queued task or a child session has no terminal of its own to keep. */}

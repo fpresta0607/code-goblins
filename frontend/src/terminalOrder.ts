@@ -53,6 +53,7 @@ export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs">): 
 }
 
 export function goblinView(task: Task): DeckView {
+  if (task.phase === "resuming" || task.phase === "stopping") return { kind: "empty", text: task.phase === "resuming" ? "Resuming session..." : "Stopping session..." };
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 

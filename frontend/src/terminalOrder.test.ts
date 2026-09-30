@@ -38,6 +38,13 @@ test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows 
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
 });
 
+test("a resuming or stopping goblin shows its transition instead of connecting to the old generation", () => {
+  for (const backend of ["native", "herdr"]) {
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "resuming" })), { kind: "empty", text: "Resuming session..." });
+    assert.deepEqual(goblinView(task("alpha", { backend, phase: "stopping" })), { kind: "empty", text: "Stopping session..." });
+  }
+});
+
 test("the switcher lists the CFO first, then every goblin that has a terminal", () => {
   const order = switchOrder([task("queued", { generation: "" }), task("alpha"), task("history", { archived: true }), task("beta")]);
   assert.deepEqual(order.map((entry) => entry.key), [CFO_KEY, "alpha", "beta"]);

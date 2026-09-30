@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -15,7 +16,13 @@ import (
 
 const maxHandoff = 1 << 20
 
-func openTaskHandoff(h home.Home, id string) (*os.File, error) {
+func archivedTasks(h home.Home) func() ([]os.DirEntry, error) {
+	return sync.OnceValues(func() ([]os.DirEntry, error) {
+		return os.ReadDir(filepath.Join(h.Data, "archive", "finished"))
+	})
+}
+
+func openTaskHandoff(h home.Home, id string, archived func() ([]os.DirEntry, error)) (*os.File, error) {
 	type note struct{ root, path string }
 	var paths []note
 	meta, err := state.ReadTaskMeta(h.State, id)
@@ -35,7 +42,7 @@ func openTaskHandoff(h home.Home, id string) (*os.File, error) {
 	paths = append(paths, note{h.Data, filepath.Join(id, "handoff.md")})
 	if errors.Is(err, os.ErrNotExist) {
 		archive := filepath.Join("archive", "finished")
-		entries, err := os.ReadDir(filepath.Join(h.Data, archive))
+		entries, err := archived()
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -77,7 +84,7 @@ func openTaskHandoff(h home.Home, id string) (*os.File, error) {
 }
 
 func (h *HTTP) taskHandoff(w http.ResponseWriter, id string) {
-	file, err := openTaskHandoff(h.Service.Store.Home, id)
+	file, err := openTaskHandoff(h.Service.Store.Home, id, archivedTasks(h.Service.Store.Home))
 	if errors.Is(err, os.ErrNotExist) {
 		apiError(w, 404, "No saved handoff is available for this task")
 		return
