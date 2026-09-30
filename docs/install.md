@@ -37,6 +37,7 @@ A supervisor still running the previous build keeps running it, since a running 
 A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.
 The install downloads and verifies the pinned release first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
 no-mistakes refuses to stop its daemon while a gate runs; the install then leaves the older no-mistakes as it is and says to rerun it once no gate runs.
+The install only ever updates the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: an older one that comes first on PATH from anywhere else is left alone, and the install names its path and says to run `no-mistakes update` or remove it.
 So when a Code Goblins release moves the pin forward, rerunning the install is how a machine moves to the no-mistakes it names.
 
 ## On a fresh PC
