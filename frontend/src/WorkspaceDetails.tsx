@@ -1,5 +1,5 @@
 import { useResource } from "./api";
-import { object, string, strings, type Session, type Task } from "./types";
+import { object, string, strings, type Run, type Session, type Task } from "./types";
 import { harnessName } from "./workflow";
 import { ownsTaskSession, sessionModel } from "./lineageTree";
 import { harnessMark, modelMark } from "./connectors";
@@ -18,7 +18,7 @@ function splitModel(model: string): { name: string; basis: string } {
   return name === undefined ? { name: model, basis: "" } : { name, basis };
 }
 
-export function WorkspaceDetails({ task, node, onRepair }: { task?: Task; node?: Session; onRepair?: (key: string) => void }) {
+export function WorkspaceDetails({ task, node, runs, onRepair }: { task?: Task; node?: Session; runs?: Run[]; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
   const path = "/api/workspace" + (task ? "?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation) : "");
@@ -38,7 +38,7 @@ export function WorkspaceDetails({ task, node, onRepair }: { task?: Task; node?:
           {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details.harness)} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
           {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
         </ul>
-        {child ? <p>No separate connections were reported for this child.</p> : task ? <ConnectionsPanel key={task.id + task.generation} task={task} onRepair={onRepair} /> : <p>Choose a goblin to check its connections.</p>}
+        {child ? <p>No separate connections were reported for this child.</p> : task ? <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} /> : <p>Choose a goblin to check its connections.</p>}
       </Disclosure>
     </>}
   </section>;

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,15 +66,19 @@ func TestClaudeStatusNeverExposesCommandsOrURLs(t *testing.T) {
 }
 
 func TestCodexNeedsRuntimeHealthNotAnAuthMethodOrCachedTools(t *testing.T) {
-	for _, test := range []struct{ runtime, auth, want string }{
-		{"connected", "bearerToken", "connected"}, {"", "oAuth", "unverified"},
-		{"failed", "oAuth", "failed"}, {"authenticationRequired", "notLoggedIn", "unauthorized"},
-		{"starting", "bearerToken", "checking"}, {"disabled", "unknown", "disabled"},
+	for _, test := range []struct {
+		runtime, auth, want string
+		isSignIn            bool
+	}{
+		{"connected", "bearerToken", "connected", false}, {"", "oAuth", "unverified", false},
+		{"failed", "oAuth", "failed", false}, {"authenticationRequired", "notLoggedIn", "unauthorized", true},
+		{"starting", "bearerToken", "checking", false}, {"disabled", "unknown", "disabled", false},
+		{"connected", "notLoggedIn", "connected", false}, {"disabled", "notLoggedIn", "disabled", false},
 	} {
 		t.Run(test.runtime+"-"+test.auth, func(t *testing.T) {
 			entry := codexEntry(codexStatus{Name: "sample", RuntimeStatus: test.runtime, AuthStatus: test.auth})
-			if entry.Status != test.want {
-				t.Fatalf("status = %s, want %s", entry.Status, test.want)
+			if entry.Status != test.want || slices.Contains(entry.Actions, "login") != test.isSignIn {
+				t.Fatalf("status = %s actions = %v, want %s sign-in %v", entry.Status, entry.Actions, test.want, test.isSignIn)
 			}
 		})
 	}
@@ -136,6 +141,28 @@ func TestCacheRefreshPreservesEvidenceAndTimeoutIsVisible(t *testing.T) {
 	}
 	if len(result.Entries) != 1 || result.Entries[0].Status != "unverified" {
 		t.Fatalf("stale success after timeout: %+v", result)
+	}
+}
+
+func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
+	var calls atomic.Int32
+	cache := newCache(50*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
+		calls.Add(1)
+		return Snapshot{Entries: []Entry{}}
+	})
+	defer cache.Close()
+	cache.Get("one", false)
+	waitChecked(t, cache, "one")
+	if cache.Get("one", false).Checking || calls.Load() != 1 {
+		t.Fatal("a fresh result started another check")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if !cache.Get("one", false).Checking {
+		t.Fatal("a stale result did not start a check")
+	}
+	waitChecked(t, cache, "one")
+	if calls.Load() != 2 {
+		t.Fatalf("checks = %d", calls.Load())
 	}
 }
 

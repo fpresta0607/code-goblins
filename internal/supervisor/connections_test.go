@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -131,5 +132,52 @@ func TestConnectionClipboardCardNeverReadsClipboardAndCannotRunForReplacedTask(t
 	}
 	if stored := store.Snapshot().Runs[0]; stored.State != "failed" {
 		t.Fatalf("stale run stayed pending: %s", stored.State)
+	}
+}
+
+func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing.T) {
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	var calls atomic.Int32
+	checks := connections.NewCache(func(context.Context, string) connections.Snapshot {
+		calls.Add(1)
+		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: "provided"}}}
+	})
+	defer checks.Close()
+	key := meta.ID + "\n" + meta.SpawnGen
+	checks.Get(key, false)
+	deadline := time.Now().Add(time.Second)
+	for checks.Get(key, false).Checking {
+		if time.Now().After(deadline) {
+			t.Fatal("cache did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	service := &Service{Store: store, Instance: "test-instance", connectionChecks: checks}
+	run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range store.db.Runs {
+		store.db.Runs[index].RunAction = "action"
+		store.db.Runs[index].State = "running"
+	}
+	run.RunAction = "action"
+	code := 0
+	if err := service.completeRun(context.Background(), run, &code, ""); err != nil {
+		t.Fatalf("completion error = %v", err)
+	}
+	for checks.Get(key, false).Checking {
+		if time.Now().After(deadline.Add(time.Second)) {
+			t.Fatal("recheck did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("checks = %d, want a recheck after the repair", calls.Load())
+	}
+	data, err := json.Marshal(store.Snapshot().Runs[0])
+	if err != nil || !strings.Contains(string(data), `"connection_task":"task-1"`) || !strings.Contains(string(data), `"finished_at"`) {
+		t.Fatalf("published run = %s, %v", data, err)
 	}
 }

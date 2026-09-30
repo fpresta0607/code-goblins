@@ -12,6 +12,7 @@ const entries = [
 for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844 }]) {
   test("connections are readable and refresh after repair at width " + viewport.width, async ({ page }) => {
     await page.setViewportSize(viewport);
+    await page.clock.install();
     let isFixed = false;
     let checks = 0;
     const errors: string[] = [];
@@ -43,8 +44,12 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     const context7 = panel.getByRole("listitem").filter({ hasText: "Context7" });
     await context7.getByRole("button", { name: "Sign in to Context7" }).click();
     await expect(page).toHaveTitle("run:connections-login-fixture");
-    await expect(context7.getByText("Connected", { exact: true })).toBeVisible({ timeout: 10000 });
-    expect(checks).toBeGreaterThan(1);
+    await page.clock.runFor(5 * 60 * 1000);
+    await expect(context7.getByText("Sign in", { exact: true })).toBeVisible();
+    expect(checks).toBe(1);
+    await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("connections-login-fixture"));
+    await expect(context7.getByText("Connected", { exact: true })).toBeVisible();
+    expect(checks).toBe(2);
     await page.evaluate(() => document.fonts.ready);
     const layout = await panel.evaluate((element) => ({
       overflow: element.scrollWidth > element.clientWidth,
@@ -55,6 +60,32 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await page.locator("main").screenshot({ path: "test-results/connections-" + viewport.width + ".png" });
   });
 }
+
+test("an open panel stays idle and reopening reads only the cached check", async ({ page }) => {
+  await page.clock.install();
+  const replies = [false, true, false];
+  let reads = 0;
+  await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "codex", notes: [] } }));
+  await page.route("**/api/connections**", (route) => {
+    const isChecking = replies[reads] ?? false;
+    reads++;
+    return route.fulfill({ json: { instance: "connections-proof", checking: isChecking, checked_at: checkedAt, entries: isChecking ? [] : [entries[0]] } });
+  });
+  await page.goto("/tests/fixtures/connections.html");
+  const disclosure = page.getByText("Connections", { exact: true });
+  await disclosure.click();
+  await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
+  await page.clock.runFor(5 * 60 * 1000);
+  expect(reads).toBe(1);
+  await disclosure.click();
+  await disclosure.click();
+  await expect(page.getByText("Checking connections...", { exact: true })).toBeVisible();
+  expect(reads).toBe(2);
+  await page.clock.runFor(2000);
+  await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
+  await page.clock.runFor(5 * 60 * 1000);
+  expect(reads).toBe(3);
+});
 
 test("a slow check leaves the dropdown usable and ends in an honest timeout", async ({ page }) => {
   let hasTimedOut = false;

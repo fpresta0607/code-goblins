@@ -429,9 +429,12 @@ Connections groups MCP servers, repository services and credentials present in t
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
+Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon and a finished repair card always start one.
+The dropdown polls only while a check runs, so an open dropdown never rechecks on its own.
 Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
 Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
 Project MCP servers omitted from the goblin's configuration appear as Withheld, with a token action when the project names a token variable.
+CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
 Sign-in icons open the manifest's HTTPS login page or a server-generated repair card using the existing Command Center run machinery; key icons create a store-from-clipboard card without reading the clipboard in the browser.
 Fix requests accept connection and action identities only, require the board token and origin, and reject replaced tasks; repair cards verify the task again before running.
 Finishing a repair refreshes the cached status, and returning from a browser sign-in rechecks it.

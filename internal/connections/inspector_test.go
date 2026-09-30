@@ -256,3 +256,57 @@ func TestRuntimeFailureCannotReuseConnectedOrProvidedEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestCLISignInIsOfferedOnlyWhenDeclaredCredentialsResolve(t *testing.T) {
+	inspector, meta := inspectorFixture(t)
+	writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"ready","method":"cli","probe":["probe"],"login":["login"]},{"name":"blocked","method":"cli","probe":["probe"],"login":["login"],"env":["FIXTURE_MISSING_TOKEN"]}]}`)
+	inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
+		return execx.Result{ExitCode: 1, Stderr: []byte("unauthorized")}, nil
+	})
+	snapshot := inspector.Check(context.Background(), meta)
+	for id, want := range map[string][]string{"service:ready": {"cli"}, "service:blocked": {"store:FIXTURE_MISSING_TOKEN"}} {
+		index := slices.IndexFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == id })
+		if index < 0 || !slices.Equal(snapshot.Entries[index].Actions, want) {
+			t.Fatalf("%s actions differ from %v: %+v", id, want, snapshot)
+		}
+	}
+	if _, err := inspector.RepairPlan(meta, snapshot, "service:blocked", "cli"); err == nil {
+		t.Fatal("offered a CLI sign-in that cannot run while a credential is missing")
+	}
+}
+
+func TestLaunchDisabledCodexServerNeverOffersSignIn(t *testing.T) {
+	inspector, meta := inspectorFixture(t)
+	meta.Harness = "codex"
+	executable := "codex"
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, executable), nil, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) ([]string, []string, error) {
+		return nil, []string{"-c", "mcp_servers.oauth.enabled=false"}, nil
+	}
+	inspector.Runner = checkRunner(func(context.Context, execx.Request) (execx.Result, error) {
+		return execx.Result{Stdout: []byte(`[{"name":"tools","enabled":true},{"name":"oauth","enabled":false}]`)}, nil
+	})
+	inspector.Codex = func(context.Context, string, []string, []string) ([]Entry, error) {
+		return []Entry{
+			codexEntry(codexStatus{Name: "tools", RuntimeStatus: "authenticationRequired", AuthStatus: "notLoggedIn"}),
+			codexEntry(codexStatus{Name: "oauth", RuntimeStatus: "disabled", AuthStatus: "notLoggedIn"}),
+		}, nil
+	}
+	snapshot := inspector.Check(context.Background(), meta)
+	for id, want := range map[string][]string{"mcp:tools": {"login"}, "mcp:oauth": nil} {
+		index := slices.IndexFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == id })
+		if index < 0 || !slices.Equal(snapshot.Entries[index].Actions, want) {
+			t.Fatalf("%s actions differ from %v: %+v", id, want, snapshot)
+		}
+	}
+	if _, err := inspector.RepairPlan(meta, snapshot, "mcp:oauth", "login"); err == nil {
+		t.Fatal("offered sign-in for a launch-disabled server")
+	}
+}

@@ -45,29 +45,11 @@ func (i *Inspector) RepairPlan(meta state.TaskMeta, snapshot Snapshot, connectio
 			}
 		}
 	}
-	if kind == "credential" && action == "store:"+name && auth.ValidEnvName(name) && !auth.IsHarnessBillingKey(name) {
-		names := manifest.EnvNames()
-		store, err := i.OpenStore()
-		if err == nil {
-			keys, err := store.Keys()
-			if err == nil {
-				for _, key := range keys {
-					if key.Project == auth.ProjectName(meta.Project) {
-						names = append(names, key.Name)
-					}
-				}
-			}
-		}
-		if slices.Contains(names, name) {
-			return Repair{Credential: name}, nil
-		}
+	if kind == "credential" && action == "store:"+name && slices.Contains(manifest.EnvNames(), name) && !auth.IsHarnessBillingKey(name) {
+		return Repair{Credential: name}, nil
 	}
 	if kind == "mcp" && action == "login" && meta.Harness == "codex" {
-		for _, entry := range snapshot.Entries {
-			if entry.ID == connection && slices.Contains(entry.Actions, action) {
-				return Repair{Server: name}, nil
-			}
-		}
+		return Repair{Server: name}, nil
 	}
 	if kind == "mcp" && meta.Harness == "claude" && strings.HasPrefix(action, "store:") && slices.Contains(manifest.EnvNames(), strings.TrimPrefix(action, "store:")) {
 		for _, entry := range configEntries(filepath.Join(meta.TaskTmp, "mcp.json")) {

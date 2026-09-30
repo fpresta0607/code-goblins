@@ -41,7 +41,7 @@ func serviceEntry(service auth.Service, status auth.Status) Entry {
 		if safeLoginURL(service.URL) {
 			entry.Actions = append(entry.Actions, "login")
 		}
-		if len(service.Login) > 0 {
+		if len(service.Login) > 0 && len(status.Missing) == 0 {
 			entry.Actions = append(entry.Actions, "cli")
 		}
 		for _, name := range status.Missing {
@@ -69,7 +69,7 @@ func codexEntry(status codexStatus) Entry {
 		verdict = "unverified"
 	}
 	entry := Entry{ID: "mcp:" + status.Name, Name: status.Name, Kind: "mcp", Status: verdict, Source: "Codex", Detail: statusDetail(verdict)}
-	if status.AuthStatus == "notLoggedIn" && verdict != "connected" {
+	if status.AuthStatus == "notLoggedIn" && verdict != "connected" && verdict != "disabled" {
 		entry.Actions = []string{"login"}
 	}
 	return entry

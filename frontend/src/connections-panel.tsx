@@ -3,40 +3,44 @@ import { message, request } from "./api";
 import { ConnectionRow } from "./connection-row";
 import { parseConnections, type ConnectionEntry } from "./connections";
 import { Icon } from "./Icon";
-import { object, string, type Task } from "./types";
+import { object, string, type Run, type Task } from "./types";
 import "./connections.css";
 
-export function ConnectionsPanel({ task, onRepair }: { task: Task; onRepair?: (key: string) => void }) {
+export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; runs?: Run[]; onRepair?: (key: string) => void }) {
   const [data, setData] = useState<ReturnType<typeof parseConnections>>();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [runId, setRunId] = useState("");
   const [loginURL, setLoginURL] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [reads, setReads] = useState(0);
+  const repairFinishedAt = runs.filter((run) => run.connection_task === task.id && run.connection_generation === task.generation).map((run) => run.finished_at).sort().at(-1) || "";
   const path = "/api/connections?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
+      let isChecking = true;
       try {
         const next = parseConnections(await request(path, controller.signal));
+        isChecking = next.checking;
         if (!controller.signal.aborted) { setData(next); setError(""); }
       } catch (error: unknown) {
         if (!controller.signal.aborted) setError(message(error));
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(() => void read(), 2000);
+        if (!controller.signal.aborted && isChecking) timer = setTimeout(() => void read(), 2000);
       }
     };
     void read();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [path]);
+  }, [path, reads, repairFinishedAt]);
   const post = useCallback(async (endpoint: string, extra: Record<string, string> = {}) => {
     return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": data?.instance || "" }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
   }, [data?.instance, task.id, task.generation]);
   const refresh = useCallback(async () => {
     setIsBusy(true);
     setError("");
-    try { setData(parseConnections(await post("/api/connections/check"))); }
+    try { setData(parseConnections(await post("/api/connections/check"))); setReads((count) => count + 1); }
     catch (error: unknown) { setError(message(error)); }
     finally { setIsBusy(false); }
   }, [post]);
