@@ -173,9 +173,21 @@ func TestConsoleResizeReachesTheProcess(t *testing.T) {
 	if err := console.Resize(100, 30); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	typeLine(t, console, "size")
 
-	s.waitFor(t, `size 100x30`)
+	// ConPTY applies a resize on its own thread, so the process can still
+	// read the old size just after one.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		s.mu.Lock()
+		text := s.text.String()
+		s.mu.Unlock()
+		if strings.Contains(text, "size 100x30") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the process never read its size as 100x30:\n%q", text)
+		}
+		typeLine(t, console, "size")
+	}
 }
 
 // The process starts in the directory and with the environment it was given.

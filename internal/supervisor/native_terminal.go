@@ -29,21 +29,29 @@ const (
 const relayMessage = 256 << 10
 
 // nativeRelay is one view's side of a native terminal: the output read from
-// the host and not yet sent, how much of what was sent the view has
-// acknowledged, and a size to tell it. One goroutine writes to the view, and
-// a size goes out before any output still pending, which the pseudo console's
-// repaint at that size follows.
+// the host and not yet sent, the sizes the terminal took at their places in
+// it, and how much of what was sent the view has acknowledged. One goroutine
+// writes to the view, and each size goes out between the output before it and
+// the output after it, as the host told it.
 type nativeRelay struct {
-	mu          sync.Mutex
-	pending     []byte
-	sent, acked int64
-	size        []byte
+	mu      sync.Mutex
+	pending []byte
+	// received counts every output byte read from the host, and sent and
+	// acked the ones sent to the view and acknowledged by it.
+	received, sent, acked int64
+	sizes                 []relaySize
 	// history tells the view, before any output, how many of the bytes that
 	// follow replay the terminal's history.
 	history []byte
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
+}
+
+// relaySize is a size to tell the view once the output before it is sent.
+type relaySize struct {
+	at      int64
+	message []byte
 }
 
 func (r *nativeRelay) signal() {
@@ -53,18 +61,21 @@ func (r *nativeRelay) signal() {
 	}
 }
 
-// announce tells every view of task's terminal but the sender's the size the
-// terminal took.
-func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
-	message := []byte(fmt.Sprintf(`{"type":"size","cols":%d,"rows":%d}`, cols, rows))
+// size queues the terminal's size at the end of the output read so far. The
+// caller holds r.mu.
+func (r *nativeRelay) size(cols, rows int) {
+	r.sizes = append(r.sizes, relaySize{at: r.received, message: []byte(fmt.Sprintf(`{"type":"size","cols":%d,"rows":%d}`, cols, rows))})
+}
+
+// announce tells every view of task's terminal, the sender's too, the size
+// the terminal took, for a host from before hosts told their viewers each
+// resize themselves.
+func (h *HTTP) announce(task string, cols, rows int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for relay := range h.relays[task] {
-		if relay == sender {
-			continue
-		}
 		relay.mu.Lock()
-		relay.size = message
+		relay.size(cols, rows)
 		relay.mu.Unlock()
 		relay.signal()
 	}
@@ -75,7 +86,9 @@ func (h *HTTP) announce(task string, sender *nativeRelay, cols, rows int) {
 // messages, typing comes back as binary messages, and a resize or an
 // acknowledgement as a JSON text message. The host's history comes first; a view repaints the screen by
 // sending its size, since the pseudo console redraws its whole window on every
-// resize, and every other view is told the size the terminal took. The view is sent
+// resize. Every view, the one that sent it too, is told each size the
+// terminal took at its place in the output, whichever viewer resized it, so
+// it draws each output at the size it was written for. The view is sent
 // at most terminalWindow bytes it has not acknowledged, and one that falls
 // terminalBacklog bytes behind is closed so it reconnects, so the host never
 // waits on a slow window and no byte is dropped from a view that stays. The
@@ -113,7 +126,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusPolicyViolation, "No terminal is running for "+binding.name+".")
 		return
 	}
-	terminal, err := host.Dial(record)
+	terminal, err := host.View(record)
 	if err != nil {
 		_ = view.Close(websocket.StatusPolicyViolation, "The terminal of "+binding.name+" did not answer.")
 		return
@@ -132,7 +145,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relay := &nativeRelay{wake: make(chan struct{}, 1)}
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History()))}
 	h.mu.Lock()
 	if h.relays[binding.id] == nil {
 		h.relays[binding.id] = map[*nativeRelay]struct{}{}
@@ -150,25 +163,22 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer relay.signal()
-		// The host's first output is its history, even when it is empty.
-		first := true
 		for {
 			event, err := terminal.Next()
 			relay.mu.Lock()
-			if first && err == nil && !event.Exited {
-				relay.history = []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, len(event.Output)))
-				first = false
-			}
 			switch {
 			case err != nil:
 				relay.closing = &websocket.CloseError{Code: websocket.StatusGoingAway, Reason: "The terminal's host stopped answering."}
 			case event.Exited:
 				relay.closing = &websocket.CloseError{Code: websocket.StatusNormalClosure, Reason: fmt.Sprintf("The terminal ended with exit code %d.", event.Code)}
+			case event.Cols > 0:
+				relay.size(event.Cols, event.Rows)
 			case len(relay.pending)+len(event.Output) > h.terminalBacklog:
 				relay.pending = nil
 				relay.closing = &websocket.CloseError{Code: websocket.StatusTryAgainLater, Reason: "The view fell behind the terminal's output."}
 			default:
 				relay.pending = append(relay.pending, event.Output...)
+				relay.received += int64(len(event.Output))
 			}
 			closing := relay.closing != nil
 			relay.mu.Unlock()
@@ -182,11 +192,19 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, size := relay.history, relay.size
-			relay.history, relay.size = nil, nil
-			var output []byte
-			if unacknowledged := relay.sent - relay.acked; len(relay.pending) > 0 && unacknowledged < int64(h.terminalWindow) {
+			history := relay.history
+			relay.history = nil
+			var size, output []byte
+			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
+				size = relay.sizes[0].message
+				relay.sizes = relay.sizes[1:]
+			}
+			if unacknowledged := relay.sent - relay.acked; size == nil && len(relay.pending) > 0 && unacknowledged < int64(h.terminalWindow) {
 				n := min(len(relay.pending), relayMessage, h.terminalWindow-int(unacknowledged))
+				// Output stops at the next size, which goes out before the rest.
+				if len(relay.sizes) > 0 {
+					n = min(n, int(relay.sizes[0].at-relay.sent))
+				}
 				output = append([]byte(nil), relay.pending[:n]...)
 				relay.pending = relay.pending[n:]
 				if len(relay.pending) == 0 {
@@ -285,7 +303,9 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The terminal's host stopped answering.")
 				return
 			}
-			h.announce(binding.id, relay, control.Cols, control.Rows)
+			if !terminal.IsToldSizes() {
+				h.announce(binding.id, control.Cols, control.Rows)
+			}
 			continue
 		}
 		mu.Lock()
