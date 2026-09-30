@@ -3,6 +3,7 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
+import { sessionEnd } from "./session-end";
 import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
 // A task's card on the board: its title, then a muted line with the repo and
@@ -48,7 +49,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   return <div className={"task-card-shell" + (pr || awaited ? " has-pr" : "") + (start ? " has-start" : "")}>
     <button className={"task-card" + (selected ? " selected" : "")}
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {!!task.generation && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>}
+    {!!task.generation && !sessionEnd(task) && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>}
     {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" />{awaited.id}</button>}
     {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
     {start && <button className="card-start icon-button raised" aria-disabled={!!start.blocked || undefined}

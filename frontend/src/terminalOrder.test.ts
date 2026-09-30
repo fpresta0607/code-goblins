@@ -2,6 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CFO_KEY, MAXIMIZED_KEYS, cfoView, goblinView, idleView, keepLive, maximizedFor, maximizedView, paneTrack, paneWidth, switchKey, switchOrder, switchTarget, type DeckView } from "./terminalOrder.ts";
 import type { Session, Task } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
+
+test("terminal shortcuts exclude ended sessions but retain a live goblin that delivered a PR", () => {
+  const snapshot = parseSnapshot({ healthy: true, tasks: [
+    { id: "retired", generation: "g1", archived: true, verified: false },
+    { id: "paused", generation: "g1", phase: "paused", verified: false },
+    { id: "stopped", generation: "g1", phase: "stopped", verified: false },
+    { id: "delivered", generation: "g1", phase: "done", verified: true, report: "done", runtime: { state: "idle" } },
+  ] });
+  assert.deepEqual(switchOrder(snapshot.tasks).map((entry) => entry.key), [CFO_KEY, "delivered"]);
+});
 
 const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1", archived: false, ...changes }) as Task;
 const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; altGraph: boolean }> = {}) => {

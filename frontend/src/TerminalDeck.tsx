@@ -4,6 +4,8 @@ import { ownsTaskSession } from "./lineageTree";
 import { NativeTerminal } from "./NativeTerminal";
 import { HostTerminal } from "./HostTerminal";
 import { TerminalEmpty } from "./TerminalEmpty";
+import { EndedSession } from "./ended-session";
+import { sessionEnd } from "./session-end";
 import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrder";
 
 // The terminal deck: every terminal the Overlord opens stays mounted and live
@@ -14,7 +16,7 @@ import { CFO_KEY, cfoView, goblinView, idleView, keepLive } from "./terminalOrde
 export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focus, onOwner }: {
   snapshot: Snapshot; task?: Task; node?: Session; cfo: boolean; shown: boolean; connected: boolean; focus: number; onOwner?: () => void;
 }) {
-  const owner = !!task && !!task.generation && (!node || ownsTaskSession(node, task));
+  const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner ? task.id : "";
   const [live, setLive] = useState<string[]>([]);
   const herdr = (candidate: string) => candidate === CFO_KEY ? cfoView(snapshot).kind === "herdr" : snapshot.tasks.find((each) => each.id === candidate)?.backend !== "native";
@@ -33,8 +35,11 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
               : <TerminalEmpty text={view.text} />}
           </div>;
         }
-        const each = snapshot.tasks.find((candidate) => candidate.id === entry && !!candidate.generation);
+        const each = snapshot.tasks.find((candidate) => candidate.id === entry);
         if (!each) return null;
+        const ended = sessionEnd(each);
+        if (ended) return <div className="deck-slot" key={entry} hidden={!here}><EndedSession task={each} kind={ended} /></div>;
+        if (!each.generation) return null;
         const view = goblinView(each);
         return <div className="deck-slot" key={entry} hidden={!here}>
           {view.kind === "host"

@@ -26,6 +26,9 @@ export interface Task extends Evaluation {
   session: string;
   dependencies: string[];
   activity: string;
+  handoff?: boolean;
+  last_report?: string;
+  retired_at?: string;
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
   report: string;
@@ -340,6 +343,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         session: string(t.session),
         dependencies: strings(t.dependencies),
         activity: t.activity === undefined ? "" : string(t.activity),
+        handoff: t.handoff === undefined ? false : boolean(t.handoff),
+        last_report: string(t.last_report),
+        retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),

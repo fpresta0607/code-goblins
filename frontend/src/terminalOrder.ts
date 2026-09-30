@@ -1,4 +1,5 @@
 import type { Session, Snapshot, Task } from "./types.ts";
+import { sessionEnd } from "./session-end.ts";
 
 // The terminal deck: every goblin terminal the Overlord opened stays live
 // while the board is open, so switching only shows another terminal. The
@@ -17,7 +18,7 @@ const DIVIDER = 10;
 export interface DeckEntry { key: string; task?: Task }
 
 export function switchOrder(tasks: Task[]): DeckEntry[] {
-  return [{ key: CFO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived).map((task) => ({ key: task.id, task }))];
+  return [{ key: CFO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived && !sessionEnd(task)).map((task) => ({ key: task.id, task }))];
 }
 
 export type SwitchKey = { step: 1 | -1 } | { index: number };

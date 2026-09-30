@@ -416,6 +416,24 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 	return bounded(activity, 4000), pr
 }
 
+func taskSessionSummary(lines []string, spawned time.Time) (report string, retired time.Time) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		stamp, event := state.SplitStatus(lines[i])
+		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
+			break
+		}
+		event = strings.TrimSpace(event)
+		if strings.HasPrefix(event, "done: returned worktree ") || strings.HasPrefix(event, "done: force-archived via cfo cleanup") {
+			if retired.IsZero() && report == "" {
+				retired = stamp
+			}
+		} else if report == "" && reportKind(event) != "" {
+			report = redact(bounded(event, 4000))
+		}
+	}
+	return report, retired
+}
+
 // finishedTasks are tasks cfo cleanup finished within the history window,
 // newest first. Cleanup leaves the status log in place with no task record
 // beside it; cfo reap later moves it into the archive as its own file, and
@@ -470,7 +488,8 @@ func finishedTasks(stateDir string, now time.Time) []Task {
 			continue
 		}
 		_, pr := statusActivity(lines, time.Time{})
-		tasks = append(tasks, Task{ID: "finished:" + id, Title: id, Dependencies: []string{}, Archived: true, Evaluation: Evaluation{Phase: "done", PR: pr, Reason: "Finished and cleaned up", At: f.at}})
+		report, retired := taskSessionSummary(lines, time.Time{})
+		tasks = append(tasks, Task{ID: "finished:" + id, Title: id, Dependencies: []string{}, Archived: true, LastReport: report, RetiredAt: retired, Evaluation: Evaluation{Phase: "done", PR: pr, Reason: "Finished and cleaned up", At: f.at}})
 	}
 	return newestHistory(tasks)
 }
