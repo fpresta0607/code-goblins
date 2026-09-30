@@ -8,7 +8,7 @@ import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
-import { terminalKey } from "./terminal-keys";
+import { terminalKey, trackKeyboardModes } from "./terminal-keys";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -78,6 +78,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     const look = { documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } };
     const term = new Terminal({ ...look, scrollback: 0, disableStdin: true });
     term.open(element);
+    trackKeyboardModes(term);
     terminal.current = term;
     // The pane's history, in a terminal of its own over the live screen, drawn
     // at the live screen's size and font.
@@ -423,7 +424,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       event.stopPropagation();
       const dictated = dictate(event);
       if (dictated !== null) return dictated;
-      const shortcut = terminalKey(event, past, () => copy(past));
+      const shortcut = terminalKey(event, past, () => copy(past), term);
       if (shortcut !== null) return shortcut;
       if (event.shiftKey && event.key === "Escape") {
         event.preventDefault();
