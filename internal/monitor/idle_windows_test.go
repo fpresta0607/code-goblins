@@ -74,9 +74,11 @@ func TestANativeProberMarksAFailedScreenRead(t *testing.T) {
 	stateDir := t.TempDir()
 	recordNativeHost(t, stateDir, "g1")
 	prober := NativeProber{
-		StateDir:   stateDir,
-		ReadScreen: func(host.Record) ([]string, error) { return nil, errors.New("the screen reader failed (exit status 1)") },
-		Dial:       func(host.Record) error { return nil },
+		StateDir: stateDir,
+		ReadScreen: func(host.Record) ([]string, error) {
+			return nil, errors.New("the screen reader failed (exit status 1)")
+		},
+		Dial: func(host.Record) error { return nil },
 	}
 
 	sample, err := prober.Inspect(context.Background(), nativeMeta("g1", "codex"))
