@@ -107,10 +107,18 @@ test("the banner's portrait tooltip shows over the board column under it", async
 
 test("an alert's Dismiss tooltip shows over the next alert's name tab", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 });
+  // Every alert leaves by itself after eight seconds, so time stands still once
+  // the boxes show, or on a slow run the stack shifts under the pointer. The
+  // boxes step in and the tooltip slides in, so each is measured once it stops.
+  const settled = () => page.locator(".toasts").evaluate((stack) => Promise.all(stack.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+  await page.clock.install();
   await open(page);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+  await settled();
   await page.addStyleTag({ content: ".toasts [data-tip]::after { pointer-events: auto; }" });
   const dismiss = page.locator(".toasts .toast").first().getByRole("button", { name: /^Dismiss/ });
   await dismiss.hover();
+  await settled();
   const owner = await dismiss.evaluate((element) => {
     const toast = element.closest(".toast")!, next = toast.nextElementSibling!.querySelector(".dialogue-tab")!.getBoundingClientRect();
     const button = element.getBoundingClientRect(), tip = getComputedStyle(element, "::after");
