@@ -518,6 +518,12 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 button.dialogue-portrait:hover { background: transparent; transform: none; }
 button.dialogue-portrait:hover::before { background: #2e241b; }
 .dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
+/* A badge beside the portrait, such as the CFO's harness mark, sits in the
+   same stepped frame, drawn behind it so its tip shows in full. */
+.dialogue-who { display: flex; align-items: center; gap: 10px; }
+.dialogue .mark { position: relative; isolation: isolate; width: 40px; height: 40px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #1a140f; box-shadow: inset 0 0 0 2px var(--edge); }
+.dialogue .mark svg, .dialogue .mark .icon { width: 22px; height: 22px; }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
 .dialogue-text p { margin: 0; overflow-wrap: anywhere; }
 .dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
