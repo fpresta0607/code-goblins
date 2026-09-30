@@ -9,12 +9,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
 )
+
+// standInVariable makes a copy of this test binary stand in for a cfo.exe
+// whose every command succeeds.
+const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(standInVariable) != "" {
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // oneLineShells are the PowerShells the one-line install must work in:
 // Windows PowerShell 5.1, always present, and PowerShell 7 where installed.
@@ -209,26 +219,75 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 	}
 }
 
-// A download-and-run one-liner (irm <url> | iex) on a command line is what
-// Defender's command-line model blocks as Trojan:Win32/Commando.A!ml, and a
-// tool install the script starts would carry one; so the script's code, as
-// PowerShell's own parser reads it without its comments, holds none.
-func TestInstallScriptRunsNoDownloadAndRunOneLiner(t *testing.T) {
-	parse := "$tokens = $null; $errors = $null\n" +
-		"[void][System.Management.Automation.Language.Parser]::ParseFile('" + strings.ReplaceAll(installScript(t), "'", "''") + "', [ref]$tokens, [ref]$errors)\n" +
-		"if ($errors.Count) { throw $errors[0].Message }\n" +
-		"($tokens | Where-Object Kind -ne 'Comment' | ForEach-Object Text) -join ' '"
-	out, err := exec.Command(oneLineShells(t)[0], "-NoProfile", "-NonInteractive", "-Command", parse).CombinedOutput()
+// The one-line install saves each official installer it needs to a file and
+// starts a child shell on that file with -File. A download-and-run one-liner
+// (irm <url> | iex) on the child's command line is what Defender's
+// command-line model blocks as Trojan:Win32/Commando.A!ml. The internet and
+// the child shell are stand-ins: a download from the internet is recorded
+// and answered with a script naming its URL, and the child records how it
+// was started and the file it was given.
+func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
+	executable, err := os.Executable()
 	if err != nil {
-		t.Fatalf("parse install.ps1: %v\n%s", err, out)
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "Save-VerifiedRelease") {
-		t.Fatalf("the parse returned no code from install.ps1:\n%s", out)
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
 	}
+	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	installers := []string{
+		"https://claude.ai/install.ps1",
+		"https://herdr.dev/install.ps1",
+		"https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1",
+	}
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			record := filepath.Join(t.TempDir(), "record.txt")
+			stubs := map[string]string{
+				"git":        "@exit /b 0\r\n",
+				"gh":         "@exit /b 0\r\n",
+				"powershell": "@echo child %*>>\"" + record + "\"\r\n@if exist \"%~5\" type \"%~5\">>\"" + record + "\"\r\n@exit /b 0\r\n",
+			}
+			internet := "function Invoke-WebRequest {\n" +
+				"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
+				"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
+				"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
+				"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
+				"}\n"
+			cmd, _, temp := strippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
-	cradle := regexp.MustCompile(`(?i)\b(irm|iwr|Invoke-RestMethod|Invoke-WebRequest)\b[^|\r\n]*\|\s*(iex|Invoke-Expression)\b`)
-	if found := cradle.FindAllString(string(out), -1); len(found) > 0 {
-		t.Errorf("install.ps1 runs a download-and-run one-liner: %q", found)
+			output, _ := cmd.CombinedOutput()
+
+			recorded, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatalf("no installer ran: %v\n%s", err, output)
+			}
+			lines := strings.Split(strings.TrimSpace(string(recorded)), "\r\n")
+			started := 0
+			for _, line := range lines {
+				if !strings.HasPrefix(line, "child ") {
+					continue
+				}
+				started++
+				if !strings.Contains(line, " -File ") || strings.Contains(line, "-Command") || strings.Contains(line, "| iex") {
+					t.Errorf("a child shell was started as %q, want it given a file with -File:\n%s", line, recorded)
+				}
+			}
+			for _, url := range installers {
+				if !strings.Contains(string(recorded), "download "+url+"\r\n") || !strings.Contains(string(recorded), "# installer from "+url) {
+					t.Errorf("%s was not downloaded and handed to a child shell:\n%s\n%s", url, recorded, output)
+				}
+			}
+			if started != len(installers) {
+				t.Errorf("%d child shells started, want %d:\n%s", started, len(installers), recorded)
+			}
+			if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
+				t.Errorf("the install left %v behind", left)
+			}
+		})
 	}
 }
 
