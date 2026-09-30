@@ -552,11 +552,12 @@ func cmdProgram(name string, args ...string) ([]string, error) {
 }
 
 // inheritedSessionVariables name what a session marks its own processes with
-// and a goblin or the CFO must never start with: the harness that runs the CFO marks its
-// session (Claude Code treats a process that carries its markers as a child
-// session, which neither saves a transcript nor may start inside another),
-// and a Herdr pane names itself to the hooks that report into it. The user's
-// environment should hold none of them; they are dropped from it all the same.
+// and a goblin or the CFO must never start with: the harness that runs the
+// CFO marks its session (Claude Code treats a process that carries its markers
+// as a child session, which neither saves a transcript nor may start inside
+// another), and a Herdr pane names itself to the hooks that report into it.
+// The user's environment should hold none of them; they are dropped from it
+// all the same.
 var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
