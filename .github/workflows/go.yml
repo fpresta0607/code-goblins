@@ -61,7 +61,11 @@ jobs:
           sqlite3 --version
       - run: go vet ./...
       - name: Run Go tests with isolated CFO state
-        run: go test ./... -count=1
+        # go test's default of 10 minutes a package left too little headroom
+        # here: internal/spawn takes about 6.5 minutes on this runner, and the
+        # root package reached the limit before its installer tests ran in
+        # parallel. 20 minutes is about three times the slowest package.
+        run: go test ./... -count=1 -timeout 20m
         env:
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
