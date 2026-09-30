@@ -531,7 +531,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
-				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
+				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
 				}

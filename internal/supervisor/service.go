@@ -709,7 +709,8 @@ type Task struct {
 	Starting      bool             `json:"starting"`
 	StartError    string           `json:"start_error"`
 	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
-	ActionError   string           `json:"action_error,omitempty"`
+	Teardown      []string         `json:"teardown,omitempty"`
+	ActionError  string           `json:"action_error,omitempty"`
 	QueueRevision string           `json:"queue_revision,omitempty"`
 	Detail        string           `json:"detail,omitempty"`
 	Notes         []string         `json:"notes,omitempty"`
@@ -946,6 +947,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
 			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
+		}
+		if lifecycleErr == nil {
+			task.Teardown = record.TeardownLabels()
 		}
 		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
 			task.Lifecycle = lifecycleStatus(record)
