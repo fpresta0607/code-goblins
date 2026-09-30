@@ -103,13 +103,14 @@ func idleDetail(id string, sample EndpointSample, jobs []string, idle time.Durat
 // carries.
 const idleScreenRows = 6
 
-// screenTail joins the last non-empty rows of a capture on one line, since a
-// wake is one line, and bounds it.
+// screenTail joins the last rows of a capture that say something on one line,
+// since a wake is one line, and bounds it. A blank row and a rule drawn across
+// the screen say nothing.
 func screenTail(capture []byte, rows int) string {
 	var tail []string
 	lines := strings.Split(strings.ReplaceAll(string(capture), "\r\n", "\n"), "\n")
 	for i := len(lines) - 1; i >= 0 && len(tail) < rows; i-- {
-		if row := strings.TrimSpace(lines[i]); row != "" {
+		if row := strings.TrimSpace(lines[i]); strings.Trim(row, "─━═ ") != "" {
 			tail = append([]string{row}, tail...)
 		}
 	}

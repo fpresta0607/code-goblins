@@ -198,9 +198,13 @@ func TestAnEndedTurnWakeCarriesTheEndOfItsScreen(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	r := scanPane(t, service, probe, herdr.AgentDone, "● Tests pass; opening the pull request next.", &now, time.Minute)
+	rule := strings.Repeat("─", 40)
+	r := scanPane(t, service, probe, herdr.AgentDone, "● Tests pass; opening the pull request next.\n"+rule+"\n>\n"+rule, &now, time.Minute)
 
-	if r.Event == nil || !strings.HasPrefix(r.Event.Detail, string(AwaitingAnswer)+":") || !strings.Contains(r.Event.Detail, "its screen ends: ● Tests pass; opening the pull request next.") {
-		t.Fatalf("event = %+v, want an awaiting_answer wake carrying the end of the screen", r.Event)
+	if r.Event == nil || !strings.HasPrefix(r.Event.Detail, string(AwaitingAnswer)+":") || !strings.Contains(r.Event.Detail, "its screen ends: ● Tests pass; opening the pull request next. | > | ● Tests pass") {
+		t.Fatalf("event = %+v, want an awaiting_answer wake carrying the end of the screen without its rules", r.Event)
+	}
+	if strings.Contains(r.Event.Detail, "──") {
+		t.Errorf("wake %q carries the screen's rules, which say nothing", r.Event.Detail)
 	}
 }
