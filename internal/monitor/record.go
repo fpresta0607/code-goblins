@@ -191,10 +191,12 @@ type Observation struct {
 	BusyWakeKind string     `json:"busy_wake_kind,omitempty"`
 	BusyWakeAt   *time.Time `json:"busy_wake_at,omitempty"`
 	// PromptSince is when the goblin was last seen settle at its prompt with
-	// nothing running, nothing asked and nothing reported, and IdleWokeAt when
-	// it last woke the CFO as goblin_idle.
-	PromptSince *time.Time `json:"prompt_since,omitempty"`
-	IdleWokeAt  *time.Time `json:"idle_woke_at,omitempty"`
+	// nothing running, nothing asked and nothing reported, PromptStatus its
+	// status log's stamp then, and IdleWokeAt when it last woke the CFO as
+	// goblin_idle.
+	PromptSince  *time.Time `json:"prompt_since,omitempty"`
+	PromptStatus string     `json:"prompt_status,omitempty"`
+	IdleWokeAt   *time.Time `json:"idle_woke_at,omitempty"`
 	// ScreenUnreadSince is the scan whose read of the goblin's screen failed,
 	// kept until a read works, so one failed read is read again before it
 	// wakes anybody.

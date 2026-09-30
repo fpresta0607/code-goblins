@@ -3,8 +3,6 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,17 +34,16 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	_, running := paneRunning(sample)
 	quiet := observation.Health == HealthIdle || observation.Health == HealthBusy
 	if !atPrompt || running || !quiet || observation.Reason != None || s.heldByVerb(meta.ID, observation) || led.unanswered(meta.ID) {
-		observation.PromptSince = nil
+		observation.PromptSince, observation.PromptStatus = nil, ""
 		return observation
 	}
 
-	since := now
-	if observation.PromptSince != nil {
+	// A report restarts the clock: the goblin said something since.
+	since, stamp := now, s.statusStamp(meta.ID)
+	if observation.PromptSince != nil && observation.PromptStatus == stamp {
 		since = *observation.PromptSince
 	}
-	if reported := s.statusModTime(meta.ID); reported.After(since) {
-		since = reported
-	}
+	observation.PromptStatus = stamp
 	var jobs []string
 	judged := true
 	if s.Progress != nil && now.Sub(since) >= s.idleAfter()-jobSampleInterval {
@@ -86,16 +83,6 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 func (s Service) heldByVerb(id string, observation Observation) bool {
 	verb, line, ok := s.latestStatusVerb(id)
 	return ok && line > observation.ConsumedVerbLine && (verb == "paused" || parkedDecisionVerb(verb) || terminalVerb(verb))
-}
-
-// statusModTime is when the goblin last wrote its status log, which every
-// cfo notify does; zero when it has none.
-func (s Service) statusModTime(id string) time.Time {
-	info, err := os.Stat(filepath.Join(s.StateDir, id+".status"))
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime().UTC()
 }
 
 // idleDetail is the goblin_idle wake: how long it has sat, what to do next,

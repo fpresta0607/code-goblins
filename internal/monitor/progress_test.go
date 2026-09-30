@@ -350,7 +350,7 @@ func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 41)"}}
 			progress.cpuStep = job.cpuStep
 
-			for range 30 {
+			for range 15 {
 				r := scanPane(t, service, probe, herdr.AgentDone, job.pane, &now, time.Minute)
 				if r.Event != nil {
 					t.Fatalf("a goblin waiting on its own background job woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)

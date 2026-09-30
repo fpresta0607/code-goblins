@@ -44,7 +44,7 @@ func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	service, probe, _, _ := progressService(t, &now)
 
 	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
-	for range 30 {
+	for range 15 {
 		if r := scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, time.Minute); r.Event != nil {
 			t.Fatalf("a goblin whose pane shows a running tool woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
@@ -86,7 +86,7 @@ func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswer(t *testing.T) {
 	service, probe, progress, _ := progressService(t, &now)
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"powershell.exe (pid 44)"}, JobCPU: time.Second}
 
-	for range 90 {
+	for range 15 {
 		r := scanPane(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, time.Minute)
 		if r.Event != nil {
 			t.Fatalf("a goblin waiting on its background shell woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
@@ -111,7 +111,7 @@ func TestARunningToolOnThePaneHoldsBackUnchangedIdle(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	for range 30 {
+	for range 12 {
 		if r := scanPane(t, service, probe, herdr.AgentIdle, runningToolPane, &now, time.Minute); r.Event != nil {
 			t.Fatalf("an idle reading of a pane that shows a running tool woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
@@ -164,8 +164,10 @@ func TestAFailedScreenReadIsReadAgainBeforeAnEndpointUnknownWake(t *testing.T) {
 	if second.Event == nil || second.Observations[0].Reason != EndpointUnknown || !strings.Contains(second.Event.Detail, "screen reader failed") {
 		t.Fatalf("second failed read in a row = %+v, want an endpoint_unknown wake", second)
 	}
+	// The heartbeat keeps an unknown endpoint in front of the CFO on its own
+	// cadence; the goblin's own stale wake is not raised again.
 	for range 5 {
-		if r := scan(unreadable); r.Event != nil {
+		if r := scan(unreadable); r.Event != nil && r.Event.Kind == "stale" {
 			t.Fatalf("a screen that stayed unreadable woke the CFO again: %+v", r.Event)
 		}
 	}

@@ -425,6 +425,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 				}
 			}
 		}
+		if tail := screenTail(sample.Capture, idleScreenRows); tail != "" {
+			detail += "; its screen ends: " + tail
+		}
 		return awaitingInputObservation(observation, detail, now), sample
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
