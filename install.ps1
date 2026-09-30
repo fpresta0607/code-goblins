@@ -520,9 +520,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
             $found = $null
         }
-        # A release older than the pinned one is updated; one that reports no
-        # version, such as a build of its own, is left alone.
-        if ($found -and $tool.Kind -eq "release" -and (& $tool.Name --version 2>$null | Out-String) -match 'version v(\d+\.\d+\.\d+)' -and [version]$Matches[1] -lt [version]$noMistakesVersion) {
+        # A release older than the pinned one is updated where the install
+        # puts it. One elsewhere on PATH, which the install did not put there,
+        # is left alone, as is one that reports no version, such as a build of
+        # its own. Only stdout holds the version: stderr may carry an update
+        # notice that names another.
+        if ($found -and $tool.Kind -eq "release" -and (& $tool.Name --version 2>$null | Out-String) -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+)(\s|$)' -and [version]$Matches[1] -lt [version]$noMistakesVersion) {
+            if ($found.Source -ne (Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe")) {
+                Write-Host ("WARN     {0,-20} {1} is v{2}, older than the pinned v{3}, and comes first on PATH; run: no-mistakes update, or remove the older copy" -f $tool.Name, $found.Source, $Matches[1], $noMistakesVersion)
+                $failedInstalls += $tool.Name
+                continue
+            }
             Write-Host ("update   {0,-20} v{1} is older than the pinned v{2}" -f $tool.Name, $Matches[1], $noMistakesVersion)
             $found = $null
         }

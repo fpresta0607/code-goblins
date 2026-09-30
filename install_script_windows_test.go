@@ -13,15 +13,33 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // standInVariable makes a copy of this test binary stand in for a program,
-// such as cfo.exe or no-mistakes.exe, whose every command succeeds.
+// such as cfo.exe or no-mistakes.exe, whose every command succeeds unless
+// standInFailVariable names it.
 const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
 
 // standInRecordVariable names a file a stand-in appends each command it runs
 // to, as its program's name and arguments on a line.
 const standInRecordVariable = "CODE_GOBLINS_TEST_STAND_IN_RECORD"
+
+// standInVersionVariable is the version a stand-in no-mistakes reports on
+// stdout for --version, as no-mistakes version vX.Y.Z does.
+const standInVersionVariable = "CODE_GOBLINS_TEST_STAND_IN_VERSION"
+
+// standInStderrVariable is text a stand-in writes to stderr for --version,
+// where no-mistakes writes its update notice.
+const standInStderrVariable = "CODE_GOBLINS_TEST_STAND_IN_STDERR"
+
+// standInFailVariable names a command, such as daemon stop, a stand-in exits
+// 1 for, as no-mistakes refuses to stop its daemon while a gate runs.
+const standInFailVariable = "CODE_GOBLINS_TEST_STAND_IN_FAIL"
+
+// standInHold is the command that keeps a stand-in running, as a no-mistakes
+// command still running holds its program.
+const standInHold = "hold"
 
 // userEnvFileName is the file in a stripped session's LOCALAPPDATA that
 // stands in for the user-scope environment, so no install a test runs writes
@@ -30,6 +48,7 @@ const userEnvFileName = "user-env.json"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(standInVariable) != "" {
+		command := strings.Join(os.Args[1:], " ")
 		if record := os.Getenv(standInRecordVariable); record != "" {
 			program := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
 			file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -38,6 +57,18 @@ func TestMain(m *testing.M) {
 			}
 			_, _ = fmt.Fprintf(file, "%s\r\n", strings.Join(append([]string{program}, os.Args[1:]...), " "))
 			_ = file.Close()
+		}
+		switch command {
+		case standInHold:
+			time.Sleep(time.Hour)
+		case "--version":
+			_, _ = fmt.Fprint(os.Stderr, os.Getenv(standInStderrVariable))
+			if version := os.Getenv(standInVersionVariable); version != "" {
+				fmt.Printf("no-mistakes version v%s (0000000) 2026-01-01T00:00:00Z\n", version)
+			}
+		}
+		if fail := os.Getenv(standInFailVariable); fail != "" && command == fail {
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
