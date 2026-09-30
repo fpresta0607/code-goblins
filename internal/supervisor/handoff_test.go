@@ -323,7 +323,11 @@ func TestTaskHandoffReusesOneArchiveListingPerSnapshot(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a task in the same snapshot listed the archive again: %v", err)
 	}
-	snapshot, err := (&Service{Store: store}).Snapshot()
+	service := &Service{Store: store}
+	if err := service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
