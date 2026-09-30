@@ -12,6 +12,18 @@
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
 # and ends by opening the board in the browser.
 #
+# On a fresh PC: cfo.exe is not code-signed yet, so Windows knows it as an
+# unknown program. Nothing runs unless its SHA256 matches the release's
+# SHA256SUMS. Windows PowerShell does not mark the download as coming from
+# the internet, so SmartScreen does not prompt. A cfo.exe saved from a browser
+# is marked, and SmartScreen says "Windows protected your PC" with an Unknown
+# publisher: check it first with Get-FileHash cfo.exe -Algorithm SHA256
+# against SHA256SUMS, then More info, Run anyway. Where Smart App Control is
+# on (Windows Security, App & browser control), Windows blocks an unsigned
+# program outright until a signed release. Microsoft Defender may also send
+# a new build to Microsoft for a cloud review, and a false positive there
+# quarantines it; "On a fresh PC" in docs/install.md says what to do.
+#
 # To work on it, in a clone:
 #
 #   .\install.cmd -Dev
@@ -170,7 +182,7 @@
         $built = Join-Path $InstallDir "cfo.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
-            go build -o $built ./cmd/cfo
+            go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
         }
         finally {
@@ -311,20 +323,23 @@
     # installed:
     #   winget     - a winget package (needs winget)
     #   npm        - a global npm package (needs npm, i.e. Node.js)
-    #   powershell - an official install.ps1, fetched and run in a child shell so
-    #                its own `exit` cannot kill this install
+    #   powershell - an official install.ps1, saved to a file and run from it
+    #                in a child shell, so its own `exit` cannot kill this
+    #                install. It is never run as a download-and-run one-liner
+    #                (irm <url> | iex) on a child's command line, which
+    #                Defender blocks as Trojan:Win32/Commando.A!ml.
     #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "claude";              Kind = "powershell"; Cmd = "irm https://claude.ai/install.ps1 | iex" },
-        @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
+        @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
+        @{ Name = "herdr";               Kind = "powershell"; Cmd = "https://herdr.dev/install.ps1" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
         @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
-        @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex" },
+        @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
         @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
@@ -365,8 +380,15 @@
         Write-Host ("install  {0,-20} {1}" -f $tool.Name, $tool.Cmd)
         try {
             if ($tool.Kind -eq "powershell") {
-                & powershell -NoProfile -ExecutionPolicy Bypass -Command $tool.Cmd
-                if ($LASTEXITCODE -ne 0) { throw "installer exited with code $LASTEXITCODE" }
+                $installer = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N") + ".ps1")
+                try {
+                    Invoke-WebRequest -Uri $tool.Cmd -OutFile $installer -UseBasicParsing -ErrorAction Stop
+                    & powershell -NoProfile -ExecutionPolicy Bypass -File $installer
+                    if ($LASTEXITCODE -ne 0) { throw "installer exited with code $LASTEXITCODE" }
+                }
+                finally {
+                    Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+                }
             }
             else {
                 Invoke-Expression $tool.Cmd

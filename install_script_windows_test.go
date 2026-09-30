@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -205,6 +206,29 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 				t.Fatalf("the caller's session changed, want %q:\n%s", want, output)
 			}
 		})
+	}
+}
+
+// A download-and-run one-liner (irm <url> | iex) on a command line is what
+// Defender's command-line model blocks as Trojan:Win32/Commando.A!ml, and a
+// tool install the script starts would carry one; so the script's code, as
+// PowerShell's own parser reads it without its comments, holds none.
+func TestInstallScriptRunsNoDownloadAndRunOneLiner(t *testing.T) {
+	parse := "$tokens = $null; $errors = $null\n" +
+		"[void][System.Management.Automation.Language.Parser]::ParseFile('" + strings.ReplaceAll(installScript(t), "'", "''") + "', [ref]$tokens, [ref]$errors)\n" +
+		"if ($errors.Count) { throw $errors[0].Message }\n" +
+		"($tokens | Where-Object Kind -ne 'Comment' | ForEach-Object Text) -join ' '"
+	out, err := exec.Command(oneLineShells(t)[0], "-NoProfile", "-NonInteractive", "-Command", parse).CombinedOutput()
+	if err != nil {
+		t.Fatalf("parse install.ps1: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "Save-VerifiedRelease") {
+		t.Fatalf("the parse returned no code from install.ps1:\n%s", out)
+	}
+
+	cradle := regexp.MustCompile(`(?i)\b(irm|iwr|Invoke-RestMethod|Invoke-WebRequest)\b[^|\r\n]*\|\s*(iex|Invoke-Expression)\b`)
+	if found := cradle.FindAllString(string(out), -1); len(found) > 0 {
+		t.Errorf("install.ps1 runs a download-and-run one-liner: %q", found)
 	}
 }
 
@@ -411,8 +435,10 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 				_ = old.Process.Kill()
 				<-exited
 			})
-			// go build -o <path> ./cmd/cfo copies the new build to <path>.
-			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@copy /y \"" + newBuild + "\" \"%3\" >nul\r\n"}
+			// go build -trimpath -o <path> ./cmd/cfo copies the new build to
+			// <path>; a build that would keep this machine's folders in the
+			// binary fails.
+			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n@copy /y \"" + newBuild + "\" \"%4\" >nul\r\n"}
 
 			for _, build := range []string{"the build from this clone", "the build after the next pull"} {
 				if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
