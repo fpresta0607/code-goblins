@@ -25,6 +25,7 @@ export interface ViewEvents {
   // Dictation sees every key first: false keeps it from the terminal, true
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
+  harness: () => string;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -41,7 +42,6 @@ export class TerminalView {
   private readonly rendered: IDisposable;
   private readonly encoder = new TextEncoder();
   private readonly events: ViewEvents;
-  private readonly harness: string;
   // history is how many output bytes replay the terminal's history, once the
   // relay has said; the output after them is live.
   private history = -1;
@@ -63,9 +63,8 @@ export class TerminalView {
   private settle: ReturnType<typeof setTimeout> | undefined;
   private fallback: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(container: HTMLElement, url: URL, fontSize: number, harness: string, events: ViewEvents) {
+  constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
-    this.harness = harness;
     this.element = document.createElement("div");
     this.element.className = "terminal-view staged";
     container.append(this.element);
@@ -265,7 +264,8 @@ export class TerminalView {
     if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
       // Claude reads LF as Ctrl+J. Codex's Windows reader needs the native
       // Ctrl+J key down/up records: a bare LF loses its key identity in ConPTY.
-      const newline = this.harness === "claude" ? "\n" : this.harness === "codex" ? "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_" : null;
+      const harness = this.events.harness();
+      const newline = harness === "claude" ? "\n" : harness === "codex" ? "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_" : null;
       if (newline !== null) {
         event.preventDefault();
         if (down) this.term.input(newline, true);

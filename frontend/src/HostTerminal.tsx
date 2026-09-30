@@ -24,6 +24,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   // sizes itself and becomes whole once the terminal is shown.
   const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
+  const harnessValue = useRef(harness);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [reconnecting, setReconnecting] = useState(false);
@@ -41,6 +42,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
       view.show(shown);
     }
   }, [shown]);
+  useEffect(() => { harnessValue.current = harness; }, [harness]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
   useEffect(() => {
@@ -56,7 +58,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     const params = new URLSearchParams(query);
     params.set("token", instance);
     url.search = params.toString();
-    const view: TerminalView = new TerminalView(container, url, storedFontSize(), harness, {
+    const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
         const prior = current.current;
         current.current = view;
@@ -89,6 +91,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
       },
       font: storeFontSize,
       dictate,
+      harness: () => harnessValue.current,
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -99,7 +102,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, harness, instance, visible, attempt, dictate]);
+  }, [query, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
