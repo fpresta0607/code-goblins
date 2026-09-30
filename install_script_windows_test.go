@@ -15,12 +15,30 @@ import (
 	"testing"
 )
 
-// standInVariable makes a copy of this test binary stand in for a cfo.exe
-// whose every command succeeds.
+// standInVariable makes a copy of this test binary stand in for a program,
+// such as cfo.exe or no-mistakes.exe, whose every command succeeds.
 const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
+
+// standInRecordVariable names a file a stand-in appends each command it runs
+// to, as its program's name and arguments on a line.
+const standInRecordVariable = "CODE_GOBLINS_TEST_STAND_IN_RECORD"
+
+// userEnvFileName is the file in a stripped session's LOCALAPPDATA that
+// stands in for the user-scope environment, so no install a test runs writes
+// this machine's own.
+const userEnvFileName = "user-env.json"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(standInVariable) != "" {
+		if record := os.Getenv(standInRecordVariable); record != "" {
+			program := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
+			file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				os.Exit(1)
+			}
+			_, _ = fmt.Fprintf(file, "%s\r\n", strings.Join(append([]string{program}, os.Args[1:]...), " "))
+			_ = file.Close()
+		}
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -82,9 +100,10 @@ func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]s
 }
 
 // strippedCommand is name with args against the release served at base. It
-// gets folders of its own for every per-user location and a PATH with only
-// Windows and the stand-ins stubs names on it, each a .cmd with the given
-// text, so nothing it could reach installs onto this machine.
+// gets folders of its own for every per-user location, a file standing in for
+// the user-scope environment, and a PATH with only Windows and the stand-ins
+// stubs names on it, each a .cmd with the given text, so nothing it could
+// reach installs onto this machine.
 func strippedCommand(t *testing.T, base string, stubs map[string]string, name string, args ...string) (cmd *exec.Cmd, local, temp string) {
 	t.Helper()
 	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
@@ -111,6 +130,7 @@ func strippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"TEMP=" + temp,
 		"TMP=" + temp,
 		"CODE_GOBLINS_RELEASE_BASE=" + base,
+		"CFO_USER_ENV_FILE=" + filepath.Join(local, userEnvFileName),
 	}
 	return cmd, local, temp
 }
@@ -338,7 +358,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	installers := []string{
 		"https://claude.ai/install.ps1",
 		"https://herdr.dev/install.ps1",
-		"https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1",
 	}
 	for _, shell := range oneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {

@@ -73,6 +73,20 @@
     # against a CI build, checks the release's SHA256SUMS alone and says so.
     $releasePublisher = ""
 
+    # Read-ReleaseChecksum returns the SHA256 that $Sums, a release's checksum
+    # file in the format sha256sum writes, lists for $Name, or "" when it
+    # lists none.
+    function Read-ReleaseChecksum([string]$Sums, [string]$Name) {
+        $expected = ""
+        foreach ($line in Get-Content -LiteralPath $Sums) {
+            $fields = @($line.Trim() -split "\s+")
+            if ($fields.Count -eq 2 -and $fields[1].TrimStart("*") -eq $Name) {
+                $expected = $fields[0]
+            }
+        }
+        return $expected
+    }
+
     # Save-VerifiedRelease downloads the release's cfo.exe to $Path and keeps it
     # only when it matches the release's SHA256SUMS and, where this script
     # names the release's publisher, is validly signed by it. It returns $false
@@ -91,13 +105,7 @@
                 Write-Host "No release could be downloaded: $($_.Exception.Message)"
                 return $false
             }
-            $expected = ""
-            foreach ($line in Get-Content -LiteralPath $sums) {
-                $fields = @($line.Trim() -split "\s+")
-                if ($fields.Count -eq 2 -and $fields[1].TrimStart("*") -eq "cfo.exe") {
-                    $expected = $fields[0]
-                }
-            }
+            $expected = Read-ReleaseChecksum $sums "cfo.exe"
             $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
             if (-not $expected -or $actual -ne $expected) {
                 # The hashes go on a line of their own: PowerShell 7 wraps a
@@ -337,6 +345,137 @@
         }
     }
 
+    # Add-UserPath puts $Folder on this session's PATH and on the user's, where
+    # every new terminal finds it, and returns whether the user's PATH changed.
+    # CFO_USER_ENV_FILE, where set, names the JSON file that stands in for the
+    # user-scope environment, as it does for cfo install. The user PATH keeps
+    # its registry kind, as cfo install keeps it, so its %VARIABLE% entries
+    # survive.
+    function Add-UserPath([string]$Folder) {
+        if (-not (@($env:Path -split ';') -contains $Folder)) {
+            $env:Path = "$env:Path;$Folder"
+        }
+        if ($env:CFO_USER_ENV_FILE) {
+            $values = [ordered]@{}
+            if (Test-Path -LiteralPath $env:CFO_USER_ENV_FILE) {
+                foreach ($property in (Get-Content -Raw -LiteralPath $env:CFO_USER_ENV_FILE | ConvertFrom-Json).PSObject.Properties) {
+                    $values[$property.Name] = $property.Value
+                }
+            }
+            $entries = @([string]$values["Path"] -split ';' | Where-Object { $_ -ne "" })
+            if ($entries -contains $Folder) {
+                return $false
+            }
+            $values["Path"] = ($entries + $Folder) -join ';'
+            [IO.File]::WriteAllText($env:CFO_USER_ENV_FILE, (ConvertTo-Json -InputObject $values))
+            return $true
+        }
+        $environment = Get-Item -LiteralPath "HKCU:\Environment"
+        $userPath = [string]$environment.GetValue("Path", "", "DoNotExpandEnvironmentNames")
+        if (@($userPath -split ';') -contains $Folder) {
+            return $false
+        }
+        $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
+        Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $Folder) -join ';') -Type $kind
+        # WM_SETTINGCHANGE makes Explorer, and every window it opens after
+        # this, see the new PATH before the next sign-in.
+        if (-not ("CfoInstall.Win32" -as [type])) {
+            Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+        }
+        $result = [UIntPtr]::Zero
+        [void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+        return $true
+    }
+
+    # Save-Download saves $Uri to $OutFile. A download that fails, as one does
+    # on a rate limit or a 503, is tried again after a wait, three attempts in
+    # all.
+    function Save-Download([string]$Uri, [string]$OutFile) {
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+                return
+            }
+            catch {
+                if ($attempt -eq 3) {
+                    throw "$Uri could not be downloaded after 3 attempts: $($_.Exception.Message)"
+                }
+                Write-Host "Downloading $Uri failed: $($_.Exception.Message) Trying again in $(5 * $attempt) s ..."
+                Start-Sleep -Seconds (5 * $attempt)
+            }
+        }
+    }
+
+    # no-mistakes gates every goblin's work, so the fleet runs the release
+    # pinned here. It is downloaded from the release itself, never through
+    # GitHub's API, which answers an anonymous caller 60 times an hour and
+    # failed the install on shared CI runners. Moving the pin forward and
+    # rerunning the install updates a machine to it.
+    $noMistakesVersion = "1.75.1"
+
+    # Install-NoMistakes installs the pinned no-mistakes release from $Release,
+    # its download folder, where no-mistakes' own installer puts it, once the
+    # archive matches the release's checksums.txt, and starts its daemon. An
+    # older no-mistakes' daemon is stopped first; no-mistakes refuses that
+    # while a gate runs, and the older no-mistakes then stays as it is.
+    function Install-NoMistakes([string]$Release) {
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+        $archive = "no-mistakes-v$noMistakesVersion-windows-$arch.zip"
+        $folder = Join-Path $env:LOCALAPPDATA "no-mistakes"
+        $target = Join-Path $folder "no-mistakes.exe"
+        $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $download | Out-Null
+        try {
+            Save-Download "$Release/$archive" (Join-Path $download $archive)
+            Save-Download "$Release/checksums.txt" (Join-Path $download "checksums.txt")
+            $expected = Read-ReleaseChecksum (Join-Path $download "checksums.txt") $archive
+            $actual = (Get-FileHash -LiteralPath (Join-Path $download $archive) -Algorithm SHA256).Hash
+            if (-not $expected -or $actual -ne $expected) {
+                Write-Host "SHA256 of the download: $actual; the release's checksums.txt lists: '$expected'"
+                throw "The downloaded $archive does not match the release's checksums.txt, so it was not installed."
+            }
+            Write-Host "Verified $archive against the release's checksums.txt ($actual)."
+            Expand-Archive -LiteralPath (Join-Path $download $archive) -DestinationPath $download -ErrorAction Stop
+            $program = Join-Path $download "no-mistakes.exe"
+            if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
+                throw "$archive holds no no-mistakes.exe, so it was not installed."
+            }
+
+            # A no-mistakes command still running holds its program, which can
+            # be renamed but not replaced, so it moves aside to
+            # no-mistakes.exe.old, where no-mistakes' own update puts it and
+            # removes it once nothing runs it. One left there from before goes
+            # now, while the daemon still runs.
+            if (Test-Path -LiteralPath "$target.old") {
+                Remove-Item -LiteralPath "$target.old" -Force -ErrorAction Stop
+            }
+            if (Get-Command no-mistakes -ErrorAction SilentlyContinue) {
+                & no-mistakes daemon stop
+                if ($LASTEXITCODE -ne 0) {
+                    throw "the installed no-mistakes stays as it is, since its daemon did not stop, which no-mistakes refuses while a gate runs; rerun the install once no gate runs"
+                }
+            }
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            if (Test-Path -LiteralPath $target) {
+                Move-Item -LiteralPath $target -Destination "$target.old" -ErrorAction Stop
+            }
+            Move-Item -LiteralPath $program -Destination $target -ErrorAction Stop
+        }
+        finally {
+            Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if (Add-UserPath $folder) {
+            Write-Host ("ok       {0,-20} {1} added to your PATH" -f "no-mistakes", $folder)
+        }
+        & $target daemon start
+        if ($LASTEXITCODE -ne 0) {
+            throw "no-mistakes v$noMistakesVersion is installed, but its daemon did not start; run: no-mistakes daemon start"
+        }
+    }
+
     # The toolchain mirrors `cfo doctor`; its hints are the source of truth for
     # where each tool comes from. npm is called as npm.cmd, which runs under any
     # execution policy, where the npm.ps1 shim is refused by the default one and
@@ -349,6 +488,8 @@
     #                install. It is never run as a download-and-run one-liner
     #                (irm <url> | iex) on a child's command line, which
     #                Defender blocks as Trojan:Win32/Commando.A!ml.
+    #   release    - the release pinned above, which Install-NoMistakes
+    #                installs, and updates when an older one is present
     #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
@@ -360,7 +501,7 @@
         @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
-        @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1" },
+        @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
         @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
@@ -377,6 +518,12 @@
         # A native terminal starts Claude Code only as claude.exe, so a script
         # such as npm's claude.cmd does not count as present.
         if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
+            $found = $null
+        }
+        # A release older than the pinned one is updated; one that reports no
+        # version, such as a build of its own, is left alone.
+        if ($found -and $tool.Kind -eq "release" -and (& $tool.Name --version 2>$null | Out-String) -match 'version v(\d+\.\d+\.\d+)' -and [version]$Matches[1] -lt [version]$noMistakesVersion) {
+            Write-Host ("update   {0,-20} v{1} is older than the pinned v{2}" -f $tool.Name, $Matches[1], $noMistakesVersion)
             $found = $null
         }
         if ($found) {
@@ -400,7 +547,12 @@
         }
         Write-Host ("install  {0,-20} {1}" -f $tool.Name, $tool.Cmd)
         try {
-            if ($tool.Kind -eq "powershell") {
+            if ($tool.Kind -eq "release") {
+                # Install-NoMistakes puts its folder on this session's PATH
+                # itself, so the PATH needs no refresh for it.
+                Install-NoMistakes $tool.Cmd
+            }
+            elseif ($tool.Kind -eq "powershell") {
                 $installer = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N") + ".ps1")
                 try {
                     Invoke-WebRequest -Uri $tool.Cmd -OutFile $installer -UseBasicParsing -ErrorAction Stop
@@ -410,12 +562,13 @@
                 finally {
                     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
                 }
+                $installedAny = $true
             }
             else {
                 Invoke-Expression $tool.Cmd
                 if ($LASTEXITCODE -ne 0) { throw "exited with code $LASTEXITCODE" }
+                $installedAny = $true
             }
-            $installedAny = $true
             Write-Host ("ok       {0,-20} installed" -f $tool.Name)
         }
         catch {
@@ -425,27 +578,11 @@
     }
 
     # Claude Code's native installer puts claude.exe, the build a native
-    # terminal starts, in ~\.local\bin and may leave that off PATH. The user
-    # PATH keeps its registry kind, as cfo install keeps it, so its %VARIABLE%
-    # entries survive.
+    # terminal starts, in ~\.local\bin and may leave that off PATH.
     $claudeBin = Join-Path $env:USERPROFILE ".local\bin"
-    if (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe")) {
-        $environment = Get-Item -LiteralPath "HKCU:\Environment"
-        $userPath = [string]$environment.GetValue("Path", "", "DoNotExpandEnvironmentNames")
-        if (-not (@($userPath -split ';') -contains $claudeBin)) {
-            $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
-            Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $claudeBin) -join ';') -Type $kind
-            # WM_SETTINGCHANGE makes Explorer, and every window it opens after
-            # this, see the new PATH before the next sign-in.
-            Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
-[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
-'@
-            $result = [UIntPtr]::Zero
-            [void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-            Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
-            $installedAny = $true
-        }
+    if ((Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe")) -and (Add-UserPath $claudeBin)) {
+        Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
+        $installedAny = $true
     }
 
     # Installers write PATH entries to the registry; make them visible in this

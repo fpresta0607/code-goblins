@@ -18,7 +18,11 @@ In order, it:
 3. Asks once for [your projects folder](#your-projects-folder).
 4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, and the program as `cfo.exe` and `goblins.exe`.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code, Herdr and no-mistakes with their own installers, and Codex, pi and the axi tools with npm, which needs Node.js.
+5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code and Herdr with their own installers, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+   no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
+   The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
+   It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
+   A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, it warns and prints the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Kimi has no scriptable installer, so it prints the manual step instead.
@@ -29,6 +33,11 @@ In order, it:
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins --board`, restarts it on the new one.
+
+A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.
+The install downloads and verifies the pinned release first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
+no-mistakes refuses to stop its daemon while a gate runs; the install then leaves the older no-mistakes as it is and says to rerun it once no gate runs.
+So when a Code Goblins release moves the pin forward, rerunning the install is how a machine moves to the no-mistakes it names.
 
 ## On a fresh PC
 
