@@ -12,8 +12,12 @@
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
 # and ends by opening the board in the browser.
 #
-# cfo.exe is not code-signed yet; "On a fresh PC" in docs/install.md says
-# what Windows shows for it and what to do if Microsoft Defender flags it.
+# cfo.exe is not code-signed yet. The one-line install runs it only when it
+# matches the release's SHA256SUMS, and shows no SmartScreen prompt; a
+# cfo.exe saved from a browser gets SmartScreen's "Windows protected your
+# PC", and Smart App Control, where it is on, blocks it. "On a fresh PC" in
+# docs/install.md says how to check the checksum by hand and what to do if
+# Microsoft Defender flags it.
 #
 # To work on it, in a clone:
 #
