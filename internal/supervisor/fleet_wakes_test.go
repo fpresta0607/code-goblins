@@ -72,7 +72,7 @@ func TestMemoryReadyWakesOnceAndAgainOnlyAfterFallingUnderTheFloor(t *testing.T)
 	s.Options.Dispatch = &Dispatch{Memory: meter.read}
 	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	over := [2]float64{6.2, 7.1}
+	over := [2]float64{6.25, 7.15}
 
 	if woke := readMemory(t, s, h, meter, &now, over); woke != 0 {
 		t.Fatalf("one reading over the mark woke %d times, want none", woke)
@@ -137,15 +137,19 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 	}
 }
 
-// fakeForge answers gh and git the way GitHub and a checkout would, from
-// canned output the test changes between polls, and counts the calls.
+// fakeForge answers gh and git the way GitHub and a checkout would for one
+// repository and the one goblin worktree in it, from canned output the test
+// changes between polls, and counts that repository's pull request listings.
+// Any other repository has no pull requests or runs, and any other worktree
+// no branch, as the fixture home's own task has.
 type fakeForge struct {
 	mu        sync.Mutex
+	repo      string
+	worktree  string
 	pulls     string
 	runs      string
 	jobs      string
 	branch    string
-	calls     []string
 	listCalls int
 }
 
@@ -153,21 +157,37 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	command := req.Name + " " + strings.Join(req.Args, " ")
-	f.calls = append(f.calls, command)
+	inRepo := strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.repo))
+	answer := func(output string) (execx.Result, error) {
+		if !inRepo {
+			output = "[]"
+		}
+		return execx.Result{Stdout: []byte(output)}, nil
+	}
 	switch {
 	case strings.HasPrefix(command, "git branch --show-current"):
+		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
+			return execx.Result{Stdout: []byte("\n")}, nil
+		}
 		return execx.Result{Stdout: []byte(f.branch + "\n")}, nil
 	case strings.HasPrefix(command, "git symbolic-ref"):
 		return execx.Result{Stdout: []byte("origin/main\n")}, nil
 	case strings.HasPrefix(command, "gh pr list"):
-		f.listCalls++
-		return execx.Result{Stdout: []byte(f.pulls)}, nil
+		if inRepo {
+			f.listCalls++
+		}
+		return answer(f.pulls)
 	case strings.HasPrefix(command, "gh run list"):
-		return execx.Result{Stdout: []byte(f.runs)}, nil
+		return answer(f.runs)
 	case strings.HasPrefix(command, "gh run view"):
 		return execx.Result{Stdout: []byte(f.jobs)}, nil
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + command)}, nil
+}
+
+// forgeFor is a fake forge for goblin id working in project.
+func forgeFor(project, id string) *fakeForge {
+	return &fakeForge{repo: project, worktree: filepath.Join(project, ".worktrees", "gb-"+id)}
 }
 
 // liveGoblin writes a live task record for id working in project.
@@ -213,7 +233,8 @@ func TestCIFinishedWakesOncePerCompletionOfAGoblinsPullRequest(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
 	liveGoblin(t, h, "cg-wakes", project)
-	forge := &fakeForge{branch: "feat/wakes", runs: "[]", pulls: pendingChecks}
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
 	s.Options.CI = forge
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
@@ -248,7 +269,8 @@ func TestCIFinishedIgnoresPullRequestsNoLiveGoblinOwns(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
 	liveGoblin(t, h, "cg-other", project)
-	forge := &fakeForge{branch: "feat/something-else", runs: "[]", pulls: passedChecks}
+	forge := forgeFor(project, "cg-other")
+	forge.branch, forge.runs, forge.pulls = "feat/something-else", "[]", passedChecks
 	s.Options.CI = forge
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
@@ -263,7 +285,8 @@ func TestCIFinishedWakesWhenMainsPushCIGoesRed(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
 	liveGoblin(t, h, "cg-wakes", project)
-	forge := &fakeForge{branch: "feat/wakes", pulls: "[]", jobs: `{"jobs":[{"name":"test","conclusion":"failure"},{"name":"vet","conclusion":"success"}]}`}
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.jobs = "feat/wakes", "[]", `{"jobs":[{"name":"test","conclusion":"failure"},{"name":"vet","conclusion":"success"}]}`
 	forge.runs = `[{"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"},
 {"databaseId":36716818409,"workflowName":"install","status":"completed","conclusion":"cancelled","headSha":"ef7ec0d57f","url":"https://github.com/o/r/actions/runs/36716818409"},
 {"databaseId":36716818403,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"ef7ec0d57f","url":"https://github.com/o/r/actions/runs/36716818403"}]`
@@ -297,8 +320,10 @@ func TestCIFinishedWakesWhenMainsPushCIGoesRed(t *testing.T) {
 // shares.
 func TestCIIsPolledAtMostEveryTwoMinutes(t *testing.T) {
 	s, h := fleetService(t)
-	liveGoblin(t, h, "cg-wakes", t.TempDir())
-	forge := &fakeForge{branch: "feat/wakes", runs: "[]", pulls: pendingChecks}
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
 	s.Options.CI = forge
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
