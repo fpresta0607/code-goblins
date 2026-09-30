@@ -1,0 +1,474 @@
+package codegoblins
+
+import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"testing"
+)
+
+// noMistakesDownloads is where no-mistakes publishes its releases. The
+// install downloads from here, never through GitHub's API, which answers an
+// anonymous caller only 60 times an hour per address and so failed the
+// install on shared CI runners.
+const noMistakesDownloads = "https://github.com/kunchenguid/no-mistakes/releases/download/"
+
+// pinnedNoMistakes is the no-mistakes release install.ps1 pins, such as
+// 1.75.1.
+func pinnedNoMistakes(t *testing.T) string {
+	t.Helper()
+	source, err := os.ReadFile(installScript(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`\$noMistakesVersion = "(\d+\.\d+\.\d+)"`).FindSubmatch(source)
+	if match == nil {
+		t.Fatal("install.ps1 pins no no-mistakes release")
+	}
+	return string(match[1])
+}
+
+// zipped is a zip archive holding content as name, the way a no-mistakes
+// release holds no-mistakes.exe.
+func zipped(t *testing.T, name string, content []byte) []byte {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	file, err := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archive.Bytes()
+}
+
+// serveNoMistakesReleases stands in for github.com: for each tag it serves
+// archive as the Windows archive, and the checksums.txt that sums writes
+// from the archive's name and SHA256. It answers the first failures requests
+// for an archive with 503, and counts every archive request.
+func serveNoMistakesReleases(t *testing.T, archive []byte, failures int32, sums func(archive string, sum [32]byte) string) (string, *atomic.Int32) {
+	t.Helper()
+	requests := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tag, name, found := strings.Cut(strings.TrimPrefix(r.URL.Path, "/kunchenguid/no-mistakes/releases/download/"), "/")
+		if !found || !strings.HasPrefix(r.URL.Path, "/kunchenguid/no-mistakes/releases/download/") {
+			http.NotFound(w, r)
+			return
+		}
+		want := "no-mistakes-" + tag + "-windows-amd64.zip"
+		switch name {
+		case want:
+			if requests.Add(1) <= failures {
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write(archive)
+		case "checksums.txt":
+			_, _ = w.Write([]byte(sums(want, sha256.Sum256(archive))))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL, requests
+}
+
+// publishedSums writes checksums.txt as a no-mistakes release publishes it:
+// one line per platform's archive.
+func publishedSums(archive string, sum [32]byte) string {
+	return fmt.Sprintf("%x  no-mistakes-v0.0.0-darwin-arm64.tar.gz\n%x  %s\n", sha256.Sum256([]byte("another platform")), sum, archive)
+}
+
+// noMistakesInstall is one run of the one-line install with no-mistakes'
+// releases served by a stand-in, as far as the install goes with a stand-in
+// cfo.exe: every command it runs succeeds and records itself.
+type noMistakesInstall struct {
+	output string
+	// record holds, in order, each download from the internet, each wait
+	// between attempts, and each command a stand-in program ran.
+	record string
+	local  string
+	temp   string
+	// userEnv is the file that stands in for the user-scope environment.
+	userEnv string
+}
+
+// runInstallWithNoMistakes runs the one-line install in shell against a
+// stand-in cfo.exe release, with github.com's no-mistakes releases served from
+// releases and every other download failing, as offline. A wait between
+// attempts is recorded instead of taken. stubs are .cmd stand-ins on PATH,
+// where %RECORD% names the record file; seed runs first in the empty profile.
+func runInstallWithNoMistakes(t *testing.T, shell, releases string, stubs map[string]string, seed func(local string)) noMistakesInstall {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	record := filepath.Join(t.TempDir(), "record.txt")
+	all := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}
+	for name, script := range stubs {
+		all[name] = strings.ReplaceAll(script, "%RECORD%", record)
+	}
+	internet := "function Invoke-WebRequest {\n" +
+		"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
+		"  if ($Uri.StartsWith('" + base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
+		"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
+		"  if ($Uri.StartsWith('" + noMistakesDownloads + "')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri ($Uri -replace '^https://github\\.com', '" + releases + "') -OutFile $OutFile -UseBasicParsing; return }\n" +
+		"  throw \"offline: $Uri\"\n" +
+		"}\n" +
+		"function Invoke-RestMethod {\n" +
+		"  [CmdletBinding()] param([string]$Uri)\n" +
+		"  Add-Content -LiteralPath '" + record + "' -Value \"api $Uri\"\n" +
+		"  throw \"offline: $Uri\"\n" +
+		"}\n" +
+		"function Start-Sleep { param([int]$Seconds) Add-Content -LiteralPath '" + record + "' -Value \"wait $Seconds\" }\n"
+	cmd, local, temp := strippedCommand(t, base, all, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+		internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+	cmd.Env = append(cmd.Env, standInVariable+"=1", standInRecordVariable+"="+record)
+	if seed != nil {
+		seed(local)
+	}
+
+	output, _ := cmd.CombinedOutput()
+
+	recorded, err := os.ReadFile(record)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return noMistakesInstall{output: string(output), record: string(recorded), local: local, temp: temp, userEnv: filepath.Join(local, userEnvFileName)}
+}
+
+// installedNoMistakes is where the install puts no-mistakes, where
+// no-mistakes' own installer and its update put it too.
+func installedNoMistakes(local string) string {
+	return filepath.Join(local, "no-mistakes", "no-mistakes.exe")
+}
+
+// assertNoAPICall checks that the install never asked GitHub's API, or the
+// upstream installer that asks it, for anything.
+func assertNoAPICall(t *testing.T, run noMistakesInstall) {
+	t.Helper()
+	for _, line := range strings.Split(run.record, "\r\n") {
+		if strings.HasPrefix(line, "api ") || strings.Contains(line, "api.github.com") || strings.Contains(line, "no-mistakes/main/docs/install.ps1") {
+			t.Errorf("the install called %q, want only the pinned release's downloads:\n%s", line, run.record)
+		}
+	}
+}
+
+// notCompleted matches no-mistakes among the installs the install's summary
+// says did not complete.
+var notCompleted = regexp.MustCompile(`(?m)^\s+- no-mistakes\s*$`)
+
+// assertNoDownloadLeft checks that the install's own download folders are gone.
+func assertNoDownloadLeft(t *testing.T, temp string) {
+	t.Helper()
+	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
+		t.Errorf("the install left %v behind", left)
+	}
+}
+
+// The install fetches the no-mistakes release it pins from the release's own
+// download address, and tries a download that fails again, a bounded number
+// of times with a wait between attempts: two failures in a row, as a rate
+// limit or a 503 gives, still install it. It verifies the archive against
+// the release's checksums.txt, puts no-mistakes.exe where no-mistakes'
+// installer does, on the user's PATH, and starts its daemon.
+func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 2, publishedSums)
+
+			run := runInstallWithNoMistakes(t, shell, releases, nil, nil)
+
+			version := pinnedNoMistakes(t)
+			archive := "no-mistakes-v" + version + "-windows-amd64.zip"
+			if n := requests.Load(); n != 3 {
+				t.Errorf("the archive was requested %d times, want 3: two failures, then the download:\n%s", n, run.output)
+			}
+			if !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/"+archive+"\r\n") || !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/checksums.txt\r\n") {
+				t.Errorf("the pinned release v%s was not downloaded from %s:\n%s", version, noMistakesDownloads, run.record)
+			}
+			if waits := strings.Count(run.record, "wait "); waits != 2 {
+				t.Errorf("the install waited %d times, want once before each of the 2 retries:\n%s", waits, run.record)
+			}
+			if !strings.Contains(run.output, "Verified "+archive+" against the release's checksums.txt") {
+				t.Errorf("the archive was not verified against checksums.txt:\n%s", run.output)
+			}
+			if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, program) {
+				t.Fatalf("no-mistakes.exe was not installed at %s (%v):\n%s", installedNoMistakes(run.local), err, run.output)
+			}
+			if !strings.Contains(run.record, "no-mistakes daemon start\r\n") {
+				t.Errorf("the installed no-mistakes did not start its daemon:\n%s\n%s", run.record, run.output)
+			}
+			userEnv, err := os.ReadFile(run.userEnv)
+			if err != nil || !strings.Contains(string(userEnv), strings.ReplaceAll(filepath.Join(run.local, "no-mistakes"), `\`, `\\`)) {
+				t.Errorf("the no-mistakes folder is not on the user's PATH in %s (%v): %s", run.userEnv, err, userEnv)
+			}
+			assertNoAPICall(t, run)
+			assertNoDownloadLeft(t, run.temp)
+		})
+	}
+}
+
+// A no-mistakes download that keeps failing stops after its last attempt
+// with a message that says what failed, and the rest of the install goes on
+// and names it among the installs that did not complete.
+func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("never served")), 1000, publishedSums)
+
+			run := runInstallWithNoMistakes(t, shell, releases, nil, nil)
+
+			if n := requests.Load(); n != 3 {
+				t.Errorf("the archive was requested %d times, want 3 attempts and no more:\n%s", n, run.output)
+			}
+			if !strings.Contains(run.output, "could not be downloaded after 3 attempts") || !strings.Contains(run.output, "503") {
+				t.Errorf("the install did not say the download failed 3 times, and why:\n%s", run.output)
+			}
+			if !strings.Contains(run.output, "Verifying the toolchain") || !strings.Contains(run.output, "These installs did not complete") || !notCompleted.MatchString(run.output) {
+				t.Errorf("the install did not go on and name no-mistakes as not installed:\n%s", run.output)
+			}
+			if _, err := os.Stat(installedNoMistakes(run.local)); !os.IsNotExist(err) {
+				t.Errorf("no-mistakes.exe exists (%v), want none", err)
+			}
+			assertNoAPICall(t, run)
+			assertNoDownloadLeft(t, run.temp)
+		})
+	}
+}
+
+// An archive that does not match the release's checksums.txt is refused, and
+// nothing is installed or started.
+func TestOneLineInstallRefusesANoMistakesArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		for name, sums := range map[string]func(string, [32]byte) string{
+			"another archive's checksum": func(archive string, _ [32]byte) string {
+				return fmt.Sprintf("%x  %s\n", sha256.Sum256([]byte("the archive the release published")), archive)
+			},
+			"no checksum for the archive": func(_ string, sum [32]byte) string {
+				return fmt.Sprintf("%x  no-mistakes-v0.0.0-linux-amd64.tar.gz\n", sum)
+			},
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("a build the release did not publish")), 0, sums)
+
+				run := runInstallWithNoMistakes(t, shell, releases, nil, nil)
+
+				if !strings.Contains(run.output, "does not match the release's checksums.txt") {
+					t.Errorf("the install did not refuse the archive:\n%s", run.output)
+				}
+				if _, err := os.Stat(installedNoMistakes(run.local)); !os.IsNotExist(err) {
+					t.Errorf("no-mistakes.exe exists (%v), want none", err)
+				}
+				if strings.Contains(run.record, "daemon start") {
+					t.Errorf("a daemon was started:\n%s", run.record)
+				}
+				assertNoDownloadLeft(t, run.temp)
+			})
+		}
+	}
+}
+
+// existingNoMistakes is a no-mistakes already on PATH that reports version
+// and records every command it runs; a daemon stop exits with stopExit.
+func existingNoMistakes(version string, stopExit int) string {
+	return "@>>\"%RECORD%\" echo existing %*\r\n" +
+		"@if \"%1\"==\"--version\" echo no-mistakes version v" + version + " (0000000) 2026-01-01T00:00:00Z\r\n" +
+		"@if \"%1 %2\"==\"daemon stop\" exit /b " + fmt.Sprint(stopExit) + "\r\n" +
+		"@exit /b 0\r\n"
+}
+
+// runningCopy starts a program that keeps running from path, as a no-mistakes
+// command still running holds its no-mistakes.exe, and returns a channel that
+// closes when it exits. The program is ping, which needs no console.
+func runningCopy(t *testing.T, path string) (ping []byte, exited chan struct{}) {
+	t.Helper()
+	ping, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, ping, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	running := exec.Command(path, "-n", "120", "127.0.0.1")
+	running.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	if err := running.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited = make(chan struct{})
+	go func() {
+		_ = running.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		_ = running.Process.Kill()
+		<-exited
+	})
+	return ping, exited
+}
+
+// Rerunning the install moves an older no-mistakes to the pinned release:
+// it downloads and verifies the release first, then stops the daemon, which
+// no-mistakes itself refuses while a gate runs, replaces the program even
+// while a no-mistakes command still runs it, and starts the daemon again.
+func TestOneLineInstallUpdatesAnOlderNoMistakesToThePinnedRelease(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 0, publishedSums)
+			var ping []byte
+			var exited chan struct{}
+
+			run := runInstallWithNoMistakes(t, shell, releases, map[string]string{"no-mistakes": existingNoMistakes("1.0.0", 0)}, func(local string) {
+				ping, exited = runningCopy(t, installedNoMistakes(local))
+			})
+
+			version := pinnedNoMistakes(t)
+			download := strings.Index(run.record, "download "+noMistakesDownloads+"v"+version+"/no-mistakes-v"+version+"-windows-amd64.zip")
+			stop := strings.Index(run.record, "existing daemon stop\r\n")
+			start := strings.Index(run.record, "no-mistakes daemon start\r\n")
+			if download < 0 || stop < download || start < stop {
+				t.Fatalf("want the release downloaded, then the old daemon stopped, then the new one started:\n%s\n%s", run.record, run.output)
+			}
+			if !strings.Contains(run.output, "1.0.0") || !strings.Contains(run.output, version) {
+				t.Errorf("the install did not name the update from 1.0.0 to %s:\n%s", version, run.output)
+			}
+			if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, program) {
+				t.Errorf("no-mistakes.exe is not the pinned release (%v):\n%s", err, run.output)
+			}
+			if old, err := os.ReadFile(installedNoMistakes(run.local) + ".old"); err != nil || !bytes.Equal(old, ping) {
+				t.Errorf("the running copy was not moved aside to no-mistakes.exe.old, where no-mistakes removes it (%v)", err)
+			}
+			select {
+			case <-exited:
+				t.Errorf("the running no-mistakes command was stopped, want it left running")
+			default:
+			}
+			assertNoAPICall(t, run)
+			assertNoDownloadLeft(t, run.temp)
+		})
+	}
+}
+
+// While a gate runs, no-mistakes refuses to stop its daemon, and the install
+// then leaves the older no-mistakes exactly as it was and says to rerun it
+// once no gate runs.
+func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
+			var ping []byte
+
+			run := runInstallWithNoMistakes(t, shell, releases, map[string]string{"no-mistakes": existingNoMistakes("1.0.0", 1)}, func(local string) {
+				ping, _ = runningCopy(t, installedNoMistakes(local))
+			})
+
+			if !strings.Contains(run.record, "existing daemon stop\r\n") || strings.Contains(run.record, "daemon start") {
+				t.Errorf("want the daemon asked to stop and nothing started:\n%s", run.record)
+			}
+			if !strings.Contains(run.output, "rerun the install once no gate runs") || !notCompleted.MatchString(run.output) {
+				t.Errorf("the install did not say to rerun it once no gate runs:\n%s", run.output)
+			}
+			if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, ping) {
+				t.Errorf("no-mistakes.exe was changed (%v), want it left as it was", err)
+			}
+			if _, err := os.Stat(installedNoMistakes(run.local) + ".old"); !os.IsNotExist(err) {
+				t.Errorf("no-mistakes.exe.old exists (%v), want nothing moved", err)
+			}
+			assertNoDownloadLeft(t, run.temp)
+		})
+	}
+}
+
+// A no-mistakes at the pinned release or newer is left as it is: nothing is
+// downloaded and its daemon keeps running.
+func TestOneLineInstallKeepsANoMistakesAtOrPastThePin(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		for name, version := range map[string]string{"the pinned release": pinnedNoMistakes(t), "a newer release": "999.0.0"} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
+
+				run := runInstallWithNoMistakes(t, shell, releases, map[string]string{"no-mistakes": existingNoMistakes(version, 0)}, nil)
+
+				if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
+					t.Errorf("no-mistakes %s was not reported present:\n%s", version, run.output)
+				}
+				if n := requests.Load(); n != 0 || strings.Contains(run.record, noMistakesDownloads) {
+					t.Errorf("the install downloaded no-mistakes (%d archive requests):\n%s", n, run.record)
+				}
+				if strings.Contains(run.record, "daemon") {
+					t.Errorf("the install touched the daemon:\n%s", run.record)
+				}
+			})
+		}
+	}
+}
+
+// An archive that does not hold no-mistakes.exe where a release's archive
+// holds it is refused before anything changes: the older no-mistakes' daemon
+// keeps running and its program stays where it is.
+func TestOneLineInstallRefusesANoMistakesArchiveWithoutItsProgram(t *testing.T) {
+	for _, shell := range oneLineShells(t) {
+		t.Run(filepath.Base(shell), func(t *testing.T) {
+			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes/no-mistakes.exe", []byte("the program in a folder")), 0, publishedSums)
+			var ping []byte
+
+			run := runInstallWithNoMistakes(t, shell, releases, map[string]string{"no-mistakes": existingNoMistakes("1.0.0", 0)}, func(local string) {
+				ping, _ = runningCopy(t, installedNoMistakes(local))
+			})
+
+			if !strings.Contains(run.output, "holds no no-mistakes.exe") || !notCompleted.MatchString(run.output) {
+				t.Errorf("the install did not refuse the archive for holding no no-mistakes.exe:\n%s", run.output)
+			}
+			if strings.Contains(run.record, "daemon") {
+				t.Errorf("the install touched the daemon, want it left running:\n%s", run.record)
+			}
+			if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, ping) {
+				t.Errorf("no-mistakes.exe was changed (%v), want it left as it was", err)
+			}
+			if _, err := os.Stat(installedNoMistakes(run.local) + ".old"); !os.IsNotExist(err) {
+				t.Errorf("no-mistakes.exe.old exists (%v), want nothing moved", err)
+			}
+			assertNoDownloadLeft(t, run.temp)
+		})
+	}
+}
