@@ -2,10 +2,11 @@ package monitor
 
 import (
 	"context"
+	"encoding/csv"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -41,10 +42,6 @@ type ExecGateProber struct{}
 // scan never returns keeps its lock while its heartbeat stops, so nothing can
 // take supervision over.
 const gateStatusBudget = 30 * time.Second
-
-var (
-	activeStepLine = regexp.MustCompile(`^\s*([a-z_]+),running,([0-9hms]+),"?([^"]*)"?`)
-)
 
 func (ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (GateSample, error) {
 	sample := GateSample{}
@@ -120,32 +117,45 @@ func (p *RecentGateProber) InspectGate(ctx context.Context, meta state.TaskMeta)
 
 // parseGateStatus reads the active_steps row out of `axi status`. Only the
 // active row matters: a completed or pending step is never what a goblin is
-// wedged on.
+// wedged on. A step is active while it runs and while an agent fixes what it
+// found. The row is read by the column names in the block's header, since
+// no-mistakes has added columns before.
 func parseGateStatus(out string, sample GateSample) GateSample {
-	inActive := false
+	var columns []string
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "active_steps[") {
-			inActive = true
+		if header, ok := strings.CutPrefix(trimmed, "active_steps["); ok {
+			_, names, _ := strings.Cut(header, "{")
+			names, _, _ = strings.Cut(names, "}")
+			columns = strings.Split(names, ",")
 			continue
 		}
-		if !inActive {
+		if columns == nil || trimmed == "" {
 			continue
 		}
-		m := activeStepLine.FindStringSubmatch(line)
-		if m == nil {
-			// The first non-matching line after the header ends the block.
-			if trimmed != "" {
-				break
+		// A row quotes its free text; one that does not parse as a row
+		// ends the block.
+		reader := csv.NewReader(strings.NewReader(trimmed))
+		reader.LazyQuotes = true
+		row, err := reader.Read()
+		if err != nil || len(row) != len(columns) {
+			break
+		}
+		field := func(name string) string {
+			if index := slices.Index(columns, name); index >= 0 {
+				return row[index]
 			}
-			continue
+			return ""
+		}
+		if status := field("status"); status != "running" && status != "fixing" {
+			break
 		}
 		sample.Active = true
-		sample.Step = m[1]
-		if d, err := time.ParseDuration(m[2]); err == nil {
+		sample.Step = field("step")
+		if d, err := time.ParseDuration(field("active_for")); err == nil {
 			sample.ActiveFor = d
 		}
-		sample.LastActivity = strings.TrimSpace(m[3])
+		sample.LastActivity = strings.TrimSpace(field("last_activity"))
 		break
 	}
 	return sample
