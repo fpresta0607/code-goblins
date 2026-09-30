@@ -22,7 +22,7 @@ func TestBoardKeepsWindowsTeardownAfterResumeAndRestart(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "action-1", Action: "resume", Phase: phase, Updated: time.Now(), Teardown: []state.TeardownProcess{{PID: os.Getpid(), Started: started, Name: "chrome.exe"}}}
+			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "action-1", Action: "resume", Phase: phase, GateRun: "run-1", Updated: time.Now(), Teardown: []state.TeardownProcess{{PID: os.Getpid(), Started: started, Name: "chrome.exe"}}}
 			if err := state.WriteLifecycle(h.State, record); err != nil {
 				t.Fatal(err)
 			}
@@ -34,6 +34,9 @@ func TestBoardKeepsWindowsTeardownAfterResumeAndRestart(t *testing.T) {
 				index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
 				if index < 0 || snapshot.Tasks[index].Lifecycle == nil || len(snapshot.Tasks[index].Lifecycle.Teardown) != 1 {
 					t.Fatalf("board hid teardown in %s: %+v", phase, snapshot.Tasks)
+				}
+				if phase == "running" && snapshot.Tasks[index].Lifecycle.ValidationRestarts {
+					t.Fatal("resumed card promises a validation restart")
 				}
 				store, err := Open(h)
 				if err != nil {
