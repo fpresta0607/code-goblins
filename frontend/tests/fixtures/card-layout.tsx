@@ -8,12 +8,13 @@ import "../../src/styles.css";
 // The Overlord's crowded column: a goblin with a long title that waits on
 // another goblin and has a pull request, beside queued work with a long title,
 // a finished task with its pull request and a goblin with its browser active,
-// each running Codex, so every card carries its harness mark.
+// each running Codex, so every card carries its harness mark, under a CFO
+// running Claude Code.
 const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctrl+V pastes (bracketed), and the agents' keys reach the program";
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "codex", model: "gpt-6-astra", effort: "xhigh", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true,
+  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude",
   memory: { available: 5.6e9, total: 32e9, floor: 4e9, next: 5e9 },
   tasks: [
     task({ id: "cg-board-kill-with-a-long-goblin-name", title: "cg-board-kill-with-a-long-goblin-name", phase: "working", activity: "working: gate review" }),
