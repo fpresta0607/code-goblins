@@ -43,7 +43,6 @@ func workflowStep(t *testing.T, path, job, step string) string {
 // 503 and failed the run: the install is tried again after a wait, and gives
 // up after its third attempt.
 func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
-	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
@@ -60,7 +59,6 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 		"a feed that stays down":         {-1, 3, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			runInParallel(t)
 			// Arrange: choco says each attempt, fails as many times as
 			// asked, and then installs a sqlite3 beside itself.
 			choco := "@echo choco %*\r\n"
