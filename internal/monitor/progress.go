@@ -69,12 +69,20 @@ const harnessLaunch = 2 * time.Minute
 // InspectProgress reads the transcript and the harness's own processes. The
 // harness of a native task is the program its terminal runs; otherwise it is
 // whatever Herdr reports in the pane's foreground, and a pane back at its
-// shell has no harness and so no processes of its own.
+// shell has no harness and so no processes of its own. A native terminal
+// names no session, so its transcript is the one its harness filed for the
+// task's worktree since the terminal started.
 func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
-	harnessPID, err := h.harnessPID(ctx, meta, sample)
-	if err != nil || harnessPID == 0 {
+	harnessPID, started, err := h.harness(ctx, meta, sample)
+	if err != nil {
 		return progress, err
+	}
+	if sample.Session == "" && !started.IsZero() {
+		progress.TranscriptAt = worktreeTranscriptAt(h.Home, sample.Harness, meta.Worktree, started, time.Now())
+	}
+	if harnessPID == 0 {
+		return progress, nil
 	}
 	processes, err := proc.Processes()
 	if err != nil {
@@ -84,24 +92,25 @@ func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, 
 	return progress, nil
 }
 
-// harnessPID returns the process id of the task's harness, and 0 for a pane
-// back at its shell.
-func (h HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
+// harness returns the process id of the task's harness, and 0 for a pane back
+// at its shell, with when a native terminal started it; a Herdr pane does not
+// say, so that is zero there.
+func (h HostProgress) harness(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, time.Time, error) {
 	if meta.Backend == "native" {
 		record, err := host.ReadRecord(h.StateDir, meta.ID)
 		if err != nil {
-			return 0, err
+			return 0, time.Time{}, err
 		}
-		return record.ChildPID, nil
+		return record.ChildPID, record.Started, nil
 	}
 	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	if info.ForegroundProcessGroupID == info.ShellPID {
-		return 0, nil
+		return 0, time.Time{}, nil
 	}
-	return info.ForegroundProcessGroupID, nil
+	return info.ForegroundProcessGroupID, time.Time{}, nil
 }
 
 // launchShims are the programs a harness is commonly started through. One
@@ -229,6 +238,94 @@ func transcriptAt(home, harness, session string) time.Time {
 		}
 	}
 	return latest
+}
+
+// claudeProjectName is what Claude Code replaces with a hyphen in a session's
+// directory to name the project folder its transcripts are filed in.
+var claudeProjectName = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// piSessionName is what pi replaces with a hyphen in a session's directory to
+// name the folder its sessions are filed in.
+var piSessionName = strings.NewReplacer(":", "-", `\`, "-", "/", "-")
+
+// worktreeTranscriptAt returns when the harness last wrote the transcript of
+// a session run in worktree since started, or zero when the harness keeps
+// none this reads or none was found. Each harness files a session by the
+// directory it runs in: Claude Code in a project folder named for it, beside
+// its subagents', pi in a session folder named for it, and Codex in a rollout
+// under the day the session began whose first line names it. A transcript
+// last written before started is an earlier session in the same worktree.
+func worktreeTranscriptAt(home, harness, worktree string, started, now time.Time) time.Time {
+	var latest time.Time
+	if home == "" || worktree == "" {
+		return latest
+	}
+	var patterns []string
+	switch strings.ToLower(harness) {
+	case "claude":
+		folder := filepath.Join(home, ".claude", "projects", claudeProjectName.ReplaceAllString(worktree, "-"))
+		patterns = []string{filepath.Join(folder, "*.jsonl"), filepath.Join(folder, "*", "subagents", "*.jsonl")}
+	case "pi":
+		folder := "--" + piSessionName.Replace(strings.TrimLeft(worktree, `\/`)) + "--"
+		patterns = []string{filepath.Join(home, ".pi", "agent", "sessions", folder, "*.jsonl")}
+	case "codex":
+		first := started.Local()
+		for day := time.Date(first.Year(), first.Month(), first.Day(), 0, 0, 0, 0, time.Local); !day.After(now); day = day.AddDate(0, 0, 1) {
+			patterns = append(patterns, filepath.Join(home, ".codex", "sessions", day.Format("2006"), day.Format("01"), day.Format("02"), "rollout-*.jsonl"))
+		}
+	}
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil || info.ModTime().Before(started) {
+				continue
+			}
+			if strings.EqualFold(harness, "codex") && !codexSessionIn(match, worktree) {
+				continue
+			}
+			if info.ModTime().After(latest) {
+				latest = info.ModTime()
+			}
+			if entry, ok := lastEntryAt(match); ok && entry.After(latest) {
+				latest = entry
+			}
+		}
+	}
+	return latest
+}
+
+// codexSessionDirectory is the directory a Codex rollout's first line, its
+// session_meta entry, names. That line goes on to carry the session's whole
+// instructions, tens of kilobytes after the directory, so only its head,
+// codexSessionReach, is read.
+var codexSessionDirectory = regexp.MustCompile(`"cwd":("(?:[^"\\]|\\.)*")`)
+
+const codexSessionReach = 16 << 10
+
+// codexSessionIn reports whether the Codex rollout at path is a session run
+// in worktree.
+func codexSessionIn(path, worktree string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	head := make([]byte, codexSessionReach)
+	read, err := io.ReadFull(file, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return false
+	}
+	first, _, _ := bytes.Cut(head[:read], []byte("\n"))
+	found := codexSessionDirectory.FindSubmatch(first)
+	var directory string
+	if found == nil || json.Unmarshal(found[1], &directory) != nil {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(directory), filepath.Clean(worktree))
 }
 
 // transcriptEntryReach bounds how much of a transcript's end is read for its
