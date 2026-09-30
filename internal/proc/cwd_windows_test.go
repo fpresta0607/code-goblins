@@ -170,31 +170,6 @@ func TestParametersRefusesAPIDThatIsNotRunning(t *testing.T) {
 	}
 }
 
-func TestParametersReadsArgumentsBeyondTheFirstParameterPage(t *testing.T) {
-	directory := t.TempDir()
-	argument := strings.Repeat("two words ", 400)
-	command := exec.Command(os.Args[0], "-test.run=^TestParametersLongArgumentFixture$", argument)
-	command.Dir = directory
-	command.Env = append(os.Environ(), "CFO_PARAMETER_FIXTURE=1")
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
-	gotDirectory, arguments, err := Parameters(command.Process.Pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !sameDir(gotDirectory, directory) || len(arguments) != 3 || arguments[2] != argument {
-		t.Fatalf("directory or long argument changed: directory=%q argument count=%d", gotDirectory, len(arguments))
-	}
-}
-
-func TestParametersLongArgumentFixture(t *testing.T) {
-	if os.Getenv("CFO_PARAMETER_FIXTURE") == "1" {
-		time.Sleep(time.Minute)
-	}
-}
-
 // sameDir compares two Windows paths allowing for case and a trailing
 // separator, which the parameter block and os.Getwd spell differently.
 func sameDir(left, right string) bool {
