@@ -217,7 +217,7 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
-On a narrow screen the columns stack and a card's name, repo and status wrap onto more lines rather than end in an ellipsis, so nothing is cut off or scrolls sideways; anything still shortened shows in full in a tip on hover or keyboard focus.
+On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.

@@ -766,8 +766,9 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
   .card-terminal { opacity: 0; transition: opacity .12s; }
   .task-card-shell:hover .card-terminal, .task-card-shell:focus-within .card-terminal { opacity: 1; }
 }
-/* A task card: its title, then a muted line with the repo and the status;
-   both wrap onto further lines rather than ending in an ellipsis. */
+/* A task card: its title, up to three lines, then a muted line with the
+   repo and the status, which wrap onto further lines rather than ending in an
+   ellipsis. */
 .task-card .card-copy { gap: 4px; }
 .task-card .browser-indicator { font-size: 1rem; }
 .task-card .card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
@@ -811,7 +812,7 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .memory-scale > span { flex: none; padding-left: 6px; }
 .memory-scale > .floor { min-width: max-content; padding: 0 6px 0 0; text-align: right; }
 /* The task the CFO starts next, and Start on every queued card: one play
-   button in the card's top corner. */
+   button among the card's controls. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }
 .next-chip.waiting { background: #33290f; color: var(--amber); }
 .card-start { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; min-height: 32px; border-radius: 10px; }
