@@ -22,7 +22,6 @@ on:
       - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
-      - tools/pin-installer.ps1
   push:
     branches: [main]
     paths:
@@ -41,7 +40,6 @@ on:
       - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
-      - tools/pin-installer.ps1
   workflow_dispatch:
     inputs:
       release:

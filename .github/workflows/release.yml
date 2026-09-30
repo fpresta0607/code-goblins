@@ -142,8 +142,11 @@ jobs:
       # turns protection back on and removes the exclusions first, and scans
       # only once Defender reports itself actively protecting with nothing
       # excluded. A runner where it does not, or a detection, stops the
-      # release. The protection it ran under and what it found are published
-      # as defender-scan.txt.
+      # release. The image also turns cloud-delivered protection off; turning
+      # it on would send file data to Microsoft, so the job records it rather
+      # than turning it on, and a clean scan here is not a cloud verdict. The
+      # protection it ran under and what it found are published as
+      # defender-scan.txt.
       - name: Scan with Microsoft Defender
         shell: pwsh
         run: |
@@ -167,6 +170,10 @@ jobs:
             "Product version: $($status.AMProductVersion)"
             "Engine version: $($status.AMEngineVersion)"
             "Antivirus definitions: $($status.AntivirusSignatureVersion), updated $($status.AntivirusSignatureLastUpdated.ToUniversalTime().ToString('u'))"
+            "Cloud-delivered protection (MAPSReporting): $($preference.MAPSReporting)"
+            "Sample submission (SubmitSamplesConsent): $($preference.SubmitSamplesConsent)"
+            "Block at first sight disabled: $($preference.DisableBlockAtFirstSeen)"
+            $(if ($preference.MAPSReporting -eq 0) { 'This scan used the local definitions only; it does not show a cloud verdict.' } else { 'This scan could consult cloud-delivered protection.' })
           )
           $record | Write-Host
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
