@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"context"
-	"encoding/csv"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,12 +133,8 @@ func parseGateStatus(out string, sample GateSample) GateSample {
 		if columns == nil || trimmed == "" {
 			continue
 		}
-		// A row quotes its free text; one that does not parse as a row
-		// ends the block.
-		reader := csv.NewReader(strings.NewReader(trimmed))
-		reader.LazyQuotes = true
-		row, err := reader.Read()
-		if err != nil || len(row) != len(columns) {
+		row := splitGateRow(trimmed)
+		if len(row) != len(columns) {
 			break
 		}
 		field := func(name string) string {
@@ -159,4 +155,36 @@ func parseGateStatus(out string, sample GateSample) GateSample {
 		break
 	}
 	return sample
+}
+
+// splitGateRow splits a TOON row at each comma outside a quoted value. TOON
+// quotes a value with JSON string escapes, so inside quotes a backslash
+// escapes the next character, and a quoted value is decoded as a JSON string.
+func splitGateRow(row string) []string {
+	var fields []string
+	start := 0
+	isQuoted := false
+	for index := 0; index < len(row); index++ {
+		switch {
+		case isQuoted && row[index] == '\\':
+			index++
+		case row[index] == '"':
+			isQuoted = !isQuoted
+		case !isQuoted && row[index] == ',':
+			fields = append(fields, row[start:index])
+			start = index + 1
+		}
+	}
+	fields = append(fields, row[start:])
+	for index, field := range fields {
+		if len(field) < 2 || field[0] != '"' || field[len(field)-1] != '"' {
+			continue
+		}
+		var decoded string
+		if err := json.Unmarshal([]byte(field), &decoded); err != nil {
+			decoded = field[1 : len(field)-1]
+		}
+		fields[index] = decoded
+	}
+	return fields
 }
