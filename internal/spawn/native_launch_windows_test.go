@@ -1116,3 +1116,36 @@ func TestAContainedNativeTerminalIsReported(t *testing.T) {
 		}
 	}
 }
+
+// On 2026-09-30 the CFO's terminal rendered white: it had been started from a
+// Codex tool shell carrying NO_COLOR, TERM=dumb and CODEX_CI. A goblin that
+// cfo spawn, switch or resume starts from such a shell starts from the user's
+// own logon environment instead, so none of those settings reaches it, while
+// the user's PATH and the task's own variables do.
+func TestANativeGoblinDoesNotInheritTheCallersTerminalSettings(t *testing.T) {
+	// Arrange
+	caller := map[string]string{"NO_COLOR": "1", "TERM": "dumb", "CODEX_CI": "1"}
+	for name, value := range caller {
+		t.Setenv(name, value)
+	}
+	service := Service{StateDir: t.TempDir()}
+
+	// Act
+	userEnv, err := service.userEnvironment()
+	if err != nil {
+		t.Fatalf("userEnvironment: %v", err)
+	}
+	env := service.nativeHostEnvironment(userEnv, harness.Launch{Env: map[string]string{harness.RoleVariable: harness.RoleGoblin, "CFO_TASK_ID": "g1"}}, nil)
+
+	// Assert
+	for name := range caller {
+		if hasNativeVariable(env, name) {
+			t.Errorf("the goblin starts with the caller's %s", name)
+		}
+	}
+	for _, name := range []string{"PATH", harness.RoleVariable, "CFO_TASK_ID", "CFO_STATE_OVERRIDE"} {
+		if !hasNativeVariable(env, name) {
+			t.Errorf("the goblin starts without %s", name)
+		}
+	}
+}

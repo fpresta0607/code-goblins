@@ -109,7 +109,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_, project, harness string) error {
+		startNativeCFO: func(_ home.Home, project, harness string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
 			return nil
