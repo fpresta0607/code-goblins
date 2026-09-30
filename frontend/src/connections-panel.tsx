@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { message, request } from "./api";
 import { ConnectionRow } from "./connection-row";
 import { parseConnections, type ConnectionEntry } from "./connections";
@@ -14,6 +14,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   const [loginURL, setLoginURL] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [reads, setReads] = useState(0);
+  const isSignInPending = useRef(false);
   const repairFinishedAt = runs.filter((run) => run.connection_task === task.id && run.connection_generation === task.generation).map((run) => run.finished_at).sort().at(-1) || "";
   const path = "/api/connections?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation);
   useEffect(() => {
@@ -45,11 +46,14 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
     finally { setIsBusy(false); }
   }, [post]);
   useEffect(() => {
-    if (!loginURL) return;
-    const recheck = () => { void refresh(); };
+    const recheck = () => {
+      if (!isSignInPending.current) return;
+      isSignInPending.current = false;
+      void refresh();
+    };
     window.addEventListener("focus", recheck);
     return () => window.removeEventListener("focus", recheck);
-  }, [loginURL, refresh]);
+  }, [refresh]);
   const fix = async (entry: ConnectionEntry, action: string) => {
     setIsBusy(true); setError(""); setNotice(""); setRunId("");
     try {
@@ -59,6 +63,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
       const url = string(result.url);
       if (url && new URL(url).protocol === "https:") {
         setLoginURL(url);
+        isSignInPending.current = true;
         window.open(url, "_blank", "noopener,noreferrer");
       }
     } catch (error: unknown) { setError(message(error)); }
@@ -67,7 +72,7 @@ export function ConnectionsPanel({ task, runs = [], onRepair }: { task: Task; ru
   return <section className="connections-panel" aria-label="Connections">
     <div className="connections-toolbar"><p>{data?.checking || !data ? "Checking connections..." : "Connection health"}</p><button type="button" className="icon-button" aria-label="Recheck connections" data-tip="Recheck connections" data-tip-align="end" disabled={isBusy || !data || data.checking} onClick={() => void refresh()}><Icon name="refresh" /></button></div>
     {(error || data?.error) && <p className="connections-error" role="alert">{error || data?.error}</p>}
-    {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer">Open sign-in</a>}</div>}
+    {notice && <div className="connection-notice"><p role="status">{notice}</p>{runId && onRepair && <button type="button" onClick={() => onRepair("run:" + runId)}>Open repair card</button>}{loginURL && <a href={loginURL} target="_blank" rel="noreferrer" onClick={() => { isSignInPending.current = true; }}>Open sign-in</a>}</div>}
     {[["mcp", "MCP servers"], ["service", "Repository services"], ["credential", "Goblin credentials"]].map(([kind, label]) => {
       const entries = data?.entries.filter((entry) => entry.kind === kind) || [];
       return entries.length > 0 && <div className="connections-group" key={kind}><h4>{label}</h4><ul aria-label={label}>{entries.map((entry) => <ConnectionRow key={entry.id} entry={entry} isBusy={isBusy || !!data?.checking} onFix={(entry, action) => void fix(entry, action)} />)}</ul></div>;

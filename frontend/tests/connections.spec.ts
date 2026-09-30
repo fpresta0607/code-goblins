@@ -125,3 +125,34 @@ test("OAuth opens its sign-in and a failed repair remains visible", async ({ pag
   await expect(page.getByRole("link", { name: "Open sign-in" })).toHaveAttribute("rel", "noreferrer");
   await popup.close();
 });
+
+test("returning from sign-in rechecks once per sign-in attempt", async ({ page, context }) => {
+  let forcedChecks = 0;
+  await context.route("https://example.invalid/**", (route) => route.fulfill({ body: "Scratch sign-in", contentType: "text/html" }));
+  await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "claude", notes: [] } }));
+  await page.route("**/api/connections**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/fix")) return route.fulfill({ json: { url: "https://example.invalid/login", message: "Complete sign-in, then recheck the connection." } });
+    if (path.endsWith("/check")) forcedChecks++;
+    return route.fulfill({ json: { instance: "connections-proof", checking: false, entries: [entries[1]] } });
+  });
+  const returnToBoard = () => page.evaluate(() => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("focus")); });
+  await page.goto("/tests/fixtures/connections.html");
+  await page.getByText("Connections", { exact: true }).click();
+  await returnToBoard();
+  const firstSignIn = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "Sign in to Context7" }).click();
+  await (await firstSignIn).close();
+  await returnToBoard();
+  await expect.poll(() => forcedChecks).toBe(1);
+  await expect(page.getByRole("button", { name: "Recheck connections" })).toBeEnabled();
+  await returnToBoard();
+  await returnToBoard();
+  const secondSignIn = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "Open sign-in" }).click();
+  await (await secondSignIn).close();
+  await returnToBoard();
+  await expect.poll(() => forcedChecks).toBe(2);
+  await expect(page.getByRole("button", { name: "Recheck connections" })).toBeEnabled();
+  expect(forcedChecks).toBe(2);
+});
