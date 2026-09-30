@@ -81,6 +81,23 @@ test("the bubble sits in the pane's corner and opens its recent messages, newest
   await expect(recent).toHaveCount(0);
 });
 
+test("an error note under the open list never covers it", async ({ page }) => {
+  const { bubble, pane } = await openPane(page, "running");
+  await bubble.click();
+  const recent = page.getByRole("dialog", { name: "Recent messages" });
+  await expect(recent).toBeVisible();
+  await pane.evaluate((section) => {
+    const note = document.createElement("p");
+    note.className = "terminal-error";
+    note.textContent = "The microphone is blocked.";
+    section.append(note);
+  });
+  const note = await pane.locator(".terminal-error").boundingBox(), card = await recent.boundingBox();
+  expect(note && card && note.y < card.y + card.height).toBe(true);
+  const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
+  expect(covered).toBe(false);
+});
+
 test("a multiline message pastes as one line, so it never presses Enter, and copies whole", async ({ page }) => {
   const { bubble } = await openPane(page, "running", { entries: [{ text: "run the tests\nthen commit", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }] });
   await bubble.click();

@@ -603,10 +603,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 /* Dictation listens while Ctrl+Shift+Space is held. */
 /* The voice bubble sits in its own strip under the terminal's screen, so it
-   never covers the terminal's text, and above a Herdr pane's history. It
-   stays still while idle: only recording moves, and only with the
-   microphone's level. */
-.voice-dock { position: relative; z-index: 2; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
+   never covers the terminal's text. It stays still while idle: only
+   recording moves, and only with the microphone's level. */
+.voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
 .voice-dock [data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 .voice-bubble { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 64px; height: 40px; padding: 0 16px; border: 1px solid #2c8a6e; border-radius: 999px; background: #0b1f1a; color: var(--mint); box-shadow: 0 0 14px #00e59b33; transition: min-width .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .voice-bubble:hover { border-color: var(--accent); }
