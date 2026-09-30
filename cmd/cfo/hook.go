@@ -475,11 +475,11 @@ const windowEndedBanner = "cfo watch window ended: the Stop hook watched the wak
 
 // stalledWatcher is the failure banner for a watcher a live process holds
 // but has not finished a cycle within the stall window, or "" when no live
-// process holds it. cfo install cannot free a lock a live process holds, so
-// the banner names the holder and says to restart it.
-func stalledWatcher(state string, attempts int) string {
+// process holds it or the watcher is healthy. cfo install cannot free a lock
+// a live process holds, so the banner names the holder and says to restart it.
+func stalledWatcher(state string, grace time.Duration, attempts int) string {
 	holder, err := lock.ReadNamed(state, ".watch.lock")
-	if err != nil || !holder.Alive() {
+	if err != nil || !holder.Alive() || supervise.WatcherHealthy(state, grace) {
 		return ""
 	}
 	since := "has never finished a cycle"
@@ -715,7 +715,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 		if lastErr != nil {
 			lastErrText = lastErr.Error()
 		}
-		if stalled := stalledWatcher(state, attemptsRun); stalled != "" {
+		if stalled := stalledWatcher(state, watcherGrace, attemptsRun); stalled != "" {
 			return claudehook.BlockStop(stderr, stalled)
 		}
 		return claudehook.BlockStop(stderr, fmt.Sprintf(failureBannerFmt, attemptsRun, lastErrText))
