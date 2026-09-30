@@ -247,7 +247,7 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 			stubs := map[string]string{
 				"git":        "@exit /b 0\r\n",
 				"gh":         "@exit /b 0\r\n",
-				"powershell": "@echo child %*>>\"" + record + "\"\r\n@if exist \"%~5\" type \"%~5\">>\"" + record + "\"\r\n@exit /b 0\r\n",
+				"powershell": "@echo child %*>>\"" + record + "\"\r\n@if exist \"%~5\" type \"%~5\">>\"" + record + "\"\r\n@exit /b 1\r\n",
 			}
 			internet := "function Invoke-WebRequest {\n" +
 				"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
@@ -286,6 +286,9 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 			}
 			if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
 				t.Errorf("the install left %v behind", left)
+			}
+			if strings.Contains(string(output), "Refreshing PATH so newly installed tools are visible") {
+				t.Errorf("the install took the machine's PATH into the stripped session:\n%s", output)
 			}
 		})
 	}
