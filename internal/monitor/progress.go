@@ -1,8 +1,12 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -199,7 +203,12 @@ var transcriptPatterns = map[string][]string{
 var sessionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
 // transcriptAt returns when the harness last wrote its session transcript,
-// or zero when the harness keeps none this reads or none was found.
+// or zero when the harness keeps none this reads or none was found. That is
+// the later of the file's write time and its last complete entry's own
+// timestamp: Codex keeps its rollout open and appends to it, and on
+// 2026-09-29 a rollout's write time stayed ninety seconds after its creation
+// for hours while its entries ran on, read alike with os.Stat and from an
+// open handle.
 func transcriptAt(home, harness, session string) time.Time {
 	var latest time.Time
 	if home == "" || !sessionID.MatchString(session) {
@@ -214,7 +223,50 @@ func transcriptAt(home, harness, session string) time.Time {
 			if info, err := os.Stat(match); err == nil && info.ModTime().After(latest) {
 				latest = info.ModTime()
 			}
+			if entry, ok := lastEntryAt(match); ok && entry.After(latest) {
+				latest = entry
+			}
 		}
 	}
 	return latest
+}
+
+// transcriptEntryReach bounds how much of a transcript's end is read for its
+// last entry, since one entry holding a large tool result can run to
+// megabytes.
+const transcriptEntryReach = 4 << 20
+
+// lastEntryAt returns the timestamp of the last complete entry within
+// transcriptEntryReach of the transcript's end. Every harness this reads
+// stamps each entry with a top-level RFC 3339 timestamp; an entry still being
+// written does not parse and is passed over.
+func lastEntryAt(path string) (time.Time, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return time.Time{}, false
+	}
+	start := max(0, info.Size()-transcriptEntryReach)
+	tail := make([]byte, info.Size()-start)
+	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
+		return time.Time{}, false
+	}
+	lines := bytes.Split(tail, []byte("\n"))
+	if start > 0 {
+		// The first piece may begin part way through an entry.
+		lines = lines[1:]
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		var entry struct {
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if json.Unmarshal(lines[i], &entry) == nil && !entry.Timestamp.IsZero() {
+			return entry.Timestamp, true
+		}
+	}
+	return time.Time{}, false
 }

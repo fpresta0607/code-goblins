@@ -101,8 +101,9 @@ var HarnessBillingKeys = []string{
 }
 
 // PowerShellTypedLine renders the full typed launch for harnesses Herdr cannot
-// start natively (npm .cmd shims). Instructions always use Herdr's verified
-// prompt channel after startup. PowerShell 5.1 re-parses embedded double
+// start natively (npm .cmd shims). The instruction is never part of the line:
+// it is typed into the harness's composer as pane text once the composer shows
+// on screen. PowerShell 5.1 re-parses embedded double
 // quotes in native arguments even inside a single-quoted PowerShell literal.
 // Keeping the instruction out of argv also avoids Codex resume's SESSION_ID
 // positional binding.

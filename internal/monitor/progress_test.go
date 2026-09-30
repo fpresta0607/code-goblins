@@ -578,6 +578,66 @@ func TestHostProgressKeepsTheTranscriptWhenProcessInfoFails(t *testing.T) {
 	}
 }
 
+// On 2026-09-29 the monitor woke the CFO about two native Codex goblins with
+// no progress evidence for an hour while both were working. Codex keeps its
+// rollout open and appends to it, and each rollout's write time stayed about
+// ninety seconds after its creation for hours while its entries ran on, read
+// alike with os.Stat and from an open handle. Every harness stamps each
+// transcript entry, so the last complete entry says when the harness last
+// wrote, whatever the file's write time says.
+func TestTranscriptProgressIsReadFromItsLastEntry(t *testing.T) {
+	const session = "01a0ed2e-53e9-7e83-9911-5091a162c513"
+	frozen := time.Date(2026, 9, 29, 12, 41, 27, 0, time.UTC)
+	last := time.Date(2026, 9, 29, 15, 22, 49, 970_000_000, time.UTC)
+	for name, test := range map[string]struct {
+		harness, path string
+		entries       []string
+	}{
+		"codex": {"codex", filepath.Join(".codex", "sessions", "2026", "09", "29", "rollout-2026-09-29T07-40-31-"+session+".jsonl"), []string{
+			`{"timestamp":"2026-09-29T15:22:31.251Z","ordinal":2499,"type":"event_msg","payload":{"type":"agent_message"}}`,
+			`{"timestamp":"2026-09-29T15:22:49.970Z","ordinal":2500,"type":"event_msg","payload":{"type":"task_complete"}}`,
+		}},
+		"claude": {"claude", filepath.Join(".claude", "projects", "C--dev-app", session+".jsonl"), []string{
+			`{"parentUuid":"a1","message":{"role":"user"},"timestamp":"2026-09-29T15:22:31.251Z"}`,
+			`{"parentUuid":"a2","message":{"role":"assistant"},"timestamp":"2026-09-29T15:22:49.970Z"}`,
+		}},
+		"pi": {"pi", filepath.Join(".pi", "agent", "sessions", "--C--dev-app--", "2026-09-29T12-40-31-000Z_"+session+".jsonl"), []string{
+			`{"type":"message","id":"107df141","timestamp":"2026-09-29T15:22:31.251Z","message":{"role":"user"}}`,
+			`{"type":"message","id":"107df142","timestamp":"2026-09-29T15:22:49.970Z","message":{"role":"assistant"}}`,
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			transcript := filepath.Join(home, test.path)
+			if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writer, err := os.OpenFile(transcript, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer writer.Close()
+			// The harness is part way through writing its next entry.
+			if _, err := writer.WriteString(strings.Join(test.entries, "\n") + "\n" + `{"timestamp":"2026-09-29T15:23:`); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(transcript, frozen, frozen); err != nil {
+				t.Fatal(err)
+			}
+			prober := HostProgress{Panes: failingPanes{errors.New("no pane")}, Home: home}
+
+			// Act
+			progress, _ := prober.InspectProgress(context.Background(), state.TaskMeta{}, EndpointSample{Harness: test.harness, Session: session})
+
+			// Assert
+			if !progress.TranscriptAt.Equal(last) {
+				t.Fatalf("TranscriptAt = %v, want %v, the last complete entry's, not the frozen write time %v", progress.TranscriptAt, last, frozen)
+			}
+		})
+	}
+}
+
 type failingPanes struct{ err error }
 
 func (f failingPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {

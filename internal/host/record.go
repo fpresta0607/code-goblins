@@ -24,6 +24,10 @@ type Record struct {
 	HostPID  int       `json:"host_pid"`
 	ChildPID int       `json:"child_pid"`
 	Started  time.Time `json:"started"`
+	// Contained is what Launch knows and no record keeps: its launcher's job
+	// forbids breaking away, so the host runs inside that job and ends when
+	// the job closes.
+	Contained bool `json:"-"`
 }
 
 func recordPath(stateDir, id string) string {
@@ -80,11 +84,23 @@ func writeRecord(stateDir string, record Record) error {
 }
 
 // removeRecord removes the record of terminal id only while it still names
-// hostPID, so a host that ends never removes its successor's record.
+// hostPID, so a host that ends never removes its successor's record. Windows
+// refuses to delete a file another process has open without delete sharing,
+// as Go opens every file, so a removal a reader refuses is tried again until
+// the reader lets go, for at most removeWait.
 func removeRecord(stateDir, id string, hostPID int) {
 	record, err := ReadRecord(stateDir, id)
 	if err != nil || record.HostPID != hostPID {
 		return
 	}
-	_ = os.Remove(recordPath(stateDir, id))
+	for deadline := time.Now().Add(removeWait); ; time.Sleep(20 * time.Millisecond) {
+		err := os.Remove(recordPath(stateDir, id))
+		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+			return
+		}
+	}
 }
+
+// removeWait is how long a record's removal outlasts the readers that refuse
+// it.
+const removeWait = 2 * time.Second

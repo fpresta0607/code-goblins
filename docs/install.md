@@ -18,7 +18,9 @@ In order, it:
 3. Asks once for [your projects folder](#your-projects-folder).
 4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, and the program as `cfo.exe` and `goblins.exe`.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-5. Installs each missing tool the fleet drives: git and gh with winget, Herdr and no-mistakes with their own installers, and Claude Code, Codex, pi and the axi tools with npm, which needs Node.js.
+5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code, Herdr and no-mistakes with their own installers, and Codex, pi and the axi tools with npm, which needs Node.js.
+   Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
+   When npm's copy still comes first on your PATH, it warns and prints the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Kimi has no scriptable installer, so it prints the manual step instead.
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.

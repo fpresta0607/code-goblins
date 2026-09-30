@@ -1,6 +1,9 @@
 package harness
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Claude's trust dialog focuses "No, exit" first. Only the focus on "Yes, I
 // trust this folder" is its answer, and the dialog is recognized however its
@@ -28,7 +31,9 @@ func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 }
 
 // Codex's update prompt is answered with Skip, never Update now or Skip until
-// next version, and its hook review prompt is never answered.
+// next version, and its hook review prompt only with Continue without
+// trusting, never Review hooks or Trust all, its summary row saying how many
+// hooks were left untrusted.
 func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
 	update := []string{"  ✨ Update available! 0.154.0 -> 0.157.0", "", "  1. Update now (runs `npm install -g @openai/codex`)", "  2. Skip", "  3. Skip until next version"}
@@ -41,11 +46,34 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 			t.Errorf("focus on %q: dialog %q, chosen %v; want %v", focused, dialog.Name, dialog.Chosen(focused), want)
 		}
 	}
-	hooks := []string{"  Hooks need review", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
+	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
 	dialog, found := screens.Dialog(hooks)
-	for _, option := range []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"} {
-		if !found || dialog.Chosen(option) {
-			t.Errorf("hook review prompt (found %v) chooses %q, want it never answered", found, option)
+	for option, want := range map[string]bool{"1. Review hooks": false, "2. Trust all and continue": false, "3. Continue without trusting (hooks won't run)": true} {
+		if !found || dialog.Chosen(option) != want {
+			t.Errorf("hook review prompt (found %v) chooses %q: %v, want %v", found, option, dialog.Chosen(option), want)
+		}
+	}
+	if dialog.Summary == nil || dialog.Summary.FindString(strings.Join(hooks, "\n")) != "2 hooks are new or changed" {
+		t.Errorf("hook review summary = %v, want it to find \"2 hooks are new or changed\"", dialog.Summary)
+	}
+}
+
+// Pi's project trust prompt, captured on pi 0.85.1 started without --approve,
+// focuses "Trust" first and is answered only with "Trust (this session
+// only)", which saves nothing to pi's trust store.
+func TestPisTrustPromptIsAnsweredOnlyForThisSession(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	screen := []string{" Trust project folder?", " C:\\dev\\app", "", " This allows pi to load .pi settings and resources, install missing project packages, and execute project extensions.", "", " → Trust", " Trust parent folder", " (C:\\dev)", " Trust (this session only)", " Do not trust", " Do not trust (this session only)", "", " ↑↓ navigate enter select escape/ctrl+c cancel"}
+
+	dialog, found := screens.Dialog(screen)
+	focused, ok := dialog.Focused(screen)
+
+	if !found || !ok || focused != "Trust" {
+		t.Fatalf("Dialog found %v, focused %q (%v); want the trust prompt focused on \"Trust\"", found, focused, ok)
+	}
+	for option, want := range map[string]bool{"Trust": false, "Trust parent folder": false, "Trust (this session only)": true, "Do not trust": false, "Do not trust (this session only)": false} {
+		if got := dialog.Chosen(option); got != want {
+			t.Errorf("Chosen(%q) = %v, want %v", option, got, want)
 		}
 	}
 }
@@ -74,6 +102,61 @@ func TestAComposerIsReadyOnlyWhileNoTurnRuns(t *testing.T) {
 		}
 		if screens.IsReady(test.working) || !screens.IsWorking(test.working) {
 			t.Errorf("%s: %q reads as ready %v, working %v; want working", kind, test.working, screens.IsReady(test.working), screens.IsWorking(test.working))
+		}
+	}
+}
+
+// Codex 0.154's composer, captured live on a native terminal: its footer names
+// the model and folder, not the context left, so the empty composer's
+// placeholder is what shows it ready, at start and after a turn; its working
+// row's glyph alternates between • and ◦.
+func TestCodexsLiveComposerIsReadyAndItsTurnIsWorking(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	footer := "  gpt-6-astra low · ~\\AppData\\Local\\Temp\\cfo-codex-proof\\projects\\proof\\.worktrees\\cxprobe"
+	for name, test := range map[string]struct {
+		screen         []string
+		ready, working bool
+	}{
+		"at start":       {[]string{"  Tip: Use /mcp to list configured MCP tools.", "› Ask Codex to do anything", footer}, true, false},
+		"after a turn":   {[]string{"› Reply with the single word ok and nothing else.", "• ok", "› Ask Codex to do anything", footer + " · Reply with ok"}, true, false},
+		"working":        {[]string{"› Reply with the single word ok and nothing else.", "• Working (0s • esc to interrupt)", "› Ask Codex to do anything", footer}, false, true},
+		"working, later": {[]string{"› Reply with the single word ok and nothing else.", "◦ Working (4s • esc to interrupt)", "› Ask Codex to do anything", footer + " · renaming... ⠏"}, false, true},
+		"follow-up":      {[]string{"› Reply with the single word ok and nothing else.", "• ok", "› Ask a follow-up question", footer}, true, false},
+		"text typed":     {[]string{"› Reply with the single word ok and nothing else.", footer}, false, false},
+	} {
+		if got := screens.IsReady(test.screen); got != test.ready {
+			t.Errorf("%s: ready = %v, want %v", name, got, test.ready)
+		}
+		if got := screens.IsWorking(test.screen); got != test.working {
+			t.Errorf("%s: working = %v, want %v", name, got, test.working)
+		}
+	}
+}
+
+// After its first turn pi's footer leads with the session's token counts and
+// cost, so its context meter is found anywhere in the row, as seen live on pi
+// 0.85.1.
+func TestPisComposerIsReadyAfterItsFirstTurn(t *testing.T) {
+	screens, _ := NativeScreens(Pi)
+	ready := []string{"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)                                   (openrouter) z-ai/glm-5.3-flash • high"}
+
+	if !screens.IsReady(ready) {
+		t.Errorf("%q reads as not ready; want ready", ready)
+	}
+}
+
+// On 2026-09-28 the monitor woke the CFO with "agent turn ended; waiting on
+// input" for a native Claude Code goblin 29 minutes into one turn. Claude
+// Code 2.1.283 draws its spinner from one of three glyph lists, one of them
+// "·✢*✶✻✽", and a turn sampled on its "*" frame read as over, since the
+// composer's footer shows throughout a turn. Every frame of every list reads
+// as a turn in progress.
+func TestAClaudeTurnReadsAsWorkingOnEverySpinnerFrame(t *testing.T) {
+	screens, _ := NativeScreens(Claude)
+	for _, glyph := range []string{"·", "✢", "✳", "*", "✶", "✻", "✽"} {
+		screen := []string{glyph + " Churning… (29m 30s · ↓ 12.4k tokens · esc to interrupt)", "", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+		if !screens.IsWorking(screen) || screens.IsReady(screen) {
+			t.Errorf("a turn on the %q frame reads as working %v, ready %v; want working", glyph, screens.IsWorking(screen), screens.IsReady(screen))
 		}
 	}
 }

@@ -4,6 +4,7 @@ import { message, request } from "./api";
 import { object } from "./types";
 import { fitKey } from "./fit";
 import { Pager } from "./Pager";
+import { RenderBoundary } from "./render-boundary";
 import { orderShown, pendingSettled, rankLabel } from "./priority";
 import { useFit } from "./useFit";
 import { useSortable } from "./useSortable";
@@ -67,14 +68,14 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       <div ref={listRef} className="task-cards ranked">
         {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={fitKey(task.id, index)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
           {rank(index)}
-          {renderCard(task, rankLabel(index, shown.length), index)}
+          <RenderBoundary scope="card">{renderCard(task, rankLabel(index, shown.length), index)}</RenderBoundary>
         </div>; })}
         {!shown.length && empty}
       </div>
       {fit.unmeasured.length > 0 && <div className="task-cards ranked fit-measure" aria-hidden="true" inert>
         {listed.map((task, index) => fit.unmeasured.includes(fitKey(task.id, index)) && <div key={task.id} className="ranked-item" data-fit-key={fitKey(task.id, index)}>
           {rank(index)}
-          {renderCard(task, rankLabel(index, listed.length), index)}
+          <RenderBoundary scope="card">{renderCard(task, rankLabel(index, listed.length), index)}</RenderBoundary>
         </div>)}
       </div>}
     </div>

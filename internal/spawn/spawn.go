@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -32,6 +33,9 @@ const (
 	launchConfirmPoll  = 1500 * time.Millisecond
 	launchConfirmTries = 80
 	instructionTries   = 60
+	// submitRetries is how many more times a typed brief still in its
+	// composer is submitted after the first Enter.
+	submitRetries = 3
 )
 
 // Request is the complete local task creation input. Ship delivery posture is
@@ -369,13 +373,18 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: provision worktree environment: %w", err))
 	}
+	codexServers, err := codexMCPServers(req.Harness)
+	if err != nil {
+		return fail(result, fmt.Errorf("spawn: %w", err))
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: req.BriefPath,
-		TaskTmp:   taskTmp,
-		GoTmp:     goTmp,
-		Model:     req.Model,
-		Effort:    req.Effort,
-		MCPConfig: provision.MCPConfig,
+		BriefPath:       req.BriefPath,
+		TaskTmp:         taskTmp,
+		GoTmp:           goTmp,
+		Model:           req.Model,
+		Effort:          req.Effort,
+		MCPConfig:       provision.MCPConfig,
+		CodexMCPServers: codexServers,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
@@ -413,6 +422,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta)
+	if notice := containedNotice(nativeHost); notice != "" {
+		result.Output += "\n" + notice
+	}
 	if gitignoreNotice != "" {
 		result.Output += "\n" + gitignoreNotice
 	}
@@ -466,6 +478,20 @@ func goblinMCPConfig(taskTmp string) string {
 		return ""
 	}
 	return path
+}
+
+// codexMCPServers names the operator's Codex MCP servers a Codex goblin turns
+// off, and refuses one it cannot turn off; any other harness has none to turn
+// off.
+func codexMCPServers(kind harness.Kind) ([]string, error) {
+	if kind != harness.Codex {
+		return nil, nil
+	}
+	servers, err := harness.CodexMCPServers()
+	if err != nil {
+		return nil, err
+	}
+	return servers, harness.CheckCodexMCPServers(servers)
 }
 
 // reservedLaunchEnv names the environment the launch contract owns. It is
@@ -580,6 +606,10 @@ func (s Service) startHarness(ctx context.Context, client terminal.Backend, targ
 		launch.Env["CFO_STATE_OVERRIDE"] = s.StateDir
 	}
 	if launch.TypedLaunch {
+		screens, ok := harness.NativeScreens(plan.Harness)
+		if !ok {
+			return false, fmt.Errorf("spawn: %s launches typed but has no screen a spawn can read", plan.Harness)
+		}
 		line, err := launch.PowerShellTypedLine()
 		if err != nil {
 			return false, fmt.Errorf("spawn: render typed harness launch: %w", err)
@@ -599,10 +629,13 @@ func (s Service) startHarness(ctx context.Context, client terminal.Backend, targ
 		if err := s.sleep(ctx, launchSettle); err != nil {
 			return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
 		}
+		if err := s.awaitPaneComposer(ctx, client, target, plan.Harness, screens, launch); err != nil {
+			return true, err
+		}
 		if _, err := s.reportUndetectedHarness(ctx, client, target, plan); err != nil {
 			return true, err
 		}
-		if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
+		if err := s.deliverTypedInstruction(ctx, client, target, plan.Harness, screens, launch); err != nil {
 			return true, err
 		}
 		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
@@ -884,11 +917,11 @@ func (s Service) confirmHarnessDialogs(ctx context.Context, client terminal.Back
 }
 
 // confirmLaunch waits for the launched harness to report working after its
-// brief has been delivered through the native prompt channel or the typed
-// launch line. On timeout it re-probes agent liveness: a pane that herdr does
-// not report as empty - alive, or simply unreadable - is adopted rather than
-// declared failed, so a false timeout cannot orphan a live goblin. An idle or
-// blocked agent is a healthy Claude waiting at its prompt.
+// brief has been delivered through the native prompt channel or typed into a
+// typed launch's composer. On timeout it re-probes agent liveness: a pane that
+// herdr does not report as empty - alive, or simply unreadable - is adopted
+// rather than declared failed, so a false timeout cannot orphan a live goblin.
+// An idle or blocked agent is a healthy Claude waiting at its prompt.
 //
 // Herdr recognizes a harness by matching pane output against a per-harness
 // detection manifest, so a harness whose manifest has fallen behind its
@@ -929,6 +962,218 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
 	}
 	return nil
+}
+
+// awaitPaneComposer waits until a typed launch's harness shows its composer
+// in the pane, read with the harness's own screen markers as a native spawn
+// reads its terminal. A shell never shows a composer, so a harness that never
+// started, or left at once, stops the spawn here with the pane's screen
+// instead of having its brief run as shell commands. A dialog a spawn never
+// answers (Codex's hook review) stops the spawn before any key is pressed,
+// unless the launch itself confirms it (the trust prompt of a pi without
+// --approve). A dialog the launch confirms is confirmed again should it
+// show late, paced as confirmHarnessDialogs paces it, and pressed again only
+// once a later screen that has changed still shows it, so a frame not yet
+// redrawn never takes a second key. Any other dialog the harness is known to
+// show stops the spawn, since a brief typed into a dialog is lost or taken as
+// its answer, and the composer counts as shown only once it has shown on every
+// read throughout nativeReadySettle, since a harness can draw a dialog over it
+// a moment later.
+func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
+	var screen, confirmed []string
+	var readErr error
+	ready := 0
+	poll := nativePoll
+	for attempt := 0; attempt < int(nativeStartup/nativePoll); attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, poll); err != nil {
+				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
+			}
+		}
+		poll = nativePoll
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
+			}
+			readErr, ready = err, 0
+			continue
+		}
+		screen, readErr = read, nil
+		dialog, found := screens.Dialog(screen)
+		if found && dialog.Accept == "" && !containsMarker(strings.Join(dialog.Markers, "\n"), launch.ConfirmMarkers) {
+			return fmt.Errorf("spawn: %s shows %s, which a spawn never answers, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
+		}
+		if containsMarker(strings.Join(screen, "\n"), launch.ConfirmMarkers) {
+			if slices.Equal(screen, confirmed) {
+				continue
+			}
+			for _, key := range launch.ConfirmKeys {
+				if err := client.SendKey(ctx, target, key); err != nil {
+					return fmt.Errorf("spawn: confirm %s's startup dialog: %w", kind, err)
+				}
+				if err := s.sleep(ctx, launchSettle); err != nil {
+					return fmt.Errorf("spawn: wait between %s's dialog keys: %w", kind, err)
+				}
+			}
+			confirmed, poll, ready = screen, launchConfirmPoll, 0
+			continue
+		}
+		if found {
+			return fmt.Errorf("spawn: %s shows %s where its composer should be, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
+		}
+		if !screens.IsReady(screen) {
+			ready = 0
+		} else if ready++; ready > readySettleReads() {
+			return nil
+		}
+	}
+	if readErr != nil {
+		return fmt.Errorf("spawn: %s's pane could not be read within %s, so its brief was not typed: %w", kind, nativeStartup, readErr)
+	}
+	return fmt.Errorf("spawn: %s never showed its composer within %s, so its brief was not typed; its screen ends:\n%s", kind, nativeStartup, host.ScreenTail(screen, 8))
+}
+
+// deliverTypedInstruction types a typed launch's brief into its harness's
+// composer and proves the harness took it as a native spawn proves it: the
+// harness's native hooks report a prompt taken since the submit, or its pane
+// shows it working. Herdr's own counters move on any redraw, so they prove
+// nothing here.
+//
+// The brief is typed as pane text, never through Herdr's agent prompt, so it
+// needs no agent Herdr has registered: a Codex that Herdr had not registered
+// yet refused one live with agent_not_found. A write Herdr refuses is written
+// again only while the composer shows none of the brief, so it is never typed
+// twice, and Enter is pressed only once the composer shows it.
+//
+// A harness that reads fast typing as a paste can take the Enter that ends it
+// as part of the paste and leave the brief in its composer, so while the brief
+// still shows and no turn has started, Enter is pressed again, further apart
+// each time, up to submitRetries more times. An Enter on an empty composer
+// submits nothing, so the brief is never handed over twice. An Enter Herdr
+// refuses counts as not pressed: the first is pressed again at the next poll
+// and a later one at the next spacing, so a briefly busy Herdr never fails the
+// spawn while its budget lasts.
+func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
+	instruction := launch.PromptInstruction()
+	screen, err := s.typeIntoComposer(ctx, client, target, kind, screens, instruction)
+	if err != nil {
+		return err
+	}
+	if err := s.sleep(ctx, launchSettle); err != nil {
+		return fmt.Errorf("spawn: wait before submitting %s's brief: %w", kind, err)
+	}
+	submitted := time.Now()
+	presses, sincePress := 0, 0
+	var enterErr error
+	pressEnter := func() error {
+		if err := client.SendKey(ctx, target, "Enter"); err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
+			}
+			enterErr, sincePress = err, 0
+			return nil
+		}
+		enterErr, presses, sincePress = nil, presses+1, 0
+		return nil
+	}
+	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
+		if presses == 0 {
+			if err := pressEnter(); err != nil {
+				return err
+			}
+		}
+		if err := s.sleep(ctx, nativePoll); err != nil {
+			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+		}
+		sincePress++
+		if s.PromptSince != nil {
+			if taken, err := s.PromptSince(launch.Env["CFO_TASK_ID"], launch.Env["CFO_SPAWN_GEN"], submitted); err == nil && taken {
+				return nil
+			}
+		}
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
+			}
+			continue
+		}
+		screen = read
+		if screens.IsWorking(screen) {
+			return nil
+		}
+		if presses > 0 && presses <= submitRetries && sincePress >= presses*int(time.Second/nativePoll) && screens.Shows(screen, instruction) {
+			if err := pressEnter(); err != nil {
+				return err
+			}
+		}
+	}
+	if presses == 0 {
+		return fmt.Errorf("spawn: could not submit %s's brief within %s: %w", kind, nativeAccepted, enterErr)
+	}
+	if enterErr != nil {
+		return fmt.Errorf("spawn: %s never showed it took its brief within %s and its last Enter was refused: %w; its screen ends:\n%s", kind, nativeAccepted, enterErr, host.ScreenTail(screen, 8))
+	}
+	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
+}
+
+// typeIntoComposer types text into the harness's composer and returns once
+// the composer shows it. A write Herdr refuses may still have typed, so it is
+// written again only once a read taken after launchSettle succeeds and shows
+// none of the text; a read that fails leaves it unwritten until one succeeds.
+func (s Service) typeIntoComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, text string) ([]string, error) {
+	var screen []string
+	var writeErr error
+	typed, write := false, true
+	for attempt := 0; attempt < int(nativeKeyEffect/nativePoll); attempt++ {
+		if attempt > 0 {
+			if err := s.sleep(ctx, nativePoll); err != nil {
+				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
+			}
+		}
+		if write {
+			write = false
+			if err := client.SendLiteral(ctx, target, text); err != nil {
+				if herdr.WaitError(ctx, err) {
+					return nil, fmt.Errorf("spawn: type %s's brief: %w", kind, err)
+				}
+				writeErr = err
+				if err := s.sleep(ctx, launchSettle); err != nil {
+					return nil, fmt.Errorf("spawn: wait for %s's composer after a refused write: %w", kind, err)
+				}
+			} else {
+				typed, writeErr = true, nil
+			}
+		}
+		read, err := readPane(ctx, client, target)
+		if err != nil {
+			if herdr.WaitError(ctx, err) {
+				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
+			}
+			continue
+		}
+		screen = read
+		if screens.Shows(screen, text) {
+			return screen, nil
+		}
+		write = writeErr != nil
+	}
+	if !typed {
+		return nil, fmt.Errorf("spawn: could not type %s's brief within %s: %w", kind, nativeKeyEffect, writeErr)
+	}
+	return nil, fmt.Errorf("spawn: the brief typed into %s's composer never showed there within %s, so it was not submitted; its screen ends:\n%s", kind, nativeKeyEffect, host.ScreenTail(screen, 8))
+}
+
+// readPane reads only the rows the pane shows now, so the screen a harness
+// that ran in the pane before left in its scrollback cannot pass for the one
+// just launched.
+func readPane(ctx context.Context, client terminal.Backend, target herdr.Target) ([]string, error) {
+	capture, err := client.VisibleScreen(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n"), nil
 }
 
 // reportUndetectedHarness registers the launched harness with Herdr when

@@ -219,13 +219,19 @@ button.task-card:active, .workflow-node:active { transform: none; box-shadow: va
 .connection-line path { fill: none; stroke: #637b8c; stroke-width: 2; }
 .connection-line circle { fill: #bad4ec; }
 .connection-line.relation-delegated path { stroke-dasharray: 7 4; }
-.connection-line.communicating path { stroke: #57e5bf; }
-.connection-line.communicating circle { fill: #86ffe0; }
-.connection-line.creating path { stroke: #70bfa9; stroke-width: 3; }
-.connection-line.creating circle { fill: #9adbc9; }
+/* A pulse or birth highlight lays over its connector for its whole life,
+   which the board sets as the animation's duration, and fades out before it
+   is removed. Its dash travels one full dash pattern per loop, so it keeps
+   moving without a jump until the fade ends. */
+.connector-effect { animation: effect-life ease-in-out forwards; }
+.connector-effect.communicating path { stroke: #57e5bf; }
+.connector-effect.communicating circle { fill: #86ffe0; }
+.connector-effect.creating path { stroke: #70bfa9; stroke-width: 3; }
+.connector-effect.creating circle { fill: #9adbc9; }
 .connection-line text { fill: #bcffe9; font-size: 15px; }
-.connection-line .communication-pulse { stroke-width: 5; stroke-dasharray: 14 230; animation: guidance 2.5s linear 1; }
-@keyframes guidance { to { stroke-dashoffset: -210; } }
+.connection-line .communication-pulse { stroke-width: 5; stroke-dasharray: 14 230; animation: guidance 2.5s linear infinite; }
+@keyframes guidance { to { stroke-dashoffset: -244; } }
+@keyframes effect-life { 0%, 80% { opacity: 1; } 95%, 100% { opacity: 0; } }
 .flow-node { position: absolute; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 18px; background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease; }
 .flow-node-main { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 15px 22px 15px 8px; border: none; border-radius: inherit; background: transparent; text-align: left; touch-action: none; cursor: grab; }
 .flow-node-main:active { cursor: grabbing; }
@@ -318,6 +324,9 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid #2f6b58; border-radius: 14px; background: #10251f; color: #c9f2e2; font-weight: 700; }
 .update-banner .primary { min-height: 36px; padding: 6px 16px; }
 .error-box button { display: block; margin-top: 10px; }
+.render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
+.render-error span { flex: 1; }
+.render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
 .decision { padding: 14px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
 .decision p { white-space: pre-wrap; }
@@ -417,10 +426,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .badge { color: #c4e0d4; }
 .lineage-warning { color: var(--amber); font-size: .9375rem; overflow-wrap: anywhere; }
 .workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; border-left: 1px solid #3b6257; }
-.compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; }
-.compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -8px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out 1; }
-.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 40px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; }
-@keyframes compact-guidance { to { transform: translateY(48px); } }
+.compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
+.compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
+.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 40px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
+@keyframes compact-guidance { to { transform: translateY(52px); } }
 .workflow-children .workflow-children { margin-left: 0; }
 .workflow-children .workflow-children .workflow-children { padding-left: 0; border-left: 0; }
 @media (max-width: 90rem) {
@@ -538,7 +547,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
 .panel-header.compact h2 { font-size: 1.375rem; }
 .panel-header.compact .panel-actions { grid-column: auto; }
-.panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; }
+.panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; scrollbar-gutter: stable; }
 .panel-content { padding: 0 28px 30px; }
 .panel-content > .disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; margin: 0; }
 .panel-content > .disclosure > summary { padding: 22px 0; font-size: 1.25rem; }
@@ -824,7 +833,7 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .ranked-item { position: relative; min-width: 0; }
 .ranked-item:hover, .ranked-item:focus-within { z-index: 3; }
 .ranked-item.dragging { z-index: 5; }
-.ranked-item .task-card { padding-left: 44px; }
+.ranked-item .task-card, .ranked-item .render-error { padding-left: 44px; }
 .ranked-item .card-waiting { left: 100px; }
 @media (hover: hover) and (pointer: fine) {
   .ranked-item .task-card { cursor: grab; }

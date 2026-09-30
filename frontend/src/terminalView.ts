@@ -45,7 +45,12 @@ export class TerminalView {
   private written = 0;
   private consumed = 0;
   private acknowledged = 0;
+  // owner is whether the terminal has the size this view last claimed.
   private owner = true;
+  private claimed: { cols: number; rows: number } | null = null;
+  // claimedAt is how much output was drawn when the terminal first took this
+  // view's size; the repaint that size asked for follows it.
+  private claimedAt = -1;
   private sized = false;
   private isReady = false;
   private isShown = false;
@@ -148,9 +153,11 @@ export class TerminalView {
     if (typeof data === "string") {
       const history = parseHistory(data);
       if (history !== null) { this.history = history; return; }
-      // Another view sized the terminal: draw at its size until typed into.
+      // The terminal took a size here in its output. xterm parses writes in
+      // order and calls back after each, so the grid changes once the output
+      // before the size is drawn, and before the output after it.
       const size = parseSize(data);
-      if (size && (size.cols !== this.term.cols || size.rows !== this.term.rows)) { this.owner = false; this.resizeGrid(size.cols, size.rows); }
+      if (size) this.term.write("", () => this.took(size.cols, size.rows));
       return;
     }
     const bytes = new Uint8Array(data);
@@ -162,10 +169,20 @@ export class TerminalView {
     });
   }
 
-  // The screen is whole once live output after the view's size, the repaint,
-  // is drawn and no synchronized update holds it back.
+  // The screen is whole once live output after the terminal took the view's
+  // size, the repaint, is drawn and no synchronized update holds it back.
   private readyIfDrawn(): void {
-    if (this.sized && this.history >= 0 && this.consumed > this.history && !this.frames.updating) this.markReady();
+    if (this.claimedAt >= 0 && this.history >= 0 && this.consumed > Math.max(this.history, this.claimedAt) && !this.frames.updating) this.markReady();
+  }
+
+  // took draws at the size the terminal took. Another view's size is drawn
+  // until this view is typed into.
+  private took(cols: number, rows: number): void {
+    if (this.disposed) return;
+    this.resizeGrid(cols, rows);
+    this.owner = this.claimed?.cols === cols && this.claimed.rows === rows;
+    if (this.owner && this.claimedAt < 0 && this.history >= 0 && this.consumed >= this.history) this.claimedAt = this.consumed;
+    this.readyIfDrawn();
   }
 
   private markReady(): void {
@@ -181,8 +198,10 @@ export class TerminalView {
   }
 
   // claim sizes the terminal to this panel, which makes this view its owner.
-  // The first size repaints the screen even when it matches; later ones reach
-  // the pseudo console once the panel has settled.
+  // The grid changes only when the terminal takes the size, at that point in
+  // its output, so output written for the old size is never drawn on the new
+  // grid. The first size repaints the screen even when it matches; later ones
+  // reach the pseudo console once the panel has settled.
   private claim(): void {
     if (this.disposed || !this.isShown || !this.step("claim")) return;
     const panel = this.element.getBoundingClientRect();
@@ -191,11 +210,12 @@ export class TerminalView {
     this.term.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`;
     if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); return; }
     if (this.socket.readyState !== WebSocket.OPEN) return;
-    if (this.sized && this.owner && size.cols === this.term.cols && size.rows === this.term.rows) return;
+    if (this.sized && this.owner && size.cols === this.claimed?.cols && size.rows === this.claimed.rows) return;
     this.owner = true;
-    this.resizeGrid(size.cols, size.rows);
+    const claimed = { cols: size.cols, rows: size.rows };
+    this.claimed = claimed;
     clearTimeout(this.settle);
-    const report = () => this.send(JSON.stringify({ type: "resize", cols: this.term.cols, rows: this.term.rows }));
+    const report = () => this.send(JSON.stringify({ type: "resize", ...claimed }));
     if (this.sized) { this.settle = setTimeout(report, RESIZE_SETTLE_MS); return; }
     this.sized = true;
     report();

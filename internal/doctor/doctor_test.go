@@ -3,14 +3,37 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
+
+// fakeClaudeVersion is what fakeClaude answers to --version.
+const fakeClaudeVersion = "2.1.0 (Claude Code)"
+
+// fakeClaude copies this test binary into dir as claude.exe, a program as the
+// native build of Claude Code is, which TestMain answers as that build.
+func fakeClaude(t *testing.T, dir string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude.exe"), program, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // fakeTool writes a .bat file that prints out and exits with code.
 func fakeTool(t *testing.T, dir, name, out string, code int) {
@@ -31,8 +54,8 @@ func TestRunAllToolsPresent(t *testing.T) {
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 11 {
-		t.Fatalf("len = %d, want 11 (10 tools + hook-pairing)", len(checks))
+	if len(checks) != 12 {
+		t.Fatalf("len = %d, want 12 (10 tools + conpty + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -52,8 +75,11 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[9].Name != "winget" || checks[9].Err != "" || !checks[9].Installer {
 		t.Errorf("checks[9] = %+v, want winget as an installer-only check", checks[9])
 	}
-	if checks[10].Name != "hook-pairing" {
-		t.Errorf("checks[10] = %+v, want hook-pairing", checks[10])
+	if checks[10].Name != "conpty" || checks[10].Err != "" {
+		t.Errorf("checks[10] = %+v, want this Windows's pseudo console available", checks[10])
+	}
+	if checks[11].Name != "hook-pairing" {
+		t.Errorf("checks[11] = %+v, want hook-pairing", checks[11])
 	}
 }
 
@@ -194,21 +220,83 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 	}
 }
 
-func TestRunBrokenHerdrReportsFailure(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi"} {
-		fakeTool(t, dir, name, name+" ok", 0)
-	}
-	fakeTool(t, dir, "herdr", "boom", 1)
-	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
+// Herdr is reported but optional: a goblin or CFO in a native terminal needs
+// none, so a missing or broken Herdr never makes the environment unhealthy.
+func TestRunMissingOrBrokenHerdrIsOptional(t *testing.T) {
+	for name, herdrExits := range map[string]int{"missing": -1, "broken": 1} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, tool := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+				fakeTool(t, dir, tool, tool+" ok", 0)
+			}
+			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+			if herdrExits >= 0 {
+				fakeTool(t, dir, "herdr", "boom", herdrExits)
+			}
+			t.Setenv("PATH", dir)
+			t.Setenv("CFO_HOME", t.TempDir())
 
-	checks := Run()
-	if Healthy(checks) {
-		t.Fatal("Healthy = true with herdr --version failing")
+			checks := Run()
+
+			if checks[2].Name != "herdr" || checks[2].Err == "" || !strings.Contains(checks[2].Optional, "Herdr") {
+				t.Errorf("herdr check = %+v, want its failure reported as optional", checks[2])
+			}
+			if !Healthy(checks) {
+				t.Errorf("Healthy = false with only herdr failing: %+v", checks)
+			}
+		})
 	}
-	if checks[2].Name != "herdr" || checks[2].Err == "" {
-		t.Errorf("herdr check = %+v, want version failure", checks[2])
+}
+
+// Without a pseudo console no native terminal can run, so its absence makes
+// the environment unhealthy with what Windows it needs.
+func TestRunWithoutAPseudoConsoleIsUnhealthy(t *testing.T) {
+	original := pseudoConsole
+	pseudoConsole = windows.NewLazySystemDLL("kernel32.dll").NewProc("NoSuchPseudoConsoleProcedure")
+	t.Cleanup(func() { pseudoConsole = original })
+
+	check := checkConPTY()
+
+	if check.Name != "conpty" || check.Err == "" || !strings.Contains(check.Hint, "1809") {
+		t.Errorf("conpty check = %+v, want it missing with the Windows it needs", check)
+	}
+	if Healthy([]Check{check}) {
+		t.Error("Healthy = true without a pseudo console")
+	}
+}
+
+// A native terminal starts Claude Code as a program, so a claude found only
+// as a script shim, such as npm's claude.cmd, is broken with the native
+// build's installer, and npm's own copy names its removal too.
+func TestProbeHarnessesRefusesAClaudeScriptShim(t *testing.T) {
+	const npmUninstall = "npm uninstall -g @anthropic-ai/claude-code"
+	for _, tc := range []struct {
+		name          string
+		isNpmsScript  bool
+		wantUninstall bool
+	}{
+		{name: "a script", isNpmsScript: false, wantUninstall: false},
+		{name: "npm's script", isNpmsScript: true, wantUninstall: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			fakeTool(t, dir, "claude", "claude 1.0.0", 0)
+			if tc.isNpmsScript {
+				if err := os.MkdirAll(filepath.Join(dir, "node_modules", "@anthropic-ai", "claude-code"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", dir)
+
+			probes := ProbeHarnesses(context.Background())
+
+			if probes[0].Name != "claude" || probes[0].OK || !strings.Contains(probes[0].Detail, "claude.bat") || !strings.Contains(probes[0].Detail, "irm https://claude.ai/install.ps1 | iex") {
+				t.Errorf("claude probe = %+v, want the script refused with the native build's installer", probes[0])
+			}
+			if got := strings.Contains(probes[0].Detail, npmUninstall); got != tc.wantUninstall {
+				t.Errorf("claude probe detail = %q, names %q = %v, want %v", probes[0].Detail, npmUninstall, got, tc.wantUninstall)
+			}
+		})
 	}
 }
 
@@ -279,7 +367,7 @@ func TestRunMissingGateAndAXICapabilityToolsCarryInstallHints(t *testing.T) {
 
 func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	dir := t.TempDir()
-	fakeTool(t, dir, "claude", "claude 1.0.0", 0)
+	fakeClaude(t, dir)
 	fakeTool(t, dir, "codex", "boom", 1)
 	t.Setenv("PATH", dir)
 
@@ -287,7 +375,7 @@ func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	if len(probes) != 4 {
 		t.Fatalf("len = %d, want 4 (every supported harness): %+v", len(probes), probes)
 	}
-	if probes[0].Name != "claude" || !probes[0].OK || probes[0].Detail != "claude 1.0.0" {
+	if probes[0].Name != "claude" || !probes[0].OK || probes[0].Detail != fakeClaudeVersion {
 		t.Errorf("claude probe = %+v, want ok with the version line", probes[0])
 	}
 	if probes[1].Name != "codex" || probes[1].OK || probes[1].Detail == "" {
@@ -479,6 +567,10 @@ func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
+	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
+		fmt.Println(fakeClaudeVersion)
+		os.Exit(0)
+	}
 	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE"} {
 		if err := os.Unsetenv(name); err != nil {
 			panic(err)

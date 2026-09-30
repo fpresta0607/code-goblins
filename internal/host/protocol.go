@@ -21,15 +21,21 @@ const (
 	// frameHello opens a connection: the client's version and token, then
 	// the host's version or its refusal.
 	frameHello byte = 'h'
-	// frameOutput carries terminal output to a client. The first one after
-	// the handshake is the history, even when it is empty, so the client
-	// knows where the replay ends and the live output begins.
+	// frameOutput carries terminal output to a client. For a viewer that did
+	// not ask for sizes, the first one after the handshake is the history,
+	// even when it is empty, so the client knows where the replay ends and
+	// the live output begins. A viewer that asked for sizes learns the
+	// history's length from the handshake's History instead, and may receive
+	// the history as several output frames around size frames.
 	frameOutput byte = 'o'
 	// frameInput carries typed bytes to the terminal.
 	frameInput byte = 'i'
 	// frameResize carries the terminal's new width and height in cells, two
 	// big-endian bytes each.
 	frameResize byte = 'r'
+	// frameSize tells a viewer that asked for sizes the terminal's width and
+	// height in cells, as frameResize does, from this point in its output on.
+	frameSize byte = 'z'
 	// frameClose asks the host to end the terminal and everything in it.
 	frameClose byte = 'c'
 	// frameExit tells a client the terminal ended, with its exit code as four
@@ -59,8 +65,35 @@ type hello struct {
 	// acknowledged once written. The host's answer carries it back when it
 	// serves one; a host that does not know it answers as to a viewer,
 	// without it, and the client types nothing.
-	Deliver bool   `json:"deliver,omitempty"`
+	Deliver bool `json:"deliver,omitempty"`
+	// Sizes, from a viewer, asks to be told the terminal's size in order with
+	// its output: the size its history starts at, then each resize at its
+	// place. The host's answer carries it back with History, how many output
+	// bytes replay the history, when it serves one; a host that does not know
+	// it answers as to a viewer that did not ask, whose first output frame is
+	// the history.
+	Sizes   bool   `json:"sizes,omitempty"`
+	History int    `json:"history,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// sizePayload is a resize or size frame's payload.
+func sizePayload(cols, rows int) ([]byte, error) {
+	if cols < 0 || rows < 0 || cols > 0xFFFF || rows > 0xFFFF {
+		return nil, fmt.Errorf("host: size %dx%d does not fit a frame", cols, rows)
+	}
+	var size [4]byte
+	binary.BigEndian.PutUint16(size[:2], uint16(cols))
+	binary.BigEndian.PutUint16(size[2:], uint16(rows))
+	return size[:], nil
+}
+
+// parseSize reads a resize or size frame's payload.
+func parseSize(payload []byte) (cols, rows int, ok bool) {
+	if len(payload) != 4 {
+		return 0, 0, false
+	}
+	return int(binary.BigEndian.Uint16(payload)), int(binary.BigEndian.Uint16(payload[2:])), true
 }
 
 func writeFrame(w io.Writer, kind byte, payload []byte) error {

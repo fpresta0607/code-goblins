@@ -62,7 +62,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions: a Claude Code goblin in a native terminal of its own (a pseudo console that outlives every window) by default, and a codex, pi or kimi goblin in [Herdr](https://herdr.dev) until each is proven natively, avoiding a shell-script orchestration layer on the hot path.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions: a Claude Code, pi or codex goblin in a native terminal of its own (a pseudo console that outlives every window) by default, and a kimi goblin in [Herdr](https://herdr.dev), avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
@@ -89,6 +89,10 @@ The production-proof layer is intentionally fail-closed: delivery evidence must 
 ### Project-scoped credentials
 
 Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
+
+Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history.
+For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.
+All other content is preserved.
 
 ### Recovery instead of babysitting
 
@@ -214,12 +218,12 @@ A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past th
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
 A move the board cannot save, such as one made while the CFO changed the queue, goes back, with the reason under the column.
 
-The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 3 GB floor and at the 4 GB mark at which the CFO starts the next task.
-The bar spans 8 GB, so a full bar means the next task starts, and its fill turns amber under the 4 GB mark and red under the floor.
+The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and at the 5 GB mark at which the CFO starts the next task.
+The bar spans 10 GB, so a full bar means the next task starts, and its fill turns amber under the 5 GB mark and red under the floor.
 The top task is marked **Next**; the board itself starts nothing on its own.
-Every queued card carries the same **Start now**, a play button in its top corner, which starts that task at once, even below the 4 GB mark.
+Every queued card carries the same **Start now**, a play button in its top corner, which starts that task at once, even below the 5 GB mark.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
-Start is refused, with the reason on the card, when less than 3 GB of memory is free, when the task has no brief yet, or while another task is starting; a start `cfo spawn` refuses shows its reason on the card too.
+Start is refused, with the reason on the card, when less than 4 GB of memory is free, when the task has no brief yet, or while another task is starting; a start `cfo spawn` refuses shows its reason on the card too.
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
 
@@ -236,18 +240,24 @@ A live goblin's card also carries a terminal button, shown on hover or keyboard 
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
 The Terminal view is the goblin's live terminal, edge to edge.
-A goblin in a native terminal (what `cfo spawn` starts for Claude Code by default, and for codex or pi with `--backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
+A goblin in a native terminal (what `cfo spawn` starts for Claude Code by default, and for codex or pi with `--backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `cfo switch <id>` resumes it in its own session.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
+The board and an Open in Windows Terminal window can show the same terminal at once.
+A board view draws every piece of output at the size it was written for.
+The Open window draws on its own window's grid and takes the terminal's size back with its next key.
+Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A goblin still in Herdr stays live and sized to the panel while its view is open, focused or not, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom, and follows the panel as it changes size; a Herdr window shows it at the board's size, and closing the view hands the pane back its Herdr size; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
-A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, unless a review gate owns the goblin, when the board says to scroll it in Herdr.
+A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, from the first turn and without piling up turns after the wheel stops, unless a review gate owns the goblin, when the board says to scroll it in Herdr; once it is scrolled up, a click on it jumps back to the bottom, as **Ctrl+End** does.
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
+New native hosts explicitly request interactive Windows scheduling, so typing and dictated bursts remain responsive when their hidden console would otherwise be treated as background work.
+Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: the browser's own speech recognition listens while the keys are held, and releasing them types what it heard as one line, which **Enter** sends.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 
@@ -424,7 +434,7 @@ The core is intentionally local-first:
 - `internal/spawn/` — task dispatch and worktree preparation.
 - `internal/herdr/` — terminal/session integration.
 - `internal/terminal/` - the terminal backend that the fleet commands, the board's supervisor, the monitor and the CFO launcher drive; Herdr is the only one today, and `terminaltest` holds an in-memory one for tests.
-- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object that ends its whole tree, for the native terminal host.
+- `internal/conpty/` - runs one process in a Windows pseudo console, inside a job object, for the native terminal host; a process that asks to break away (a goblin host, a detached serve) leaves the job, and everything else ends with the terminal.
 - `internal/host/` - `cfo host`: one goblin terminal per process, outliving the supervisor and every window, served over a named pipe only this Windows user can open; its screen is read from its console, exactly as the terminal's program sees it, for `cfo peek`.
 - `internal/fleet/` — fleet truth, targeting, steering and inspection.
 - `internal/supervise/` / `internal/watch/` — unattended supervision and recovery.
@@ -441,7 +451,7 @@ The control plane is local. Your coding harnesses may still call their model pro
 
 Code Goblins is becoming a native Windows desktop app.
 
-- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code goblins this way by default, codex and pi with `--backend native` until each is proven natively, and `goblins --native` starts the CFO so.
+- **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code, pi and codex goblins this way by default, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
 

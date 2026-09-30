@@ -92,7 +92,8 @@ A hook runs only when its hash is trusted in the user configuration (review it i
 
 **MCP.**
 Servers come only from `[mcp_servers]` in the `config.toml` layers; a project `.mcp.json` is never read.
-A Codex goblin therefore uses the operator's own Codex servers, not the filtered project configuration spawn prepares.
+A Codex goblin therefore starts none of them: spawn and switch read each server the operator's `config.toml` (in `CODEX_HOME`, or `~/.codex`) defines and turn it off with `-c mcp_servers.<name>.enabled=false`.
+It gets neither the operator's own Codex servers nor the filtered project configuration spawn prepares.
 
 **Trust.**
 Project `.codex` configuration and hooks load only for a trusted project.
@@ -146,7 +147,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 1. **The worktree.** `<project>/.worktrees/gb-<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `GOTMPDIR`, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
-3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`.
+3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, so it draws in Claude's classic interface whatever the operator's `tui` setting and its history stays in the terminal's own scrollback.
    Codex: `--dangerously-bypass-approvals-and-sandbox`.
    Pi: `--tui-mode regular`.
    Kimi: no extra flags.

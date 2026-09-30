@@ -317,7 +317,7 @@
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "claude";              Kind = "npm";        Cmd = "npm.cmd install -g @anthropic-ai/claude-code" },
+        @{ Name = "claude";              Kind = "powershell"; Cmd = "irm https://claude.ai/install.ps1 | iex" },
         @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
@@ -338,6 +338,11 @@
     $installedAny = $false
     foreach ($tool in $tools) {
         $found = Get-Command $tool.Name -ErrorAction SilentlyContinue
+        # A native terminal starts Claude Code only as claude.exe, so a script
+        # such as npm's claude.cmd does not count as present.
+        if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
+            $found = $null
+        }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
             continue
@@ -376,6 +381,30 @@
         }
     }
 
+    # Claude Code's native installer puts claude.exe, the build a native
+    # terminal starts, in ~\.local\bin and may leave that off PATH. The user
+    # PATH keeps its registry kind, as cfo install keeps it, so its %VARIABLE%
+    # entries survive.
+    $claudeBin = Join-Path $env:USERPROFILE ".local\bin"
+    if (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe")) {
+        $environment = Get-Item -LiteralPath "HKCU:\Environment"
+        $userPath = [string]$environment.GetValue("Path", "", "DoNotExpandEnvironmentNames")
+        if (-not (@($userPath -split ';') -contains $claudeBin)) {
+            $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
+            Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $claudeBin) -join ';') -Type $kind
+            # WM_SETTINGCHANGE makes Explorer, and every window it opens after
+            # this, see the new PATH before the next sign-in.
+            Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+            $result = [UIntPtr]::Zero
+            [void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+            Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
+            $installedAny = $true
+        }
+    }
+
     # Installers write PATH entries to the registry; make them visible in this
     # shell (union with the current PATH, so nothing already present is lost).
     if ($installedAny) {
@@ -383,6 +412,16 @@
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
         $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
+    }
+
+    # The native build's folder is appended to PATH, so a script left earlier
+    # on it, such as npm's claude.cmd, still wins until the user removes it.
+    # Warn only once the native build is installed: until then the script is
+    # the only working claude.
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
+    if ($claude -and [IO.Path]::GetExtension($claude.Source) -ne ".exe" -and (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe"))) {
+        Write-Host ("WARN     {0,-20} resolves to {1}, a script a native terminal cannot start; run: npm.cmd uninstall -g @anthropic-ai/claude-code" -f "claude", $claude.Source)
+        $failedInstalls += "claude: npm.cmd uninstall -g @anthropic-ai/claude-code"
     }
 
     # Point Claude Code's project skills directory at the clone's .agents/skills.

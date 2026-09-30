@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -36,7 +37,11 @@ type SwitchRequest struct {
 	Model      string
 	Effort     string
 	ForceDirty bool
-	Session    string
+	// Native moves a task that runs in Herdr into a native terminal of its
+	// own, under the same id, in the same worktree and branch, resuming its
+	// harness's session there.
+	Native  bool
+	Session string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
 	BriefPath string
@@ -95,6 +100,10 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if meta.Backend != "herdr" && !native {
 		return SwitchResult{}, fmt.Errorf("switch: task %s runs in backend %q, which switch cannot reach", req.ID, meta.Backend)
 	}
+	if req.Native && native {
+		return SwitchResult{}, fmt.Errorf("switch: task %s already runs in a native terminal", req.ID)
+	}
+	moving := req.Native
 	if !native && s.Terminals == nil {
 		return SwitchResult{}, errors.New("switch: terminal backend is required")
 	}
@@ -126,7 +135,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		paneTarget = herdr.Target{Session: session, Pane: meta.HerdrPaneID}
 	}
 
-	if target.same(meta) {
+	if target.same(meta) && !moving {
 		var alive bool
 		if native {
 			alive = nativeTerminalRuns(s.StateDir, meta.ID)
@@ -146,7 +155,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if native {
+	if native || moving {
 		if _, ok := harness.NativeScreens(target.Harness); !ok {
 			return SwitchResult{}, fmt.Errorf("switch: %s cannot run in a native terminal yet; task %s was left running as it was", target.Harness, req.ID)
 		}
@@ -189,7 +198,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	isResumeInPlace := native && target.same(meta)
+	isResumeInPlace := (native || moving) && target.same(meta)
 	if dirty != "" && !req.ForceDirty && !isResumeInPlace {
 		return SwitchResult{}, fmt.Errorf("switch: worktree %q has uncommitted changes; commit them or rerun with --force-dirty:\n%s", worktreePath, dirty)
 	}
@@ -204,6 +213,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	manifest, err := worktree.Resolve(s.Worktrees.DataDir, project)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: resolve worktree manifest: %w", err)
+	}
+	// A Codex goblin turns off the operator's MCP servers, and a server it
+	// cannot turn off is refused while the old harness still runs.
+	codexServers, err := codexMCPServers(target.Harness)
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
 	// A relaunch reuses the task's own Go temporary directory and recreates it
 	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
@@ -239,12 +254,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// start later with no registered agent. Switch refuses over them instead.
 	if !native {
 		if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
-			rerun := "cfo switch " + req.ID + " --harness " + string(target.Harness)
-			if target.Model != "" {
-				rerun += " --model " + target.Model
-			}
-			if target.Effort != "" {
-				rerun += " --effort " + target.Effort
+			rerun := "cfo switch " + req.ID
+			if moving {
+				rerun += " --native"
+			} else {
+				rerun += " --harness " + string(target.Harness)
+				if target.Model != "" {
+					rerun += " --model " + target.Model
+				}
+				if target.Effort != "" {
+					rerun += " --effort " + target.Effort
+				}
 			}
 			if req.ForceDirty {
 				rerun += " --force-dirty"
@@ -269,13 +289,28 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		briefPath = req.BriefPath
 	}
 
+	// A task moving out of Herdr is recorded as native before its terminal
+	// starts, so its first native hook finds it; its Herdr tab holds only a
+	// shell once the harness stopped, so it closes once the launch returns,
+	// whether or not the native terminal took over.
+	herdrSession, herdrTab := paneTarget.Session, meta.HerdrTabID
+	if moving {
+		meta.Backend, meta.Window = "native", "native"
+		meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
+	}
 	launchMeta := meta
 	// Publish the replacement generation before its first native hook can run.
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers)
+	var tabNotice string
+	if moving {
+		if closeErr := terminals.CloseTab(ctx, herdrSession, herdrTab); closeErr != nil {
+			tabNotice = fmt.Sprintf("herdr: the task's old tab %s in session %s could not be closed (%v); close it by hand, it holds no harness", herdrTab, herdrSession, closeErr)
+		}
+	}
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running - a rejected instruction read-back, for instance - so the
@@ -288,7 +323,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		var recovery string
 		var status herdr.AgentStatus
 		var statusErr error
-		if native {
+		place := "the pane"
+		if native || moving {
+			place = "the native terminal"
 			status = herdr.AgentDead
 			if nativeTerminalRuns(s.StateDir, meta.ID) {
 				status = herdr.AgentAlive
@@ -298,11 +335,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 		switch {
 		case statusErr == nil && status == herdr.AgentAlive:
-			recovery = fmt.Sprintf("the pane still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the pane directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
-				to, worktreePath, req.ID)
+			recovery = fmt.Sprintf("%s still holds a live %s agent: it started but the switch did not complete cleanly. Work in %s is untouched. Steer %s directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
+				place, to, worktreePath, place, req.ID)
 		case statusErr == nil && (status == herdr.AgentDead || status == herdr.AgentMissing):
-			recovery = fmt.Sprintf("the pane now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
-				from, to, worktreePath, req.ID)
+			recovery = fmt.Sprintf("%s now has no harness: %s was stopped and %s did not start. Work in %s is untouched; start one with `cfo switch %s --harness <h>`",
+				place, from, to, worktreePath, req.ID)
 		default:
 			recovery = fmt.Sprintf("herdr could not verify what the pane holds (%s), so a working %s may still be running in it. Work in %s is untouched. Inspect it with `cfo peek %s` before any further `cfo switch`, which would stop a running harness.",
 				statusErr, to, worktreePath, req.ID)
@@ -311,6 +348,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
+		if tabNotice != "" {
+			err = fmt.Errorf("%w\n%s", err, tabNotice)
+		}
 		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); appendErr != nil {
 			err = errors.Join(err, appendErr)
 		}
@@ -325,6 +365,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	} else {
 		line += " (resumed in place)"
 	}
+	if moving {
+		line += " in a native terminal, out of Herdr"
+	}
 	if err := state.AppendStatus(s.StateDir, req.ID, line); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: record switch: %w", err)
 	}
@@ -335,6 +378,12 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if result.Handoff != "" {
 		result.Output += "\nhandoff " + result.Handoff
 	}
+	if notice := containedNotice(nativeHost); notice != "" {
+		result.Output += "\n" + notice
+	}
+	if tabNotice != "" {
+		result.Output += "\n" + tabNotice
+	}
 	return result, nil
 }
 
@@ -344,19 +393,20 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
-// Switch and handed in, redirects included.
-func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string) (handoff string, resumed bool, err error) {
+// Switch and handed in, redirects and Codex's MCP servers included.
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath: briefPath,
-		TaskTmp:   meta.TaskTmp,
-		GoTmp:     goTmp,
-		Model:     target.Model,
-		Effort:    target.Effort,
-		MCPConfig: goblinMCPConfig(meta.TaskTmp),
+		BriefPath:       briefPath,
+		TaskTmp:         meta.TaskTmp,
+		GoTmp:           goTmp,
+		Model:           target.Model,
+		Effort:          target.Effort,
+		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		CodexMCPServers: codexServers,
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("%w: %w", errBuildLaunch, err)
+		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -368,7 +418,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	// work in a stopped harness would cost more than the missing credential.
 	preflight, err := s.preflightCredentials(ctx, project)
 	if err != nil {
-		return "", false, err
+		return "", false, host.Record{}, err
 	}
 	mergeProvisionEnv(launch.Env, preflight.Caches)
 	nativeEnvironment(launch.Env, meta)
@@ -389,7 +439,7 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
-			return "", false, err
+			return "", false, host.Record{}, err
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, id)
 	}
@@ -402,24 +452,22 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 		// terminal's environment, as its spawn gave them.
 		userEnv, err := s.userEnvironment()
 		if err != nil {
-			return handoff, resumed, fmt.Errorf("switch: read the user's environment: %w", err)
+			return handoff, resumed, host.Record{}, fmt.Errorf("switch: read the user's environment: %w", err)
 		}
-		if _, err := s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env); err != nil {
-			return handoff, resumed, err
-		}
-		return handoff, resumed, nil
+		nativeHost, err = s.startNativeHarness(ctx, id, target.Harness, launch, userEnv, preflight.Env)
+		return handoff, resumed, nativeHost, err
 	}
 	if err := s.injectProjectCredentials(preflight, meta.TaskTmp, &launch); err != nil {
-		return handoff, resumed, err
+		return handoff, resumed, host.Record{}, err
 	}
 	if _, err := s.startHarness(ctx, client, paneTarget, launchPlan{
 		AgentName: "gb-" + id,
 		Harness:   target.Harness,
 		Launch:    launch,
 	}); err != nil {
-		return handoff, resumed, err
+		return handoff, resumed, host.Record{}, err
 	}
-	return handoff, resumed, nil
+	return handoff, resumed, host.Record{}, nil
 }
 
 // switchTarget is the harness, model, and effort the task should run after
@@ -536,17 +584,20 @@ func (s Service) stopHarness(ctx context.Context, client terminal.Backend, targe
 			}
 		}
 	}
-	if err := client.SendKey(ctx, target, "Ctrl-C"); err != nil {
-		return fmt.Errorf("switch: interrupt the harness after it ignored %q: %w", control.StopCommand, err)
+	// A first interrupt at a composer still holding text, the stop command
+	// among it when the harness never took it, only clears the composer, as
+	// Codex 0.154 did live; a second one exits an idle harness. At a shell
+	// prompt an interrupt does nothing.
+	for interrupt := 0; interrupt < 2; interrupt++ {
+		if err := client.SendKey(ctx, target, "Ctrl-C"); err != nil {
+			return fmt.Errorf("switch: interrupt the harness after it ignored %q: %w", control.StopCommand, err)
+		}
+		stopped, err := s.waitForStop(ctx, client, target, stopTries)
+		if err != nil || stopped {
+			return err
+		}
 	}
-	stopped, err := s.waitForStop(ctx, client, target, stopTries)
-	if err != nil {
-		return err
-	}
-	if !stopped {
-		return fmt.Errorf("switch: harness on pane %s is still running after %q and an interrupt; refusing to start a second one beside it", target.Pane, control.StopCommand)
-	}
-	return nil
+	return fmt.Errorf("switch: harness on pane %s is still running after %q and two interrupts; refusing to start a second one beside it", target.Pane, control.StopCommand)
 }
 
 // Leftover is a process a stopped harness left running, named by
@@ -713,11 +764,11 @@ func handoffInstruction(handoff, briefPath, id string) string {
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work." + notifyInstruction(id)
+	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + notifyInstruction(id)
 }
 
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
-	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off.",
+	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked.",
 		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta.ID)
 }
 

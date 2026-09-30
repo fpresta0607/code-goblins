@@ -21,10 +21,10 @@ import (
 
 const (
 	// memoryFloor is the free memory the fleet keeps: nothing starts under it.
-	memoryFloor = 3 << 30
+	memoryFloor = 4 << 30
 	// memoryNext is the free memory at which the CFO starts the next queued
 	// task: the floor and about 1 GB for the new session.
-	memoryNext = 4 << 30
+	memoryNext = 5 << 30
 )
 
 // The fleet's defaults for a goblin whose backlog row and brief name none.
@@ -137,8 +137,8 @@ func (s *Service) startTask(id string) error {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
 	if available < memoryFloor {
-		// Rounded down, so memory just under the floor never reads as 3.0 GB.
-		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 3 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
+		// Rounded down, so memory just under the floor never reads as 4.0 GB.
+		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 4 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
 	}
 	s.starting = id
 	delete(s.startErrors, id)

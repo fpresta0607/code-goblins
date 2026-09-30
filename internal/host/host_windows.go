@@ -87,7 +87,7 @@ func Run(stateDir string, spec Spec) error {
 	}
 	defer removeRecord(stateDir, spec.ID, record.HostPID)
 
-	output := newHistory()
+	output := newHistory(spec.Cols, spec.Rows)
 	// outputEnded closes once the terminal's output is read to its end, which
 	// comes only after its process has exited and its pseudo console closed.
 	outputEnded := make(chan struct{})
@@ -184,8 +184,10 @@ func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 // serve is one viewer's connection: the handshake, then input, resizes and a
 // close request one way and the history and live output the other, until the
 // terminal ends or the viewer leaves. Input is read from the handshake on, so a
-// viewer that only types never waits on the output it does not read. A screen
-// request gets the terminal's screen alone.
+// viewer that only types never waits on the output it does not read. A viewer
+// that asked for sizes is told each at its place in the output, whichever
+// viewer resized the terminal. A screen request gets the terminal's screen
+// alone.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
@@ -210,10 +212,41 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		serveDelivery(connection, console)
 		return
 	}
-	past, feed, detach := output.attach()
+	past, sizes, feed, detach := output.attach()
 	defer detach()
-	if writeHello(connection, hello{Version: Version}) != nil {
+	answer := hello{Version: Version}
+	if greeting.Sizes {
+		answer.Sizes, answer.History = true, len(past)
+	}
+	if writeHello(connection, answer) != nil {
 		return
+	}
+	// stream writes output, and for a viewer that asked for sizes each size
+	// at its place in it.
+	stream := func(data []byte, sizes []geometry) error {
+		if !greeting.Sizes {
+			return writeFrame(connection, frameOutput, data)
+		}
+		start := 0
+		for _, size := range sizes {
+			if size.At > start {
+				if err := writeFrame(connection, frameOutput, data[start:size.At]); err != nil {
+					return err
+				}
+				start = size.At
+			}
+			payload, err := sizePayload(size.Cols, size.Rows)
+			if err != nil {
+				return err
+			}
+			if err := writeFrame(connection, frameSize, payload); err != nil {
+				return err
+			}
+		}
+		if start == len(data) {
+			return nil
+		}
+		return writeFrame(connection, frameOutput, data[start:])
 	}
 	reading := make(chan struct{})
 	go func() {
@@ -230,8 +263,8 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 			case frameInput:
 				_, _ = console.Write(payload)
 			case frameResize:
-				if len(payload) == 4 {
-					_ = console.Resize(int(binary.BigEndian.Uint16(payload)), int(binary.BigEndian.Uint16(payload[2:])))
+				if cols, rows, ok := parseSize(payload); ok {
+					_ = output.resize(cols, rows, func() error { return console.Resize(cols, rows) })
 				}
 			case frameClose:
 				select {
@@ -243,16 +276,21 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 	}()
 	// A write fails only once the viewer has left, so the input it sent
 	// before leaving is read to the end before the connection closes.
-	if writeFrame(connection, frameOutput, past) != nil {
+	if stream(past, sizes) != nil {
 		<-reading
 		return
 	}
 	for {
-		chunk, open := feed.next()
+		chunk, sizes, open := feed.next()
 		if !open {
 			break
 		}
-		if writeFrame(connection, frameOutput, chunk) != nil {
+		// A viewer that did not ask for sizes has nothing to take from a
+		// resize alone.
+		if len(chunk) == 0 && !greeting.Sizes {
+			continue
+		}
+		if stream(chunk, sizes) != nil {
 			<-reading
 			return
 		}

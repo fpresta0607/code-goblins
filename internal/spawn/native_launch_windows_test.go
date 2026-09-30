@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // The test binary plays every part of a native spawn: with nativeSpawnHost
@@ -37,7 +38,9 @@ const nativeSpawnHost = "native-spawn-host"
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
-// ("unmoved"), or each turn can end a moment after it starts ("turns"), where
+// ("unmoved"), each turn can end a moment after it starts ("turns"), typed
+// text can show only once its console is resized ("undrawn"), or the first
+// Enter can be taken as part of the text ("swallow"), where
 // by default a turn never ends.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
@@ -156,12 +159,33 @@ func fakeHarness() {
 	if chosen == 0 {
 		return
 	}
-	if mode == "hooks" {
-		draw("", "  Hooks need review", "  1 hook is new or changed.", "  Hooks can run outside the sandbox after you trust them.", "",
-			"› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)", "", "  Press enter to confirm or esc to go back")
-		for key := range keys {
-			record(codexEvent{Event: "answered the hook prompt", Text: key})
+	// hookReview shows the hook review and reports whether it was answered
+	// with Continue without trusting.
+	hookReview := func() bool {
+		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
+		review := func(focus int) {
+			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
+			rows = append(rows, focusRows(hooks, focus)...)
+			draw(append(rows, "", "  Press enter to confirm or esc to go back")...)
 		}
+		if mode == "hooks-deaf" {
+			// As Codex 0.154 does, the review shows a moment before keys
+			// reach it, and a key sent meanwhile is lost.
+			review(0)
+			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
+				select {
+				case key := <-keys:
+					record(codexEvent{Event: "lost", Text: key})
+				case <-deaf:
+					deaf = nil
+				}
+			}
+		}
+		chosen := choose(keys, record, review)
+		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
+		return chosen == 2
+	}
+	if (mode == "hooks" || mode == "hooks-deaf") && !hookReview() {
 		return
 	}
 	trust := []string{"1. Yes, continue", "2. No, quit"}
@@ -178,10 +202,37 @@ func fakeHarness() {
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
 	}
+	if mode == "hooks-late" {
+		// As Codex 0.154 does, the composer shows a moment before the hook
+		// review is drawn over it, and keys typed meanwhile reach the review.
+		composer("Ask Codex to do anything")
+		time.Sleep(time.Second)
+		if !hookReview() {
+			return
+		}
+	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
-	late := false
-	for key := range keys {
+	late, swallowed := false, false
+	resized := make(chan struct{}, 1)
+	if mode == "undrawn" {
+		go watchWidth(resized)
+	}
+	for {
+		var key string
+		select {
+		case next, open := <-keys:
+			if !open {
+				return
+			}
+			key = next
+		case <-resized:
+			// As an idle Codex 0.154 does, typed text shows only at a redraw.
+			if line.Len() > 0 {
+				composer(line.String())
+			}
+			continue
+		}
 		// A burst of typing is drawn once, as a terminal program does.
 		burst := []string{key}
 		for more := true; more; {
@@ -203,17 +254,25 @@ func fakeHarness() {
 					record(codexEvent{Event: "entered at a late prompt"})
 				}
 				late = true
+			case key == "\r" && mode == "swallow" && !swallowed:
+				// As Codex 0.154 did, the Enter ending a paste is taken as
+				// part of it, and the text stays in the composer.
+				swallowed = true
+				record(codexEvent{Event: "swallowed enter"})
 			case key == "\r":
 				record(codexEvent{Event: "submitted", Text: line.String()})
 				// Like codex, it ends at a submitted /exit.
 				if line.String() == "/exit" {
 					return
 				}
-				// Unmoved, codex takes the line and never shows it working.
-				if mode != "unmoved" {
+				// Unmoved, codex takes the line, which leaves its composer as a
+				// submitted line does, and never shows it working.
+				if mode == "unmoved" {
+					composer("Ask Codex to do anything")
+				} else {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
-					line.Reset()
 				}
+				line.Reset()
 				if mode == "turns" {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
@@ -221,14 +280,40 @@ func fakeHarness() {
 			case key == "\x1b[A" || key == "\x1b[B":
 			default:
 				line.WriteString(key)
+				if mode == "trickle" {
+					// As a resumed Codex 0.154 did, typed text is taken
+					// in a character at a time.
+					time.Sleep(40 * time.Millisecond)
+					composer(line.String())
+				}
 			}
 		}
 		switch {
 		case late:
 			draw("", "  Something needs an answer first. Continue? (y/n)")
-		case line.Len() > 0:
+		case line.Len() > 0 && mode != "undrawn":
 			composer(line.String())
 		}
+	}
+}
+
+// watchWidth signals resized each time its console's width changes.
+func watchWidth(resized chan<- struct{}) {
+	out := windows.Handle(os.Stdout.Fd())
+	var last int16
+	for {
+		var info windows.ConsoleScreenBufferInfo
+		if windows.GetConsoleScreenBufferInfo(out, &info) == nil {
+			width := info.Window.Right - info.Window.Left
+			if last != 0 && width != last {
+				select {
+				case resized <- struct{}{}:
+				default:
+				}
+			}
+			last = width
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -431,7 +516,7 @@ func ended(pid int) bool {
 // not shown yet or its focus not shown for a moment after a move, is read
 // again until its focus shows, and answered as one drawn at once.
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn"} {
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "an Enter taken as part of the paste": "swallow"} {
 		t.Run(name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
@@ -458,9 +543,12 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if trust := named(events, "trust prompt"); len(trust) != 1 || trust[0].Text != "1. Yes, continue" {
 				t.Errorf("trust prompt answers = %+v, want 1. Yes, continue once", trust)
 			}
-			instruction := spawnInstruction(f.brief, "task-7")
-			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != instruction {
-				t.Errorf("submitted = %+v, want the instruction once:\n%s", submitted, instruction)
+			pointer, written := typedBrief(t, f.fixture, "task-7")
+			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
+				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
+			}
+			if instruction := spawnInstruction(f.brief, "task-7"); written != instruction+"\n" {
+				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
 			want := map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmpDir(t, f.stateDir, "task-7"), "CFO_STATE_OVERRIDE": f.stateDir, "CFO_HOST_ID": "task-7", "FIXTURE_TOKEN": "t0ken", "CLAUDE_CODE_GIT_BASH_PATH": gitBash}
@@ -486,31 +574,158 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 	}
 }
 
-// A prompt no spawn may answer, here codex's hook review, stops the spawn,
-// naming the terminal and the prompt, without a key typed at it; the spawn's
-// teardown ends the terminal, codex and its host, and retires the task.
-func TestANativeSpawnStopsAtAPromptItMayNotAnswer(t *testing.T) {
-	f := newNativeFixture(t, harness.Codex, "hooks")
+// A harness that takes typed text in slowly keeps its delivery waiting while
+// the text keeps arriving, however long the text: here each character takes
+// 40 ms against a wait of a few seconds.
+func TestTypedTextStillArrivingIsWaitedFor(t *testing.T) {
+	previousEffect, previousPace := nativeKeyEffect, nativeTypedPace
+	nativeKeyEffect, nativeTypedPace = 3*time.Second, 0
+	t.Cleanup(func() { nativeKeyEffect, nativeTypedPace = previousEffect, previousPace })
+	f := newNativeFixture(t, harness.Codex, "trickle")
 
 	_, err := f.service.Spawn(context.Background(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "native terminal task-7") || !strings.Contains(err.Error(), "the hook review prompt") {
-		t.Fatalf("Spawn error = %v, want the hook review prompt in native terminal task-7", err)
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the pointer once", submitted)
+	}
+}
+
+// typedBrief is the line a native Codex spawn types for task id, pointing at
+// the task's instruction.md, and what that file holds.
+func typedBrief(t *testing.T, f *fixture, id string) (string, string) {
+	t.Helper()
+	path := filepath.Join(f.stateDir, "tasktmp", id, "instruction.md")
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the written instruction: %v", err)
+	}
+	return instructionPointer(path), string(written)
+}
+
+// delivered is what a typed line delivered: the instruction a pointer line
+// points at, or the line itself.
+func delivered(t *testing.T, line string) string {
+	t.Helper()
+	path, found := strings.CutPrefix(line, "Read ")
+	path, pointed := strings.CutSuffix(path, " and follow it exactly: it is your instruction from the CFO.")
+	if !found || !pointed {
+		return line
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the instruction %s points at: %v", line, err)
+	}
+	return string(written)
+}
+
+// spawnPointer is the line a native Codex spawn of task-7 typed.
+func spawnPointer(t *testing.T, f *fixture) string {
+	t.Helper()
+	pointer, _ := typedBrief(t, f, "task-7")
+	return pointer
+}
+
+// A harness that can take typed text in slowly, as an idle Codex 0.154 took a
+// 2,940-character brief at about 17 characters a second, is given time for
+// each character; any other is given a key's effect.
+func TestTypedTextIsGivenTimeByItsLengthWhereAHarnessTakesItInSlowly(t *testing.T) {
+	codex, _ := harness.NativeScreens(harness.Codex)
+	claude, _ := harness.NativeScreens(harness.Claude)
+	brief := strings.Repeat("x", 2940)
+
+	if got, want := typedWait(codex, brief), nativeKeyEffect+2940*nativeTypedPace; got != want {
+		t.Errorf("codex: wait = %s, want %s", got, want)
+	}
+	if got := typedWait(claude, brief); got != nativeKeyEffect {
+		t.Errorf("claude: wait = %s, want %s", got, nativeKeyEffect)
+	}
+}
+
+// Codex asks at every start to review hooks that are new or changed. Trusting
+// a hook is the Overlord's decision, never a spawn's, yet the goblin must not
+// stop there: the spawn continues without trusting them, so they do not run,
+// takes its brief on, and tells the CFO, as cfo notify does, which hooks the
+// session loads.
+func TestANativeSpawnContinuesPastTheHookReviewWithoutTrusting(t *testing.T) {
+	for _, mode := range []string{"hooks", "hooks-deaf", "hooks-late"} {
+		t.Run(mode, func(t *testing.T) { continuesPastTheHookReview(t, mode) })
+	}
+}
+
+// continuesPastTheHookReview runs one spawn past the hook review: in mode
+// "hooks-deaf" at a review that loses the keys it gets in its first second, and
+// in mode "hooks-late" at a review drawn a second after the composer, both as
+// Codex 0.154 did live.
+func continuesPastTheHookReview(t *testing.T, mode string) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 5 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, mode)
+	hooks := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"siqshift-hook --event session-start"}]}]}}`
+	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json"), []byte(hooks), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 	events := f.events(t)
-	if answered := named(events, "answered the hook prompt"); len(answered) != 0 {
-		t.Errorf("keys typed at the hook review prompt: %+v", answered)
+	if answered := named(events, "hook prompt"); len(answered) != 1 || answered[0].Text != "3. Continue without trusting (hooks won't run)" {
+		t.Errorf("hook prompt answers = %+v, want Continue without trusting once", answered)
 	}
-	terminal, found := f.terminal()
-	codex := named(events, "env")[0].PID
-	if !found || !ended(terminal.HostPID) || !ended(codex) {
-		t.Errorf("host %+v (recorded %v) and codex pid %d, want both ended", terminal, found, codex)
+	if blind := append(named(events, "typed blind"), named(events, "typed into a list")...); len(blind) != 0 {
+		t.Errorf("keys typed where no screen asked for them: %+v", blind)
 	}
-	if _, err := os.Stat(filepath.Join(f.stateDir, "task-7.meta")); !os.IsNotExist(err) {
-		t.Errorf("the task record is still there: %v", err)
+	if submitted := named(events, "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
 	}
-	if f.git.returned != 1 {
-		t.Errorf("worktree returned %d times, want once", f.git.returned)
+	status, err := os.ReadFile(filepath.Join(f.stateDir, "task-7.status"))
+	if err != nil || !strings.Contains(string(status), "working: codex started without trusting its hooks, so they do not run (2 hooks are new or changed); the hooks it loads: SessionStart: siqshift-hook --event session-start") {
+		t.Errorf("status = %q, %v; want the untrusted hooks reported", status, err)
+	}
+	pending, err := wake.Pending(f.stateDir)
+	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
+		return record.Kind == "notify" && record.Key == "task-7" && strings.Contains(record.Detail, "siqshift-hook --event session-start")
+	}) {
+		t.Errorf("wake queue = %+v, %v; want a notify naming the untrusted hook", pending, err)
+	}
+}
+
+// A hooks file that cannot be parsed never stops a spawn whose Codex already
+// runs past the hook review: the report still reaches the CFO, naming the file
+// in place of its hooks.
+func TestANativeSpawnReportsHooksItCannotNameWithoutStopping(t *testing.T) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 5 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, "hooks")
+	broken := filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json")
+	if err := os.WriteFile(broken, []byte(`{"hooks":{"SessionStart":{"type":"command"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+	status, err := os.ReadFile(filepath.Join(f.stateDir, "task-7.status"))
+	if err != nil || !strings.Contains(string(status), "working: codex started without trusting its hooks") || !strings.Contains(string(status), "not every hook could be named: harness: read Codex hooks in "+broken) {
+		t.Errorf("status = %q, %v; want the untrusted hooks reported with the unreadable file named", status, err)
+	}
+	pending, err := wake.Pending(f.stateDir)
+	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
+		return record.Kind == "notify" && record.Key == "task-7" && strings.Contains(record.Detail, broken)
+	}) {
+		t.Errorf("wake queue = %+v, %v; want a notify naming the unreadable hooks file", pending, err)
 	}
 }
 
@@ -886,5 +1101,18 @@ func TestANativeSpawnHandsATokenServerOnlyWhenTheGoblinStartsWithItsToken(t *tes
 				t.Errorf("output names neon withheld = %v, want %v:\n%s", withheld, !test.isUserScoped, result.Output)
 			}
 		})
+	}
+}
+
+// A native terminal whose host could not leave its launcher's job is named in
+// the spawn's output, since it ends when that job closes; one that left is not.
+func TestAContainedNativeTerminalIsReported(t *testing.T) {
+	for contained, want := range map[bool]string{
+		true:  "warning: native terminal task-7 could not leave the job of the process that ran cfo, so it ends when that job closes (see its host log)",
+		false: "",
+	} {
+		if got := containedNotice(host.Record{ID: "task-7", Contained: contained}); got != want {
+			t.Errorf("contained %v: notice = %q, want %q", contained, got, want)
+		}
 	}
 }
