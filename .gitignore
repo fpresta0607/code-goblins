@@ -23,6 +23,8 @@ config/
 /goblins.exe.*.old
 /frontend/node_modules/
 /frontend/test-results/
+/frontend/test-results-*.txt
+/frontend/playwright.scratch.config.ts
 
 # The skill junction install.cmd -Dev creates (points at .agents/skills);
 # /.codex/skills/ is the one earlier bootstraps also made.

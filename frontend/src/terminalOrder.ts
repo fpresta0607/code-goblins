@@ -1,4 +1,5 @@
 import type { Session, Snapshot, Task } from "./types.ts";
+import { sessionEnd } from "./session-end.ts";
 
 // The terminal deck: every goblin terminal the Overlord opened stays live
 // while the board is open, so switching only shows another terminal. The
@@ -17,7 +18,7 @@ const DIVIDER = 10;
 export interface DeckEntry { key: string; task?: Task }
 
 export function switchOrder(tasks: Task[]): DeckEntry[] {
-  return [{ key: CFO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived).map((task) => ({ key: task.id, task }))];
+  return [{ key: CFO_KEY }, ...tasks.filter((task) => !!task.generation && !task.archived && !sessionEnd(task)).map((task) => ({ key: task.id, task }))];
 }
 
 export type SwitchKey = { step: 1 | -1 } | { index: number };
@@ -52,6 +53,8 @@ export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs">): 
 }
 
 export function goblinView(task: Task): DeckView {
+  if (task.phase === "resuming" || task.phase === "stopping") return { kind: "empty", text: task.phase === "resuming" ? "Resuming session..." : "Stopping session..." };
+  if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed. See Task for details." };
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 
