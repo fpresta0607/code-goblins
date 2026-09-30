@@ -55,14 +55,14 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
 
 test("a goblin's own failure says what it reported", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke", reason: "Manual task mode" })] }));
-  assert.equal(alert.text, "The build broke");
+  assert.equal(alert.text, "a failed: The build broke");
 });
 
 test("a goblin waiting on the Overlord says so, and a review item asks for review", () => {
   const waiting = { ...review("waiting-a-3"), title: "Sign in to GitHub" };
   const [wait, plan] = boardAlerts(snapshot({}), snapshot({ reviews: [waiting, review("plan")] }));
-  assert.equal(wait.title, "Goblin a is waiting on you");
-  assert.equal(plan.title, "Goblin a wants your review");
+  assert.equal(wait.text, "a is waiting on you: Sign in to GitHub");
+  assert.equal(plan.text, "a wants your review: Review the plan");
 });
 
 test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
@@ -84,11 +84,28 @@ test("the Completed column's history alerts nothing, while a live goblin done wi
 
 test("a goblin's own failure drops the verb its report line starts with", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "working", { report: "failed", activity: "failed: spawn refused: no harness" })] }));
-  assert.equal(alert.text, "spawn refused: no harness");
+  assert.equal(alert.text, "a failed: spawn refused: no harness");
+});
+
+test("each alert names who speaks, says one plain line and offers the one thing to do", () => {
+  const before = snapshot({});
+  const cfoQuestion = question("q2", { task: "", text: "Merge the release now?\n\n- details" });
+  const cases: [string, Snapshot, { speaker: string; text: string; action: string }][] = [
+    ["a goblin's question", snapshot({ questions: [question("q1")] }), { speaker: "a", text: "a asks: Which option?", action: "Open Command Center" }],
+    ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?", action: "Open Command Center" }],
+    ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board", action: "Open Command Center" }],
+    ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "a", text: "a is blocked: Needs a key", action: "Open a" }],
+    ["a failed goblin", snapshot({ tasks: [task("a", "failed")] }), { speaker: "a", text: "a failed: it needs a decision to go on.", action: "Open a" }],
+    ["a finished goblin", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), { speaker: "a", text: "a finished: r #7 is ready.", action: "Open a" }],
+  ];
+  for (const [name, next, want] of cases) {
+    const [alert] = boardAlerts(before, next);
+    assert.deepEqual({ speaker: alert.speaker, text: alert.text, action: alert.action }, want, name);
+  }
 });
 
 test("each arrival gets its own identity, so a replacement toast starts afresh and outlives the old one's dismissal", () => {
-  const alert = (key: string) => ({ key, tone: "failed", title: key, text: "", task: "a", target: { kind: "task", id: "a" } }) as BoardAlert;
+  const alert = (key: string) => ({ key, tone: "failed", speaker: "a", text: key, action: "Open a", task: "a", target: { kind: "task", id: "a" } }) as BoardAlert;
   const first = arrive([], [alert("task:a:a-1:failed"), alert("question:q1")]);
   assert.deepEqual(first.map((toast) => toast.alert.key), ["task:a:a-1:failed", "question:q1"]);
   assert.equal(new Set(first.map((toast) => toast.id)).size, 2);
@@ -102,11 +119,12 @@ test("each arrival gets its own identity, so a replacement toast starts afresh a
 });
 
 test("an alert names who asks and what, in a few words", () => {
-  const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**?\n\n" + "x".repeat(300) })] }));
-  assert.equal(alert.title, "Goblin a asks you");
-  assert.ok(alert.text.startsWith("Ship now?") && alert.text.length <= 160, alert.text);
+  const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**? " + "x".repeat(300) + "\n\nThe details." })] }));
+  assert.equal(alert.speaker, "a");
+  assert.ok(alert.text.startsWith("a asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
   const [cfo] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2", { task: "" })] }));
-  assert.equal(cfo.title, "The CFO asks you");
+  assert.equal(cfo.speaker, "CFO");
+  assert.equal(cfo.text, "The CFO asks: Which option?");
 });
 
 test("a Windows notification is only for a board he is not looking at, once allowed", () => {

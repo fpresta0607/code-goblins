@@ -1,17 +1,21 @@
 import { waitingItems, waitsOnOverlord, type Item } from "./commandQueue.ts";
-import { plainMessage } from "./messageText.ts";
+import { messageBlocks } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
+import { pullRequestLabel } from "./workflow.ts";
 
 // What an alert opens: a Command Center item by its key, or a goblin's task.
 export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string };
 
 // An alert tells the Overlord that something needs him or finished: its key
-// is the one event it stands for, so an event alerts once.
+// is the one event it stands for, so an event alerts once. It is a goblin, or
+// the CFO, coming up to him: speaker names who, text is its one plain line,
+// and action is the one thing to do about it.
 export interface BoardAlert {
   key: string;
   tone: "needs" | "failed" | "done";
-  title: string;
+  speaker: string;
   text: string;
+  action: string;
   // task is the goblin the alert is about or that asks; empty for the CFO.
   task: string;
   target: AlertTarget;
@@ -21,19 +25,21 @@ export interface BoardAlert {
 const TEXT_LIMIT = 160;
 const shortened = (text: string) => text.length > TEXT_LIMIT ? text.slice(0, TEXT_LIMIT - 1).trimEnd() + "…" : text;
 
-const taskTitle = (snapshot: Snapshot, id: string) => snapshot.tasks.find((task) => task.id === id)?.title || id;
+// Everything in the Command Center opens there.
+const OPEN_COMMAND_CENTER = "Open Command Center";
 
-function itemAlert(snapshot: Snapshot, item: Item): BoardAlert {
+function itemAlert(item: Item): BoardAlert {
   const target: AlertTarget = { kind: "command", key: item.key };
+  const alert = (task: string, text: string): BoardAlert => ({ key: item.key, tone: "needs", speaker: task || "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
   if (item.kind === "question") {
-    const asker = item.question.task ? taskTitle(snapshot, item.question.task) : "The CFO";
-    return { key: item.key, tone: "needs", title: asker + " asks you", text: shortened(plainMessage(item.question.text)), task: item.question.task, target };
+    // A question says its lead: the first paragraph or bullet, without the
+    // details that follow.
+    const [lead] = messageBlocks(item.question.text);
+    const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
+    return alert(item.question.task, (item.question.task || "The CFO") + " asks: " + spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim());
   }
-  if (item.kind === "review") {
-    const asker = item.review.task ? taskTitle(snapshot, item.review.task) : "The CFO";
-    return { key: item.key, tone: "needs", title: asker + (waitsOnOverlord(item.review) ? " is waiting on you" : " wants your review"), text: shortened(item.review.title), task: item.review.task, target };
-  }
-  return { key: item.key, tone: "needs", title: "A command waits for you to run it", text: shortened(item.run.title), task: "", target };
+  if (item.kind === "review") return alert(item.review.task, (item.review.task || "The CFO") + (waitsOnOverlord(item.review) ? " is waiting on you: " : " wants your review: ") + item.review.title);
+  return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
 // A goblin's state that the Overlord hears of: blocked or failed by its
@@ -50,10 +56,11 @@ function taskState(task: Task): "blocked" | "failed" | "done" | "" {
 function taskAlert(task: Task, state: "blocked" | "failed" | "done"): BoardAlert {
   const target: AlertTarget = { kind: "task", id: task.id };
   const key = "task:" + task.id + ":" + task.generation + ":" + state;
-  if (state === "done") return { key, tone: "done", title: task.title + " is done", text: "Its pull request is ready: " + task.pr, task: task.id, target };
+  const alert = (tone: BoardAlert["tone"], text: string): BoardAlert => ({ key, tone, speaker: task.id, text: shortened(text), action: "Open " + task.id, task: task.id, target });
+  if (state === "done") return alert("done", task.id + " finished: " + pullRequestLabel(task.pr) + " is ready.");
   const reported = task.activity.startsWith(state + ": ") ? task.activity.slice(state.length + 2) : task.activity;
   const said = task.report === state ? reported : task.reason;
-  return { key, tone: state === "failed" ? "failed" : "needs", title: task.title + (state === "failed" ? " failed" : " is blocked"), text: shortened(said || "It needs a decision to go on."), task: task.id, target };
+  return alert(state === "failed" ? "failed" : "needs", task.id + (state === "failed" ? " failed: " : " is blocked: ") + (said || "it needs a decision to go on."));
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord
@@ -65,7 +72,7 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done"): BoardAlert
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = new Set(waitingItems(previous).map((item) => item.key));
-  const items = waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(next, item));
+  const items = waitingItems(next).filter((item) => !known.has(item.key)).map(itemAlert);
   const before = new Map(previous.tasks.map((task) => [task.id, task]));
   const tasks = next.tasks.filter((task) => !task.archived).flatMap((task) => {
     const state = taskState(task);
