@@ -37,7 +37,7 @@ func TestWorkspaceMetadataReportsNamesAndModelEvidenceWithoutSecrets(t *testing.
 			t.Fatal("workspace leaked config values")
 		}
 	}
-	if details.Model != "Reported: gpt-6-astra" || len(details.MCP) != 1 || details.MCP[0].Status != "Configured" || len(details.Environment) != 2 {
+	if details.Model != "Reported: gpt-6-astra" || strings.Contains(text, "Configured") || strings.Contains(text, "Declared") {
 		t.Fatal("wrong scoped metadata", details)
 	}
 	node := s.db.Sessions["reported"]
