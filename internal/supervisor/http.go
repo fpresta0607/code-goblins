@@ -137,6 +137,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.order(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
+	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
+		h.lifecycleTask(w, r)
+	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
+		h.adjustTask(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
@@ -307,7 +311,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if parts[1] == "handoff" {
-		h.taskHandoff(w, r, parts[0])
+		h.taskHandoff(w, parts[0])
 		return
 	}
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, parts[0])

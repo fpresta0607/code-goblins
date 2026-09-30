@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ func TestFinishedTaskKeepsItsReportBeforeTheCleanupRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tasks := finishedTasks(home.State, time.Now())
+	tasks := finishedTasks(home, time.Now())
 	data, err := json.Marshal(tasks)
 	if err != nil {
 		t.Fatal(err)
@@ -193,5 +194,100 @@ func TestTaskHandoffRejectsPathsAndUntrustedOrigins(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != 403 {
 		t.Fatalf("untrusted origin returned %d", response.Code)
+	}
+}
+
+func TestTaskHandoffReadsOnlyTheCurrentPauseNote(t *testing.T) {
+	for _, kind := range []string{"current", "stale", "unsaved", "missing", "credential", "outside", "large"} {
+		t.Run(kind, func(t *testing.T) {
+			store, home := testStore(t)
+			path := filepath.Join(home.State, "tasktmp", "task-1", "pause-operation-1.md")
+			if kind == "credential" {
+				path = filepath.Join(filepath.Dir(path), "auth.ps1")
+			}
+			if kind == "outside" {
+				path = filepath.Join(t.TempDir(), "pause-operation-1.md")
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			content := "Saved pause note. password=fixture-secret"
+			if kind == "large" {
+				content = strings.Repeat("x", (1<<20)+1)
+			}
+			if kind != "missing" {
+				if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			record := state.Lifecycle{ID: "task-1", Generation: "g1", Action: "pause", Phase: "paused", Operation: "operation-1", Updated: time.Now().UTC(), Handoff: path, HandoffSaved: kind != "unsaved"}
+			if kind == "stale" {
+				record.Generation = "g0"
+			}
+			if err := state.WriteLifecycle(home.State, record); err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			NewHTTP(&Service{Store: store}, "board.local", nil).ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/tasks/task-1/handoff", nil))
+			if kind == "current" {
+				if response.Code != 200 || response.Body.String() != "Saved pause note. password=[redacted]" {
+					t.Fatalf("pause handoff: %d %q", response.Code, response.Body.String())
+				}
+			} else if response.Code == 200 {
+				t.Fatalf("%s pause note was exposed", kind)
+			}
+			snapshot, err := (&Service{Store: store}).Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Tasks[0].Handoff != (kind == "current") {
+				t.Fatalf("%s handoff availability = %v", kind, snapshot.Tasks[0].Handoff)
+			}
+		})
+	}
+}
+
+func TestFinishedTaskKeepsItsSummaryThroughLifecycleHistory(t *testing.T) {
+	for _, kind := range []string{"outcome", "lifecycle", "undelivered cleanup"} {
+		t.Run(kind, func(t *testing.T) {
+			_, home := testStore(t)
+			id := "retired-task"
+			for _, line := range []string{"working: final checks passed", "stopped: returned worktree C:/scratch/work via cfo cleanup"} {
+				if err := state.AppendStatus(home.State, id, line); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind != "undelivered cleanup" {
+				if err := state.WriteOutcome(home.State, state.Outcome{ID: id, Phase: "stopped", At: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind == "lifecycle" {
+				if err := state.WriteLifecycle(home.State, state.Lifecycle{ID: id, Operation: "stop-1", Action: "stop", Phase: "stopped", Updated: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tasks := finishedTasks(home, time.Now())
+			if len(tasks) != 1 || tasks[0].LastReport != "working: final checks passed" || tasks[0].RetiredAt.IsZero() {
+				t.Fatalf("%s lost last report or retirement evidence: %+v", kind, tasks)
+			}
+		})
+	}
+}
+
+func TestFinishedTaskDoesNotBorrowThePreviousGenerationsReport(t *testing.T) {
+	_, home := testStore(t)
+	now := time.Now().UTC()
+	id := "reused-task"
+	lines := now.Add(-2*time.Hour).Format(time.RFC3339) + " working: old run's report\n" + now.Format(time.RFC3339) + " stopped: returned worktree C:/scratch via cfo cleanup\n"
+	if err := os.WriteFile(filepath.Join(home.State, id+".status"), []byte(lines), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteOutcome(home.State, state.Outcome{ID: id, Generation: fmt.Sprintf("s%d", now.Add(-time.Hour).UnixNano()), Phase: "stopped", At: now}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := finishedTasks(home, now)
+	if len(tasks) != 1 || tasks[0].LastReport != "" || tasks[0].RetiredAt.IsZero() {
+		t.Fatalf("reused task borrowed a report: %+v", tasks)
 	}
 }

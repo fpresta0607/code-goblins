@@ -75,7 +75,7 @@ test("the ended message fits a narrow panel and its handoff is keyboard accessib
   await expect(page.getByRole("heading", { name: "Session retired" })).toBeVisible();
   const panel = page.getByRole("region", { name: "Session retired" });
   expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  await page.keyboard.press("Tab");
+  await page.getByRole("link", { name: /^Open pull request / }).focus();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Open handoff" })).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath("narrow.png"), fullPage: true });

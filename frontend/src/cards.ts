@@ -28,5 +28,6 @@ export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show mo
 // session each have a terminal too.
 export function panelViews(task?: Task, node?: Session): PanelView[] {
   if (task && sessionEnd(task)) return ["task", "terminal"];
+  if (task && (task.archived || ["pausing", "stopping"].includes(task.phase))) return ["task"];
   return task && !task.generation && !node ? ["task"] : ["task", "terminal"];
 }

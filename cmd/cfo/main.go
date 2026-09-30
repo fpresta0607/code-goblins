@@ -20,11 +20,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -85,6 +87,7 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
@@ -119,6 +122,7 @@ type commandRuntime struct {
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
+	taskLifecycle func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
@@ -144,7 +148,7 @@ type commandRuntime struct {
 	// startNativeCFO and attachNative start the CFO in a native terminal and
 	// show a native terminal in this console, for goblins --native and a CFO
 	// registered in one.
-	startNativeCFO func(stateDir, project, harness string) error
+	startNativeCFO func(h home.Home, project, harness string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never
@@ -253,8 +257,9 @@ func defaultCommandRuntime() commandRuntime {
 				System: runtime.System{Commands: commands},
 			}.Collect(ctx)
 		},
-		cleanup: defaultCleanup,
-		reap:    defaultReap,
+		cleanup:       defaultCleanup,
+		taskLifecycle: defaultTaskLifecycle,
+		reap:          defaultReap,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
@@ -373,6 +378,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
+	case "pause", "resume":
+		return runLifecycle(args[0], args[1:], stdout, stderr, runtime)
+	case "kill":
+		return runLifecycle("stop", args[1:], stdout, stderr, runtime)
 	case "send":
 		return runSend(args[1:], stdout, stderr, runtime)
 	case "peek":

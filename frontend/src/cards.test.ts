@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clockText, panelViews, showMoreLabel } from "./cards.ts";
 import type { Session, Task } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
+import { sessionEnd } from "./session-end.ts";
 
 const MINUTE = 60_000;
 const now = Date.parse("2026-09-27T12:00:00Z");
@@ -38,4 +40,26 @@ test("a queued task with no terminal has a Task view only; a started one and the
   assert.deepEqual(panelViews(task("s1"), undefined), ["task", "terminal"]);
   assert.deepEqual(panelViews(undefined, undefined), ["task", "terminal"], "the CFO");
   assert.deepEqual(panelViews(task(""), { id: "child" } as Session), ["task", "terminal"], "a reported child session has its own terminal view");
+});
+
+test("pausing or stopping switches an open terminal back to task details", () => {
+  for (const phase of ["pausing", "stopping"]) {
+    assert.deepEqual(panelViews({ id: "t", generation: "s1", phase } as Task), ["task"]);
+  }
+});
+
+test("ended sessions retain a Terminal view for their summary", () => {
+  for (const phase of ["paused", "stopped"]) {
+    const task = parseSnapshot({ healthy: true, tasks: [{ id: "t", generation: "s1", phase, verified: false }] }).tasks[0];
+    assert.deepEqual(panelViews(task), ["task", "terminal"]);
+  }
+  const history = parseSnapshot({ healthy: true, tasks: ["finished:t", "merged:https://example.com/pull/1"].map((id) => ({ id, archived: true, phase: "done", verified: false })) }).tasks;
+  assert.deepEqual(panelViews(history[0]), ["task", "terminal"]);
+  assert.deepEqual(panelViews(history[1]), ["task"]);
+});
+
+test("cleanup retirement stays distinct from an explicit lifecycle stop", () => {
+  const task = parseSnapshot({ healthy: true, tasks: [{ id: "finished:t", archived: true, phase: "stopped", retired_at: "2026-09-30T12:00:00Z", verified: false }] }).tasks[0];
+  assert.equal(sessionEnd(task), "retired");
+  assert.equal(sessionEnd({ ...task, lifecycle: { phase: "stopped", action: "stop", at: "2026-09-30T12:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false } }), "stopped");
 });
