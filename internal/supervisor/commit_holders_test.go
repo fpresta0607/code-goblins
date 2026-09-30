@@ -33,13 +33,13 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 			},
 			count: 10,
 			want: []CommitHolder{
-				{Name: "ChatGPT", Commit: (400 + 300 + 59 + 241 + 709) * megabyte, Processes: 5},
-				{Name: "explorer", Commit: 200 * megabyte, Processes: 1},
-				{Name: "claude", Commit: 150 * megabyte, Processes: 1},
-				{Name: "svchost", Commit: 80 * megabyte, Processes: 2},
-				{Name: "sihost", Commit: 20 * megabyte, Processes: 1},
-				{Name: "services", Commit: 10 * megabyte, Processes: 1},
-				{Name: "System", Commit: 0, Processes: 1},
+				{Name: "ChatGPT", Commit: (400 + 300 + 59 + 241 + 709) * megabyte},
+				{Name: "explorer", Commit: 200 * megabyte},
+				{Name: "claude", Commit: 150 * megabyte},
+				{Name: "svchost", Commit: 80 * megabyte},
+				{Name: "sihost", Commit: 20 * megabyte},
+				{Name: "services", Commit: 10 * megabyte},
+				{Name: "System", Commit: 0},
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 				{pid: 50000, parent: 26097, name: "CFO.EXE", created: 12, commit: 60 * megabyte},
 			},
 			count: 3,
-			want:  []CommitHolder{{Name: "cfo", Commit: (65 + 389 + 60) * megabyte, Processes: 3}},
+			want:  []CommitHolder{{Name: "cfo", Commit: (65 + 389 + 60) * megabyte}},
 		},
 		{
 			name: "a parent created after the process took a reused ID and is not its parent",
@@ -59,7 +59,7 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 				{pid: 2000, parent: 3000, name: "Code.exe", created: 9, commit: 300 * megabyte},
 			},
 			count: 3,
-			want:  []CommitHolder{{Name: "Code", Commit: 300 * megabyte, Processes: 1}, {Name: "node", Commit: 100 * megabyte, Processes: 1}},
+			want:  []CommitHolder{{Name: "Code", Commit: 300 * megabyte}, {Name: "node", Commit: 100 * megabyte}},
 		},
 		{
 			name: "parents that loop still end",
@@ -78,7 +78,7 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 				{pid: 3, name: "c.exe", commit: 9 * megabyte},
 			},
 			count: 2,
-			want:  []CommitHolder{{Name: "c", Commit: 9 * megabyte, Processes: 1}, {Name: "a", Commit: 5 * megabyte, Processes: 1}},
+			want:  []CommitHolder{{Name: "c", Commit: 9 * megabyte}, {Name: "a", Commit: 5 * megabyte}},
 		},
 	}
 	for _, test := range tests {
@@ -88,12 +88,15 @@ func TestTopCommitHoldersNamesTheAppsHoldingTheMostCommit(t *testing.T) {
 
 			// Assert
 			if test.want == nil {
-				total := 0
+				var held, total uint64
 				for _, holder := range holders {
-					total += holder.Processes
+					held += holder.Commit
 				}
-				if total != len(test.processes) {
-					t.Fatalf("holders = %+v, want every process counted once", holders)
+				for _, process := range test.processes {
+					total += process.commit
+				}
+				if held != total {
+					t.Fatalf("holders = %+v, want every process's commit counted once", holders)
 				}
 				return
 			}

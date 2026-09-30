@@ -482,7 +482,7 @@ func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t
 }
 
 func TestSnapshotNamesTheTopCommitHoldersOnlyWhileCommitIsTheTighter(t *testing.T) {
-	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte, Processes: 45}, {Name: "cfo", Commit: 6 * gigabyte, Processes: 30}}
+	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "cfo", Commit: 6 * gigabyte}}
 	tests := []struct {
 		name              string
 		available, commit uint64

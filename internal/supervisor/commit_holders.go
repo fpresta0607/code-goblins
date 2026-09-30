@@ -12,9 +12,8 @@ const commitHolderCount = 3
 // CommitHolder is one app's commit: the private memory of the app's first
 // process and every process it started, which the app's name stands for.
 type CommitHolder struct {
-	Name      string `json:"name"`
-	Commit    uint64 `json:"commit"`
-	Processes int    `json:"processes"`
+	Name   string `json:"name"`
+	Commit uint64 `json:"commit"`
 }
 
 // processCommit is one process's commit, with what ties it to its parent.
@@ -67,7 +66,6 @@ func topCommitHolders(processes []processCommit, count int) []CommitHolder {
 			groups[key] = &CommitHolder{Name: name}
 		}
 		groups[key].Commit += process.commit
-		groups[key].Processes++
 	}
 	holders := make([]CommitHolder, 0, len(groups))
 	for _, holder := range groups {

@@ -35,7 +35,7 @@ func TestCommitHoldersReadsThisMachine(t *testing.T) {
 	if len(holders) != commitHolderCount {
 		t.Fatalf("holders = %+v, want the %d apps holding the most commit", holders, commitHolderCount)
 	}
-	if !slices.IsSortedFunc(holders, func(a, b CommitHolder) int { return int(b.Commit>>20) - int(a.Commit>>20) }) || holders[0].Commit == 0 || holders[0].Name == "" || holders[0].Processes == 0 {
+	if !slices.IsSortedFunc(holders, func(a, b CommitHolder) int { return int(b.Commit>>20) - int(a.Commit>>20) }) || holders[0].Commit == 0 || holders[0].Name == "" {
 		t.Fatalf("holders = %+v, want named apps, most commit first", holders)
 	}
 }

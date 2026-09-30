@@ -72,7 +72,7 @@ export interface Memory {
 }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
-export interface CommitHolder { name: string; commit: number; processes: number }
+export interface CommitHolder { name: string; commit: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -327,7 +327,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
-      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit), processes: number(h.processes) }; }),
+      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
     retired: strings(v.retired),
     issues: strings(v.issues),

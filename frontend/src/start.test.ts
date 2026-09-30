@@ -70,7 +70,7 @@ test("Start, Resume and the next task name commit when it is the one short, and 
 });
 
 test("the meter names the apps holding the most commit only while commit is the tighter", () => {
-  const holders = [{ name: "ChatGPT", commit: 11.2 * GB, processes: 264 }, { name: "claude", commit: 5.7 * GB, processes: 21 }, { name: "cfo", commit: 4.3 * GB, processes: 75 }];
+  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
   assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
   assert.equal(holdersLine({ ...memory(3.4, 20), holders }), "", "memory is the tighter");
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
@@ -87,11 +87,11 @@ test("the snapshot's memory carries commit, the kernel pools and the apps holdin
   const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, floor: 7, next: 8 };
 
   // Act
-  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, holders: [{ name: "ChatGPT", commit: 9, processes: 10 }] } }).memory;
+  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] } }).memory;
   const withoutHolders = parseSnapshot({ healthy: true, memory: wire }).memory;
 
   // Assert
-  assert.deepEqual(withHolders, { ...wire, holders: [{ name: "ChatGPT", commit: 9, processes: 10 }] });
+  assert.deepEqual(withHolders, { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] });
   assert.deepEqual(withoutHolders, { ...wire, holders: [] });
 });
 

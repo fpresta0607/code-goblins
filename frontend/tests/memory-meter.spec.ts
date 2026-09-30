@@ -6,7 +6,7 @@ const tasks = [
   { id: "onboarding-tour", title: "onboarding-tour", project: "acme-web", phase: "queued", brief: true, verified: false },
 ];
 const machine = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB };
-const holders = [{ name: "ChatGPT", commit: 11.2 * GB, processes: 264 }, { name: "claude", commit: 5.7 * GB, processes: 21 }, { name: "cfo", commit: 4.3 * GB, processes: 75 }];
+const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
 // The three states of the approved mockup: memory is the tighter, commit is
 // the tighter, and the kernel's paged pool is leaking.
 const states = {
