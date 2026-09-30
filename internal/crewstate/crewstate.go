@@ -17,13 +17,17 @@ type State string
 type Source string
 
 const (
-	Working State = "working"
-	Parked  State = "parked"
-	Done    State = "done"
-	Blocked State = "blocked"
-	Paused  State = "paused"
-	Failed  State = "failed"
-	Unknown State = "unknown"
+	Working  State = "working"
+	Parked   State = "parked"
+	Done     State = "done"
+	Blocked  State = "blocked"
+	Paused   State = "paused"
+	Pausing  State = "pausing"
+	Resuming State = "resuming"
+	Stopping State = "stopping"
+	Stopped  State = "stopped"
+	Failed   State = "failed"
+	Unknown  State = "unknown"
 )
 
 const (
@@ -67,6 +71,13 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 	meta, err := state.ReadTaskMeta(stateDir, id)
 	if err != nil {
 		return Current{State: Unknown, Source: SourceMetadata}, nil
+	}
+	if lifecycle, lifecycleErr := state.ReadLifecycle(stateDir, id); lifecycleErr == nil {
+		if lifecycle.Generation == meta.SpawnGen && lifecycle.SuppressesMonitoring(stateDir) {
+			return Current{State: State(lifecycle.Phase), Source: SourceMetadata, Detail: lifecycle.Reason}, nil
+		}
+	} else if !errors.Is(lifecycleErr, os.ErrNotExist) {
+		return Current{State: Unknown, Source: SourceMetadata}, lifecycleErr
 	}
 	info, err := os.Stat(meta.Worktree)
 	if err != nil || !info.IsDir() {
@@ -126,9 +137,10 @@ func LatestVerb(lines []string) (string, bool) {
 }
 
 // cfoAuditVerbs are the records the CFO itself writes into a task's status
-// log. They are the CFO's word, never the task's own report, so every scan
-// for a task's latest report skips them.
-var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated"}
+// log, including the Pause, Resume and Stop controller's outcomes. They are
+// the CFO's word, never the task's own report, so every scan for a task's
+// latest report skips them.
+var cfoAuditVerbs = []string{"pipeline-findings-accepted", "pipeline-policy-migrated", "lifecycle-paused", "lifecycle-running", "lifecycle-stopped", "lifecycle-failed"}
 
 // IsCFOAudit reports whether a status line is a CFO audit record rather than
 // something the task reported.
@@ -193,6 +205,8 @@ func mapVerb(verb string) State {
 		return Blocked
 	case "paused":
 		return Paused
+	case "stopped":
+		return Stopped
 	case "done":
 		return Done
 	case "failed":

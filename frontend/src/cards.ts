@@ -26,5 +26,6 @@ export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show mo
 // is its Task view alone; the CFO, a started task and a reported child
 // session each have a terminal too.
 export function panelViews(task?: Task, node?: Session): PanelView[] {
+  if (task && (task.archived || ["paused", "pausing", "stopped", "stopping"].includes(task.phase))) return ["task"];
   return task && !task.generation && !node ? ["task"] : ["task", "terminal"];
 }

@@ -12,6 +12,15 @@ export interface Evaluation {
   at: string;
 }
 export interface Task extends Evaluation {
+  lifecycle?: LifecycleStatus;
+  // teardown names the task's stopped processes, from this or an earlier
+  // session, that Windows is still tearing down.
+  teardown: string[];
+  detail: string;
+  queue_revision: string;
+  notes: string[];
+  action_error: string;
+  branch: string;
   runtime?: RuntimeEvidence;
   id: string;
   title: string;
@@ -45,6 +54,10 @@ export interface Task extends Evaluation {
   brief: boolean;
   starting: boolean;
   start_error: string;
+}
+export interface LifecycleStatus {
+  phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
+  handoff_saved: boolean; validation_restarts: boolean;
 }
 // Memory is the machine's free memory in bytes beside the fleet's floor,
 // under which nothing starts, and the mark at which the CFO starts the next
@@ -327,6 +340,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),
