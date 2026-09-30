@@ -19,10 +19,14 @@ type fakeProgress struct {
 	sample ProgressSample
 	err    error
 	calls  int
+	// cpuStep is the processor time the goblin's own processes use between
+	// one reading and the next.
+	cpuStep time.Duration
 }
 
 func (f *fakeProgress) InspectProgress(context.Context, state.TaskMeta, EndpointSample) (ProgressSample, error) {
 	f.calls++
+	f.sample.JobCPU += f.cpuStep
 	return f.sample, f.err
 }
 
