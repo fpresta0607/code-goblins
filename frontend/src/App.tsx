@@ -83,8 +83,11 @@ export function App() {
     return () => query.removeEventListener("change", changed);
   }, []);
   const node = snapshot?.sessions.find((node) => node.id === selected?.session);
-  const task = snapshot?.tasks.find((task) => task.id === (selected?.task || node?.task_id));
-  const selectedSession = node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
+  const selectedTaskID = selected?.task || node?.task_id;
+  const task = snapshot?.tasks.find((task) => task.id === selectedTaskID)
+    || snapshot?.tasks.find((task) => task.id === "finished:" + selectedTaskID);
+  const selectedSession = task?.archived && (!node || node.role === "goblin") ? undefined
+    : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
   // Once the supervisor serves a newer board, a hidden tab reloads itself at
   // once and a visible one says so and offers a reload, never mid-answer.
@@ -111,8 +114,9 @@ export function App() {
   const select = (next: Selection, source: HTMLElement, panel: PanelView = view === "Board" ? "task" : "terminal") => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
-    const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
-    setSelected(cfo ? null : next);
+    const session = snapshot?.sessions.find((session) => session.id === next.session);
+    const cfo = !next.session && !next.task || session?.role === "cfo";
+    setSelected(cfo ? null : { ...next, task: next.task || session?.task_id });
     setCfoOpen(cfo);
     setPanelView(panel);
     setSelectionEpoch((epoch) => epoch + 1);

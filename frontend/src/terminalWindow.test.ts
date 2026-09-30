@@ -2,6 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { windowTarget } from "./terminalWindow.ts";
 import type { Session, Snapshot, Task } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
+
+test("an ended session cannot open an external terminal", () => {
+  for (const phase of ["paused", "stopped"]) {
+    const snapshot = parseSnapshot({ healthy: true, tasks: [{ id: "proof", generation: "g1", backend: "native", phase, verified: false }] });
+    assert.equal(windowTarget(snapshot, false, snapshot.tasks[0]), null, phase);
+  }
+});
 
 const task = (changes: Partial<Task> = {}) => ({ id: "task-1", generation: "g1", session: "s1", backend: "herdr", ...changes }) as Task;
 const owner = { id: "s1", task_id: "task-1", generation: "g1", role: "goblin", parent_id: "" } as unknown as Session;
