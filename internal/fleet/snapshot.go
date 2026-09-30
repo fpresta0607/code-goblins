@@ -99,6 +99,7 @@ type TaskRow struct {
 	Artifact string            `json:"artifact"`
 	Path     string            `json:"path"`
 	Actions  Actions           `json:"actions"`
+	Teardown []string          `json:"teardown,omitempty"`
 }
 
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
@@ -173,7 +174,12 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			return Snapshot{}, fmt.Errorf("fleet: resolve current state for %q: %w", id, err)
 		}
 		monitorSummary, endpointExists := readMonitorSummary(h.State, id)
-		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(h.State) {
+		var teardown []string
+		record, lifecycleErr := state.ReadLifecycle(h.State, id)
+		if lifecycleErr == nil {
+			teardown = record.TeardownLabels()
+		}
+		if lifecycleErr == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(h.State) {
 			monitorSummary = MonitorSummary{Health: monitor.HealthPaused}
 			if record.Phase == "resuming" {
 				monitorSummary.Health = monitor.HealthLaunching
@@ -201,6 +207,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Artifact: artifact,
 			Path:     taskPath(meta),
 			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
+			Teardown: teardown,
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {
@@ -225,6 +232,11 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		outcome, err := state.ReadOutcome(h.State, id)
 		if err != nil {
 			return Snapshot{}, err
+		}
+		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == outcome.Generation {
+			if status := record.TeardownStatus(); status != "" {
+				outcome.Reason += "; " + status
+			}
 		}
 		snapshot.Completed = append(snapshot.Completed, outcome)
 	}

@@ -53,7 +53,7 @@ export interface Task extends Evaluation {
   start_error: string;
 }
 export interface LifecycleStatus {
-  phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
+  phase: string; action: string; at: string; kept: string[]; stopped: string[]; teardown: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
 }
 // Memory is the machine's free memory in bytes beside the fleet's floor,
@@ -336,7 +336,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), teardown: strings(record.teardown), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
         detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),

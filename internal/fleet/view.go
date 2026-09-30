@@ -206,7 +206,11 @@ func markdownText(value string) string {
 }
 
 func currentText(task TaskRow) string {
-	return dash(string(task.Current.State)) + " / " + dash(string(task.Current.Source))
+	text := dash(string(task.Current.State)) + " / " + dash(string(task.Current.Source))
+	if len(task.Teardown) > 0 {
+		text += "; finishing Windows teardown: " + strings.Join(task.Teardown, ", ")
+	}
+	return text
 }
 
 func staleText(seconds int64) string {

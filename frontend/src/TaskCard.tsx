@@ -43,6 +43,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {queueBlock(task) && <span className="queue-block">{queueBlock(task)}</span>}
       {(column === "Paused" || column === "Completed") && task.at && <span className="card-clock">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })} at {new Date(task.at).toLocaleString()}</span>}
       {column === "Completed" && task.phase === "stopped" && <span className="card-secondary">{task.reason}</span>}
+      {!!task.lifecycle?.teardown.length && <span className="windows-teardown">Finishing Windows teardown: {task.lifecycle.teardown.join(", ")}</span>}
     </span>
   </>;
   return <div className={"task-card-shell" + (pr || awaited ? " has-pr" : "") + (!task.archived ? " has-controls" : " history")}>

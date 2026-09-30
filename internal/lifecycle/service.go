@@ -24,7 +24,7 @@ type Request struct {
 
 type Operations struct {
 	Prepare    func(context.Context, state.TaskMeta, string) error
-	Stop       func(context.Context, state.TaskMeta) ([]string, error)
+	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
 	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
 	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
@@ -121,6 +121,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if request.Session != "" {
 		result.Session = request.Session
 	}
+	result.Teardown = prior.Teardown
 	switch request.Action {
 	case "pause":
 		result.Phase = "pausing"
@@ -166,7 +167,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 				result.Problems = append(result.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
 			}
 		}
-		result.Stopped, err = service.Operations.Stop(ctx, meta)
+		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
 		if err == nil && service.Operations.Checkpoint != nil {
 			err = service.Operations.Checkpoint(ctx, meta, &result)
 		}
@@ -215,6 +216,9 @@ func (service Service) finish(record state.Lifecycle) (state.Lifecycle, error) {
 	}
 	if record.Generation != "queued" || record.Phase == "stopped" {
 		detail := "lifecycle-" + record.Phase + ": " + state.NormalizeStatusDetail(strings.Join(append([]string{record.Reason}, record.Kept...), "; "))
+		if status := record.TeardownStatus(); status != "" {
+			detail += "; " + status
+		}
 		if err := state.AppendStatus(service.StateDir, record.ID, detail); err != nil {
 			return record, err
 		}

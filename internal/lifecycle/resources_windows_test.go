@@ -125,7 +125,7 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	stopped, err := StopResources(ctx, resources)
+	stopped, _, err := StopResources(ctx, resources)
 	if err != nil {
 		t.Fatalf("stopped=%v error=%v", stopped, err)
 	}
