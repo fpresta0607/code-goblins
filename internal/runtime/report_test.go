@@ -46,7 +46,7 @@ func reportFixture() Inventory {
 		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: `C:\WINDOWS\system32`},
 		{Port: 49664, PID: 1520, Process: "lsass.exe"},
 	}
-	inv.Machine = Machine{MemoryTotal: 32 << 30, MemoryAvailable: 8 << 30, WSL: 11 << 30}
+	inv.Machine = Machine{MemoryTotal: 32 << 30, MemoryAvailable: 8 << 30, CommitLimit: 40 << 30, CommitAvailable: 6 << 30, WSL: 11 << 30}
 	return inv
 }
 
@@ -345,5 +345,48 @@ func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
 	owner := report.LooseVolumes[0].Owner
 	if owner.Kind != OwnerProject || owner.Project != "peakCraftsman" {
 		t.Errorf("owner = %+v, want the checkout its stack name matches", owner)
+	}
+}
+
+// The next goblin needs both memory and commit at the fleet's next-start
+// mark: commit running out stops a process starting however much memory
+// looks available, so a dispatch read from memory alone starts one anyway.
+func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartMark(t *testing.T) {
+	tests := []struct {
+		name    string
+		machine Machine
+		want    Dispatch
+	}{
+		{
+			name:    "memory short",
+			machine: Machine{MemoryAvailable: 2560 << 20, CommitAvailable: 16 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of memory is free; the next goblin starts at 5 GB of both"},
+		},
+		{
+			name:    "commit short",
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 2560 << 20},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of commit (memory plus page file) is free; the next goblin starts at 5 GB of both"},
+		},
+		{
+			name:    "both short",
+			machine: Machine{MemoryAvailable: 3 << 30, CommitAvailable: 1 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 3.0 GB of memory and 1.0 GB of commit (memory plus page file) are free; the next goblin starts at 5 GB of both"},
+		},
+		{
+			name:    "both at exactly the mark",
+			machine: Machine{MemoryAvailable: 5 << 30, CommitAvailable: 5 << 30},
+			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 5.0 GB of memory and 5.0 GB of commit are free"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			dispatch := test.machine.Dispatch()
+
+			// Assert
+			if dispatch != test.want {
+				t.Fatalf("Dispatch() = %+v, want %+v", dispatch, test.want)
+			}
+		})
 	}
 }
