@@ -54,9 +54,16 @@ jobs:
       - name: Ensure SQLite integration tests can run
         shell: pwsh
         run: |
+          # Chocolatey's feed can answer 503 for a moment, so a failed install
+          # is tried again after a wait, three attempts in all, as install.ps1
+          # does for its downloads.
           if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) {
-            choco install sqlite --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            for ($attempt = 1; ; $attempt++) {
+              choco install sqlite --yes --no-progress
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) { throw "choco install sqlite failed 3 times; see above" }
+              Start-Sleep -Seconds (5 * $attempt)
+            }
           }
           sqlite3 --version
       - run: go vet ./...
