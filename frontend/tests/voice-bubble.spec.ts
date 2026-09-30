@@ -12,6 +12,9 @@ declare global {
   interface Window { voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number } }
 }
 
+// The microphone glyph the idle bubble shows, as the page draws it.
+const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7";
+
 const SIQSPEAK = [
   { text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 },
   { text: "Open the board task terminal.", timestamp: "2026-09-29T12:42:00", time_epoch: 1790000520 },
@@ -67,6 +70,8 @@ test("the bubble sits in the pane's corner and opens its recent messages, newest
   expect(corner && frame && frame.x + frame.width - (corner.x + corner.width)).toBeLessThan(30);
   expect(corner && frame && frame.y + frame.height - (corner.y + corner.height)).toBeLessThan(30);
   await expect(bubble).toHaveAttribute("data-tip", "SIQspeak running");
+  // At rest the bubble is a small microphone to click for the list.
+  await expect(bubble.locator("svg path")).toHaveAttribute("d", MICROPHONE);
 
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });

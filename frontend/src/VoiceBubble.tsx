@@ -23,7 +23,8 @@ function hintDismissed(): boolean {
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
 // A terminal's voice bubble, always in the pane's bottom-right corner: idle,
-// it names SIQspeak's state in its tip and opens the pane's recent messages,
+// a small microphone that names SIQspeak's state in its tip and opens the
+// pane's recent messages,
 // SIQspeak's transcriptions beside the board's own dictations, each with
 // Copy and Paste into this terminal; recording, it shows the microphone's
 // level as bars. The first visit explains the shortcut once.
@@ -105,7 +106,7 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     </section>}
     <button ref={bubble} className={"voice-bubble" + (voice.state ? " " + voice.state : "") + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Listening" : "Recent messages" + (status ? ". " + status : "")} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
-      {listening ? <><span className="voice-dot" aria-hidden="true" /><span className="voice-bars" aria-hidden="true">{Array.from({ length: BARS }, (_, index) => <span key={index} ref={(bar) => { bars.current[index] = bar; }} />)}</span></> : <Icon name="voice" />}
+      {listening ? <><span className="voice-dot" aria-hidden="true" /><span className="voice-bars" aria-hidden="true">{Array.from({ length: BARS }, (_, index) => <span key={index} ref={(bar) => { bars.current[index] = bar; }} />)}</span></> : <Icon name="mic" />}
     </button>
     {listening && <span className="sr-only" role="status">Listening</span>}
   </div>;
