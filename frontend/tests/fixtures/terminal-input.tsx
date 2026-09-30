@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { TerminalDeck } from "../../src/TerminalDeck";
 import { NativeTerminal } from "../../src/NativeTerminal";
@@ -28,5 +29,7 @@ const render = (harness: string) => {
     </div>,
   );
 };
-Object.assign(window, { reportHarness: render });
+// The update commits before the next key, as a hook update long before a
+// keypress does.
+Object.assign(window, { reportHarness: (harness: string) => flushSync(() => render(harness)) });
 render(parameters.get("harness") || "");
