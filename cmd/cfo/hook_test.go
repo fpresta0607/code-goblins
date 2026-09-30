@@ -1445,7 +1445,14 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
-	if err := os.MkdirAll(filepath.Join(state, ".watch.lock"), 0o755); err != nil {
+	// The lock can neither read a directory as its record nor, once it
+	// holds a file, remove it as a crashed holder's orphan. An empty one is
+	// removable, and the hook then runs the real watcher instead of failing.
+	lock := filepath.Join(state, ".watch.lock")
+	if err := os.MkdirAll(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "held"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
