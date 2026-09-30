@@ -53,9 +53,9 @@ function crowding(): Crowding {
   return report;
 }
 
-async function board(page: Page, width: number, region = 0) {
+async function board(page: Page, width: number, region = 0, query = region ? "?board=" + region : "") {
   await page.setViewportSize({ width, height: 1400 });
-  await page.goto("/tests/fixtures/card-layout.html" + (region ? "?board=" + region : ""));
+  await page.goto("/tests/fixtures/card-layout.html" + query);
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(".task-card-shell").first()).toBeVisible();
 }
@@ -71,6 +71,21 @@ for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
       .toEqual({ overlaps: [], outside: [], tallTitles: [], smallText: [] });
   });
 }
+
+// A card collapses to one column by the width of the list it sits in, so in
+// the CFO panel's queue on a phone its controls go under its text, as they do
+// in a board column that narrow, and leave the text the card's whole width.
+test("at 390 px a card in the CFO panel's queue collapses to one column", async ({ page }) => {
+  await board(page, 390, 0, "?queue");
+  const shell = page.locator(".cfo-queue .task-card-shell").first();
+  const list = (await page.locator(".cfo-queue .task-cards").first().boundingBox())!;
+  const card = (await shell.locator(".task-card").boundingBox())!, controls = (await shell.locator(".task-controls").boundingBox())!;
+  expect(list.width).toBeLessThan(420);
+  expect(controls.y).toBeGreaterThanOrEqual(card.y + card.height);
+  const seen = await page.evaluate(crowding);
+  expect({ overlaps: seen.overlaps, outside: seen.outside, tallTitles: seen.tallTitles, smallText: [...new Set(seen.smallText)] })
+    .toEqual({ overlaps: [], outside: [], tallTitles: [], smallText: [] });
+});
 
 test("a clamped title shows in full in the card's tip", async ({ page }) => {
   await board(page, 390);

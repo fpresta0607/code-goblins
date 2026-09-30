@@ -162,7 +162,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column { min-width: 0; padding: 20px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }
-.task-cards { display: grid; align-content: start; gap: 16px; }
+.task-cards { container-type: inline-size; display: grid; align-content: start; gap: 16px; }
 .task-card { position: static; display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); box-shadow: var(--shadow-3); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--shadow-1); }

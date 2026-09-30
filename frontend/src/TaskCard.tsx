@@ -49,7 +49,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
-    <button className={"task-card" + (selected ? " selected" : "")}
+    <button className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(awaited || pr || column === "Completed") && <div className="card-links">
       {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" /><span>{awaited.id}</span></button>}
