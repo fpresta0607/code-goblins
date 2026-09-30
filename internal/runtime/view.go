@@ -185,6 +185,7 @@ func renderHeadroom(out *writer, report Report) {
 	out.line("| Resource | Total | Available | In use by Docker |")
 	out.line("| --- | --- | --- | --- |")
 	out.row("memory", Bytes(machine.MemoryTotal), Bytes(machine.MemoryAvailable)+" ("+Percent(machine.MemoryAvailable, machine.MemoryTotal)+")", "see WSL below")
+	out.row("commit (memory plus page file)", Bytes(machine.CommitLimit), Bytes(machine.CommitAvailable)+" ("+Percent(machine.CommitAvailable, machine.CommitLimit)+")", "see WSL below")
 	out.row(dash(machine.DiskName)+" disk", Bytes(machine.DiskTotal), Bytes(machine.DiskFree)+" ("+Percent(machine.DiskFree, machine.DiskTotal)+")", Bytes(machine.DockerTotal()))
 	out.line("")
 	out.line("Docker on disk: images " + Bytes(machine.DockerImages) +
@@ -195,6 +196,8 @@ func renderHeadroom(out *writer, report Report) {
 	out.line("")
 	out.line("WSL virtual machine: " + Bytes(machine.WSL) + " of memory (" + Percent(machine.WSL, machine.MemoryTotal) +
 		" of the machine). Every container runs inside it, so this is the figure that starves the fleet without any Windows-side process appearing to grow.")
+	out.line("")
+	out.line(text(report.Dispatch.Line))
 
 	out.line("")
 	out.line("### Declared memory limits of running stacks")
