@@ -217,6 +217,7 @@ The header switches between two views, one at a time, each with a contextual pan
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
+Each card, and the CFO's bar, carries the mark of the harness the goblin runs (Codex, Claude Code, pi or a terminal for any other), and its tip names the harness, model and effort.
 On a narrow screen the columns stack and a card's repo and status wrap onto more lines and its name onto up to three, so nothing scrolls sideways; a name cut at three lines shows in full in a tip on hover or keyboard focus.
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
