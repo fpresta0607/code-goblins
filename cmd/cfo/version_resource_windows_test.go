@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"unsafe"
 
@@ -54,10 +54,20 @@ func TestEveryBuildCarriesAVersionResourceAndAnAsInvokerManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`level="asInvoker"`, `uiAccess="false"`} {
-		if !strings.Contains(string(manifest), want) {
-			t.Errorf("the manifest lacks %s:\n%s", want, manifest)
-		}
+	var assembly struct {
+		RequestedExecutionLevel struct {
+			Level    string `xml:"level,attr"`
+			UIAccess string `xml:"uiAccess,attr"`
+		} `xml:"trustInfo>security>requestedPrivileges>requestedExecutionLevel"`
+	}
+	if err := xml.Unmarshal(manifest, &assembly); err != nil {
+		t.Fatalf("the manifest is not XML: %v\n%s", err, manifest)
+	}
+	if got := assembly.RequestedExecutionLevel.Level; got != "asInvoker" {
+		t.Errorf("the manifest requests execution level %q, want asInvoker:\n%s", got, manifest)
+	}
+	if got := assembly.RequestedExecutionLevel.UIAccess; got != "false" {
+		t.Errorf("the manifest sets uiAccess %q, want false:\n%s", got, manifest)
 	}
 }
 
