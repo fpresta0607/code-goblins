@@ -30,6 +30,21 @@ In order, it:
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins --board`, restarts it on the new one.
 
+## On a fresh PC
+
+`cfo.exe` is not code-signed yet, so Windows knows it only as an unknown program from an unknown publisher.
+Its file properties (right-click, Properties, Details) name the product Code Goblins and its version, and it asks for no administrator rights.
+
+- **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
+  Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
+- **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
+  Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
+  Then **More info**, **Run anyway** runs it.
+- **Smart App Control**, where it is on (Windows Security, App & browser control), blocks unsigned programs that Microsoft does not already know, with no way to run them; a signed release is the fix.
+- **Microsoft Defender** can send a new build to Microsoft for cloud analysis, which is on by default, and a machine-learning false positive then quarantines it hours after it installed cleanly; `Trojan:Script/Wacatac.C!ml` is the one seen so far.
+  Do not add an exclusion or turn protection off.
+  Check the file's SHA256 as above, report it to Microsoft as a false positive at <https://www.microsoft.com/wdsi/filesubmission>, and rerun the install once Microsoft clears it or a newer release is out.
+
 ## To work on it
 
 ```powershell

@@ -38,9 +38,23 @@ jobs:
           if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
             throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
           }
+      # Every build carries the committed version resource and manifest; a
+      # release stamps its own version into them first. -trimpath keeps the
+      # build machine's folders out of the binary, so one commit builds to one
+      # file wherever it is built.
       - name: Build
+        shell: pwsh
         run: |
-          go build -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
+          Push-Location cmd/cfo
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version ${{ github.ref_name }} --file-version ${{ github.ref_name }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          go build -trimpath -ldflags "-X main.version=${{ github.ref_name }}" -o cfo.exe ./cmd/cfo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $info = (Get-Item cfo.exe).VersionInfo
+          if ($info.ProductName -ne 'Code Goblins' -or $info.ProductVersion -ne '${{ github.ref_name }}') {
+            throw "cfo.exe carries ProductName '$($info.ProductName)' and ProductVersion '$($info.ProductVersion)', want 'Code Goblins' and '${{ github.ref_name }}'"
+          }
       # install.ps1 refuses a download that does not match this file.
       - name: Checksum
         shell: pwsh

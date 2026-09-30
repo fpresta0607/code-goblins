@@ -42,6 +42,15 @@ jobs:
           if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
             throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
           }
+      - name: Check the Windows resource objects
+        working-directory: cmd/cfo
+        shell: pwsh
+        run: |
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (git status --porcelain --untracked-files=all -- rsrc_windows_amd64.syso rsrc_windows_arm64.syso) {
+            throw 'The resource objects differ from winres.json. In cmd/cfo run go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64, then commit them.'
+          }
       - name: Ensure SQLite integration tests can run
         shell: pwsh
         run: |

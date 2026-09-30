@@ -244,7 +244,9 @@ Herdr's socket answers one request on a connection and then closes it, so each i
 The supervisor also reads the session's snapshot and a pane's process info, which prove a view's pane, on that socket in milliseconds rather than through a herdr process of about a second each, and reads through the herdr command when the socket cannot be reached or its answer does not decode.
 The view proves its pane, terminal, process and gate custody in full when it opens and on every five-second tick; an input starts no process to prove it again, and only rereads the task's record (or the CFO's registration) and checks that the verified process is alive, so a changed generation, pane or registration or an exited process is refused on the next key and anything else on the next tick.
 A tick's Herdr commands run beside the screen, never in its way, so a frame, and with it the echo of a key, is never held behind a tick.
-A paste is typed whole in one request, up to the 64 KiB input limit; an input Herdr refuses ends the view with an unknown outcome.
+A paste reaches the supervisor in pieces of at most 64 KiB, which its lease joins into one paste before anything is typed, so no key or other command lands inside it.
+The joined paste, with every escape character inside it removed so pasted text cannot end the paste early, is typed in one request: `pane.send_input` on an observing view, which applies the program's own paste mode, or the control stream on a sizing view.
+A paste is limited to Herdr's 1 MiB request, less 1 KiB for the request's envelope, measured after JSON encoding; the view refuses a larger paste before sending any of it, the lease ends the view without typing a paste that grows past the limit or is interrupted by any other command, and an input Herdr refuses ends the view with an unknown outcome.
 A refused input, or one whose outcome is unknown, ends the view with the reason in plain words; nothing is resent, and reconnecting starts from a fresh full screen.
 The view never scrolls a pane that keeps scrollback: Herdr sends a view only the pane's live screen, never its history, and `pane.scroll` would move the view of every Herdr window on that pane without reaching the board.
 So the live screen always follows the pane's bottom, and scrolling up with the mouse wheel, anywhere over the panel and not only over a screen that fills part of it, or Shift+PageUp reads the pane's last 3,000 lines through `POST /api/terminal/history` (Herdr's `pane.read` of its recent output, with colors, on the same socket) and shows them in a terminal of their own over the live screen, at its size and font.
@@ -262,7 +264,7 @@ Herdr's frames carry no mouse modes, so a click never reaches the program and Cl
 The jump waits out the double-click interval, 300 ms after the release, and a further press in that time cancels it, so a double-click or triple-click selects the word or line it aimed at; a click on a pane the view does not hold, such as one a review gate owns, does nothing.
 A NUL key such as Ctrl+Space is typed like any other key.
 Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
-Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C copies the current selection.
+Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C, or Ctrl+C while text is selected, copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
@@ -431,8 +433,22 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details read only declared project/provisioning metadata and configured MCP names.
-Configured is not connected; each configured entry is marked configured, never connected, and one shared note says so.
+Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
+Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
+Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
+Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
+Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
+Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon, a finished repair card and the first return to the board after each sign-in click always start one.
+The dropdown polls only while a check runs, so an open dropdown never rechecks on its own.
+A refresh or finished repair that arrives while a check runs queues one more check after it, and repair icons act on the shown result without starting a check.
+Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
+Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
+Project MCP servers omitted from the goblin's configuration appear as Withheld, with a token action when the project names a token variable.
+CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
+Sign-in icons open the manifest's HTTPS login page or a server-generated repair card using the existing Command Center run machinery; key icons create a store-from-clipboard card without reading the clipboard in the browser.
+Fix requests accept connection and action identities only, require the board token and origin, and reject replaced tasks; repair cards verify the task again before running.
+Finishing a repair refreshes the cached status, and returning from a browser sign-in rechecks it.
+A stored token does not change an already running native process's environment, so its row remains Missing until the goblin receives it.
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 

@@ -21,6 +21,10 @@ go build ./cmd/cfo
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request.
 A pull request must keep all of them green.
 
+`cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
+After changing it, regenerate them in `cmd/cfo` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.
+Build release and deployment binaries with `-trimpath`, so a commit builds to the same file wherever it is built.
+
 ## Repo layout
 
 See [Repo layout](README.md#repo-layout) in the README.

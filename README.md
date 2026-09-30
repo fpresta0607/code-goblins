@@ -124,6 +124,11 @@ cd code-goblins
 
 Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
 
+`cfo.exe` is not code-signed yet.
+The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
+A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
+[On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
+
 Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
@@ -237,7 +242,14 @@ Clicking a card or a node opens the same goblin panel from either view: who the 
 A long status line shows its first three lines with **Show more**, which opens the whole line, and **Show less** closes it again.
 A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued task has no terminal yet, so its panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
-The Task view shows **Workspace** with the repository, branch and exact working folder, **Connectors** with a mark for every harness, model provider, MCP server and credential (configured is not the same as connected, and no secret values are shown), then **Changes**, **Activity** and **History**.
+The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
+Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
+Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
+Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
+Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
+
+<img src="docs/images/board-connections.png" alt="Connections dropdown with Connected checks, sign-in actions, withheld MCP servers, repository services and provided credentials" width="720" />
+
 The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (what `cfo spawn` starts for Claude Code by default, and for codex or pi with `--backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
@@ -264,6 +276,20 @@ When SIQspeak, the local dictation app, is running, the shortcut is left to it, 
 Click the bubble for the pane's recent messages, SIQspeak's transcriptions and the board's own dictations, newest first, each with **Copy** and **Paste into this terminal**.
 The board reads SIQspeak's history without keeping it, keeps its own dictations in this browser only, and finds SIQspeak in a `SIQspeak` or `SIQspeak-main` folder under the projects root, or where `CFO_SIQSPEAK_DIR` points.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
+Hold **Shift** while selecting if the running program has taken the mouse.
+**Ctrl+C** copies selected text; without a selection it interrupts the running program.
+**Ctrl+Shift+C** always copies, and **Ctrl+V** or **Ctrl+Shift+V** pastes the clipboard, including multiline text and large selections.
+When the clipboard holds no text, such as only an image, **Ctrl+V** sends the program the Ctrl+V control character, as it did before; whether the program then attaches the image is up to the program.
+The browser's right-click Paste command uses the same paste path.
+The program's paste mode is respected; a Herdr view refuses a paste that exceeds its 1 MiB encoded request limit without sending any text.
+Multiline paste into a native Codex goblin on Windows still does not arrive as a paste and can submit the first line.
+Codex 0.154 turns virtual-terminal input off, its Windows crossterm reader has no paste decoder, and ConPTY drops the bracketed-paste markers ([Microsoft terminal issue 18094](https://github.com/microsoft/terminal/issues/18094)).
+Until that separate limitation is resolved, keep multiline content in a local file and give Codex a single-line instruction to read it.
+**Escape**, **Tab**, **Shift+Tab**, the arrow keys, **Home**, **End**, **Page Up**, **Page Down**, **Ctrl+A/E/U/K/W/L/R/D/Z** and **Alt** combinations go to the program.
+**Shift+Enter** adds a newline in native Claude Code and Codex composers; **Enter** keeps its usual submit behavior.
+A goblin's harness comes from its task, and a native CFO's from the latest session its hooks report in the CFO terminal, so the CFO's **Shift+Enter** adds a newline from its first hook event on, without reconnecting the terminal.
+In other harnesses, shells and Herdr terminals, **Shift+Enter** keeps the same behavior as **Enter**.
+The advertised font-size, terminal-switching, dictation and **Shift+Escape** shortcuts remain the board's; the Herdr history view also uses **Shift+PageUp**, **Shift+PageDown** and **Escape** to navigate history.
 
 <p align="center">
   <img src="docs/images/goblin-panel.webp" alt="A goblin's native terminal maximized over the whole window, edge to edge with no scroll bars, under the Task and Terminal pill with Open in terminal, Restore and Close" width="900" />

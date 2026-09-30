@@ -51,6 +51,7 @@ var requiredMethods = []string{
 	"pane.process_info",
 	"pane.read",
 	"pane.report_agent",
+	"pane.send_input",
 	"pane.send_keys",
 	"pane.send_text",
 }

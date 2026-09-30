@@ -1,0 +1,32 @@
+{
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "description": "Code Goblins",
+        "minimum-os": "win10",
+        "execution-level": "as invoker",
+        "dpi-awareness": "unaware"
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "0.0.0.0",
+          "product_version": "0.0.0.0"
+        },
+        "info": {
+          "0409": {
+            "CompanyName": "Code Goblins",
+            "FileDescription": "Code Goblins",
+            "FileVersion": "0.0.0.0",
+            "LegalCopyright": "Copyright (c) 2026 Kun Chen, Franco Presta. MIT License.",
+            "ProductName": "Code Goblins",
+            "ProductVersion": "dev"
+          }
+        }
+      }
+    }
+  }
+}

@@ -36,7 +36,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
     </div>
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
     <div className="panel-task" hidden={view !== "task"}>
-      {owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} />
+      {owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <p className="column-hint">Top starts first, when memory allows.</p>

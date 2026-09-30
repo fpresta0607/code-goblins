@@ -19,7 +19,7 @@ const MAX_RETRIES = 5;
 // cleared and repainted, and never half drawn.
 // query names the terminal to the relay: a task's generation, or the native
 // terminal the CFO runs in.
-export function HostTerminal({ query, label, instance, visible, shown, focus }: { query: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
+export function HostTerminal({ query, harness, label, instance, visible, shown, focus }: { query: string; harness: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -27,6 +27,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
   // sizes itself and becomes whole once the terminal is shown.
   const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
+  const harnessValue = useRef(harness);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [reconnecting, setReconnecting] = useState(false);
@@ -45,6 +46,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
       view.show(shown);
     }
   }, [shown]);
+  useEffect(() => { harnessValue.current = harness; }, [harness]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
   useEffect(() => {
@@ -93,6 +95,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
       },
       font: storeFontSize,
       dictate,
+      harness: () => harnessValue.current,
     });
     staged.current = view;
     view.show(shownValue.current);

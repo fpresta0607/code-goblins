@@ -127,6 +127,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, value)
+	case r.URL.Path == "/api/connections" && r.Method == "GET":
+		h.readConnections(w, r)
+	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
+		h.refreshConnections(w, r)
+	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
+		h.fixConnection(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
