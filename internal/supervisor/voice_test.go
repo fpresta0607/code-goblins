@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -109,21 +110,26 @@ func TestVoiceHistoryResolvesTheProjectsRootOncePerSupervisor(t *testing.T) {
 	resolutions := 0
 	handler.readVoice = voiceReader(func() (string, error) {
 		resolutions++
+		if resolutions == 1 {
+			return "", errors.New("powershell could not start")
+		}
 		return t.TempDir(), nil
 	})
 
-	for range 3 {
+	statuses := []int{}
+	for range 4 {
 		request := httptest.NewRequest("POST", "http://board.local/api/voice", nil)
 		request.Header.Set("Origin", "http://board.local")
 		request.Header.Set("X-CFO-Token", "current")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
-		if response.Code != 200 {
-			t.Fatalf("status = %d, want 200", response.Code)
-		}
+		statuses = append(statuses, response.Code)
 	}
 
-	if resolutions != 1 {
-		t.Fatalf("projects root resolved %d times, want 1", resolutions)
+	if !reflect.DeepEqual(statuses, []int{503, 200, 200, 200}) {
+		t.Fatalf("statuses = %v, want a failed lookup retried and then kept", statuses)
+	}
+	if resolutions != 2 {
+		t.Fatalf("projects root resolved %d times, want 2", resolutions)
 	}
 }

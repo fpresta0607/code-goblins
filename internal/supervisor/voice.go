@@ -10,7 +10,22 @@ import (
 )
 
 func voiceReader(projectsRoot func() (string, error)) func() (siqspeak.Snapshot, error) {
-	resolve := sync.OnceValues(projectsRoot)
+	var lock sync.Mutex
+	resolved := ""
+	isResolved := false
+	resolve := func() (string, error) {
+		lock.Lock()
+		defer lock.Unlock()
+		if isResolved {
+			return resolved, nil
+		}
+		root, err := projectsRoot()
+		if err != nil {
+			return "", err
+		}
+		resolved, isResolved = root, true
+		return root, nil
+	}
 	return func() (siqspeak.Snapshot, error) {
 		root := ""
 		override := os.Getenv("CFO_SIQSPEAK_DIR")
