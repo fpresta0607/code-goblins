@@ -598,7 +598,38 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 /* Dictation listens while Ctrl+Shift+Space is held. */
-.terminal-listening { position: absolute; left: 50%; bottom: 16px; z-index: 2; transform: translateX(-50%); }
+/* The voice bubble sits in its own strip under a native terminal's screen, so
+   it never covers the terminal's text, and floats in the corner of a Herdr
+   pane. It stays still while idle: only recording moves, and only with the
+   microphone's level. */
+.voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
+.native-terminal:not(.host-terminal) .voice-dock { position: absolute; right: 12px; bottom: 12px; z-index: 2; min-height: 0; padding: 0; border: 0; background: none; }
+.voice-dock [data-tip]::after { top: auto; bottom: calc(100% + 8px); }
+.voice-bubble { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 64px; height: 40px; padding: 0 16px; border: 1px solid #2c8a6e; border-radius: 999px; background: #0b1f1a; color: var(--mint); box-shadow: 0 0 14px #00e59b33; transition: min-width .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.voice-bubble:hover { border-color: var(--accent); }
+.voice-bubble .icon { width: 22px; height: 22px; }
+.voice-bubble.stopped, .voice-bubble.missing, .voice-bubble.unreadable { border-color: #2f4a44; color: #86b5a5; box-shadow: none; }
+.voice-bubble.recording { min-width: 112px; border-color: var(--accent); color: var(--mint); box-shadow: 0 0 20px #00e59b55; }
+.voice-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: #ff5f57; box-shadow: 0 0 8px #ff5f5788; }
+.voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
+.voice-bars span { width: 3px; height: 24px; border-radius: 2px; background: var(--mint); transform: scaleY(.2); transition: transform 70ms linear; }
+.voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid var(--edge-lit); border-radius: 18px; background: var(--level-3); box-shadow: var(--shadow-2); color: #d8e4ea; }
+.native-terminal:not(.host-terminal) .voice-card { right: 0; }
+.voice-card p { margin: 0; overflow-wrap: anywhere; }
+.voice-card-title { padding-right: 40px; color: #edf4f3; font-size: 1.1875rem; font-weight: 800; }
+.voice-card .voice-close { position: absolute; top: 12px; right: 12px; }
+.voice-hint p:not(.voice-card-title) { color: var(--muted); }
+.voice-status { display: flex; align-items: center; gap: 8px; margin-top: -6px !important; color: var(--muted); }
+.voice-status .status-dot { background: #a6beda; }
+.voice-status.running .status-dot { background: var(--accent); }
+.voice-help { color: var(--muted); }
+.voice-recent ul { display: grid; list-style: none; margin: 0; padding: 0; }
+.voice-recent li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; padding: 12px 0; border-top: 1px solid var(--edge); }
+.voice-meta { grid-column: 1; color: var(--muted); font-size: .9375rem; }
+.voice-text { grid-column: 1; color: #edf4f3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.voice-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 8px; }
+.voice-empty, .voice-footer { color: var(--muted); font-size: .9375rem; }
+.voice-footer { padding-top: 10px; border-top: 1px solid var(--edge); }
 @media (max-width: 50rem) {
   .panel-header { padding: 16px 18px 18px; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
