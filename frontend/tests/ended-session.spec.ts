@@ -1,7 +1,30 @@
 import { expect, test, type Page } from "@playwright/test";
-import { parseSnapshot } from "../src/types";
+import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
+
+// Serves the real App its snapshots through a stand-in event stream, and
+// answers every other API request with a 404 unless a later route claims it.
+async function serveSnapshots(page: Page, initial: Snapshot): Promise<(next: Snapshot) => Promise<void>> {
+  await page.addInitScript((first) => {
+    class SnapshotSource extends EventTarget {
+      private publish = (event: Event) => {
+        if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
+      };
+      constructor() {
+        super();
+        window.addEventListener("fixture-snapshot", this.publish);
+        queueMicrotask(() => this.publish(new CustomEvent("fixture-snapshot", { detail: first })));
+      }
+      close() { window.removeEventListener("fixture-snapshot", this.publish); }
+    }
+    Object.defineProperty(window, "EventSource", { value: SnapshotSource });
+  }, initial);
+  await page.route("**/api/**", async (route) => {
+    await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
+  });
+  return async (next) => { await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), next); };
+}
 
 for (const workspace of ["Board", "Orchestration"]) {
   test(`${workspace} keeps the selected terminal visible when its task moves into retired history`, async ({ page }) => {
@@ -9,23 +32,7 @@ for (const workspace of ["Board", "Orchestration"]) {
       tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "claude", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
       sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "claude", phase: "working" }],
     });
-    await page.addInitScript((initial) => {
-      class SnapshotSource extends EventTarget {
-        private publish = (event: Event) => {
-          if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
-        };
-        constructor() {
-          super();
-          window.addEventListener("fixture-snapshot", this.publish);
-          queueMicrotask(() => this.publish(new CustomEvent("fixture-snapshot", { detail: initial })));
-        }
-        close() { window.removeEventListener("fixture-snapshot", this.publish); }
-      }
-      Object.defineProperty(window, "EventSource", { value: SnapshotSource });
-    }, snapshot);
-    await page.route("**/api/**", async (route) => {
-      await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
-    });
+    const publish = await serveSnapshots(page, snapshot);
     await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
@@ -42,7 +49,7 @@ for (const workspace of ["Board", "Orchestration"]) {
     snapshot.tasks[0] = { ...snapshot.tasks[0], id: "finished:input-proof", generation: "", phase: "done", archived: true, at: "2026-09-29T09:42:00Z", activity: "Terminal fixes verified. Pull request ready." };
     snapshot.sessions = [];
     snapshot.revision++;
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot);
+    await publish(snapshot);
 
     await expect(page.getByRole("heading", { name: "Session retired" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
@@ -314,20 +321,41 @@ test("a paused Herdr goblin resumed in the background stays within three live st
 });
 
 for (const backend of ["native", "herdr"] as const) {
-  test(`${backend}: a failed resume opens no transport and a retry connects only the resumed generation`, async ({ page }) => {
+  test(`${backend}: a failed resume opens no transport and Resume from the Task view connects only the resumed generation`, async ({ page }) => {
+    const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
+    const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", cfo_runs: true, revision: 1,
+      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend, harness: "claude", generation: "s2-9d41", queue_revision: "q7", phase: "unavailable", verified: false,
+        runtime: { state: "unavailable" }, lifecycle, action_error: "The resumed harness exited before it was ready." }],
+      sessions: [],
+    });
+    const publish = await serveSnapshots(page, snapshot);
     const connections = await watchConnections(page, backend);
-    await page.goto(`/tests/fixtures/ended-session.html?phase=paused&backend=${backend}`);
-    await expect(page.getByRole("heading", { name: "Session paused" })).toBeVisible();
-    await page.evaluate(() => window.reportSession("resuming", "s1-4b8e", { action: "resume", phase: "resuming" }));
-
-    await page.evaluate(() => window.reportSession("unavailable", "s2-9d41", { action: "resume", phase: "failed" }));
-    await expect.soft(page.getByText("Resume failed. See Task for details.", { exact: true })).toBeVisible();
+    const requests: unknown[] = [];
+    await page.route("**/api/tasks/lifecycle", async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({ json: { revision: 2 } });
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Terminal fixes and handoff/ }).first().click();
+    const panel = page.locator(".goblin-panel");
+    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
+    await expect(page.getByText("Resume failed. See Task for details.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
-    await page.evaluate(() => window.reportSession("resuming", "s2-9d41", { action: "resume", phase: "failed" }));
-    await expect.soft(page.getByText("Resuming session...", { exact: true })).toBeVisible();
-    await page.evaluate(() => window.reportSession("working", "s3-a17c"));
+    expect(await connections()).toEqual([]);
+
+    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task" }).click();
+    await panel.getByRole("button", { name: "Resume Terminal fixes and handoff" }).click();
+    await expect.poll(() => requests).toEqual([expect.objectContaining({ task: "input-proof", generation: "s2-9d41", revision: "q7", action: "resume" })]);
+    await publish({ ...snapshot, revision: 2, tasks: [{ ...snapshot.tasks[0], phase: "resuming" }] });
+    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
+    await expect(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+    expect(await connections()).toEqual([]);
+    await publish({ ...snapshot, revision: 3, tasks: [{ ...snapshot.tasks[0], generation: "s3-a17c", phase: "working", runtime: { state: "busy", reason: "", at: "2026-09-30T10:02:00Z" }, lifecycle: undefined, action_error: "" }] });
 
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-    expect(await connections()).toEqual([{ task: "input-proof", generation: "s3-a17c", open: true }]);
+    // The development App runs in StrictMode, which mounts a new terminal twice.
+    const panes = await connections();
+    expect(panes.filter((pane) => pane.generation !== "s3-a17c")).toEqual([]);
+    expect(panes.filter((pane) => pane.open)).toEqual([{ task: "input-proof", generation: "s3-a17c", open: true }]);
   });
 }
