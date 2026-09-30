@@ -12,17 +12,8 @@
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
 # and ends by opening the board in the browser.
 #
-# On a fresh PC: cfo.exe is not code-signed yet, so Windows knows it as an
-# unknown program. Nothing runs unless its SHA256 matches the release's
-# SHA256SUMS. Windows PowerShell does not mark the download as coming from
-# the internet, so SmartScreen does not prompt. A cfo.exe saved from a browser
-# is marked, and SmartScreen says "Windows protected your PC" with an Unknown
-# publisher: check it first with Get-FileHash cfo.exe -Algorithm SHA256
-# against SHA256SUMS, then More info, Run anyway. Where Smart App Control is
-# on (Windows Security, App & browser control), Windows blocks an unsigned
-# program outright until a signed release. Microsoft Defender may also send
-# a new build to Microsoft for a cloud review, and a false positive there
-# quarantines it; "On a fresh PC" in docs/install.md says what to do.
+# cfo.exe is not code-signed yet; "On a fresh PC" in docs/install.md says
+# what Windows shows for it and what to do if Microsoft Defender flags it.
 #
 # To work on it, in a clone:
 #
