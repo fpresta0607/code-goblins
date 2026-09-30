@@ -123,7 +123,7 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, n
 				return 1
 			}
 			fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", harness, project, supervisor.NativeCFOTerminal)
-			warnNoWakePath(stdout, harness)
+			sayWakePath(stdout, harness, true)
 			return runtime.attachNative(stateDir, supervisor.NativeCFOTerminal, stdout, stderr)
 		}
 		started, err := runtime.startCFO(ctx, project, harness)
@@ -133,7 +133,7 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, n
 		}
 		if started {
 			fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s.\n", harness, project)
-			warnNoWakePath(stdout, harness)
+			sayWakePath(stdout, harness, false)
 		} else {
 			keeps()
 			fmt.Fprintln(stdout, "\nThe CFO is already running in Herdr's cfo tab.")
@@ -146,12 +146,17 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, n
 	return runtime.attachHerdr(session)
 }
 
-// warnNoWakePath says what a CFO that is not Claude Code goes without: only
-// Claude Code's Stop hook wakes the CFO when a goblin reports, so a Codex or
-// pi CFO learns of reports only when it looks.
-func warnNoWakePath(stdout io.Writer, harness string) {
-	if harness != "claude" {
-		fmt.Fprintf(stdout, "A %s CFO has no wake path: only Claude Code's Stop hook wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain.\n", harness)
+// sayWakePath says how a CFO that is not Claude Code, whose Stop hook wakes
+// it, hears of a wake: in a native terminal cfo serve types one wake line into
+// it while it sits idle at an empty composer, and in Herdr nothing does, so it
+// sees reports only when it looks.
+func sayWakePath(stdout io.Writer, harness string, native bool) {
+	switch {
+	case harness == "claude":
+	case native:
+		fmt.Fprintf(stdout, "A %s CFO is woken by cfo serve, which types one wake line into its native terminal while it sits idle at an empty composer.\n", harness)
+	default:
+		fmt.Fprintf(stdout, "A %s CFO in Herdr has no wake path: only Claude Code's Stop hook, or cfo serve typing into a native terminal, wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain; start it with goblins --native to have its wakes typed in.\n", harness)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -56,6 +57,8 @@ type Options struct {
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
+	// CI runs gh and git for the CI wakes; without it no CI is watched.
+	CI execx.Runner
 }
 
 type Service struct {
@@ -78,9 +81,12 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// historyErr is what the last history refresh met; the loop reports it
-	// with its next recovery cycle.
+	// historyErr is what the last history refresh met, and fleetErr and
+	// cfoWakeErr what the fleet wakes and the typed CFO wake last met; the
+	// loop reports them with its next recovery cycle.
 	historyErr error
+	fleetErr   error
+	cfoWakeErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -203,6 +209,18 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	fleetDone := make(chan struct{})
+	go func() {
+		defer close(fleetDone)
+		s.keepFleetWakes(ctx, fleetWatchEvery)
+	}()
+	defer func() { s.cancel(); <-fleetDone }()
+	awakeDone := make(chan struct{})
+	go func() {
+		defer close(awakeDone)
+		s.keepCFOAwake(ctx, cfoWakeEvery)
+	}()
+	defer func() { s.cancel(); <-awakeDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -285,7 +303,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.fleetErr, s.cfoWakeErr)
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))

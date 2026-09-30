@@ -121,6 +121,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		CI:               execx.OSRunner{},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

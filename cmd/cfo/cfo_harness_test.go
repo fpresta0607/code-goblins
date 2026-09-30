@@ -38,12 +38,12 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "The CFO starts as codex in "+f.project+".") || !strings.Contains(out, "A codex CFO has no wake path") {
+		if !strings.Contains(out, "The CFO starts as codex in "+f.project+".") || !strings.Contains(out, "A codex CFO in Herdr has no wake path") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO has no wake path") {
-		t.Errorf("stdout = %q, want the native pi start and its missing wake path", nativeOut)
+	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by cfo serve, which types one wake line into its native terminal") || strings.Contains(nativeOut, "no wake path") {
+		t.Errorf("stdout = %q, want the native pi start and how its wakes reach it", nativeOut)
 	}
 	if data, err := os.ReadFile(cfoHarnessPath(f.home.State)); err != nil || strings.TrimSpace(string(data)) != "pi" {
 		t.Errorf("remembered harness = %q, %v; want pi", data, err)

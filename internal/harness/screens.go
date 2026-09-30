@@ -3,6 +3,7 @@ package harness
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Screens is what a spawn into a native terminal recognizes on a harness's
@@ -27,6 +28,13 @@ type Screens struct {
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
 	// on 2026-09-29.
 	Undrawn bool
+	// Empty matches the composer row that shows only while the composer
+	// holds nothing, as Codex's placeholder does. RuledComposer says the
+	// composer is instead the rows between the screen's last two full-width
+	// rules, as pi 0.85 draws its editor, and holds nothing while they are
+	// blank.
+	Empty         *regexp.Regexp
+	RuledComposer bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -88,6 +96,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
 			Undrawn:         true,
+			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
 		}, true
 	case Pi:
 		return Screens{
@@ -105,6 +114,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+			// The editor draws a full-width rule above and below its rows
+			// and nothing at their sides (pi-tui's Editor.render).
+			RuledComposer: true,
 		}, true
 	}
 	return Screens{}, false
@@ -149,6 +161,41 @@ func (s Screens) IsReady(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// ComposerEmpty reports whether screen shows the harness's composer holding
+// nothing, so text typed now cannot land on top of text somebody left there
+// unsent. It is false whenever that cannot be read, including for a harness
+// whose empty composer it does not know.
+func (s Screens) ComposerEmpty(screen []string) bool {
+	if s.Empty != nil {
+		return anyRow(screen, s.Empty)
+	}
+	if !s.RuledComposer {
+		return false
+	}
+	var rules []int
+	for i, row := range screen {
+		if isRule(row) {
+			rules = append(rules, i)
+		}
+	}
+	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
+		return false
+	}
+	for _, row := range screen[rules[len(rules)-2]+1 : rules[len(rules)-1]] {
+		if strings.TrimSpace(row) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// isRule reports whether row is a full-width rule: box-drawing dashes and
+// nothing else.
+func isRule(row string) bool {
+	row = strings.TrimSpace(row)
+	return utf8.RuneCountInString(row) >= 8 && strings.Trim(row, "─") == ""
 }
 
 // Shows reports whether screen shows text typed into the composer: its end,
