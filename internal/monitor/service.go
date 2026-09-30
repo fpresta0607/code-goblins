@@ -614,7 +614,7 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	if err != nil {
 		return nil, false, err
 	}
-	observation.Jobs = progress.Jobs
+	observation.ProgressReadAt, observation.Jobs = timePointer(now), progress.Jobs
 	if len(progress.Jobs) == 0 {
 		observation.JobCPU = 0
 		observation.JobSampledAt = nil

@@ -84,8 +84,8 @@ func TestAScanReadsAnIdleGoblinsProgressOnce(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, progress, _ := idleService(t, &now)
 
-	for scan := 1; scan <= 4; scan++ {
-		scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 1)
+	for scan := 1; scan <= 12; scan++ {
+		scanPane(t, service, probe, herdr.AgentDone, "❯", &now, 15*time.Second)
 		if progress.calls != scan {
 			t.Fatalf("after %d scans progress was read %d times, want once a scan", scan, progress.calls)
 		}
