@@ -270,7 +270,7 @@ The whole crew:
 
 Clicking a card or a node opens the same goblin panel from either view: who the goblin is, what it is doing in plain words, its own latest status line, and icon buttons to open its worktree in VS Code or File Explorer and to open its pull request.
 A long status line shows its first three lines with **Show more**, which opens the whole line, and **Show less** closes it again.
-A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued task has no terminal yet, so its panel is its Task view alone, with no pill.
+A pill at the top switches between the **Task** view and the **Terminal** view in one tap; a queued, paused or stopped task, or one cleanup archived, has no live terminal, so its panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
 Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
@@ -280,7 +280,7 @@ Disabled or withheld MCP servers say why they are unavailable, and no secret val
 
 <img src="docs/images/board-connections.png" alt="Connections dropdown with Connected checks, sign-in actions, withheld MCP servers, repository services and provided credentials" width="720" />
 
-The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start now**.
+The CFO's Task view lists every queued task under its workspace, in the same priority order as the Tasks column and with the same memory meter, drag and **Start**.
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (what `cfo spawn` starts for Claude Code by default, and for codex or pi with `--backend native`) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
