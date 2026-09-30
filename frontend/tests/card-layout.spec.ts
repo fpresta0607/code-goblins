@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 interface Crowding { cards: number; overlaps: string[]; outside: string[]; tallTitles: string[]; smallText: string[] }
 
@@ -9,7 +9,7 @@ function crowding(): Crowding {
   const atomic = ".goblin-avatar, .rank, .status-dot, svg, a, button:not(.task-card), .next-chip";
   const report: Crowding = { cards: 0, overlaps: [], outside: [], tallTitles: [], smallText: [] };
   const name = (element: Element) => element.tagName.toLowerCase() + "." + [...element.classList].join(".");
-  for (const card of document.querySelectorAll(".task-card-shell, .task-card.history")) {
+  for (const card of document.querySelectorAll(".task-card-shell")) {
     const frame = (card.closest(".ranked-item") || card).getBoundingClientRect();
     report.cards++;
     const boxes: { owner: Element; label: string; rect: DOMRect }[] = [];
@@ -78,3 +78,21 @@ test("a clamped title shows in full in the card's tip", async ({ page }) => {
   await card.hover();
   await expect(card).toHaveAttribute("data-tip", /the agents' keys reach the program$/);
 });
+
+// The whole card opens its panel: a click on its padding or beside its chips
+// selects it, as a click on its text does.
+for (const [spot, at] of [
+  ["its corner under its controls", async (shell: Locator) => { const box = (await shell.boundingBox())!; return { x: box.width - 8, y: box.height - 8 }; }],
+  ["the room right of its pull request", async (shell: Locator) => { const box = (await shell.boundingBox())!, chip = (await shell.locator(".card-pr").boundingBox())!; return { x: chip.x + chip.width + 12 - box.x, y: chip.y + chip.height / 2 - box.y }; }],
+] as const) {
+  for (const width of [390, 1000]) {
+    test(`at ${width} px a click on ${spot} selects the card`, async ({ page }) => {
+      await board(page, width);
+      const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+      const card = shell.locator(".task-card");
+      await expect(card).toHaveAttribute("aria-pressed", "false");
+      await shell.click({ position: await at(shell) });
+      await expect(card).toHaveAttribute("aria-pressed", "true");
+    });
+  }
+}

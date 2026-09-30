@@ -163,7 +163,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .board-column h2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 1.375rem; margin: 0 0 20px; }
 .column-count { font-family: var(--font-body); color: var(--muted); font-size: .9375rem; font-weight: 700; padding: 0 9px; border: 1px solid var(--edge); border-radius: 999px; background: #0a1218; }
 .task-cards { display: grid; align-content: start; gap: 16px; }
-.task-card { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
+.task-card { position: static; display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; text-align: left; padding: 0; min-height: 0; border: 0; border-radius: 10px; background: none; box-shadow: none; }
 .task-card-shell:hover, .flow-node:hover, .workflow-node:hover { transform: var(--lift); box-shadow: var(--shadow-3); }
 .task-card-shell:has(> .task-card:active), .workflow-node:active { transform: none; box-shadow: var(--shadow-1); }
 .task-card .goblin-avatar { width: 44px; height: 44px; }
@@ -179,7 +179,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-links { grid-area: links; }
 .task-card-shell > .task-controls { grid-area: side; }
-.task-card-shell > p { grid-column: 1 / -1; }
+.task-card-shell > .task-notes { grid-area: notes; }
+.task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.card-links > *, .task-card-shell > .task-controls > * { position: relative; z-index: 1; }
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; padding-left: 56px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
@@ -767,6 +769,7 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 /* A task card: its title, then a muted line with the repo and the status;
    both wrap onto further lines rather than ending in an ellipsis. */
 .task-card .card-copy { gap: 4px; }
+.task-card .browser-indicator { font-size: 1rem; }
 .task-card .card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--muted); font-size: 1rem; line-height: 1.4; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }

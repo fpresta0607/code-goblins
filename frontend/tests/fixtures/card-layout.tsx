@@ -1,11 +1,12 @@
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "../../src/Board";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The Overlord's crowded column: a goblin with a long title that waits on
-// another goblin and has a pull request, beside queued work with a long title
-// and a finished task with its pull request.
+// another goblin and has a pull request, beside queued work with a long title,
+// a finished task with its pull request and a goblin with its browser active.
 const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctrl+V pastes (bracketed), and the agents' keys reach the program";
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
@@ -24,5 +25,10 @@ const snapshot = parseSnapshot({
 // With ?board=<px> the board sits in a board region that wide, as it does
 // beside an open panel, which leaves it at least 280 px.
 const width = Number(new URLSearchParams(location.search).get("board")) || undefined;
-const board = <Board snapshot={snapshot} now={now} presentations={[]} onSelect={() => {}} onTerminal={() => {}} onOpenCfo={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
-createRoot(document.getElementById("root")!).render(width ? <main className="canvas-region" style={{ width }}>{board}</main> : board);
+const presentations = [{ id: "p1", kind: "browser", task_id: "cg-board-kill-with-a-long-goblin-name", generation: "g1", source: "", target: "", state: "active", url: "", at: "", until: "" }];
+function Fixture() {
+  const [selected, setSelected] = useState<string>();
+  const board = <Board snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={(chosen) => setSelected(chosen.id)} onTerminal={() => {}} onOpenCfo={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
+  return width ? <main className="canvas-region" style={{ width }}>{board}</main> : board;
+}
+createRoot(document.getElementById("root")!).render(<Fixture />);
