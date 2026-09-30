@@ -46,9 +46,13 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
     const canvas = frame.closest<HTMLElement>(".canvas-region") ?? document.documentElement;
     const board = frame.closest<HTMLElement>(".task-board");
     const column = frame.closest<HTMLElement>(".board-column") ?? frame;
+    // What the column shows after the list, such as In progress's paused
+    // tasks, keeps its room below the list.
+    const after = [...column.querySelectorAll<HTMLElement>(":scope > [data-fit-after]")];
     const measure = () => {
       const frameTop = frame.getBoundingClientRect().top;
-      const reserve = 48 + (parseFloat(getComputedStyle(column).paddingBottom) || 0) + (board ? parseFloat(getComputedStyle(board).paddingBottom) || 0 : 0);
+      const reserve = 48 + (parseFloat(getComputedStyle(column).paddingBottom) || 0) + (board ? parseFloat(getComputedStyle(board).paddingBottom) || 0 : 0)
+        + after.reduce((sum, element) => sum + element.offsetHeight, 0);
       // On a narrow screen the canvas grows with the board and the page
       // scrolls, so the window is what is visible.
       const available = availableHeight({
@@ -71,6 +75,7 @@ export function useFit(keys: string[], frameRef: RefObject<HTMLDivElement | null
     observer.observe(canvas);
     observer.observe(list);
     if (board) observer.observe(board);
+    for (const element of after) observer.observe(element);
     window.addEventListener("resize", measure);
     return () => {
       observer.disconnect();

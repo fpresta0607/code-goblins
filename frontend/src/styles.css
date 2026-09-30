@@ -113,10 +113,20 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .workspace.with-pane { grid-template-columns: minmax(0, 1fr) 10px minmax(420px, 1fr); column-gap: 0; }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--edge); border-radius: 18px; box-shadow: inset 0 2px 18px #0009; background: linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
-.task-board { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; min-height: 100%; padding: 24px; }
+/* The board is a kanban: Tasks, In progress and Completed side by side, with
+   Paused inside In progress; stacked puts them one under another, as a narrow
+   board always does. */
+.task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
+.task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
 /* The CFO pinned above the columns opens its terminal, and is the one place
    on the board that says Waiting on you. */
-.task-board:has(> .cfo-pin) { grid-template-rows: auto; }
+.task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
+.task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
+/* Paused tasks sit inside In progress, after its working cards, under a thin
+   labelled divider, like a page break. */
+.paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
+.column-divider { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--amber); font: 400 1rem/1.3 var(--font-display); }
+.column-divider::after { content: ""; flex: 1; height: 1px; background: var(--edge-lit); }
 .cfo-pin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: #0f1820e6; box-shadow: var(--shadow-1); }
 .cfo-pin .goblin-avatar { flex: none; width: 44px; height: 44px; }
 .cfo-pin .pin-copy { display: grid; flex: 1 1 10rem; min-width: 0; }
@@ -444,7 +454,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 }
 /* A narrow board stops filling the canvas height and tightens its columns. */
 @container (max-width: 960px) {
-  .task-board { min-height: auto; }
+  .task-board { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; align-content: start; min-height: auto; }
   .board-column h2 { margin-bottom: 14px; }
   .column-empty { padding: 0 0 12px; }
 }
