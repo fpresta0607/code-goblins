@@ -31,7 +31,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   useEffect(() => {
     // A Command Center item alerts once a page; a goblin alerts each time it
     // fails or finishes again, replacing its toast still on screen.
-    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => alert.target.kind !== "command" || !seen.current.has(alert.key));
+    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => alert.key.startsWith("task:") || !seen.current.has(alert.key));
     previous.current = snapshot;
     if (!fresh.length) return;
     for (const alert of fresh) seen.current.add(alert.key);

@@ -12,7 +12,7 @@ async function open(page: Page, query = "") {
 }
 const box = (page: Page, text: string) => page.locator(".dialogue").filter({ hasText: text });
 const tab = (dialogue: Locator) => dialogue.locator(".dialogue-tab");
-const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element).backgroundColor);
+const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
 
 test("the CFO's banner offers the Command Center, filled only while something waits, and its terminal as an icon", async ({ page }) => {
   await open(page);
@@ -66,11 +66,26 @@ test("boxes are stepped pixel frames with plain text of 16 px or more, and step 
   await open(page);
   const look = await page.locator(".dialogue").first().evaluate((element) => {
     const frame = element.querySelector(".dialogue-box")!;
-    return { radius: getComputedStyle(frame).borderRadius, clip: getComputedStyle(frame).clipPath.startsWith("polygon"), animation: getComputedStyle(element).animationName, timing: getComputedStyle(element).animationTimingFunction };
+    return { radius: getComputedStyle(frame).borderRadius, clip: getComputedStyle(frame, "::before").clipPath.startsWith("polygon"), animation: getComputedStyle(element).animationName, timing: getComputedStyle(element).animationTimingFunction };
   });
   expect(look).toEqual({ radius: "0px", clip: true, animation: "dialogue-in", timing: "steps(3)" });
   const sizes = await page.locator(".dialogue-text p").evaluateAll((texts) => texts.map((text) => parseFloat(getComputedStyle(text).fontSize)));
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(16);
+});
+
+test("the stepped frames clip no focus ring or tooltip, and a focused Open Command Center shows its outline", async ({ page }) => {
+  await open(page);
+  const clipped = await page.locator(".dialogue").evaluateAll((boxes) => boxes.flatMap((dialogue) =>
+    [...dialogue.querySelectorAll("button, a[href], input, select, textarea, [tabindex], [data-tip]")].flatMap((element) => {
+      const chain: Element[] = [];
+      for (let node: Element | null = element; node && node !== dialogue.parentElement; node = node.parentElement) chain.push(node);
+      return chain.filter((node) => getComputedStyle(node).clipPath !== "none").map((node) => node.className);
+    })));
+  expect(clipped).toEqual([]);
+  const button = box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" });
+  await button.focus();
+  await expect(button).toHaveCSS("outline-style", "solid");
+  await expect(button).toHaveCSS("outline-width", "2px");
 });
 
 test("with reduced motion the boxes just appear", async ({ page }) => {

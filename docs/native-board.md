@@ -590,7 +590,9 @@ The board sees each item in `snapshot.reviews` with an image count, never a path
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
 The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin's own blocked report does not alert, since the question it raises does.
 Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, its name on a tab, one plain line such as cg-board-kill asks: Which layout should I keep?, and one action.
-What needs the Overlord offers Open Command Center, filled lantern, on that item; a goblin's news offers Open <task>, outlined, on that goblin, with a moss tab when it finished and an ember tab when it failed.
+A goblin speaks by its title, as its card does, falling back to its id.
+What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
+A goblin's finished or failed news offers Open and its name, outlined, on that goblin, with a moss tab when it finished and an ember tab when it failed.
 Lantern means it needs the Overlord and nothing else.
 An alert steps up once as it arrives, or just appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item.
