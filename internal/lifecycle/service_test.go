@@ -26,8 +26,10 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 	}
 	return Service{StateDir: directory, PauseWait: 10 * time.Millisecond, Operations: Operations{
 		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
-		Stop:    func(context.Context, state.TaskMeta) ([]string, error) { return []string{"fixture process"}, nil },
-		Resume:  func(context.Context, state.TaskMeta, state.Lifecycle) error { return nil },
+		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+			return []string{"fixture process"}, nil
+		},
+		Resume: func(context.Context, state.TaskMeta, state.Lifecycle) error { return nil },
 		Archive: func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error) {
 			return Preservation{Kept: []string{"worktree"}}, nil
 		},
@@ -45,7 +47,7 @@ func TestPauseReleasesResourcesAfterTheStoppingPointDeadline(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	service.Operations.Stop = func(_ context.Context, _ state.TaskMeta) ([]string, error) {
+	service.Operations.Stop = func(_ context.Context, _ state.TaskMeta, _ *state.Lifecycle) ([]string, error) {
 		stoppedAt = time.Now()
 		record, err := state.ReadLifecycle(service.StateDir, meta.ID)
 		if err != nil {
@@ -115,7 +117,10 @@ func TestResumeRequiresFiveGigabytesAndKeepsPauseOnRefusal(t *testing.T) {
 func TestLifecycleRejectsStaleGenerationBeforeStoppingAnything(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	stopped := false
-	service.Operations.Stop = func(context.Context, state.TaskMeta) ([]string, error) { stopped = true; return nil, nil }
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		stopped = true
+		return nil, nil
+	}
 	_, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: "older", Operation: "stop-1", Action: "stop"})
 	if err == nil || stopped {
 		t.Fatal("stale card stopped a replacement session")
@@ -125,7 +130,7 @@ func TestLifecycleRejectsStaleGenerationBeforeStoppingAnything(t *testing.T) {
 func TestStopNeverArchivesWhileProcessesCouldNotBeStopped(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	archived := false
-	service.Operations.Stop = func(context.Context, state.TaskMeta) ([]string, error) {
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 		return nil, errors.New("server pid 42 could not be stopped")
 	}
 	service.Operations.Archive = func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error) {

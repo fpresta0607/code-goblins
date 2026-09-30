@@ -52,13 +52,13 @@ func TestTerminateChecksCreationTimeOnTheProcessHandle(t *testing.T) {
 	if !exists {
 		t.Fatal("fixture process did not start")
 	}
-	if err := Terminate(Identity{PID: child.Process.Pid, Started: started.Add(-time.Hour)}); !errors.Is(err, ErrIdentityChanged) {
+	if _, err := Terminate(t.Context(), Identity{PID: child.Process.Pid, Started: started.Add(-time.Hour)}); !errors.Is(err, ErrIdentityChanged) {
 		t.Fatalf("reused PID was not refused: %v", err)
 	}
 	if current, alive := proc.StartTime(child.Process.Pid); !alive || !current.Equal(started) {
 		t.Fatal("identity mismatch stopped an unrelated process")
 	}
-	if err := Terminate(Identity{PID: child.Process.Pid, Started: started}); err != nil {
+	if _, err := Terminate(t.Context(), Identity{PID: child.Process.Pid, Started: started}); err != nil {
 		t.Fatal(err)
 	}
 	finished := make(chan error, 1)
@@ -103,7 +103,7 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 	}{
 		{name: "access denied and still alive", stopErr: windows.ERROR_ACCESS_DENIED, shouldFail: true},
 		{name: "access denied while exiting concurrently", stopErr: windows.ERROR_ACCESS_DENIED, isExiting: true},
-		{name: "access denied while exiting slowly", stopErr: windows.ERROR_ACCESS_DENIED, isExiting: true, exitDelay: time.Second},
+		{name: "access denied while still active before delayed exit", stopErr: windows.ERROR_ACCESS_DENIED, isExiting: true, exitDelay: time.Second, shouldFail: true},
 		{name: "terminated but exiting slowly", isExiting: true, exitDelay: time.Second},
 	}
 	for _, testCase := range cases {
@@ -119,15 +119,17 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 				t.Fatal("fixture did not start")
 			}
 			exitFailures := make(chan error, 1)
-			err := terminate(Identity{PID: child.Process.Pid, Started: started}, func(windows.Handle, uint32) error {
-				if testCase.isExiting {
+			_, err := terminate(t.Context(), Identity{PID: child.Process.Pid, Started: started}, func(windows.Handle, uint32) error {
+				if testCase.isExiting && testCase.exitDelay == 0 {
+					exitFailures <- child.Process.Kill()
+				} else if testCase.isExiting {
 					go func() {
 						time.Sleep(testCase.exitDelay)
 						exitFailures <- child.Process.Kill()
 					}()
 				}
 				return testCase.stopErr
-			})
+			}, windows.GetExitCodeProcess)
 			if (err != nil) != testCase.shouldFail {
 				t.Fatalf("expected failure=%t: %v", testCase.shouldFail, err)
 			}
@@ -137,13 +139,14 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 				}
 			}
 			if !testCase.shouldFail {
-				handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(child.Process.Pid))
+				handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(child.Process.Pid))
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer windows.CloseHandle(handle)
-				if result, err := windows.WaitForSingleObject(handle, 0); err != nil || result != windows.WAIT_OBJECT_0 {
-					t.Fatal("terminate reported success while the process was still running")
+				var code uint32
+				if err := windows.GetExitCodeProcess(handle, &code); err != nil || code == 259 {
+					t.Fatal("terminate reported success while the process had no exit status")
 				}
 			}
 		})
@@ -165,7 +168,7 @@ func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	stopped, err := StopResources(ctx, Resources{Directories: []string{directory}})
+	stopped, _, err := StopResources(ctx, Resources{Directories: []string{directory}})
 	if err != nil || len(stopped) != 1 {
 		t.Fatalf("stopped=%v error=%v", stopped, err)
 	}
@@ -216,7 +219,7 @@ func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	stopped, err := StopResources(ctx, Resources{Directories: []string{directory}})
+	stopped, _, err := StopResources(ctx, Resources{Directories: []string{directory}})
 	if err != nil || len(stopped) != 2 {
 		t.Fatalf("stopped=%v error=%v", stopped, err)
 	}

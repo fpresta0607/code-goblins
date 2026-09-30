@@ -410,7 +410,7 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 	}
 	service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
 		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
-		Stop:    func(context.Context, state.TaskMeta) ([]string, error) { return nil, nil },
+		Stop:    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
 		Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
 			if record.Action == "pause" {
 				record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
@@ -479,7 +479,7 @@ func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
 			if test.action == "pause" && test.phase == "failed" {
 				service := lifecycle.Service{StateDir: h.State, PauseWait: 10 * time.Millisecond, Operations: lifecycle.Operations{
 					Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
-					Stop:    func(context.Context, state.TaskMeta) ([]string, error) { return nil, nil },
+					Stop:    func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
 					Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
 						record.GateRun, record.GateIntent, record.GateHead = "run-1", "saved intent", strings.Repeat("a", 40)
 						return errors.New("gate commits are pinned locally but could not merge into the task branch")

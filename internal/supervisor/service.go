@@ -947,7 +947,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
 		}
-		if lifecycleErr == nil && isCurrent && record.Phase != "running" {
+		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
 			task.Lifecycle = lifecycleStatus(record)
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated

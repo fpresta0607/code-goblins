@@ -23,13 +23,14 @@ type LifecycleStatus struct {
 	At                 time.Time `json:"at"`
 	Kept               []string  `json:"kept"`
 	Stopped            []string  `json:"stopped"`
+	Teardown           []string  `json:"teardown"`
 	Problems           []string  `json:"problems"`
 	HandoffSaved       bool      `json:"handoff_saved"`
 	ValidationRestarts bool      `json:"validation_restarts"`
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume")}
+	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Teardown: record.TeardownLabels(), Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume")}
 }
 
 type taskChangeError struct {

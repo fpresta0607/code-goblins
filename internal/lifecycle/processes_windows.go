@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -8,44 +9,65 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const exitWaitMilliseconds = 5000
-
 var ErrIdentityChanged = errors.New("process identity changed; left untouched")
 
-func Terminate(identity Identity) error {
-	return terminate(identity, windows.TerminateProcess)
+const STILL_ACTIVE uint32 = 259
+
+// Terminate reports whether a stopped process is still finishing Windows teardown.
+func Terminate(ctx context.Context, identity Identity) (bool, error) {
+	return terminate(ctx, identity, windows.TerminateProcess, windows.GetExitCodeProcess)
 }
 
-func terminate(identity Identity, stop func(windows.Handle, uint32) error) error {
+func terminate(ctx context.Context, identity Identity, stop func(windows.Handle, uint32) error, exitCode func(windows.Handle, *uint32) error) (bool, error) {
 	if identity.PID <= 0 || identity.Started.IsZero() {
-		return ErrIdentityChanged
+		return false, ErrIdentityChanged
 	}
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(identity.PID))
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("open process %d: %w", identity.PID, err)
+		return false, fmt.Errorf("open process %d: %w", identity.PID, err)
 	}
 	defer windows.CloseHandle(handle)
 	var creation, exit, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
-		return fmt.Errorf("read process %d identity: %w", identity.PID, err)
+		return false, fmt.Errorf("read process %d identity: %w", identity.PID, err)
 	}
 	if !time.Unix(0, creation.Nanoseconds()).Equal(identity.Started) {
-		return ErrIdentityChanged
+		return false, ErrIdentityChanged
 	}
 	if result, err := windows.WaitForSingleObject(handle, 0); err == nil && result == windows.WAIT_OBJECT_0 {
-		return nil
+		return false, nil
 	}
-	// TerminateProcess only starts the exit, and Windows refuses a second call
-	// with Access denied while a process (such as headless Chrome) is exiting.
-	stopErr := stop(handle, 1)
-	if result, err := windows.WaitForSingleObject(handle, exitWaitMilliseconds); err == nil && result == windows.WAIT_OBJECT_0 {
-		return nil
+	var code uint32
+	if err := exitCode(handle, &code); err != nil {
+		return false, fmt.Errorf("read process %d exit status: %w", identity.PID, err)
 	}
-	if stopErr != nil {
-		return fmt.Errorf("terminate process %d: %w", identity.PID, stopErr)
+	var stopErr error
+	if code == STILL_ACTIVE {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		stopErr = stop(handle, 1)
 	}
-	return fmt.Errorf("process %d did not exit after it was terminated", identity.PID)
+	for {
+		if err := exitCode(handle, &code); err != nil {
+			return false, fmt.Errorf("read process %d exit status: %w", identity.PID, err)
+		}
+		// Exit status ends execution; an unsignaled handle can retain Windows
+		// teardown and memory for much longer, so keep that identity visible.
+		if code != STILL_ACTIVE {
+			result, err := windows.WaitForSingleObject(handle, 0)
+			return err != nil || result != windows.WAIT_OBJECT_0, nil
+		}
+		if stopErr != nil {
+			return false, fmt.Errorf("terminate process %d: %w", identity.PID, stopErr)
+		}
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("process %d still active: %w", identity.PID, ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 }

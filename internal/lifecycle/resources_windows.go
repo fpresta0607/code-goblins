@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -118,44 +119,76 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 	return resources, nil
 }
 
-func StopResources(ctx context.Context, resources Resources) ([]string, error) {
+func StopResources(ctx context.Context, resources Resources) ([]string, []state.TeardownProcess, error) {
+	return stopResources(ctx, resources, Terminate)
+}
+
+func stopResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error)) ([]string, []state.TeardownProcess, error) {
 	stopped := []string{}
+	var teardown []state.TeardownProcess
+	finished := map[Identity]bool{}
 	for sweep := 0; sweep < 4; sweep++ {
 		processes, err := Inventory(ctx, resources.Directories, resources.Hosts)
 		if err != nil {
-			return stopped, err
+			return stopped, teardown, err
 		}
-		if len(processes) == 0 {
-			return stopped, nil
-		}
-		var failures error
+		var pending []Process
 		for _, process := range processes {
+			if !finished[Identity{PID: process.PID, Started: process.Started}] {
+				pending = append(pending, process)
+			}
+		}
+		if len(pending) == 0 {
+			return stopped, teardown, nil
+		}
+		type result struct {
+			isTeardown bool
+			err        error
+		}
+		results := make([]result, len(pending))
+		var requests sync.WaitGroup
+		for index, process := range pending {
+			requests.Go(func() {
+				results[index].isTeardown, results[index].err = stop(ctx, Identity{PID: process.PID, Started: process.Started})
+			})
+		}
+		requests.Wait()
+		var failures error
+		for index, process := range pending {
 			label := fmt.Sprintf("%s pid %d", process.Name, process.PID)
-			if err := Terminate(Identity{PID: process.PID, Started: process.Started}); err != nil {
+			if err := results[index].err; err != nil {
 				failures = errors.Join(failures, fmt.Errorf("%s: %w", label, err))
 			} else {
 				stopped = append(stopped, label)
+				finished[Identity{PID: process.PID, Started: process.Started}] = true
+				if results[index].isTeardown {
+					teardown = append(teardown, state.TeardownProcess{PID: process.PID, Started: process.Started, Name: process.Name})
+				}
 			}
 		}
 		if failures != nil {
-			return stopped, failures
+			return stopped, teardown, failures
 		}
 		select {
 		case <-ctx.Done():
-			return stopped, ctx.Err()
+			return stopped, teardown, ctx.Err()
 		case <-time.After(75 * time.Millisecond):
 		}
 	}
 	remaining, err := Inventory(ctx, resources.Directories, resources.Hosts)
 	if err != nil {
-		return stopped, err
+		return stopped, teardown, err
 	}
 	if len(remaining) > 0 {
 		var names []string
 		for _, process := range remaining {
-			names = append(names, fmt.Sprintf("%s pid %d", process.Name, process.PID))
+			if !finished[Identity{PID: process.PID, Started: process.Started}] {
+				names = append(names, fmt.Sprintf("%s pid %d", process.Name, process.PID))
+			}
 		}
-		return stopped, fmt.Errorf("task processes remain: %s", strings.Join(names, ", "))
+		if len(names) > 0 {
+			return stopped, teardown, fmt.Errorf("task processes remain: %s", strings.Join(names, ", "))
+		}
 	}
-	return stopped, nil
+	return stopped, teardown, nil
 }

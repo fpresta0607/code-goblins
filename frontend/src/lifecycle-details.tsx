@@ -6,8 +6,9 @@ export function LifecycleDetails({ task }: { task: Task }) {
   const record = task.lifecycle;
   if (!record) return null;
   return <section className="lifecycle-details" aria-label="Task lifecycle">
-    <p className={"plain-status phase-" + record.phase}><span className="status-dot" />{statusText(record.phase)}{record.at && <time dateTime={record.at}> at {new Date(record.at).toLocaleString()}</time>}</p>
+    <p className={"plain-status phase-" + record.phase}><span className="status-dot" />{record.phase === "running" ? "Resumed" : statusText(record.phase)}{record.at && <time dateTime={record.at}> at {new Date(record.at).toLocaleString()}</time>}</p>
     {task.reason && <p>{task.reason}</p>}
+    {record.teardown.length > 0 && <p className="windows-teardown" role="status">Finishing Windows teardown: {record.teardown.join(", ")}</p>}
     <h3>What’s preserved</h3>
     <ul>{record.kept.map((item) => <li key={item}><Icon name="check" /><span>{item}</span></li>)}</ul>
     {record.action === "pause" && <p>{record.handoff_saved ? "Session and handoff saved." : "No new handoff was saved before the stopping-point deadline."}</p>}

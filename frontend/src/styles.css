@@ -929,6 +929,7 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .preservation-notice .icon { flex: none; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: #0a1723; }
+.windows-teardown { display: block; font-size: max(16px, 1rem); line-height: 1.5; color: var(--amber); overflow-wrap: anywhere; }
 @container (max-width: 420px) {
   .task-card-shell.has-controls .task-card { padding-right: 14px; padding-bottom: 68px; }
   .task-card-shell > .task-controls { top: auto; bottom: 12px; }

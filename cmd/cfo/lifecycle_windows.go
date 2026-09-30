@@ -53,12 +53,24 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
 			return runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff))
 		},
-		Stop: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
-			bounded, cancel := context.WithTimeout(ctx, 12*time.Second)
+		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+			bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			var err error
 			resources, err = lifecycle.TaskResources(bounded, h.State, meta, gate)
-			stopped, stopErr := lifecycle.StopResources(bounded, resources)
+			stopped, teardown, stopErr := lifecycle.StopResources(bounded, resources)
+			for _, process := range teardown {
+				isTracked := false
+				for _, prior := range record.Teardown {
+					if prior.PID == process.PID && prior.Started.Equal(process.Started) {
+						isTracked = true
+						break
+					}
+				}
+				if !isTracked {
+					record.Teardown = append(record.Teardown, process)
+				}
+			}
 			return stopped, errors.Join(err, stopErr)
 		},
 		Checkpoint: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) error {
