@@ -119,6 +119,26 @@ for (const backend of ["native", "herdr"] as const) {
     });
 
     if (backend === "native") {
+      for (const role of ["cfo", "goblin"]) {
+        for (const [harness, expected] of [
+          ["claude", "\n"],
+          ["codex", "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_"],
+          ["bash", "\r"], ["powershell", "\r"], ["pi", "\r"], ["", "\r"],
+        ]) {
+          test("Shift+Enter uses the composer key for " + role + " " + (harness || "unknown harness"), async ({ page }) => {
+            await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ harness, role }) + "#native");
+            await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
+            await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+            inputs.length = 0;
+            await page.keyboard.press("Shift+Enter");
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected);
+            inputs.length = 0;
+            await page.keyboard.press("Enter");
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\r");
+          });
+        }
+      }
+
       test("selected Ctrl+C still copies when the program has taken the mouse", async ({ page }) => {
         writeOutput("\x1b[?1000h\x1b[?1006h");
         await page.keyboard.down("Shift");

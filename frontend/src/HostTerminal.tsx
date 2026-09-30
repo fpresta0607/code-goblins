@@ -16,7 +16,7 @@ const MAX_RETRIES = 5;
 // cleared and repainted, and never half drawn.
 // query names the terminal to the relay: a task's generation, or the native
 // terminal the CFO runs in.
-export function HostTerminal({ query, label, instance, visible, shown, focus }: { query: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
+export function HostTerminal({ query, harness, label, instance, visible, shown, focus }: { query: string; harness: string; label: string; instance: string; visible: boolean; shown: boolean; focus: number }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -56,7 +56,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
     const params = new URLSearchParams(query);
     params.set("token", instance);
     url.search = params.toString();
-    const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
+    const view: TerminalView = new TerminalView(container, url, storedFontSize(), harness, {
       ready: () => {
         const prior = current.current;
         current.current = view;
@@ -99,7 +99,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, instance, visible, attempt, dictate]);
+  }, [query, harness, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />

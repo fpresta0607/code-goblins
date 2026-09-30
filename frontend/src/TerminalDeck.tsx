@@ -28,7 +28,7 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
         if (entry === CFO_KEY) {
           const view = cfoView(snapshot);
           return <div className="deck-slot" key={entry} hidden={!here}>
-            {view.kind === "host" ? <HostTerminal query={view.query} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            {view.kind === "host" ? <HostTerminal query={view.query} harness={snapshot.sessions.find((session) => session.role === "cfo" && session.native_id === snapshot.cfo_terminal)?.harness || ""} label="CFO terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
               : view.kind === "herdr" ? <NativeTerminal instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
               : <TerminalEmpty text={view.text} />}
           </div>;
@@ -38,7 +38,7 @@ export function TerminalDeck({ snapshot, task, node, cfo, shown, connected, focu
         const view = goblinView(each);
         return <div className="deck-slot" key={entry} hidden={!here}>
           {view.kind === "host"
-            ? <HostTerminal query={view.query} label="Goblin terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
+            ? <HostTerminal query={view.query} harness={each.harness} label="Goblin terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />
             : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />}
         </div>;
       })}
