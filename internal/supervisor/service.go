@@ -710,7 +710,7 @@ type Task struct {
 	StartError    string           `json:"start_error"`
 	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
 	Teardown      []string         `json:"teardown,omitempty"`
-	ActionError  string           `json:"action_error,omitempty"`
+	ActionError   string           `json:"action_error,omitempty"`
 	QueueRevision string           `json:"queue_revision,omitempty"`
 	Detail        string           `json:"detail,omitempty"`
 	Notes         []string         `json:"notes,omitempty"`
