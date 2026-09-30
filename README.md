@@ -270,6 +270,7 @@ In both, drag to select and the selection is copied, and **Shift+Escape** moves 
 Hold **Shift** while selecting if the running program has taken the mouse.
 **Ctrl+C** copies selected text; without a selection it interrupts the running program.
 **Ctrl+Shift+C** always copies, and **Ctrl+V** or **Ctrl+Shift+V** pastes the clipboard, including multiline text and large selections.
+When the clipboard holds no text, such as only an image, **Ctrl+V** sends the program the Ctrl+V control character, as it did before; whether the program then attaches the image is up to the program.
 The browser's right-click Paste command uses the same paste path.
 The program's paste mode is respected; a Herdr view refuses a paste that exceeds its 1 MiB encoded request limit without sending any text.
 Multiline paste into a native Codex goblin on Windows still does not arrive as a paste and can submit the first line.

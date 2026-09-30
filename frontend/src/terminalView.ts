@@ -1,7 +1,7 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
-import { terminalKey } from "./terminal-keys";
+import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
@@ -277,8 +277,9 @@ export class TerminalView {
   private readonly pasteClipboard = (event: ClipboardEvent): void => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const text = event.clipboardData?.getData("text/plain");
-    if (text) this.paste(text);
+    const input = clipboardInput(event);
+    if (input && "text" in input) this.paste(input.text);
+    else if (input) this.term.input(input.key, true);
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.

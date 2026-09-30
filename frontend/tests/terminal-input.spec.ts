@@ -89,6 +89,20 @@ for (const backend of ["native", "herdr"] as const) {
       }
     }
 
+    for (const [key, expected] of [["Control+v", ""], ["Control+Shift+v", ""]]) {
+      test(key + " with only an image on the clipboard sends " + (expected ? "SYN as xterm does" : "nothing"), async ({ page }) => {
+        await page.evaluate(async () => {
+          const canvas = document.createElement("canvas");
+          const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+          if (!image) throw new Error("no image");
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": image })]);
+        });
+        await page.keyboard.press(key);
+        await page.keyboard.press("x");
+        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected + "x");
+      });
+    }
+
     test("the browser context-menu paste event uses the same clipboard path", async ({ page }) => {
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).evaluate((element) => {
         const clipboardData = new DataTransfer();

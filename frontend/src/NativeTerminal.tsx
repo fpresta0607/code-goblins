@@ -8,7 +8,7 @@ import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
-import { terminalKey } from "./terminal-keys";
+import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -347,8 +347,9 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     pasteText.current = typePaste;
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
-      const text = event.clipboardData?.getData("text/plain");
-      if (text) typePaste(text);
+      const input = clipboardInput(event);
+      if (input && "text" in input) typePaste(input.text);
+      else if (input) { closeHistory(); send(input.key); }
     };
     element.addEventListener("paste", paste, true);
     pastElement.addEventListener("paste", paste, true);
