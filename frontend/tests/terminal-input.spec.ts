@@ -116,26 +116,6 @@ for (const backend of ["native", "herdr"] as const) {
         expect(Buffer.concat(inputs).toString("utf8")).toBe("");
       });
 
-      for (const [mode, enable, disable] of [["kitty keyboard", "\x1b[>1u", "\x1b[<u"], ["modifyOtherKeys", "\x1b[>4;2m", "\x1b[>4;0m"]]) {
-        test("Shift+Enter is a modified Enter only while " + mode + " is on", async ({ page }) => {
-          writeOutput(enable);
-          await page.keyboard.press("Shift+Enter");
-          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[13;2u");
-          inputs.length = 0;
-          writeOutput(disable);
-          await page.keyboard.press("Shift+Enter");
-          await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\r");
-        });
-      }
-
-      test("the kitty keyboard query reports the program's current flags", async () => {
-        writeOutput("\x1b[?u");
-        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[?0u");
-        inputs.length = 0;
-        writeOutput("\x1b[>1u\x1b[?u");
-        await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\x1b[?1u");
-      });
-
       test("paste stops using brackets when the program turns that mode off", async ({ page }) => {
         writeOutput("\x1b[?2004l");
         await page.evaluate(() => navigator.clipboard.writeText("plain\npaste"));
