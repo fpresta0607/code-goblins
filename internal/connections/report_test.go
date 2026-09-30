@@ -19,7 +19,11 @@ func TestConnectionReportChild(t *testing.T) {
 	if os.Getenv("CLAUDECODE") != "" {
 		os.Exit(3)
 	}
-	if mode == "ready" {
+	if mode == "slow-ready" {
+		time.Sleep(2 * time.Second)
+	}
+	fmt.Println("started")
+	if mode != "hang" {
 		fmt.Println("ready")
 	}
 	var input [1]byte
@@ -28,13 +32,22 @@ func TestConnectionReportChild(t *testing.T) {
 }
 
 func TestHarnessReportClosesItsOwnProcessAndBoundsAHangingCheck(t *testing.T) {
-	for _, mode := range []string{"ready", "hang"} {
+	for _, mode := range []string{"ready", "slow-ready", "hang"} {
 		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			started := time.Now()
+			hasStarted := false
 			entries, err := harnessReport(ctx, os.Args[0], []string{"-test.run=^TestConnectionReportChild$"}, t.TempDir(), append(os.Environ(), "CONNECTION_REPORT_FIXTURE="+mode, "CLAUDECODE=parent"), func(output io.Reader, _ io.Writer) ([]Entry, error) {
-				line, err := bufio.NewReader(output).ReadString('\n')
+				reader := bufio.NewReader(output)
+				line, err := reader.ReadString('\n')
+				if err != nil || line != "started\n" {
+					return nil, errors.New("fixture did not start")
+				}
+				hasStarted = true
+				if mode == "hang" {
+					cancel()
+				}
+				line, err = reader.ReadString('\n')
 				if err != nil {
 					return nil, errors.New("check stopped")
 				}
@@ -43,14 +56,17 @@ func TestHarnessReportClosesItsOwnProcessAndBoundsAHangingCheck(t *testing.T) {
 				}
 				return []Entry{{Name: "fixture", Status: "connected"}}, nil
 			})
-			if mode == "ready" && (err != nil || len(entries) != 1) {
+			if !hasStarted {
+				t.Fatalf("fixture did not start: %v", err)
+			}
+			if mode != "hang" && (err != nil || len(entries) != 1) {
 				t.Fatalf("report failed: %v", err)
 			}
-			if mode == "hang" && err == nil {
-				t.Fatal("hanging check succeeded")
+			if mode == "hang" && (err == nil || !errors.Is(ctx.Err(), context.Canceled)) {
+				t.Fatalf("hanging check did not stop on cancellation: %v, context: %v", err, ctx.Err())
 			}
-			if time.Since(started) > 5*time.Second {
-				t.Fatal("subprocess exceeded its deadline")
+			if mode != "hang" && ctx.Err() != nil {
+				t.Fatalf("ready check did not finish before its deadline: %v", ctx.Err())
 			}
 		})
 	}
