@@ -80,13 +80,13 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     {hint && !open && <div className="voice-card voice-hint" role="note">
       <p className="voice-card-title">Speak into this terminal</p>
       <p>Focus the terminal, hold Ctrl+Shift+Space, speak, then release.</p>
-      <p>Click the green bubble for your recent words.</p>
-      <button className="icon-button voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" data-tip-align="end" onClick={dismiss}><Icon name="close" /></button>
+      <p>Click the microphone for your recent words.</p>
+      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" data-tip-align="end" onClick={dismiss}><Icon name="close" /></button>
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
       <p className="voice-card-title">Recent messages</p>
       {status && <p className={"voice-status " + voice.state}><span className="status-dot" />{status}</p>}
-      <button className="icon-button voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+      <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
       {voice.state === "stopped" && <p className="voice-help">Open SIQspeak from its desktop shortcut. Until it runs, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
       {voice.state === "missing" && <p className="voice-help">Install SIQspeak on this computer to dictate locally. Until then, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
       {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
@@ -95,9 +95,9 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
           <span className="voice-meta">{[clock(message.at), message.source === "board" ? "Board" : "SIQspeak"].filter(Boolean).join(" · ")}</span>
           <p className="voice-text">{message.text}</p>
           <span className="voice-actions">
-            {clipboard && <button className="icon-button" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
+            {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
               onClick={() => { navigator.clipboard.writeText(message.text).then(() => setCopied(key), () => {}); }}><Icon name={copied === key ? "check" : "copy"} /></button>}
-            <button className="icon-button" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal" data-tip-align="end"
+            <button className="icon-button pixel-icon" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal" data-tip-align="end"
               onClick={() => { onPaste(spoken([message.text])); setOpen(false); }}><Icon name="paste" /></button>
           </span>
         </li>;
