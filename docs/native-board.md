@@ -320,12 +320,19 @@ Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
 A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; a terminal opened from the Board opens maximized and the Task view beside the board, the Orchestration view follows the Task view's choice so its graph stays beside the panel, each view keeping the last choice, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
 
-Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
-It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+Every terminal pane shows a voice bubble in its bottom-right corner: under a native terminal in a strip of its own, so it never covers the terminal's text, and floating in the corner of a Herdr pane.
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed, unless SIQspeak, the Overlord's local dictation app, is running.
+At each press the board asks the supervisor whether SIQspeak runs; if it does, the shortcut is left to SIQspeak and the board starts no recorder, so one press never starts two, and SIQspeak's own pill shows its recording.
+Otherwise the board opens the microphone once and hands that track to the speech recognizer, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing else reads, keeps or sends the audio, and nothing runs while the bubble is idle.
+It listens in the browser's language, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
 A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
 Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
+Clicking the bubble lists the pane's five most recent messages, newest first: SIQspeak's transcriptions, read through `POST /api/voice` while the pane is shown and the page visible (on showing, every 30 seconds and at each press) and never kept, and the board's own dictations for that pane, kept in this browser only, ten per pane for the twenty panes used last.
+Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
+The bubble's tip says whether SIQspeak runs, is not running or was not found, and the list says how to start it; a first visit shows a hint about the shortcut once, until it is dismissed.
+The supervisor finds SIQspeak in one `SIQspeak` or `SIQspeak-main` folder under the projects root, or in `CFO_SIQSPEAK_DIR`, and tells whether it runs from its single-instance mutex without holding or changing it.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
