@@ -148,7 +148,10 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			_, err = runtime.cleanup(ctx, h, meta.ID, !preserved.CanRemove)
 			return preserved, err
 		},
-		Memory: func() (uint64, error) { available, _, err := supervisor.MachineMemory(); return available, err },
+		Memory: func() (uint64, uint64, error) {
+			memory, err := supervisor.MachineMemory()
+			return memory.Available, memory.CommitAvailable, err
+		},
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
 		},

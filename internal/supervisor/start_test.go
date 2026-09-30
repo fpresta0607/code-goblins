@@ -46,12 +46,20 @@ func (r *spawnRecorder) recorded() [][]string {
 	return append([][]string(nil), r.calls...)
 }
 
+// startBoard is a board that can start goblins on a machine with available
+// physical memory and ample commit.
 func startBoard(t *testing.T, available uint64, spawner *spawnRecorder) (*HTTP, home.Home) {
+	t.Helper()
+	return startBoardWith(t, Memory{Available: available, Total: 32 * gigabyte, CommitAvailable: 40 * gigabyte, CommitLimit: 48 * gigabyte}, spawner)
+}
+
+func startBoardWith(t *testing.T, memory Memory, spawner *spawnRecorder) (*HTTP, home.Home) {
 	t.Helper()
 	handler, h := orderBoard(t)
 	handler.Service.Options.Dispatch = &Dispatch{
-		Memory: func() (uint64, uint64, error) { return available, 32 * gigabyte, nil },
-		Spawn:  spawner.spawn,
+		Memory:        func() (Memory, error) { return memory, nil },
+		CommitHolders: func() ([]CommitHolder, error) { return nil, nil },
+		Spawn:         spawner.spawn,
 	}
 	return handler, h
 }
@@ -194,6 +202,61 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 				t.Fatalf("a refused start ran cfo spawn %v", calls)
 			}
 		})
+	}
+}
+
+func TestStartNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
+	tests := []struct {
+		name              string
+		available, commit uint64
+		want, notWant     string
+	}{
+		{name: "memory short", available: 3*gigabyte + gigabyte/2, commit: 40 * gigabyte, want: "Only 3.5 GB of memory is free; Start needs 5 GB to keep the 4 GB floor", notWant: "commit"},
+		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2, want: "Only 2.5 GB of commit (RAM plus page file) is free; Start needs 5 GB to keep the 4 GB floor", notWant: "of memory"},
+		{name: "commit just under the 5 GB start mark reads under it", available: 16 * gigabyte, commit: 5*gigabyte - gigabyte/40, want: "Only 4.9 GB of commit (RAM plus page file) is free", notWant: "of memory"},
+		{name: "both short", available: 3*gigabyte + gigabyte/2, commit: 2*gigabyte + gigabyte/2, want: "Only 3.5 GB of memory and 2.5 GB of commit (RAM plus page file) are free; Start needs 5 GB to keep the 4 GB floor"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoardWith(t, Memory{Available: test.available, Total: 32 * gigabyte, CommitAvailable: test.commit, CommitLimit: 48 * gigabyte}, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+
+			// Act
+			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+
+			// Assert
+			refusal := decodeRefusal(t, response)
+			if response.Code != 409 || !strings.Contains(refusal.Error, test.want) || !refusal.Passing {
+				t.Fatalf("start = %d %s, want a passing 409 saying %q", response.Code, response.Body, test.want)
+			}
+			if test.notWant != "" && strings.Contains(refusal.Error, test.notWant) {
+				t.Fatalf("refusal %q names %q, which is not short", refusal.Error, test.notWant)
+			}
+			if calls := spawner.recorded(); len(calls) != 0 {
+				t.Fatalf("a refused start ran cfo spawn %v", calls)
+			}
+		})
+	}
+}
+
+func TestStartRunsWithExactlyFiveGigabytesOfBothMemoryAndCommit(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{output: "spawned next-task harness=claude kind=ship"}
+	handler, h := startBoardWith(t, Memory{Available: 5 * gigabyte, Total: 32 * gigabyte, CommitAvailable: 5 * gigabyte, CommitLimit: 48 * gigabyte}, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+
+	// Act
+	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+
+	// Assert
+	if response.Code != 202 {
+		t.Fatalf("start = %d %s, want 202", response.Code, response.Body)
+	}
+	waitStarted(t, handler, "next-task")
+	if calls := spawner.recorded(); len(calls) != 1 {
+		t.Fatalf("cfo spawn ran %d times, want once", len(calls))
 	}
 }
 
@@ -399,9 +462,10 @@ func TestSnapshotShowsATaskStartingUntilItsSpawnEndsEvenOnceItRuns(t *testing.T)
 	t.Fatal("the snapshot does not list next-task")
 }
 
-func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
+func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t *testing.T) {
 	// Arrange
-	handler, _ := startBoard(t, 4*gigabyte+gigabyte/10, &spawnRecorder{})
+	reading := Memory{Available: 4*gigabyte + gigabyte/10, Total: 32 * gigabyte, CommitAvailable: 20 * gigabyte, CommitLimit: 48 * gigabyte, PagedPool: 15*gigabyte + 6*gigabyte/10, NonpagedPool: 3*gigabyte + gigabyte/5}
+	handler, _ := startBoardWith(t, reading, &spawnRecorder{})
 
 	// Act
 	snapshot, err := handler.Service.Snapshot()
@@ -410,8 +474,43 @@ func TestSnapshotShowsMemoryAgainstTheFloorAndTheNextStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &Memory{Available: 4*gigabyte + gigabyte/10, Total: 32 * gigabyte, Floor: 4 * gigabyte, Next: 5 * gigabyte}
-	if !reflect.DeepEqual(snapshot.Memory, want) {
+	want := reading
+	want.Floor, want.Next = 4*gigabyte, 5*gigabyte
+	if !reflect.DeepEqual(snapshot.Memory, &want) {
 		t.Fatalf("memory = %+v, want %+v", snapshot.Memory, want)
+	}
+}
+
+func TestSnapshotNamesTheTopCommitHoldersOnlyWhileCommitIsTheTighter(t *testing.T) {
+	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte, Processes: 45}, {Name: "cfo", Commit: 6 * gigabyte, Processes: 30}}
+	tests := []struct {
+		name              string
+		available, commit uint64
+		want              []CommitHolder
+	}{
+		{name: "commit is the tighter", available: 4 * gigabyte, commit: 2 * gigabyte, want: holders},
+		{name: "memory is the tighter", available: 3 * gigabyte, commit: 20 * gigabyte},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, _ := startBoardWith(t, Memory{Available: test.available, Total: 32 * gigabyte, CommitAvailable: test.commit, CommitLimit: 48 * gigabyte}, &spawnRecorder{})
+			reads := 0
+			handler.Service.Options.Dispatch.CommitHolders = func() ([]CommitHolder, error) { reads++; return holders, nil }
+
+			// Act
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(snapshot.Memory.Holders, test.want) {
+				t.Fatalf("holders = %+v, want %+v", snapshot.Memory.Holders, test.want)
+			}
+			if test.want == nil && reads != 0 {
+				t.Fatalf("read commit holders %d times while memory was the tighter", reads)
+			}
+		})
 	}
 }

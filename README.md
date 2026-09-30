@@ -240,14 +240,14 @@ A blocked task names the person, time or task it waits on and has no Start butto
 An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
-Start requires at least 5 GB free and waits while another task is starting or resuming; any refusal appears on the card.
+Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free), and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
 Such processes remain listed as **Finishing Windows teardown** on the card and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
 Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
-Resume requires 5 GB free and continues the saved session where supported, otherwise using the saved handoff.
+Resume requires the same 5 GB of free memory and of free commit, and continues the saved session where supported, otherwise using the saved handoff.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
 
