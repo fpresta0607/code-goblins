@@ -53,18 +53,18 @@ function crowding(): Crowding {
   return report;
 }
 
-async function board(page: Page, width: number) {
+async function board(page: Page, width: number, region = 0) {
   await page.setViewportSize({ width, height: 1400 });
-  await page.goto("/tests/fixtures/card-layout.html");
+  await page.goto("/tests/fixtures/card-layout.html" + (region ? "?board=" + region : ""));
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(".task-card-shell").first()).toBeVisible();
 }
 
-// 1000 px keeps the three columns side by side at their narrowest; 390 px is a
-// phone, where they stack.
-for (const width of [1000, 390]) {
-  test(`at ${width} px no part of a task card overprints another, spills or shrinks`, async ({ page }) => {
-    await board(page, width);
+// A 280 px board region is the narrowest the board gets beside an open panel,
+// 390 px is a phone, and 1000 px a board with room to spare.
+for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
+  test(`at ${region || width} px no part of a task card overprints another, spills or shrinks`, async ({ page }) => {
+    await board(page, width, region);
     const seen = await page.evaluate(crowding);
     expect(seen.cards).toBeGreaterThanOrEqual(5);
     expect({ overlaps: seen.overlaps, outside: seen.outside, tallTitles: seen.tallTitles, smallText: [...new Set(seen.smallText)] })

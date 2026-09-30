@@ -21,6 +21,8 @@ const snapshot = parseSnapshot({
   ],
 });
 
-createRoot(document.getElementById("root")!).render(
-  <Board snapshot={snapshot} now={now} presentations={[]} onSelect={() => {}} onTerminal={() => {}} onOpenCfo={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />,
-);
+// With ?board=<px> the board sits in a board region that wide, as it does
+// beside an open panel, which leaves it at least 280 px.
+const width = Number(new URLSearchParams(location.search).get("board")) || undefined;
+const board = <Board snapshot={snapshot} now={now} presentations={[]} onSelect={() => {}} onTerminal={() => {}} onOpenCfo={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
+createRoot(document.getElementById("root")!).render(width ? <main className="canvas-region" style={{ width }}>{board}</main> : board);

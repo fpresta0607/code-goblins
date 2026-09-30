@@ -921,4 +921,5 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 @container (max-width: 420px) {
   .task-card-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "card" "links" "side" "notes"; }
   .task-card-shell > .task-controls { margin-top: 10px; }
+  .card-links { padding-left: 0; }
 }
