@@ -281,6 +281,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		}
 	}
 	if sample.Verdict == ProbeMissing {
+		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && verb == "paused" && line > observation.ConsumedVerbLine {
+			return s.pausedMissingObservation(observation, sample.Detail, now)
+		}
 		return unknownObservation(observation, EndpointMissing, sample.Detail, now)
 	}
 	if sample.Verdict != ProbePresent || !validSample(meta, sample) {
@@ -874,6 +877,31 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	if observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, reason, detail)
 		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+// pausedMissingObservation records a goblin that paused itself and whose
+// terminal is gone. Taken wakes would otherwise re-arm on every scan, so it
+// wakes the CFO once each pause resurface interval, as a paused goblin does,
+// with a wake that says the task is paused.
+func (s Service) pausedMissingObservation(observation Observation, detail string, now time.Time) Observation {
+	observation.LastObserved = now
+	observation.EndpointVerdict = ProbeMissing
+	observation.Health = HealthPaused
+	observation.Reason = EndpointMissing
+	observation.StaleSince = nil
+	observation.NextEscalation = nil
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	due := observation.NextPauseResurface == nil || !now.Before(*observation.NextPauseResurface)
+	if due && observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, EndpointMissing, "the task is paused, and "+detail)
+		observation.PendingEvent = &event
+	}
+	if due {
+		next := now.Add(s.pauseResurfaceAfter())
+		observation.NextPauseResurface = &next
 	}
 	return observation
 }
