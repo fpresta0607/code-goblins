@@ -169,7 +169,7 @@ func TestRepairsAreScopedAndNeverAcceptBrowserCommandsOrUnknownCredentials(t *te
 
 func TestCacheTimeoutIsVisibleEvenIfCheckerIgnoresCancellation(t *testing.T) {
 	release := make(chan struct{})
-	cache := newCache(time.Minute, 10*time.Millisecond, func(context.Context, string) Snapshot { <-release; return Snapshot{} })
+	cache := NewCache(time.Minute, 10*time.Millisecond, func(context.Context, string) Snapshot { <-release; return Snapshot{} })
 	defer close(release)
 	defer cache.Close()
 	cache.Get("hung", false)

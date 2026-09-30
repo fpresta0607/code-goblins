@@ -10,6 +10,7 @@ type cached struct {
 	result   Snapshot
 	at       time.Time
 	checking bool
+	pending  bool
 }
 type Cache struct {
 	mu             sync.Mutex
@@ -22,10 +23,7 @@ type Cache struct {
 	work           sync.WaitGroup
 }
 
-func NewCache(check func(context.Context, string) Snapshot) *Cache {
-	return newCache(time.Minute, 45*time.Second, check)
-}
-func newCache(ttl, timeout time.Duration, check func(context.Context, string) Snapshot) *Cache {
+func NewCache(ttl, timeout time.Duration, check func(context.Context, string) Snapshot) *Cache {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Cache{entries: map[string]*cached{}, ttl: ttl, timeLimit: timeout, check: check, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 2)}
 }
@@ -48,11 +46,27 @@ func (c *Cache) Get(key string, refresh bool) Snapshot {
 		item = &cached{result: Snapshot{Entries: []Entry{}}}
 		c.entries[key] = item
 	}
+	if item.checking && refresh {
+		item.pending = true
+	}
 	if !item.checking && c.ctx.Err() == nil && (refresh || item.at.IsZero() || time.Since(item.at) >= c.ttl) {
 		item.checking = true
 		c.work.Add(1)
 		go c.run(key, item)
 	}
+	return item.snapshot()
+}
+
+func (c *Cache) Cached(key string) Snapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if item := c.entries[key]; item != nil {
+		return item.snapshot()
+	}
+	return Snapshot{Entries: []Entry{}}
+}
+
+func (item *cached) snapshot() Snapshot {
 	result := item.result
 	result.Entries = append([]Entry{}, result.Entries...)
 	result.Checking = item.checking
@@ -84,6 +98,11 @@ func (c *Cache) run(key string, item *cached) {
 	}
 	result.CheckedAt = time.Now().UTC()
 	item.result, item.at, item.checking = result, result.CheckedAt, false
+	if item.pending && c.ctx.Err() == nil {
+		item.pending, item.checking = false, true
+		c.work.Add(1)
+		go c.run(key, item)
+	}
 }
 func (c *Cache) Close() {
 	c.mu.Lock()

@@ -34,7 +34,7 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 	}
 	if s.connectionChecks == nil {
 		inspector := s.connectionInspector
-		s.connectionChecks = connections.NewCache(func(ctx context.Context, key string) connections.Snapshot {
+		s.connectionChecks = connections.NewCache(time.Minute, 45*time.Second, func(ctx context.Context, key string) connections.Snapshot {
 			task, generation, _ := strings.Cut(key, "\n")
 			meta, err := s.connectionTask(task, generation)
 			if err != nil {
@@ -113,7 +113,7 @@ func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	checks, inspector := h.Service.connections()
-	snapshot := checks.Get(meta.ID+"\n"+meta.SpawnGen, false)
+	snapshot := checks.Cached(meta.ID + "\n" + meta.SpawnGen)
 	if snapshot.Checking || snapshot.CheckedAt.IsZero() {
 		apiError(w, 409, "Wait for the connection check to finish.")
 		return

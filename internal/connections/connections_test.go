@@ -87,7 +87,7 @@ func TestCodexNeedsRuntimeHealthNotAnAuthMethodOrCachedTools(t *testing.T) {
 func TestCacheReturnsWhileCheckingAndSharesOneCheck(t *testing.T) {
 	var calls atomic.Int32
 	release := make(chan struct{})
-	cache := newCache(time.Minute, time.Second, func(ctx context.Context, key string) Snapshot {
+	cache := NewCache(time.Minute, time.Second, func(ctx context.Context, key string) Snapshot {
 		calls.Add(1)
 		select {
 		case <-release:
@@ -121,7 +121,7 @@ func TestCacheReturnsWhileCheckingAndSharesOneCheck(t *testing.T) {
 
 func TestCacheRefreshPreservesEvidenceAndTimeoutIsVisible(t *testing.T) {
 	var calls atomic.Int32
-	cache := newCache(time.Minute, 20*time.Millisecond, func(ctx context.Context, _ string) Snapshot {
+	cache := NewCache(time.Minute, 20*time.Millisecond, func(ctx context.Context, _ string) Snapshot {
 		if calls.Add(1) == 1 {
 			return Snapshot{Entries: []Entry{{Name: "sample", Status: "connected"}}}
 		}
@@ -146,7 +146,7 @@ func TestCacheRefreshPreservesEvidenceAndTimeoutIsVisible(t *testing.T) {
 
 func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	var calls atomic.Int32
-	cache := newCache(50*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
+	cache := NewCache(50*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
 		calls.Add(1)
 		return Snapshot{Entries: []Entry{}}
 	})
@@ -163,6 +163,80 @@ func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	waitChecked(t, cache, "one")
 	if calls.Load() != 2 {
 		t.Fatalf("checks = %d", calls.Load())
+	}
+}
+
+func TestCachedReadNeverStartsACheck(t *testing.T) {
+	var calls atomic.Int32
+	cache := NewCache(200*time.Millisecond, time.Second, func(context.Context, string) Snapshot {
+		calls.Add(1)
+		return Snapshot{Entries: []Entry{{Name: "sample", Status: "connected"}}}
+	})
+	defer cache.Close()
+	if missing := cache.Cached("one"); missing.Checking || !missing.CheckedAt.IsZero() || calls.Load() != 0 {
+		t.Fatalf("absent result = %+v after %d checks", missing, calls.Load())
+	}
+	cache.Get("one", false)
+	waitChecked(t, cache, "one")
+	time.Sleep(250 * time.Millisecond)
+	stale := cache.Cached("one")
+	if stale.Checking || len(stale.Entries) != 1 || calls.Load() != 1 {
+		t.Fatalf("stale read = %+v after %d checks", stale, calls.Load())
+	}
+}
+
+func TestRefreshesDuringACheckCoalesceIntoOneFollowingCheck(t *testing.T) {
+	var calls atomic.Int32
+	releases := []chan struct{}{make(chan struct{}), make(chan struct{})}
+	cache := NewCache(time.Minute, time.Second, func(context.Context, string) Snapshot {
+		call := calls.Add(1)
+		<-releases[call-1]
+		return Snapshot{Entries: []Entry{{Name: "sample", Status: map[int32]string{1: "unauthorized", 2: "connected"}[call]}}}
+	})
+	defer cache.Close()
+	cache.Get("one", false)
+	for range 3 {
+		if !cache.Get("one", true).Checking {
+			t.Fatal("refresh during a check reported idle")
+		}
+	}
+	close(releases[0])
+	deadline := time.After(2 * time.Second)
+	for calls.Load() < 2 {
+		if !cache.Cached("one").Checking {
+			t.Fatal("pending refresh went idle between checks")
+		}
+		select {
+		case <-deadline:
+			t.Fatal("pending refresh never ran")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if !cache.Cached("one").Checking {
+		t.Fatal("following check is not reported")
+	}
+	close(releases[1])
+	result := waitChecked(t, cache, "one")
+	if calls.Load() != 2 || len(result.Entries) != 1 || result.Entries[0].Status != "connected" {
+		t.Fatalf("calls=%d result=%+v", calls.Load(), result)
+	}
+}
+
+func TestClosingDropsAPendingRefresh(t *testing.T) {
+	var calls atomic.Int32
+	cache := NewCache(time.Minute, time.Second, func(ctx context.Context, _ string) Snapshot {
+		calls.Add(1)
+		<-ctx.Done()
+		return Snapshot{}
+	})
+	cache.Get("one", false)
+	for calls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	cache.Get("one", true)
+	cache.Close()
+	if calls.Load() != 1 || cache.Cached("one").Checking {
+		t.Fatalf("closed cache ran %d checks, checking=%v", calls.Load(), cache.Cached("one").Checking)
 	}
 }
 

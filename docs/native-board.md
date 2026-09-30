@@ -431,6 +431,7 @@ Repository services reuse the auth manifest's probes and status words; a resolve
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
 Opening the dropdown starts a check only when the cached result is older than a minute; the refresh icon, a finished repair card and the first return to the board after each sign-in click always start one.
 The dropdown polls only while a check runs, so an open dropdown never rechecks on its own.
+A refresh or finished repair that arrives while a check runs queues one more check after it, and repair icons act on the shown result without starting a check.
 Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
 Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
 Project MCP servers omitted from the goblin's configuration appear as Withheld, with a token action when the project names a token variable.

@@ -19,7 +19,7 @@ import (
 func TestConnectionAPIIsCachedAndRejectsStaleTasksAndUntrustedRefreshes(t *testing.T) {
 	store, _ := testStore(t)
 	release := make(chan struct{})
-	checks := connections.NewCache(func(ctx context.Context, _ string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Second, func(ctx context.Context, _ string) connections.Snapshot {
 		select {
 		case <-release:
 		case <-ctx.Done():
@@ -65,7 +65,7 @@ func TestConnectionFixDerivesOAuthURLAndRejectsInjectedOrStaleRepairs(t *testing
 	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"sample","method":"oauth","url":"https://example.invalid/login"}]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	checks := connections.NewCache(func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
 		return connections.Snapshot{Entries: []connections.Entry{{ID: "service:sample", Status: "unauthorized", Actions: []string{"login"}}}}
 	})
 	defer checks.Close()
@@ -139,7 +139,7 @@ func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing
 	store, h := testStore(t)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	var calls atomic.Int32
-	checks := connections.NewCache(func(context.Context, string) connections.Snapshot {
+	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
 		calls.Add(1)
 		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: "provided"}}}
 	})
@@ -179,5 +179,102 @@ func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing
 	data, err := json.Marshal(store.Snapshot().Runs[0])
 	if err != nil || !strings.Contains(string(data), `"connection_task":"task-1"`) || !strings.Contains(string(data), `"finished_at"`) {
 		t.Fatalf("published run = %s, %v", data, err)
+	}
+}
+
+func waitForConnectionCheck(t *testing.T, checks *connections.Cache, key string) connections.Snapshot {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		snapshot := checks.Cached(key)
+		if !snapshot.Checking && !snapshot.CheckedAt.IsZero() {
+			return snapshot
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("connection check did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestIdleRepairClickUsesTheShownCheckWithoutStartingAnother(t *testing.T) {
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	manifestPath := auth.ManifestPath(h.Data, meta.Project)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"sample","method":"oauth","url":"https://example.invalid/login"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	release := make(chan struct{})
+	checks := connections.NewCache(10*time.Millisecond, time.Second, func(context.Context, string) connections.Snapshot {
+		if calls.Add(1) > 1 {
+			<-release
+		}
+		return connections.Snapshot{Entries: []connections.Entry{{ID: "service:sample", Status: "unauthorized", Actions: []string{"login"}}}}
+	})
+	defer checks.Close()
+	defer close(release)
+	key := "task-1\ng1"
+	checks.Get(key, false)
+	waitForConnectionCheck(t, checks, key)
+	time.Sleep(20 * time.Millisecond)
+	handler := NewHTTP(&Service{Store: store, Instance: "test-instance", connectionChecks: checks}, "board.local", nil)
+	fix := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(`{"task":"task-1","generation":"g1","connection":"service:sample","action":"login"}`))
+		request.Header.Set("Origin", "http://board.local")
+		request.Header.Set("X-CFO-Token", "test-instance")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	if response := fix(); response.Code != 200 || !strings.Contains(response.Body.String(), "https://example.invalid/login") {
+		t.Fatalf("idle click returned %d: %s", response.Code, response.Body)
+	}
+	if calls.Load() != 1 || checks.Cached(key).Checking {
+		t.Fatalf("idle click started a check: %d", calls.Load())
+	}
+	checks.Get(key, true)
+	if response := fix(); response.Code != 409 {
+		t.Fatalf("click during a running check returned %d: %s", response.Code, response.Body)
+	}
+}
+
+func TestRepairFinishedDuringARunningCheckRechecksAfterIt(t *testing.T) {
+	store, h := testStore(t)
+	meta, _ := state.ReadTaskMeta(h.State, "task-1")
+	var calls atomic.Int32
+	release := make(chan struct{})
+	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
+		status := "provided"
+		if calls.Add(1) == 1 {
+			<-release
+			status = "missing"
+		}
+		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: status}}}
+	})
+	defer checks.Close()
+	key := meta.ID + "\n" + meta.SpawnGen
+	checks.Get(key, false)
+	service := &Service{Store: store, Instance: "test-instance", connectionChecks: checks}
+	run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range store.db.Runs {
+		store.db.Runs[index].RunAction = "action"
+		store.db.Runs[index].State = "running"
+	}
+	run.RunAction = "action"
+	code := 0
+	if err := service.completeRun(context.Background(), run, &code, ""); err != nil {
+		t.Fatalf("completion error = %v", err)
+	}
+	close(release)
+	snapshot := waitForConnectionCheck(t, checks, key)
+	if calls.Load() != 2 || len(snapshot.Entries) != 1 || snapshot.Entries[0].Status != "provided" {
+		t.Fatalf("checks=%d snapshot=%+v, want the post-repair result", calls.Load(), snapshot)
 	}
 }
