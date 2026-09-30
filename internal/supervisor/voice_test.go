@@ -83,19 +83,47 @@ func TestVoiceHistoryReportsReadFailuresWithoutPrivateDetails(t *testing.T) {
 
 func TestVoiceSnapshotUsesOnlyTheConfiguredInstallation(t *testing.T) {
 	t.Setenv("CFO_SIQSPEAK_DIR", t.TempDir())
-	t.Setenv("CFO_PROJECTS_ROOT", filepath.Join(t.TempDir(), "unreadable"))
+	readVoice := voiceReader(func() (string, error) { return filepath.Join(t.TempDir(), "unreadable"), nil })
 
-	value, err := readVoiceSnapshot()
+	value, err := readVoice()
 
 	if err != nil || value.State != "missing" || len(value.Entries) != 0 {
 		t.Fatalf("configured directory = %+v, %v", value, err)
 	}
 	t.Setenv("CFO_SIQSPEAK_DIR", "relative/path")
-	if _, err := readVoiceSnapshot(); err == nil {
+	if _, err := readVoice(); err == nil {
 		t.Fatal("invalid installation configuration was hidden")
 	}
 	t.Setenv("CFO_SIQSPEAK_DIR", "")
-	if _, err := readVoiceSnapshot(); err == nil {
+	if _, err := readVoice(); err == nil {
 		t.Fatal("unreadable projects root was hidden")
+	}
+	if _, err := voiceReader(func() (string, error) { return "", errors.New("registry") })(); err == nil {
+		t.Fatal("unresolved projects root was hidden")
+	}
+}
+
+func TestVoiceHistoryResolvesTheProjectsRootOncePerSupervisor(t *testing.T) {
+	t.Setenv("CFO_SIQSPEAK_DIR", "")
+	handler := NewHTTP(&Service{Instance: "current"}, "board.local", nil)
+	resolutions := 0
+	handler.readVoice = voiceReader(func() (string, error) {
+		resolutions++
+		return t.TempDir(), nil
+	})
+
+	for range 3 {
+		request := httptest.NewRequest("POST", "http://board.local/api/voice", nil)
+		request.Header.Set("Origin", "http://board.local")
+		request.Header.Set("X-CFO-Token", "current")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != 200 {
+			t.Fatalf("status = %d, want 200", response.Code)
+		}
+	}
+
+	if resolutions != 1 {
+		t.Fatalf("projects root resolved %d times, want 1", resolutions)
 	}
 }
