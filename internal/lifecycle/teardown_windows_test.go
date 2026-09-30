@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -31,14 +33,7 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			service, meta := lifecycleFixture(t)
-			child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
-			child.Dir = meta.TaskTmp
-			child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
-			child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB | windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP, HideWindow: true}
-			if err := child.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+			child := startDetachedFixture(t, meta.TaskTmp)
 			started, exists := proc.StartTime(child.Process.Pid)
 			if !exists {
 				t.Fatal("detached fixture did not start")
@@ -124,17 +119,65 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 	}
 }
 
-func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
-	directory := t.TempDir()
-	for range 3 {
+// startDetachedFixture starts a detached fixture process in directory, out of
+// this process's job as Chrome leaves a task's job. A job that forbids breaking
+// away, such as a gate test step's, keeps it inside instead; ownership by
+// directory does not depend on the job.
+func startDetachedFixture(t *testing.T, directory string) *exec.Cmd {
+	t.Helper()
+	start := func(flags uint32) (*exec.Cmd, error) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = directory
 		child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
-		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB | windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP, HideWindow: true}
-		if err := child.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+		child.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
+		return child, child.Start()
+	}
+	flags := uint32(windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP)
+	child, err := start(flags | windows.CREATE_BREAKAWAY_FROM_JOB)
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		child, err = start(flags)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	return child
+}
+
+func TestStopQueuedKeepsPendingTeardownOfARequeuedTask(t *testing.T) {
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	child := startDetachedFixture(t, t.TempDir())
+	started, exists := proc.StartTime(child.Process.Pid)
+	if !exists {
+		t.Fatal("detached fixture did not start")
+	}
+	teardown := []state.TeardownProcess{{PID: child.Process.Pid, Started: started, Name: "fixture.exe"}}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task", Generation: "old-session", Operation: "stop-old", Action: "stop", Phase: "stopped", Teardown: teardown}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **task** - Requeued task (repo: example)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := StopQueued(h, Request{ID: "task", Operation: "stop-queued", Action: "stop", Reason: "Not needed"}, "")
+
+	if err != nil || record.Phase != "stopped" {
+		t.Fatalf("queued stop failed: %+v %v", record, err)
+	}
+	durable, err := state.ReadLifecycle(h.State, "task")
+	if err != nil || len(durable.Teardown) != 1 || durable.Teardown[0].PID != child.Process.Pid || !durable.Teardown[0].Started.Equal(started) {
+		t.Fatalf("queued stop dropped the pending teardown identity: %+v %v", durable, err)
+	}
+	lines, err := state.TailStatus(h.State, "task", 10)
+	if err != nil || !strings.Contains(strings.Join(lines, "\n"), "finishing Windows teardown") {
+		t.Fatalf("status hid teardown: %v %v", lines, err)
+	}
+}
+
+func TestStopResourcesIssuesEveryTerminationBeforeWaiting(t *testing.T) {
+	directory := t.TempDir()
+	for range 3 {
+		startDetachedFixture(t, directory)
 	}
 	var requested atomic.Int32
 	allRequested := make(chan struct{})

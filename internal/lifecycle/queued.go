@@ -73,7 +73,7 @@ func StopQueued(h home.Home, request Request, revision string) (record state.Lif
 		return record, err
 	}
 	now := time.Now().UTC()
-	record = state.Lifecycle{ID: request.ID, Generation: "queued", RequestGeneration: "queued", Operation: request.Operation, Action: "stop", Phase: "stopping", Title: queued.Row.Title, Project: queued.Row.Repo, Started: now, Updated: now, Reason: request.Reason, Kept: []string{"task brief"}}
+	record = state.Lifecycle{ID: request.ID, Generation: "queued", RequestGeneration: "queued", Operation: request.Operation, Action: "stop", Phase: "stopping", Title: queued.Row.Title, Project: queued.Row.Repo, Started: now, Updated: now, Reason: request.Reason, Kept: []string{"task brief"}, Teardown: prior.Teardown}
 	if err := state.WriteLifecycle(h.State, record); err != nil {
 		return record, err
 	}
