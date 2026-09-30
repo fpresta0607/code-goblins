@@ -87,6 +87,49 @@ func Arguments(pid int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return splitCommandLine(line)
+}
+
+// Parameters returns the directory pid is running in and the arguments it was
+// started with, read through one handle and one walk of its parameter block.
+// Each read out of another process waits on its address space, and on a busy
+// machine that wait is milliseconds, so a caller that needs both for every
+// process makes a third fewer reads than WorkingDirectory and Arguments do.
+// A value that could not be read is empty, and err says why.
+func Parameters(pid int) (string, []string, error) {
+	unreadable := func(err error) (string, []string, error) {
+		return "", nil, fmt.Errorf("%w: %w: %v", ErrDirectoryUnreadable, ErrCommandLineUnreadable, err)
+	}
+	handle, err := syscall.OpenProcess(processQueryInformation|processVMRead, false, uint32(pid))
+	if err != nil {
+		return unreadable(fmt.Errorf("open process %d: %v", pid, err))
+	}
+	defer syscall.CloseHandle(handle)
+	parameters, err := parameterBlock(handle, pid)
+	if err != nil {
+		return unreadable(err)
+	}
+	// One read covers both descriptors, the directory's first.
+	descriptors := make([]byte, paramsOffsetCommandLine-paramsOffsetCurrentDirectory+16)
+	if err := readMemory(handle, parameters+paramsOffsetCurrentDirectory, descriptors); err != nil {
+		return unreadable(err)
+	}
+	directory, directoryErr := unicodeString(handle, pid, descriptors[:16])
+	if directoryErr != nil {
+		directoryErr = fmt.Errorf("%w: %v", ErrDirectoryUnreadable, directoryErr)
+	}
+	var arguments []string
+	line, argumentsErr := unicodeString(handle, pid, descriptors[paramsOffsetCommandLine-paramsOffsetCurrentDirectory:])
+	if argumentsErr != nil {
+		argumentsErr = fmt.Errorf("%w: %v", ErrCommandLineUnreadable, argumentsErr)
+	} else {
+		arguments, argumentsErr = splitCommandLine(line)
+	}
+	return directory, arguments, errors.Join(directoryErr, argumentsErr)
+}
+
+// splitCommandLine splits a command line by Windows' own CommandLineToArgvW.
+func splitCommandLine(line string) ([]string, error) {
 	pointer, err := syscall.UTF16PtrFromString(line)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
@@ -113,22 +156,36 @@ func parameterString(pid int, offset uintptr) (string, error) {
 	}
 	defer syscall.CloseHandle(handle)
 
-	peb, err := processEnvironmentBlock(handle)
+	parameters, err := parameterBlock(handle, pid)
 	if err != nil {
 		return "", err
 	}
-	parameters, err := readPointer(handle, peb+pebOffsetProcessParameters)
-	if err != nil {
-		return "", err
-	}
-	if parameters == 0 {
-		return "", fmt.Errorf("process %d has no parameter block", pid)
-	}
-
 	descriptor := make([]byte, 16)
 	if err := readMemory(handle, parameters+offset, descriptor); err != nil {
 		return "", err
 	}
+	return unicodeString(handle, pid, descriptor)
+}
+
+// parameterBlock returns the address of pid's process parameter block.
+func parameterBlock(handle syscall.Handle, pid int) (uintptr, error) {
+	peb, err := processEnvironmentBlock(handle)
+	if err != nil {
+		return 0, err
+	}
+	parameters, err := readPointer(handle, peb+pebOffsetProcessParameters)
+	if err != nil {
+		return 0, err
+	}
+	if parameters == 0 {
+		return 0, fmt.Errorf("process %d has no parameter block", pid)
+	}
+	return parameters, nil
+}
+
+// unicodeString reads the value a 16-byte UNICODE_STRING descriptor, copied
+// out of pid's parameter block, points to.
+func unicodeString(handle syscall.Handle, pid int, descriptor []byte) (string, error) {
 	length := int(*(*uint16)(unsafe.Pointer(&descriptor[0])))
 	buffer := uintptr(*(*uint64)(unsafe.Pointer(&descriptor[unicodeStringBufferOffset])))
 	if length == 0 || buffer == 0 {
