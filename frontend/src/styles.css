@@ -175,13 +175,18 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 /* A task card is a grid: what the card says, with the goblin it waits on and
    its pull request on a row of their own under it, and its controls beside
    them, or under them on a narrow card. Every part has its own place. */
-.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "links side" "notes notes"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 14px; background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "card mark" "links mark" "notes notes"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 14px; background: var(--level-2); box-shadow: var(--shadow-2); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-links { grid-area: links; }
 .task-card-shell > .task-controls { grid-area: side; }
 .task-card-shell > .task-notes { grid-area: notes; }
+/* The mark of the harness a goblin runs sits in the card's corner, under its
+   controls, and names the harness, model and effort in its tip. */
+.task-card-shell > .card-harness { grid-area: mark; align-self: end; justify-self: end; margin-top: 10px; }
+.card-harness .mark { width: 40px; height: 40px; }
+.card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
 .task-card-shell > .task-card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
-.card-links > *, .task-card-shell > .task-controls > * { position: relative; z-index: 1; }
+.card-links > *, .task-card-shell > .task-controls > *, .task-card-shell > .card-harness { position: relative; z-index: 1; }
 .card-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; margin-top: 10px; padding-left: 56px; }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
@@ -923,7 +928,8 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .stop-task-choices .danger { border-color: #fa7272; background: #0a1723; }
 .windows-teardown { display: block; font-size: max(16px, 1rem); line-height: 1.5; color: var(--amber); overflow-wrap: anywhere; }
 @container (max-width: 420px) {
-  .task-card-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "card" "links" "side" "notes"; }
+  .task-card-shell { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card card" "links links" "side mark" "notes notes"; }
+  .task-card-shell > .card-harness { align-self: center; }
   .task-card-shell > .task-controls { margin-top: 10px; }
   .card-links { padding-left: 0; }
 }

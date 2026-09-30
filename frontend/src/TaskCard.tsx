@@ -1,11 +1,13 @@
 import { useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
+import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
+import { harnessMark } from "./connectors";
 import { TaskControls } from "./task-controls";
 import { queueBlock } from "./start";
-import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
+import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
 
 // A task's card on the board: its title, up to three lines, then a muted line
 // with the repo and the status, both wrapping onto further lines, and a quiet
@@ -13,8 +15,8 @@ import { asksOverlord, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel
 // goblin's own words stay in its panel. rank, when the card sits in an ordered
 // list, is read out with it. The goblin it waits on and its pull request take
 // a row of their own under that, and its controls sit beside it or, on a
-// narrow card, under it: every part of the card has its own place, so none is
-// drawn over another.
+// narrow card, under it, with the mark of the harness it runs in the corner:
+// every part of the card has its own place, so none is drawn over another.
 export interface CardStart { blocked: string; problem: string; onStart: (source: HTMLElement) => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
@@ -57,5 +59,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} leading={terminal} onAdjust={(source) => onSelect(task, source)} />
+    {task.harness && <span className="card-harness" onClick={(event) => onSelect(task, event.currentTarget)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
   </div>;
 }
