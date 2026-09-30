@@ -559,6 +559,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
+/* It is a column: the screen, with its history laid over the screen alone,
+   then the voice strip. */
+.native-terminal:not(.host-terminal) { display: grid; grid-template: minmax(0, 1fr) auto / minmax(0, 1fr); }
+.native-terminal:not(.host-terminal) > .terminal-surface { grid-area: 1 / 1; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
 /* The pane's history lies over its live screen at the same size, and stays
    laid out while away so its cells are measured. */
@@ -598,12 +602,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 /* Dictation listens while Ctrl+Shift+Space is held. */
-/* The voice bubble sits in its own strip under a native terminal's screen, so
-   it never covers the terminal's text, and floats in the corner of a Herdr
-   pane. It stays still while idle: only recording moves, and only with the
+/* The voice bubble sits in its own strip under the terminal's screen, so it
+   never covers the terminal's text, and above a Herdr pane's history. It
+   stays still while idle: only recording moves, and only with the
    microphone's level. */
-.voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
-.native-terminal:not(.host-terminal) .voice-dock { position: absolute; right: 12px; bottom: 12px; z-index: 2; min-height: 0; padding: 0; border: 0; background: none; }
+.voice-dock { position: relative; z-index: 2; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
 .voice-dock [data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 .voice-bubble { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 64px; height: 40px; padding: 0 16px; border: 1px solid #2c8a6e; border-radius: 999px; background: #0b1f1a; color: var(--mint); box-shadow: 0 0 14px #00e59b33; transition: min-width .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .voice-bubble:hover { border-color: var(--accent); }
@@ -614,7 +617,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
 .voice-bars span { width: 3px; height: 24px; border-radius: 2px; background: var(--mint); transform: scaleY(.2); transition: transform 70ms linear; }
 .voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid var(--edge-lit); border-radius: 18px; background: var(--level-3); box-shadow: var(--shadow-2); color: #d8e4ea; }
-.native-terminal:not(.host-terminal) .voice-card { right: 0; }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
 .voice-card-title { padding-right: 40px; color: #edf4f3; font-size: 1.1875rem; font-weight: 800; }
 .voice-card .voice-close { position: absolute; top: 12px; right: 12px; }

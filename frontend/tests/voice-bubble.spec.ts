@@ -17,8 +17,8 @@ const SIQSPEAK = [
   { text: "Open the board task terminal.", timestamp: "2026-09-29T12:42:00", time_epoch: 1790000520 },
 ];
 
-async function openPane(page: Page, state: string, { hint = false, dictations = [] as { text: string; at: number }[] } = {}) {
-  await page.route("**/api/voice", (route) => route.fulfill({ json: { state, entries: state === "running" || state === "stopped" ? SIQSPEAK : [], has_skipped: false } }));
+async function openPane(page: Page, state: string, { hint = false, dictations = [] as { text: string; at: number }[], entries = SIQSPEAK, panes = 1 } = {}) {
+  await page.route("**/api/voice", (route) => route.fulfill({ json: { state, entries: state === "running" || state === "stopped" ? entries : [], has_skipped: false } }));
   await page.addInitScript(({ hint, dictations }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
     if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
@@ -44,7 +44,7 @@ async function openPane(page: Page, state: string, { hint = false, dictations = 
     }
     Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
   }, { hint, dictations });
-  await page.goto("/tests/fixtures/voice-bubble.html");
+  await page.goto("/tests/fixtures/voice-bubble.html" + (panes === 2 ? "?panes=2" : ""));
   return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }) };
 }
 
@@ -79,6 +79,25 @@ test("the bubble sits in the pane's corner and opens its recent messages, newest
   await recent.getByRole("button", { name: "Paste into this terminal: Show me what needs my attention." }).click();
   await expect(page.locator("output")).toContainText("pasted: Show me what needs my attention.");
   await expect(recent).toHaveCount(0);
+});
+
+test("a multiline message pastes as one line, so it never presses Enter, and copies whole", async ({ page }) => {
+  const { bubble } = await openPane(page, "running", { entries: [{ text: "run the tests\nthen commit", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }] });
+  await bubble.click();
+  const recent = page.getByRole("dialog", { name: "Recent messages" });
+  await recent.getByRole("button", { name: /^Copy: run the tests/ }).click();
+  expect(await page.evaluate(async () => (await navigator.clipboard.readText()).replace(/\r\n/g, "\n"))).toBe("run the tests\nthen commit");
+  await recent.getByRole("button", { name: /^Paste into this terminal: run the tests/ }).click();
+  await expect(page.locator("output")).toHaveText("pasted: run the tests then commit");
+});
+
+test("a hint dismissed in one pane stays dismissed in a pane already open", async ({ page }) => {
+  await openPane(page, "running", { hint: true, panes: 2 });
+  await expect(page.getByRole("note")).toHaveCount(1);
+  await page.getByRole("region", { name: "Goblin terminal" }).getByRole("button", { name: "Dismiss hint" }).click();
+  await page.getByRole("button", { name: "Switch pane" }).click();
+  await expect(page.getByRole("region", { name: "CFO terminal" }).locator(".voice-bubble")).toBeVisible();
+  await expect(page.getByRole("note")).toHaveCount(0);
 });
 
 test("the first visit explains the shortcut once", async ({ page }) => {

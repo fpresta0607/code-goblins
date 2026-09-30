@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { spoken } from "./dictation";
 import { Icon } from "./Icon";
 import type { Voice } from "./useVoice";
 import type { SiqspeakState } from "./voice";
@@ -7,7 +8,6 @@ const HINT_KEY = "cfo-voice-hint-v1";
 const BARS = 9;
 // While listening, a bar takes the microphone's level this often.
 const SAMPLE_MS = 70;
-const SHOWN = 5;
 
 const STATUS: Record<SiqspeakState, string> = {
   running: "SIQspeak running",
@@ -29,7 +29,10 @@ const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "
 // level as bars. The first visit explains the shortcut once.
 export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice; listening: boolean; level: () => number; onPaste: (text: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [hint, setHint] = useState(() => !hintDismissed());
+  // Read on every render, so a hint dismissed in one pane stays away in the
+  // others, which stay mounted.
+  const [dismissed, setDismissed] = useState(false);
+  const hint = !dismissed && !hintDismissed();
   const [copied, setCopied] = useState("");
   const bubble = useRef<HTMLButtonElement>(null);
   const bars = useRef<(HTMLSpanElement | null)[]>([]);
@@ -57,7 +60,7 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     return () => clearTimeout(timer);
   }, [copied]);
   const dismiss = () => {
-    setHint(false);
+    setDismissed(true);
     try { localStorage.setItem(HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
   };
   const close = () => { setOpen(false); bubble.current?.focus(); };
@@ -69,7 +72,6 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
   };
   const status = voice.state ? STATUS[voice.state] : "";
   const tip = listening ? "Listening · release Ctrl+Shift+Space to type" : status || "Hold Ctrl+Shift+Space to dictate";
-  const shown = voice.messages.slice(0, SHOWN);
   // A page served over plain HTTP, such as across the tailnet, has no clipboard.
   const clipboard = !!navigator.clipboard;
   // Escape closes the list from the bubble or from inside it.
@@ -86,7 +88,7 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
       <button className="icon-button voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
       {voice.state === "stopped" && <p className="voice-help">Open SIQspeak from its desktop shortcut. Until it runs, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
       {voice.state === "missing" && <p className="voice-help">Install SIQspeak on this computer to dictate locally. Until then, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
-      {shown.length ? <ul>{shown.map((message, index) => {
+      {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
         const key = message.source + ":" + message.at + ":" + index;
         return <li key={key}>
           <span className="voice-meta">{[clock(message.at), message.source === "board" ? "Board" : "SIQspeak"].filter(Boolean).join(" · ")}</span>
@@ -95,7 +97,7 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
             {clipboard && <button className="icon-button" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
               onClick={() => { navigator.clipboard.writeText(message.text).then(() => setCopied(key), () => {}); }}><Icon name={copied === key ? "check" : "copy"} /></button>}
             <button className="icon-button" aria-label={"Paste into this terminal: " + message.text} data-tip="Paste into this terminal" data-tip-align="end"
-              onClick={() => { onPaste(message.text); setOpen(false); }}><Icon name="paste" /></button>
+              onClick={() => { onPaste(spoken([message.text])); setOpen(false); }}><Icon name="paste" /></button>
           </span>
         </li>;
       })}</ul> : <p className="voice-empty">Nothing dictated yet.</p>}

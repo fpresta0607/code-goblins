@@ -5,6 +5,7 @@ import { closedReason, reconnects, storedFontSize, storeFontSize } from "./termi
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { useVoice } from "./useVoice";
+import { hostPane } from "./voice";
 import { VoiceBubble } from "./VoiceBubble";
 
 // A view that keeps dropping stops retrying and says why.
@@ -33,7 +34,7 @@ export function HostTerminal({ query, label, instance, visible, shown, focus }: 
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
-  const voice = useVoice(instance, query, shown);
+  const voice = useVoice(instance, hostPane(query), shown);
   const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, voice.defers);
   const dictate = dictation.key;
   useEffect(() => {

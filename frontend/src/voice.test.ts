@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOARD_DICTATIONS, BOARD_PANES, parseSiqspeak, readDictations, recentMessages, rememberDictation, voiceLevel, type VoiceMessage } from "./voice.ts";
+import { BOARD_DICTATIONS, BOARD_PANES, hostPane, parseSiqspeak, readDictations, recentMessages, rememberDictation, voiceLevel, type VoiceMessage } from "./voice.ts";
 
 class MemoryStorage {
   values = new Map<string, string>();
@@ -62,12 +62,22 @@ test("a broken or unavailable store reads as no dictations and never throws", ()
   assert.deepEqual(readDictations(null, "cfo"), []);
 });
 
-test("recent messages mix SIQspeak's and the board's, newest first, a few at most", () => {
+test("recent messages mix SIQspeak's and the board's, newest first, five at most", () => {
   const siqspeak: VoiceMessage[] = [{ text: "b", at: 40, source: "siqspeak" }, { text: "d", at: 10, source: "siqspeak" }];
   const board: VoiceMessage[] = [{ text: "a", at: 50, source: "board" }, { text: "c", at: 20, source: "board" }];
   assert.deepEqual(recentMessages(siqspeak, board).map((message) => message.text), ["a", "b", "c", "d"]);
-  assert.deepEqual(recentMessages(siqspeak, board, 3).map((message) => message.text), ["a", "b", "c"]);
+  const more: VoiceMessage[] = [...board, { text: "e", at: 5, source: "board" }, { text: "f", at: 1, source: "board" }];
+  assert.deepEqual(recentMessages(siqspeak, more).map((message) => message.text), ["a", "b", "c", "d", "e"]);
   assert.deepEqual(recentMessages([], []), []);
+});
+
+test("a native host's pane is its goblin's task whatever its generation, or the CFO", () => {
+  for (const [query, pane] of [
+    ["task=t-1&generation=g-1", "t-1"],
+    ["task=t-1&generation=g-2", "t-1"],
+    ["cfo=cfo%3A1", "cfo"],
+    ["", "cfo"],
+  ]) assert.equal(hostPane(query), pane, query);
 });
 
 test("the voice level is silence at rest, rises with loudness and never passes one", () => {

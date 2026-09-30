@@ -8,12 +8,12 @@ import "../../src/styles.css";
 // One native terminal pane with its voice bubble: the terminal is a text box
 // whose keys reach dictation as the real terminal's do, and what dictation or
 // the bubble types shows under it.
-function Pane() {
-  const voice = useVoice("fixture", "task:voice", true);
+function Pane({ pane, label, shown }: { pane: string; label: string; shown: boolean }) {
+  const voice = useVoice("fixture", pane, shown);
   const [typed, setTyped] = useState<string[]>([]);
   const dictation = useDictation((text) => { setTyped((prior) => [...prior, text]); voice.remember(text); }, voice.defers);
-  return <main style={{ display: "flex", flexDirection: "column", height: 760 }}>
-    <section className="native-terminal host-terminal" aria-label="Goblin terminal" style={{ flex: 1 }}>
+  return <main style={{ display: shown ? "flex" : "none", flexDirection: "column", height: 760 }}>
+    <section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
       <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
     </section>
@@ -21,4 +21,16 @@ function Pane() {
   </main>;
 }
 
-createRoot(document.getElementById("root")!).render(<Pane />);
+// With ?panes=2 a second pane stays mounted and hidden, as the terminal deck
+// keeps it, until the switch shows it instead.
+function Deck() {
+  const [second, setSecond] = useState(false);
+  if (new URLSearchParams(location.search).get("panes") !== "2") return <Pane pane="task:voice" label="Goblin terminal" shown />;
+  return <>
+    <button onClick={() => setSecond((prior) => !prior)}>Switch pane</button>
+    <Pane pane="task:voice" label="Goblin terminal" shown={!second} />
+    <Pane pane="cfo" label="CFO terminal" shown={second} />
+  </>;
+}
+
+createRoot(document.getElementById("root")!).render(<Deck />);

@@ -72,8 +72,18 @@ export function rememberDictation(storage: Store | null, pane: string, text: str
   return messages;
 }
 
-export function recentMessages(siqspeak: VoiceMessage[], board: VoiceMessage[], limit = 8): VoiceMessage[] {
-  return [...siqspeak, ...board].sort((a, b) => b.at - a.at).slice(0, limit);
+// hostPane is the pane a native host's query names: its goblin's task, the
+// same key a Herdr pane uses, so a relaunched goblin keeps its dictations, or
+// the CFO.
+export function hostPane(query: string): string {
+  return new URLSearchParams(query).get("task") || "cfo";
+}
+
+// The list shows this many of the newest messages from both sources.
+const RECENT = 5;
+
+export function recentMessages(siqspeak: VoiceMessage[], board: VoiceMessage[]): VoiceMessage[] {
+  return [...siqspeak, ...board].sort((a, b) => b.at - a.at).slice(0, RECENT);
 }
 
 // voiceLevel is how loud a frame of microphone samples is, from 0 for silence
