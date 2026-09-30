@@ -93,7 +93,7 @@ func Arguments(pid int) ([]string, error) {
 
 // Parameters returns the directory pid is running in and the arguments it was
 // started with, read through one handle and one walk of its parameter block.
-// A fresh first-page snapshot usually contains both strings, avoiding separate
+// A fresh first-page snapshot can contain both strings, avoiding separate
 // remote reads for them. Values outside that snapshot are read individually.
 // A value that could not be read is empty, and err says why.
 func Parameters(pid int) (string, []string, error) {

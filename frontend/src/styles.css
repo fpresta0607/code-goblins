@@ -442,11 +442,9 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
   .view-switch button { min-width: 0; padding-inline: 16px; }
   .topbar-controls { gap: 10px; }
 }
-/* Three columns need room for a 260 px card in each; below that the columns
-   stack and the cards share the width. */
+/* A narrow board stops filling the canvas height and tightens its columns. */
 @container (max-width: 960px) {
-  .task-board { grid-template-columns: minmax(0, 1fr); min-height: auto; }
-  .task-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+  .task-board { min-height: auto; }
   .board-column h2 { margin-bottom: 14px; }
   .column-empty { padding: 0 0 12px; }
 }
