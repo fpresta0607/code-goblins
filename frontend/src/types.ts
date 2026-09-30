@@ -78,6 +78,7 @@ export interface Session {
   agent_type: string;
   phase: string;
   turn_id: string;
+  host_id: string;
   last_event_id: string;
   updated_at: string;
 }
@@ -389,6 +390,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         agent_type: string(s.agent_type),
         phase: string(s.phase),
         turn_id: string(s.turn_id),
+        host_id: string(s.host_id),
         last_event_id: string(s.last_event_id),
         updated_at: string(s.updated_at),
       };

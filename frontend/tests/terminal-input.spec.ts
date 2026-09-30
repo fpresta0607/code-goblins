@@ -3,13 +3,16 @@ import { expect, test } from "@playwright/test";
 for (const backend of ["native", "herdr"] as const) {
   test.describe(backend + " terminal input", () => {
     let inputs: Buffer[];
+    let connections: number;
     let writeOutput: (text: string) => void;
 
     test.beforeEach(async ({ page, context }) => {
       inputs = [];
+      connections = 0;
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       if (backend === "native") {
         await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+          connections++;
           writeOutput = (text) => socket.send(Buffer.from(text));
           socket.send(JSON.stringify({ type: "history", bytes: 0 }));
           socket.send(Buffer.from("\x1b[2J\x1b[HSELECTABLE\r\n\x1b[?2004h"));
@@ -119,6 +122,47 @@ for (const backend of ["native", "herdr"] as const) {
     });
 
     if (backend === "native") {
+      for (const role of ["cfo", "goblin"]) {
+        for (const [harness, expected] of [
+          ["claude", "\n"],
+          ["codex", "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_"],
+          ["bash", "\r"], ["powershell", "\r"], ["pi", "\r"], ["", "\r"],
+        ]) {
+          test("Shift+Enter uses the composer key for " + role + " " + (harness || "unknown harness"), async ({ page }) => {
+            await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ harness, role }) + "#native");
+            await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
+            await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+            inputs.length = 0;
+            await page.keyboard.press("Shift+Enter");
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected);
+            inputs.length = 0;
+            await page.keyboard.press("Enter");
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\r");
+          });
+        }
+      }
+
+      for (const role of ["cfo", "goblin"]) {
+        for (const [harness, expected] of [["claude", "\n"], ["codex", "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_"]]) {
+          test("a hook reporting " + harness + " changes the " + role + " Shift+Enter key without reconnecting", async ({ page }) => {
+            connections = 0;
+            await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ role }) + "#native");
+            await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
+            await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+            inputs.length = 0;
+            await page.keyboard.press("Shift+Enter");
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe("\r");
+
+            await page.evaluate((value) => (window as unknown as { reportHarness: (harness: string) => void }).reportHarness(value), harness);
+            inputs.length = 0;
+            await page.keyboard.press("Shift+Enter");
+
+            await expect.poll(() => Buffer.concat(inputs).toString("utf8")).toBe(expected);
+            expect(connections).toBe(1);
+          });
+        }
+      }
+
       test("selected Ctrl+C still copies when the program has taken the mouse", async ({ page }) => {
         writeOutput("\x1b[?1000h\x1b[?1006h");
         await page.keyboard.down("Shift");
