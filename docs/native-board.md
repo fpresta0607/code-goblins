@@ -488,7 +488,9 @@ A request the board refuses, or a delivery that fails or goes unconfirmed, bring
 The Command Center never opens itself while the Overlord types on the board, with the focus in a text field, a comment box or a terminal (decision 3596, after his 2026-09-28 words that it must not "prevent input when the editor has text annotation input"): a new question, or a card a failed send brings back, then waits under the badge with its alert, and his typing keeps its focus; a question its goblin asked about an open review page never opens it, since it is that page's card.
 A click on the dimmed board outside the card closes the Command Center, and a click anywhere outside the open inbox closes the inbox.
 A card answered elsewhere while on screen, such as with `cfo answer`, keeps its place until the Overlord moves on: it shows its delivery marks, or once closed a check on the chosen option, the other options dimmed and Answered by you or Answered by the CFO with the time.
-Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items, the live pages (review pages and browser walkthroughs) and a history of what he answered, cleared or ran, newest first by when each closed.
+Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items under Waiting on you, then a history of what he answered, cleared or ran, newest first by when each closed.
+Waiting on you lists everything that needs him, and only that: every open question, review item and run item, and each live presentation its goblin asked him to watch with `cfo present --watch`, as its line with a Watch button (an eye) that opens it, counted in the badge.
+A presentation without `--watch`, such as a goblin's own test walkthrough, stays off the Command Center; its task card still shows the browser it has open.
 A goblin panel whose goblin is waiting on the Overlord offers Answer, which opens the stack at that goblin's question or review item.
 Once submitted, every tab displays the durable answer rather than an unsent local draft.
 Answers retain their question and CFO identity and enter the durable native CFO message queue, never a worker send or gate approval.
@@ -677,6 +679,7 @@ A URL must be https, or plain http where it never crosses an untrusted network: 
 The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
 For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
+A presentation reaches the Overlord's Command Center only when it asks him to watch it, with one line he reads under Waiting on you, at most 300 characters: `--watch "Watch the checkout walkthrough I am running for you"`; a goblin's own test run omits it and stays off his Command Center.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
 The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.
 Only declared safe presentation links belong here, not raw tool arguments or arbitrary browser history.

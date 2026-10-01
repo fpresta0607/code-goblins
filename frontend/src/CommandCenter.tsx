@@ -63,7 +63,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
   const [inbox, setInbox] = useState(false);
-  const [background, setBackground] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);
@@ -206,31 +205,31 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  const notices = presentations.filter((event) => !background.has(event.id)).slice(-4).reverse();
+  // A presentation reaches him only when its goblin asks him to watch it; a
+  // goblin's own test run stays off the Command Center.
+  const watching = presentations.filter((event) => event.watch);
+  const needing = waiting.length + watching.length;
+  const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
   const settled = settledItems(snapshot).slice(0, 20);
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
-      <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (waiting.length ? ", " + waiting.length + " waiting on you" : "")}><Icon name="command-center" />{waiting.length > 0 && <span className="count-badge" aria-hidden="true">{waiting.length}</span>}</summary>
+      <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
-          <h3>Waiting on you <span className="column-count">{waiting.length}</span></h3>
-          {waiting.length ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
+          <h3>Waiting on you <span className="column-count">{needing}</span></h3>
+          {needing ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
             <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
+          </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
+            <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
+            <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
+            <time>{age(event.at)}</time>
+            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch} data-tip="Watch" data-tip-align="end"><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
-        {notices.length > 0 && <section aria-label="Pages to look at">
-          <h3>Pages</h3>
-          <ul className="inbox-list">{notices.map((event) => <li key={event.id}>
-            <span className="mark"><Icon name={event.kind === "review" ? "comment" : "browser-check"} /></span>
-            <span className="inbox-text"><strong>{event.kind === "review" ? "Review ready" : "Browser walkthrough running"}</strong>{event.cfo_identity ? "CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id}</span>
-            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={event.kind === "review" ? "Open review" : "Open page"} data-tip={event.kind === "review" ? "Open review" : "Open page"} data-tip-align="end"><Icon name="external" /></a>
-            <button className="icon-button" aria-label="Keep in background" data-tip="Keep in background" data-tip-align="end" onClick={() => setBackground((prior) => new Set([...prior, event.id]))}><Icon name="minus" /></button>
-          </li>)}</ul>
-        </section>}
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
@@ -240,7 +239,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             </li>;
           })}</ul>
         </Disclosure>}
-        <p className="muted">Everything stays here until you answer or clear it, or the goblin that asked moves past it. Opening a page never pauses work.</p>
+        <p className="muted">Everything that needs you is listed here. A goblin's own test runs stay off this list.</p>
       </div>
     </details>
     {/* A click on the dimmed board around the card lands on the dialog
