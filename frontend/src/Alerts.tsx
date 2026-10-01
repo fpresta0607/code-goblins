@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { arrive, asksPermission, boardAlerts, notifies, unseen, type AlertTarget, type BoardAlert } from "./alertRules";
+import { arrive, asksPermission, boardAlerts, notifies, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
 import { personaFor } from "./workflow";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
@@ -8,8 +8,7 @@ import type { Snapshot } from "./types";
 
 // Whether the board already asked this browser for Windows notifications.
 const ASKED_KEY = "cfo-notifications-asked";
-// The keys of the alerts this browser has shown, so a reload never shows one
-// again.
+// The alerts this browser has shown, so a reload never shows one again.
 const SEEN_KEY = "cfo-alerts-seen-v1";
 
 const permission = (): NotificationPermission | "unsupported" => typeof Notification === "undefined" ? "unsupported" : Notification.permission;
@@ -19,13 +18,14 @@ function asked(): boolean {
 function rememberAsked() {
   try { localStorage.setItem(ASKED_KEY, "true"); } catch { /* the board asks again in another tab */ }
 }
-function readSeen(): string[] {
+const isSeenAlert = (one: unknown): one is SeenAlert => typeof one === "object" && one !== null && "key" in one && typeof one.key === "string" && "says" in one && typeof one.says === "string" && "at" in one && typeof one.at === "number";
+function readSeen(): SeenAlert[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(SEEN_KEY) || "[]");
-    return Array.isArray(saved) ? saved.filter((key): key is string => typeof key === "string") : [];
+    return Array.isArray(saved) ? saved.filter(isSeenAlert) : [];
   } catch { return []; }
 }
-function rememberSeen(seen: string[]) {
+function rememberSeen(seen: SeenAlert[]) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch { /* this page still shows each alert once */ }
 }
 
@@ -45,20 +45,21 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   const [toasts, setToasts] = useState<BoardAlert[]>([]);
   const [asking, setAsking] = useState(false);
   useEffect(() => {
-    const sighting = unseen(boardAlerts(previous.current, snapshot), seen.current);
+    const now = Date.now();
+    const sighting = unseen(boardAlerts(previous.current, snapshot), seen.current, now);
     previous.current = snapshot;
     const { fresh } = sighting;
     if (!fresh.length) return;
     seen.current = sighting.seen;
     // Another tab of the board remembers its own alerts in the same list.
-    rememberSeen(unseen(fresh, readSeen()).seen);
+    rememberSeen(unseen(fresh, readSeen(), now).seen);
     setToasts((prior) => arrive(prior, fresh));
     if (asksPermission(permission(), asked())) setAsking(true);
     if (!notifies(permission(), document.hidden, document.hasFocus())) return;
     for (const alert of fresh) {
       const note = new Notification(alert.speaker, { body: alert.text, tag: alert.key });
       notes.current.set(alert.key, note);
-      note.onclose = () => notes.current.delete(alert.key);
+      note.onclose = () => { if (notes.current.get(alert.key) === note) notes.current.delete(alert.key); };
       note.onclick = () => {
         window.focus();
         note.close();

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrive, asksPermission, boardAlerts, notifies, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert } from "./alertRules.ts";
+import { arrive, asksPermission, boardAlerts, notifies, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
@@ -10,15 +10,19 @@ const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the boa
 const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Review[]; runs?: Run[] }): Snapshot => ({ tasks: parts.tasks || [task("a", "working")], questions: parts.questions || [], reviews: parts.reviews || [], runs: parts.runs || [], attention: [] as string[] }) as Snapshot;
 // The title of the goblin whose finished alert the Overlord showed on
 // 2026-10-01: its name tab, its text and its Open button each said it.
+const MINUTE = 60 * 1000;
+// The reason the gate gives every time a step needs the Overlord's decision.
+const GATE_BLOCK = "Pipeline decision required at review; use cfo pipeline respond";
 const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
 
 test("what needs the Overlord or finished alerts once, and opens its item", () => {
   const before = snapshot({});
   const cases: [string, Snapshot, { key: string; tone: string; target: unknown }[]][] = [
-    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "item:a:Goblin a asks: Which option?", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
-    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "item:a:Goblin a wants your review: Review the plan", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
-    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "item:cfo:A command waits for you to run it: Restart the board", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
+    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "question:q1", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
+    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "review:r1", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
+    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "run:c1", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
     ["a goblin blocked", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), [{ key: "task:a:a-1:blocked:Needs a key", tone: "needs", target: { kind: "command", key: "" } }]],
+    ["a goblin that asked before, blocked at its gate", snapshot({ tasks: [task("a", "blocked", { report: "blocked", activity: "blocked: Which port?", reason: GATE_BLOCK })] }), [{ key: "task:a:a-1:blocked:" + GATE_BLOCK, tone: "needs", target: { kind: "command", key: "" } }]],
     ["a goblin failed", snapshot({ tasks: [task("a", "failed")] }), [{ key: "task:a:a-1:failed:", tone: "failed", target: { kind: "task", id: "a" } }]],
     ["a goblin done with its pull request", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done:https://github.com/o/r/pull/7", tone: "done", target: { kind: "task", id: "a" } }]],
     ["a goblin reporting it failed", snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke" })] }), [{ key: "task:a:a-1:failed:The build broke", tone: "failed", target: { kind: "task", id: "a" } }]],
@@ -115,9 +119,9 @@ test("an event alerts once however often a snapshot or a reconnect brings it bac
   const waiting = snapshot({ reviews: [wait("waiting-a-3")] });
   const refiled = snapshot({ reviews: [wait("waiting-a-3", "withdrawn"), wait("waiting-a-5")] });
   const nextPR = snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/8" })] });
-  let seen: string[] = [];
+  let seen: SeenAlert[] = [];
   const shown = (from: Snapshot, to: Snapshot) => {
-    const sighting = unseen(boardAlerts(from, to), seen);
+    const sighting = unseen(boardAlerts(from, to), seen, MINUTE);
     seen = sighting.seen;
     return sighting.fresh.map((alert) => alert.text);
   };
@@ -132,13 +136,40 @@ test("an event alerts once however often a snapshot or a reconnect brings it bac
 });
 
 test("a browser remembers the newest alerts it showed, a bounded few, and one snapshot shows each once", () => {
-  const alert = (key: string) => ({ key }) as BoardAlert;
+  const alert = (key: string, says = "says " + key) => ({ key, says }) as BoardAlert;
+  const old: SeenAlert = { key: "k-old", says: "says k-old", at: 0 };
   const many = Array.from({ length: SEEN_LIMIT + 5 }, (_, i) => alert("k" + i));
-  const { fresh, seen } = unseen([...many, alert("k0")], ["k-old"]);
+  const { fresh, seen } = unseen([...many, alert("k0"), alert("k-new", "says k1")], [old], MINUTE);
   assert.equal(fresh.length, SEEN_LIMIT + 5);
   assert.equal(seen.length, SEEN_LIMIT);
-  assert.equal(seen.at(-1), "k" + (SEEN_LIMIT + 4));
-  assert.deepEqual(unseen([alert("k-old"), alert("k3")], ["k-old"]).fresh.map((one) => one.key), ["k3"]);
+  assert.deepEqual(seen.at(-1), { key: "k" + (SEEN_LIMIT + 4), says: "says k" + (SEEN_LIMIT + 4), at: MINUTE });
+  assert.deepEqual(unseen([alert("k-old"), alert("k3")], [old], MINUTE).fresh.map((one) => one.key), ["k3"]);
+});
+
+test("the same words within five minutes are one event, and a real new event later alerts again", () => {
+  const working = snapshot({ tasks: [task("a", "working")] });
+  const restarting = snapshot({ tasks: [] });
+  const blocked = snapshot({ tasks: [task("a", "blocked", { reason: GATE_BLOCK })] });
+  const wait = (id: string) => ({ ...review(id), title: "Waiting on you: Look at the card" });
+  const ask = (id: string, details: string) => question(id, { text: "Which option?\n\n" + details });
+  const steps: [string, number, Snapshot, Snapshot, string[]][] = [
+    ["a goblin blocked at its gate", 0, working, blocked, ["task:a:a-1:blocked:" + GATE_BLOCK]],
+    ["the same news after a supervisor restart", 2, restarting, blocked, []],
+    ["the same news after a flicker back to work", 4, working, blocked, []],
+    ["its gate asking for a second decision", 10, working, blocked, ["task:a:a-1:blocked:" + GATE_BLOCK]],
+    ["a wait", 20, working, snapshot({ reviews: [wait("waiting-a-3")] }), ["review:waiting-a-3"]],
+    ["the wait filed again under a new id", 22, working, snapshot({ reviews: [wait("waiting-a-5")] }), []],
+    ["the wait filed again later", 30, working, snapshot({ reviews: [wait("waiting-a-7")] }), ["review:waiting-a-7"]],
+    ["an item already shown, back after a restart", 60, restarting, snapshot({ reviews: [wait("waiting-a-3")] }), []],
+    ["a question", 70, working, snapshot({ questions: [ask("notify-a-8", "The port.")] }), ["question:notify-a-8"]],
+    ["another question with the same first line", 80, working, snapshot({ questions: [ask("notify-a-9", "The colour.")] }), ["question:notify-a-9"]],
+  ];
+  let seen: SeenAlert[] = [];
+  for (const [name, minute, from, to, want] of steps) {
+    const sighting = unseen(boardAlerts(from, to), seen, minute * MINUTE);
+    seen = sighting.seen;
+    assert.deepEqual(sighting.fresh.map((alert) => alert.key), want, name);
+  }
 });
 
 test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
@@ -190,6 +221,7 @@ test("fresh alerts stack below the ones on screen, at most four, the oldest leav
   assert.deepEqual(first.map((toast) => toast.key), ["task:a", "item:q1"]);
   const full = arrive(first, ["r1", "r2", "r3"].map((key) => alert("item:" + key)));
   assert.deepEqual(full.map((toast) => toast.key), ["item:q1", "item:r1", "item:r2", "item:r3"]);
+  assert.deepEqual(arrive(first, [alert("task:a")]).map((toast) => toast.key), ["item:q1", "task:a"], "news that comes again takes its toast's place");
 });
 
 test("an alert names who asks and what, in a few words", () => {
