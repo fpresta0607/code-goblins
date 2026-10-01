@@ -109,6 +109,12 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	tally := readTallyForScan(s.StateDir, now)
 	live := map[string]bool{}
 	for _, entry := range entries {
+		// A cycle cancelled by its caller, a watcher handing the lock to a
+		// serve, stops before the next task and writes nothing it did not
+		// finish: an inspection cut short is no evidence about the goblin.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ScanResult{}, ctx.Err()
+		}
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
 			continue
@@ -197,6 +203,9 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		observation, sample := s.classify(ctx, meta, prior, now, &tally)
 		observation = s.idleAtPrompt(ctx, meta, sample, observation, led, now)
 		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ScanResult{}, ctx.Err()
+		}
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
 		}
