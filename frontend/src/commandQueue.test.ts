@@ -478,3 +478,19 @@ test("a wait's one-line row reads the goblin's words alone, and any other review
   assert.equal(opensWithTable, "Add these records");
   assert.equal(other, "Look at the plan");
 });
+
+test("a page he sent a revision on waits on its goblin, so it leaves Waiting on you without settling", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("waiting-billing-7", "billing", "2026-10-01T05:00:00Z", "open", { lavish: "http://127.0.0.1:4387/session/f26e", lavish_page: "C:\\work\\plan.html", revising_since: "2026-10-01T05:10:00Z" }),
+    review("waiting-notes-3", "notes", "2026-10-01T05:01:00Z", "open", { lavish: "http://127.0.0.1:4387/session/a1b2", lavish_page: "C:\\work\\notes.html" }),
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot).map((item) => item.key);
+  const settled = settledItems(snapshot).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(waiting, ["review:waiting-notes-3"]);
+  assert.deepEqual(settled, []);
+});

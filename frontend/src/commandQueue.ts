@@ -29,6 +29,10 @@ const closed = (item: Item) => Date.parse(item.kind === "credential" ? item.requ
 export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
+// A page he sent a revision on waits on its goblin's next version, which
+// replaces the page in the same item, so it waits on the goblin, not on him.
+export const revising = (item: Item) => item.kind === "review" && item.review.state === "open" && !!item.review.revising_since;
+
 // An item the Overlord answered outside the Command Center, such as on its own
 // page or in chat as the CFO recorded: its card finishes as one he answered
 // from it does.
@@ -93,7 +97,7 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => !foldedIntoPage(item) && (isOpen(item) || kept.has(item.key)))
+    .filter((item) => !foldedIntoPage(item) && !revising(item) && (isOpen(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
