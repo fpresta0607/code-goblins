@@ -195,7 +195,7 @@ export function App() {
       </div>
       <div className="topbar-controls">
         {!firstRun && view === "Board" && <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
-          onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={nextLayout} /></button>}
+          onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
