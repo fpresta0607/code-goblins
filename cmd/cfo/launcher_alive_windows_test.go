@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -137,6 +138,46 @@ func TestGoblinsStatusTakesOnlyTheRecordedSupervisorAsRunning(t *testing.T) {
 				t.Fatalf("exit=%d stdout=%q, want 1 and no supervisor", exit, stdout)
 			}
 		})
+	}
+}
+
+// A record naming no process, pid 0 or below, is never a supervisor, even
+// when what answers at its address claims the same pid.
+func TestGoblinsStatusRefusesARecordThatNamesNoProcess(t *testing.T) {
+	f, _ := newCommandFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"pid":0}`))
+	}))
+	t.Cleanup(server.Close)
+	if err := os.WriteFile(boardRecordPath(f.home.State), []byte(fmt.Sprintf(`{"pid":0,"url":%q}`, server.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, stdout, _ := f.command("status")
+
+	if exit != 1 || !strings.Contains(stdout, "The supervisor is not running") {
+		t.Fatalf("exit=%d stdout=%q, want 1 and no supervisor", exit, stdout)
+	}
+}
+
+// A cfo serve started while this home's supervisor serves says where that
+// board is, rather than failing to take the address or the watcher lock.
+func TestServeReportsTheBoardAlreadyServingThisHome(t *testing.T) {
+	f, _ := newCommandFixture(t)
+	board := fakeBoard(t, busySnapshot)
+	f.record(board)
+	// An address already taken, so a serve that went on would fail at once
+	// instead of running.
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = taken.Close() })
+
+	exit, _, stderr := f.command("serve", "--listen", taken.Addr().String())
+
+	if exit != 1 || !strings.Contains(stderr, "already serves this home's board at "+board) {
+		t.Fatalf("exit=%d stderr=%q, want the live board named", exit, stderr)
 	}
 }
 

@@ -49,7 +49,7 @@ func writeBoardRecord(stateDir string, record boardRecord) error {
 
 // readBoardRecord reads the record and refuses one whose URL is not a plain
 // loopback board address, since the launcher fetches it and may open it in
-// the browser.
+// the browser, or that names no process.
 func readBoardRecord(stateDir string) (boardRecord, error) {
 	var record boardRecord
 	data, err := fsx.ReadFile(boardRecordPath(stateDir))
@@ -58,6 +58,9 @@ func readBoardRecord(stateDir string) (boardRecord, error) {
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
 		return boardRecord{}, err
+	}
+	if record.PID <= 0 {
+		return boardRecord{}, fmt.Errorf("board record names pid %d, not a process", record.PID)
 	}
 	parsed, err := url.Parse(record.URL)
 	if err != nil || parsed.Scheme != "http" || parsed.Opaque != "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
@@ -223,7 +226,7 @@ func boardAlive(ctx context.Context, record boardRecord) error {
 	if err := json.NewDecoder(response.Body).Decode(&alive); err != nil {
 		return fmt.Errorf("the board at %s did not say which supervisor it is: %w", record.URL, err)
 	}
-	if alive.PID != record.PID {
+	if record.PID <= 0 || alive.PID != record.PID {
 		return fmt.Errorf("the board at %s is pid %d, not the recorded pid %d", record.URL, alive.PID, record.PID)
 	}
 	return nil
