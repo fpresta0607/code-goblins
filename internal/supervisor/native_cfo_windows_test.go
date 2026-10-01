@@ -251,6 +251,76 @@ func TestANativeCFOPresentsWithoutATask(t *testing.T) {
 	}
 }
 
+// A native CFO's command whose parent has exited, as Git Bash leaves one run
+// under timeout, is still proven the registered CFO's by its terminal's job.
+func TestANativeCFOPresentsFromAProcessWhoseParentHasExited(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	// Act
+	cfo.typeLine(t, "orphaned present")
+
+	// Assert
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "presented" {
+		t.Fatalf("the program recorded %q, want its registration and then its presentation reported", lines)
+	}
+}
+
+// A native CFO's send from a process whose parent has exited still names the
+// CFO as the receipt's sender, proven by its terminal's job.
+func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	id := store.db.TaskSessions["task-1"]
+	node := store.db.Sessions[id]
+	node.Parent = "claude/cfo-1"
+	store.db.Sessions[id] = node
+	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "cfo-1", Harness: "claude", Role: "cfo", Phase: "active"}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("CFO_SESSION_ID", "cfo-1")
+	t.Setenv("CFO_SESSION_HARNESS", "claude")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	// Act
+	cfo.typeLine(t, "orphaned send task-1")
+
+	// Assert
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "sent" {
+		t.Fatalf("the program recorded %q, want its registration and then its send", lines)
+	}
+	if err := store.ingestActivity(); err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, a := range store.Snapshot().Activity {
+		if a.Kind == "message" {
+			sources = append(sources, a.Source)
+		}
+	}
+	if len(sources) != 1 || sources[0] != node.Parent {
+		t.Errorf("message receipt sources = %q, want the CFO named as its sender", sources)
+	}
+}
+
 // A delivery to a native CFO whose screen turns to work but whose prompt hook
 // never reports taking it is unconfirmed, not delivered, since Enter may have
 // chosen a dialog's option instead.

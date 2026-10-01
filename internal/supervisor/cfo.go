@@ -185,7 +185,11 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
 	if at < 0 {
-		return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+		self, program, err := terminalJobMember(record, os.Getpid(), func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
+		if err != nil {
+			return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it: %w", id, record.ChildPID, err)
+		}
+		ancestry, at = []proc.Entry{self, program}, 1
 	}
 	// A host that was killed leaves its record behind, so only an answer on
 	// its pipe proves a host still serves the terminal.
@@ -195,6 +199,27 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	_ = client.Close()
 	return ancestry, at, nil
+}
+
+// terminalJobMember finds process pid, and the process isProgram picks, among
+// the processes in the job the host of a native terminal holds for its
+// program, which is how a process whose chain of parents stops short is
+// proven to run in that terminal. Every process the program starts joins
+// that job and stays in it once its parent exits, and a Cygwin or MSYS exec
+// leaves exactly such a chain: Git Bash runs timeout by replacing its own
+// Windows process, so `timeout 60 cfo notify ...` has a parent that already
+// exited.
+func terminalJobMember(record host.Record, pid int, isProgram func(proc.Entry) bool) (proc.Entry, proc.Entry, error) {
+	members, err := proc.JobProcesses(record.HostPID)
+	if err != nil {
+		return proc.Entry{}, proc.Entry{}, fmt.Errorf("its host's job is unreadable: %w", err)
+	}
+	self := slices.IndexFunc(members, func(entry proc.Entry) bool { return entry.PID == pid })
+	program := slices.IndexFunc(members, isProgram)
+	if self < 0 || program < 0 {
+		return proc.Entry{}, proc.Entry{}, errors.New("neither its parents nor its host's job hold it there")
+	}
+	return members[self], members[program], nil
 }
 
 // herdrHarness proves this process runs under the foreground process of the

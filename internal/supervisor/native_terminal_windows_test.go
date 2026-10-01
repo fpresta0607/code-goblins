@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -31,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -41,12 +43,22 @@ const viewQuery = "task=task-1&generation=g1&token=instance"
 // test runs in its terminal: it records each typed line in the file it is
 // given, prints its terminal's size for "size", registers as the CFO of the
 // state directory it is given for "register", recording the outcome, prints
-// more than the host's pipe holds for "spill", recording "spilled" after, and
-// exits for "exit N".
+// more than the host's pipe holds for "spill", recording "spilled" after,
+// runs any of its lines in a process whose parent has exited for "orphaned
+// <line>", and exits for "exit N".
 func TestNativeTerminalProgram(t *testing.T) {
 	args := flag.Args()
 	if len(args) != 3 || args[0] != "native-terminal-program" {
 		t.Skip("runs only in a native terminal test's terminal")
+	}
+	// An orphaned program starts only once the relay that started it has
+	// exited, as what Git Bash's timeout starts outlives the bash it replaced.
+	if relay, err := strconv.Atoi(os.Getenv(orphanOf)); err == nil {
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, alive := proc.StartTime(relay); !alive {
+				break
+			}
+		}
 	}
 	record := func(text string) {
 		file, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -101,6 +113,19 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("registered " + described)
+		case strings.HasPrefix(line, "orphaned "):
+			// Git Bash runs an MSYS program such as timeout by replacing its own
+			// Windows process, so whatever timeout starts has a parent that
+			// already exited: a relay starts this program on the one line and
+			// exits at once.
+			input := filepath.Join(filepath.Dir(args[1]), "orphaned.txt")
+			if err := os.WriteFile(input, []byte(strings.TrimPrefix(line, "orphaned ")+"\nexit 0\n"), 0o600); err != nil {
+				record("orphan error: " + err.Error())
+				continue
+			}
+			if err := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalRelay$", "--", "native-terminal-relay", input, args[1], args[2]).Run(); err != nil {
+				record("orphan error: " + err.Error())
+			}
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -132,6 +157,30 @@ func TestNativeTerminalProgram(t *testing.T) {
 				}
 			}
 		}
+	}
+	os.Exit(0)
+}
+
+// orphanOf names, for a program a relay started, the relay it waits out.
+const orphanOf = "NATIVE_TERMINAL_ORPHAN_OF"
+
+// TestNativeTerminalRelay is not a test but the relay an "orphaned" line runs:
+// it starts the terminal's program on the lines of its input file and exits
+// without waiting, so the program's parent is a process that has exited.
+func TestNativeTerminalRelay(t *testing.T) {
+	args := flag.Args()
+	if len(args) != 4 || args[0] != "native-terminal-relay" {
+		t.Skip("runs only as a native terminal test's relay")
+	}
+	input, err := os.Open(args[1])
+	if err != nil {
+		os.Exit(1)
+	}
+	program := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", args[2], args[3])
+	program.Stdin = input
+	program.Env = append(os.Environ(), orphanOf+"="+strconv.Itoa(os.Getpid()))
+	if err := program.Start(); err != nil {
+		os.Exit(1)
 	}
 	os.Exit(0)
 }
