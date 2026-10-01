@@ -51,11 +51,13 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
     // is emptied rather than guessed at.
     const settle = (event: Event) => {
       if (event instanceof InputEvent && event.isComposing) return;
+      // A composition is over by now, whether it left text or was abandoned.
+      const composed = composing;
+      composing = null;
       const shown = input.value;
       if (shown === DOT.repeat(value.length)) return;
-      if (!composing && shown.includes(DOT)) return set("", 0);
-      const { start, end } = composing ?? { start: 0, end: value.length };
-      composing = null;
+      if (!composed && shown.includes(DOT)) return set("", 0);
+      const { start, end } = composed ?? { start: 0, end: value.length };
       const text = plain(shown.slice(start, start + shown.length - (value.length - (end - start))));
       set(value.slice(0, start) + text + value.slice(end), start + text.length);
     };

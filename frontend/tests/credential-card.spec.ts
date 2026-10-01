@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 // The credential card in the Command Center: the Overlord pastes each value,
 // and the board stores it in the project's credential scope. A value travels
@@ -11,6 +11,14 @@ const canary = (prefix = "") => prefix + "canary" + crypto.randomUUID().replaceA
 
 // What a value field shows for a value: one dot for each character.
 const dots = (value: string) => "•".repeat(value.length);
+
+// setByScript puts text in a field the way a script does, as an extension
+// that fills forms would: it sets the value and says the field changed. No
+// edit comes before it, unlike typing, pasting or Playwright's fill.
+const setByScript = (field: Locator, value: string) => field.evaluate((element: HTMLInputElement, text) => {
+  element.value = text;
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}, value);
 
 interface Sent { path: string; token: string | null; body: unknown }
 
@@ -126,7 +134,7 @@ test("copying out of a value field copies dots, never the value", async ({ page,
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(dots(value));
 });
 
-test("text that reaches a field itself, from a fill or a composition, is taken out of it at once", async ({ page }) => {
+test("text that reaches a field itself, from a script that sets it or a composition, is taken out of it at once", async ({ page }) => {
   // Arrange
   const value = canary();
   const sent = await answer(page);
@@ -135,8 +143,8 @@ test("text that reaches a field itself, from a fill or a composition, is taken o
   const devtools = await page.context().newCDPSession(page);
 
   // Act
-  await field.fill(value);
-  const afterFill = await field.inputValue();
+  await setByScript(field, value);
+  const afterScript = await field.inputValue();
   await field.press("End");
   await devtools.send("Input.imeSetComposition", { text: "e", selectionStart: 1, selectionEnd: 1 });
   await devtools.send("Input.insertText", { text: "é" });
@@ -144,10 +152,51 @@ test("text that reaches a field itself, from a fill or a composition, is taken o
   await card.getByRole("button", { name: "Save" }).click();
 
   // Assert
-  expect(afterFill).toBe(dots(value));
+  expect(afterScript).toBe(dots(value));
   expect(afterComposition).toBe(dots(value + "é"));
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0].body).toMatchObject({ values: { STRIPE_SECRET_KEY: value + "é" } });
+});
+
+test("a composition he abandons leaves the value as it was, and a script that sets the field later still replaces all of it", async ({ page }) => {
+  // Arrange
+  const first = canary();
+  const second = canary();
+  const sent = await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+  const devtools = await page.context().newCDPSession(page);
+  await field.click();
+  await page.keyboard.insertText(first);
+
+  // Act
+  await devtools.send("Input.imeSetComposition", { text: "e", selectionStart: 1, selectionEnd: 1 });
+  await devtools.send("Input.imeSetComposition", { text: "", selectionStart: 0, selectionEnd: 0 });
+  const afterAbandon = await field.inputValue();
+  await setByScript(field, second);
+  await card.getByRole("button", { name: "Save" }).click();
+
+  // Assert
+  expect(afterAbandon).toBe(dots(first));
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].body).toMatchObject({ values: { STRIPE_SECRET_KEY: second } });
+});
+
+test("a script that leaves dots in a field cannot be read, so the field is emptied and nothing can be saved", async ({ page }) => {
+  // Arrange
+  const value = canary();
+  await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+  await field.click();
+  await page.keyboard.insertText(value);
+
+  // Act
+  await setByScript(field, dots(value) + "tail");
+
+  // Assert
+  await expect(field).toHaveValue("");
+  await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
 });
 
 test("a name the scope already holds is replaced only once he confirms, and the pasted value waits in its field meanwhile", async ({ page }) => {
