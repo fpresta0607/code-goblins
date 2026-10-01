@@ -22,4 +22,5 @@ test("waiting on you lists what needs him, and a goblin's own test run stays off
   await expect(page.getByText("Kill switch for the board")).toHaveCount(0);
   await expect(page.getByText("Browser walkthrough running")).toHaveCount(0);
   await expect(page.getByText("Everything that needs you is listed here. A goblin's own test runs stay off this list.")).toBeVisible();
+  await expect(page, "the tab's title counts what the badge counts").toHaveTitle("(2) Inbox watch fixture");
 });

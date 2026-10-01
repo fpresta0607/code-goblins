@@ -125,8 +125,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
+  // A presentation reaches him only when its goblin asks him to watch it; a
+  // goblin's own test run stays off the Command Center.
+  const watching = presentations.filter((event) => event.watch);
+  const needing = waiting.length + watching.length;
   const baseTitle = useRef(document.title);
-  useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
+  useEffect(() => { document.title = countedTitle(baseTitle.current, needing); }, [needing]);
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
@@ -251,10 +255,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" || item.kind === "credential" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  // A presentation reaches him only when its goblin asks him to watch it; a
-  // goblin's own test run stays off the Command Center.
-  const watching = presentations.filter((event) => event.watch);
-  const needing = waiting.length + watching.length;
   const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
   const settled = settledItems(snapshot).slice(0, 20);
   // Reset before committing this render, including IDs absent between publications.
