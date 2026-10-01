@@ -419,23 +419,23 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // reservedLaunchEnv names the environment the launch contract owns. It is
 // explicit rather than read off the launch map at merge time because the
 // contract is written in stages: the adapter stamps GOTMPDIR and CFO_ROLE at
-// build, startHarness adds CFO_STATE_OVERRIDE just before the pane line is
-// rendered, and a manifest or credential merged in between must not be able
-// to claim a name the launch has not written yet.
+// build, nativeHostEnvironment adds CFO_STATE_OVERRIDE when it builds the
+// host's environment, and a manifest or credential merged in between must not
+// be able to claim a name the launch has not written yet.
 //
 // The cache root belongs to the contract for the same reason: the task's Go
 // temporary directory is derived from os.UserCacheDir, which reads
 // LOCALAPPDATA on Windows, XDG_CACHE_HOME on Linux and HOME whenever that is
 // unset, and HOME alone on darwin. All three are reserved because a manifest
-// that redirected any of them would leave any cfo command run from that pane
+// that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
 var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
-// launch. The comparison is case-insensitive because the pane is PowerShell
-// on Windows, where $env:gotmpdir and $env:GOTMPDIR are the same variable,
-// so a differently cased name is a collision, not a sibling.
+// launch. The comparison is case-insensitive because Windows compares
+// environment names without case, so gotmpdir and GOTMPDIR are the same
+// variable and a differently cased name is a collision, not a sibling.
 func reservedLaunchName(env map[string]string, name string) bool {
 	for _, reserved := range reservedLaunchEnv {
 		if strings.EqualFold(name, reserved) {
@@ -463,7 +463,7 @@ func mergeProvisionEnv(env map[string]string, redirects map[string]string) {
 }
 
 // preflightCredentials resolves the project's credentials once, before the
-// pane and worktree exist, so both the refusal decision and the injected
+// terminal and worktree exist, so both the refusal decision and the injected
 // environment come from the same probe run rather than two.
 func (s Service) preflightCredentials(ctx context.Context, project string) (auth.Result, error) {
 	if s.Auth == nil {
