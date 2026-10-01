@@ -69,10 +69,15 @@ type Review struct {
 	AnswerID string          `json:"answer_id,omitempty"`
 	// Delivered says the answer reached the reporter itself; an answer for
 	// a goblin that restarted or ended goes to the CFO and stays false.
-	Delivered bool      `json:"delivered,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Delivered bool `json:"delivered,omitempty"`
+	// AnsweredBy and AnsweredIn say who answered an item outside the Command
+	// Center and where, such as overlord and page for his answer on the
+	// item's own page, which the CFO has.
+	AnsweredBy string    `json:"answered_by,omitempty"`
+	AnsweredIn string    `json:"answered_in,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func validReview(r Review) error {
@@ -940,12 +945,19 @@ func (s *Store) retireItems() error {
 }
 
 func (s *Store) withdrawReview(id, reason string) error {
+	return s.closeReview(id, Review{State: "withdrawn", Reason: reason})
+}
+
+// closeReview closes the open item id as closed says: its state, its reason
+// and who answered it where. An item already closed is left as it is.
+func (s *Store) closeReview(id string, closed Review) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "withdrawn", reason, time.Now().UTC()
+	r := &s.db.Reviews[i]
+	r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, time.Now().UTC()
 	return s.save()
 }
