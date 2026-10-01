@@ -247,7 +247,7 @@ try {
     $driver = & node @arguments | Out-String
     Remove-Item -LiteralPath $canaryFile -Force -ErrorAction SilentlyContinue
     $card = $driver | ConvertFrom-Json
-    if ($card.error) { Write-Host "the browser driver stopped early: $($card.error)" }
+    if ($card.error) { Write-Host "the browser driver stopped early: $($card.error); the browser's pages: [$(@($card.pages) -join ' | ')]; the program it started ended at $($card.browser_exited_at) s (-1: still running)" }
     Check 'the proof''s browser was signed out, with sync off, before anything was typed' ([bool]$card.signed_out_before_typing)
     Check 'the card saved the canary' ([bool]$card.saved)
     Check 'the proof''s browser closed, and none of its processes is left running' ([bool]$card.browser_stopped)

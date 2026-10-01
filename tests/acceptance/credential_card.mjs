@@ -49,7 +49,12 @@ const profile = mkdtempSync(join(tmpdir(), "cfo-credential-card-"));
 mkdirSync(join(profile, "Default"));
 writeFileSync(join(profile, "Default", "Preferences"), JSON.stringify({ signin: { allowed: false, allowed_on_next_startup: false } }));
 const started = Date.now();
+const seconds = () => Math.round((Date.now() - started) / 1000);
 const edge = spawn(browser, [...(visible ? ["--window-position=40,40", "--window-size=1100,820"] : ["--headless=new", "--window-size=1600,1100"]), "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-features=msImplicitSignin", "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+// When the program this script started ended, which for a visible browser is
+// when its window closed.
+let exited = -1;
+edge.on("exit", () => { exited = seconds(); });
 
 // The plain sign-in form, on an origin of its own. Nothing in its pages says
 // "password", so that word in the browser's windows is the browser's own.
@@ -170,13 +175,18 @@ async function rows(file, sql, ...values) {
   } catch { return -2; }
 }
 
-// connect opens a DevTools socket to one tab.
+// connect opens a DevTools socket to one tab. A tab that closes fails what
+// was asked of it at once, saying when.
 async function connect(url) {
   const socket = new WebSocket(url);
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
   let next = 0;
   const waiting = new Map();
   socket.onmessage = (event) => { const message = JSON.parse(event.data); waiting.get(message.id)?.(message); waiting.delete(message.id); };
+  socket.onclose = () => {
+    for (const [id, settle] of waiting) settle({ id, error: { message: "the browser closed the page " + seconds() + " s after it started" } });
+    waiting.clear();
+  };
   const call = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++next;
     const timer = setTimeout(() => { waiting.delete(id); reject(new Error(method + " did not answer")); }, 60000);
@@ -228,8 +238,12 @@ let sealed = true;
 try {
   for (let i = 0; i < 200 && !port; i++) { await sleep(100); try { port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n")[0].trim(); } catch {} }
   if (!port) throw new Error("the browser did not open its DevTools port");
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const { call, evaluate, close } = await connect(targets.find((target) => target.type === "page").webSocketDebuggerUrl);
+  // A visible Edge also runs pages of its own, such as its sidebar, which its
+  // list of pages can name before the window's tab, so the driver opens a tab
+  // of its own and drives that.
+  const tab = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" })).json();
+  const { call, evaluate, close } = await connect(tab.webSocketDebuggerUrl);
+  if (visible) await call("Page.bringToFront");
   // press clicks the middle of what a selector names as a mouse does, so the
   // page and the browser see a person at work rather than a script.
   const press = async (selector) => {
@@ -304,6 +318,10 @@ try {
   close();
 } catch (error) {
   result.error = String(error?.message || error).replaceAll(value, "[the value]");
+  // Which pages the browser had open, and when the program this script
+  // started ended, say where a run that stopped early stood.
+  try { result.pages = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).filter((target) => target.type === "page").map((target) => target.url.split("?")[0]); } catch { result.pages = ["the browser no longer answered"]; }
+  result.browser_exited_at = exited;
 } finally {
   plain.close();
   plain.closeAllConnections();
