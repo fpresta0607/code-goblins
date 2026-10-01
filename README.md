@@ -370,6 +370,7 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item closes by itself once nobody waits on it: a wait when the goblin reports again or the CFO answers it, any item but a delivered document when its goblin finishes or is cleaned up, and the CFO can clear a stale one with a reason.
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
+It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
 An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
 Clicking outside the Command Center, or outside its inbox, closes it.
