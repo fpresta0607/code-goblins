@@ -58,6 +58,8 @@ Before it builds or runs anything it points `CFO_HOME` at the disposable home un
 
 - Table-driven tests for parsers, classifiers, flag mapping, and state transitions.
 - Typed errors that preserve the failed operation, target, and external stderr.
+- Start every process with `execx.Command` or `execx.CommandContext`, and add creation flags with `|=` rather than assigning them.
+  On Windows they keep a console program from opening a window when the program starting it has no console of its own, and `internal/execx`'s tests fail on any process start in fleet code that goes around them.
 - One sentence per line in Markdown.
 - Never name an AI product, company, model, agent, or assistant identity as a commit co-author - not in a `Co-Authored-By` trailer, not anywhere else in a commit message, and not in a pull request body.
 
