@@ -165,13 +165,21 @@ func PublishRun(h home.Home, req RunRequest) error {
 	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
 }
 
+// WithdrawRun takes a run item nobody ran off the board for the registered
+// primary CFO, with its reason, over the supervisor's pipe.
+func WithdrawRun(h home.Home, id, reason string) error {
+	return sendPipeRequest(h.State, runPipeRequest{Kind: "withdraw-run", ID: id, Reason: reason})
+}
+
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
-// may put on the board (a question, a review record or an answer), which the
-// supervisor records only once the sending process is proven to be the CFO.
+// may put on the board (a question, a review record or an answer) or a run
+// item it withdraws, which the supervisor records only once the sending
+// process is proven to be the CFO.
 type runPipeRequest struct {
 	Kind     string     `json:"kind,omitempty"`
 	ID       string     `json:"id"`
+	Reason   string     `json:"reason,omitempty"`
 	Title    string     `json:"title"`
 	Shell    string     `json:"shell"`
 	Admin    bool       `json:"admin"`
@@ -281,6 +289,40 @@ func (s *Store) acceptRun(r Run) error {
 	r.ExitCode, r.Output, r.Reason, r.RunAction, r.PID, r.Started, r.RanAt, r.FinishedAt = nil, "", "", "", 0, nil, nil, nil
 	s.db.Runs = append(s.db.Runs, r)
 	return s.save()
+}
+
+// withdrawRun takes the run item id, which nobody ran yet, off the board for
+// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// Run on it is refused from then on. Replacing an item is withdrawing it and
+// publishing the new command under a new ID.
+func (s *Store) withdrawRun(id, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > 1900 {
+		return errors.New("a withdrawal needs a reason of at most 1900 characters")
+	}
+	s.mu.Lock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id })
+	if i < 0 {
+		s.mu.Unlock()
+		return errors.New("no run item with that ID to withdraw")
+	}
+	r := &s.db.Runs[i]
+	if r.State != "ready" {
+		s.mu.Unlock()
+		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
+	}
+	now := time.Now().UTC()
+	r.State, r.Reason, r.FinishedAt = "withdrawn", reason, &now
+	withdrawn := *r
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := appendRunAudit(s.Home.State, withdrawn, "withdrawn "+reason, now); err != nil {
+		return fmt.Errorf("the run item was withdrawn, but state/runs.audit was not written: %w", err)
+	}
+	return nil
 }
 
 // expireRuns closes each item nobody ran within its lifetime.
@@ -459,7 +501,11 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if err != nil || !ended {
 		return err
 	}
-	err = appendRunAudit(s.Store.Home.State, r, code, time.Now().UTC())
+	exit := "none"
+	if code != nil {
+		exit = strconv.Itoa(*code)
+	}
+	err = appendRunAudit(s.Store.Home.State, r, exit, time.Now().UTC())
 	if r.ConnectionTask != "" {
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
@@ -562,19 +608,15 @@ func readRunOutput(dir string) string {
 	return strings.ToValidUTF8(text, "?")
 }
 
-// appendRunAudit records a run in state/runs.audit: when, the item, the
-// SHA-256 of exactly the script file it ran, and its exit code, or none when
-// it did not finish.
-func appendRunAudit(stateDir string, r Run, code *int, now time.Time) error {
-	exit := "none"
-	if code != nil {
-		exit = strconv.Itoa(*code)
-	}
+// appendRunAudit records how a run item ended in state/runs.audit: when, the
+// item, the SHA-256 of exactly its script file, and its outcome: the exit
+// code, none when it did not finish, or withdrawn and the CFO's reason.
+func appendRunAudit(stateDir string, r Run, outcome string, now time.Time) error {
 	f, err := os.OpenFile(filepath.Join(stateDir, "runs.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
-	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, exit)
+	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, strings.Join(strings.Fields(outcome), " "))
 	return errors.Join(werr, f.Close())
 }
 
