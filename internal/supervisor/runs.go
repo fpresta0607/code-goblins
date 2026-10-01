@@ -349,8 +349,8 @@ func (s *Store) expireRuns(now time.Time) error {
 	return s.save()
 }
 
-// pruneRuns drops finished and expired items, with their directories, a set
-// time after they ended.
+// pruneRuns drops finished, expired and withdrawn items, with their
+// directories, a set time after they ended.
 func (s *Store) pruneRuns(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

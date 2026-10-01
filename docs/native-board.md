@@ -663,7 +663,7 @@ An admin item launches through `Start-Process -Verb RunAs`, so Windows itself as
 The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
 When the command finishes, its exit code and the last 64 KiB of its output are on the item, and the CFO receives the result as the Overlord's answer, with the end of the output.
 Every run appends a line to `state/runs.audit`: the time, the item's ID, the SHA-256 of exactly the script file that ran, and its exit code, or none when it did not finish.
-Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
+Finished, expired and withdrawn items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
 Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
 Items that speak for the CFO (its questions, its own items with their withdrawals, every clear, documents from `cfo deliver` without `--task`, and `cfo answer`) reach the board only over the supervisor's pipe, which proves the sender descends from the registered CFO process, like run items; the question, review and answer inboxes refuse any file that claims to be the CFO's and name it on the board.
 Known limit: every goblin runs as the same Windows user as the CFO, and a process of that user can still spoof another goblin's items, including withdrawing them, since a goblin's identity is a hash of its task record, which any of them can read.
