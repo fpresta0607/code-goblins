@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -153,6 +153,28 @@ test("an answered review item is marked by whether its answer reached the asker"
     assert.equal(settledLabel(item, snapshot.actions), label, name);
     assert.deepEqual(settledIcon(item, snapshot.actions), { icon, tone }, name);
   }
+});
+
+test("a review he answered on its own page reads as answered by him there, with a check, never as withdrawn", () => {
+  const snapshot = parseSnapshot({ healthy: true, reviews: [
+    review("waiting-theme-7", "theme", "2026-09-30T23:20:00Z", "answered", { lavish: "http://127.0.0.1:4387/session/f26e", lavish_page: "C:\\data\\theme\\review.html",
+      answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CFO relays it to the goblin.", updated_at: "2026-09-30T23:29:38Z" }),
+    review("cfo-plan", "", "2026-09-30T23:21:00Z", "answered", { answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CFO has it." }),
+    review("waiting-notes-2", "notes", "2026-09-30T23:00:00Z", "withdrawn", { reason: "notes reported again: working: tests" }),
+    review("r1", "steward", "2026-09-24T00:15:00Z", "answered", { answer: "Go with B", answer_id: "z", delivered: true }),
+  ] });
+  const cases: [string, string, boolean][] = [
+    ["review:waiting-theme-7", "You answered on its page; the CFO relays it to the goblin.", true],
+    ["review:cfo-plan", "You answered on its page; the CFO has it.", true],
+  ];
+  for (const [key, label, elsewhere] of cases) {
+    const item = itemFor(snapshot, key)!;
+    assert.equal(settledLabel(item, snapshot.actions), label, key);
+    assert.deepEqual(settledIcon(item, snapshot.actions), { icon: "check-double", tone: "succeeded" }, key);
+    assert.equal(answeredElsewhere(item), elsewhere, key);
+  }
+  assert.equal(answeredElsewhere(itemFor(snapshot, "review:waiting-notes-2")!), false, "a withdrawn item was not answered");
+  assert.equal(answeredElsewhere(itemFor(snapshot, "review:r1")!), false, "an answer sent from its card is not an answer given elsewhere");
 });
 
 test("a run item waits in the stack while ready or running and settles with its exit code", () => {

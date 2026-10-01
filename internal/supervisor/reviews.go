@@ -69,10 +69,15 @@ type Review struct {
 	AnswerID string          `json:"answer_id,omitempty"`
 	// Delivered says the answer reached the reporter itself; an answer for
 	// a goblin that restarted or ended goes to the CFO and stays false.
-	Delivered bool      `json:"delivered,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Delivered bool `json:"delivered,omitempty"`
+	// AnsweredBy and AnsweredIn say who answered an item outside the Command
+	// Center and where, such as overlord and page for his answer on the
+	// item's own page, which the CFO has.
+	AnsweredBy string    `json:"answered_by,omitempty"`
+	AnsweredIn string    `json:"answered_in,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func validReview(r Review) error {
@@ -363,7 +368,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 		if !strings.HasSuffix(entry.Name(), ".open.json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -376,7 +381,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 		if info.Size() > maxStateBytes {
 			return nil, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return nil, err
 		}
@@ -400,7 +405,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 // supervisor. The inbox is read first because ingest records an item before it
 // removes the inbox copy, so one of the two reads always sees it.
 func reportedReview(stateDir, id string) (Review, bool, error) {
-	data, err := os.ReadFile(reviewInboxPath(stateDir, id, "open"))
+	data, err := fsx.ReadFile(reviewInboxPath(stateDir, id, "open"))
 	if err == nil {
 		var prior Review
 		if err := json.Unmarshal(data, &prior); err != nil {
@@ -415,7 +420,7 @@ func reportedReview(stateDir, id string) (Review, bool, error) {
 		if info.Size() > maxStateBytes {
 			return Review{}, false, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return Review{}, false, err
 		}
@@ -513,7 +518,7 @@ func (s *Store) ingestReviews() error {
 		if info.Size() > 16<<10 {
 			invalid = errors.New("review exceeds its size limit")
 		} else {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -674,7 +679,7 @@ func appendReviewAudit(stateDir string, r Review) error {
 	if task == "" {
 		task = "-"
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "reviews.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := fsx.OpenAppend(filepath.Join(stateDir, "reviews.audit"), 0600)
 	if err != nil {
 		return err
 	}
@@ -940,12 +945,19 @@ func (s *Store) retireItems() error {
 }
 
 func (s *Store) withdrawReview(id, reason string) error {
+	return s.closeReview(id, Review{State: "withdrawn", Reason: reason})
+}
+
+// closeReview closes the open item id as closed says: its state, its reason
+// and who answered it where. An item already closed is left as it is.
+func (s *Store) closeReview(id string, closed Review) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
 	if i < 0 {
 		return nil
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "withdrawn", reason, time.Now().UTC()
+	r := &s.db.Reviews[i]
+	r.State, r.Reason, r.AnsweredBy, r.AnsweredIn, r.UpdatedAt = closed.State, closed.Reason, closed.AnsweredBy, closed.AnsweredIn, time.Now().UTC()
 	return s.save()
 }

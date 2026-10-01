@@ -53,7 +53,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
       {displayed.selection === "other" && <label className="written-answer"><span className="sr-only">Your written answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={displayed.written} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
     </fieldset>
-    {draft.error && !outcome && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
+    {draft.error && !outcome && question.status === "pending" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
       : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}

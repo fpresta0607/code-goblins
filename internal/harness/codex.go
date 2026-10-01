@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // CodexMCPServers names the MCP servers the operator's Codex configuration
@@ -29,7 +30,7 @@ func CodexMCPServers() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(filepath.Join(home, "config.toml"))
+	file, err := fsx.Open(filepath.Join(home, "config.toml"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -116,7 +117,7 @@ func CodexHooks(project, worktree string) ([]string, error) {
 // codexHooksIn lists the command hooks of the Codex hooks file at path and
 // returns what the file holds; a file that is not there holds nothing.
 func codexHooksIn(path string) ([]string, []byte, error) {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil, nil
 	}

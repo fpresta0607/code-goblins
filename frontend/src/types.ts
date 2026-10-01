@@ -131,6 +131,8 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  // The harness the registered CFO runs, such as claude; empty while none is registered.
+  cfo_harness: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -172,6 +174,9 @@ export interface Review {
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
+  // answered_by and answered_in say who answered the item outside the
+  // Command Center and where, such as "overlord" on its "page".
+  answered_by: string; answered_in: string;
   // document is a delivered file, or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
@@ -320,6 +325,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
@@ -342,6 +348,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Key names one credential in the store. Credentials are per project, so a
@@ -139,7 +141,7 @@ func (s *fileStore) Get(key Key) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false, nil
 	}

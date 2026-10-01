@@ -6,11 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
@@ -51,9 +51,9 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 		if err := fsx.AtomicWriteFile(elevate, elevateScript(shell, args, filepath.Join(l.Dir, "declined.txt"))); err != nil {
 			return RunStarted{}, err
 		}
-		cmd := exec.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
+		cmd := execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
 		cmd.Dir = l.Cwd
-		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+		cmd.SysProcAttr.CreationFlags |= createNoWindow
 		if err := cmd.Start(); err != nil {
 			return RunStarted{}, err
 		}
@@ -62,7 +62,8 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 	} else {
 		// exec.Cmd always hands a process standard handles, NUL where none is
 		// given, so the window would read nothing typed in it. Started without
-		// any, it takes its new console's.
+		// any, it takes its new console's, and CREATE_NEW_CONSOLE shows that
+		// window even from a supervisor with no console.
 		application, err := windows.UTF16PtrFromString(shell)
 		if err != nil {
 			return RunStarted{}, err

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -247,7 +248,7 @@ func derivedLocal(path string) Local {
 // ponytail: one line, not a YAML parse. A top-level key is column zero, which
 // is the whole rule; add a parser if a project ever needs more of this file.
 func composeName(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -269,7 +270,7 @@ func composeName(path string) string {
 // inside a [table] is skipped, so a later `app` under some section cannot be
 // mistaken for fly.toml's own.
 func tomlValue(path, key string) string {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return ""
 	}
@@ -296,7 +297,7 @@ func tomlValue(path, key string) string {
 }
 
 func readJSON(path string, into any) error {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return err
 	}

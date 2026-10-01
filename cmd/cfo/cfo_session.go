@@ -47,7 +47,7 @@ func cfoHarnessPath(stateDir string) string {
 // cfoHarness is the harness goblins starts the CFO as: the one last chosen
 // with --harness, or claude.
 func cfoHarness(stateDir string) (string, error) {
-	data, err := os.ReadFile(cfoHarnessPath(stateDir))
+	data, err := fsx.ReadFile(cfoHarnessPath(stateDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return "claude", nil
 	}
@@ -303,7 +303,7 @@ func awaitTypedCFO(ctx context.Context, client terminal.Backend, target herdr.Ta
 // attachHerdr hands this terminal to herdr, which attaches to session, and
 // returns its exit code when the Overlord leaves it.
 func attachHerdr(session string) int {
-	command := exec.Command("herdr", "--session", session)
+	command := execx.Command("herdr", "--session", session)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := command.Run(); err != nil {
 		var exit *exec.ExitError

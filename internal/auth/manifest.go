@@ -8,11 +8,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // ManifestDirName is the directory under the CFO home's data/ that holds one
@@ -206,7 +207,7 @@ func ProjectName(project string) string {
 // LoadManifest reads and validates one project's manifest.
 func LoadManifest(dataDir, project string) (Manifest, error) {
 	path := ManifestPath(dataDir, project)
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return Manifest{}, err
 	}

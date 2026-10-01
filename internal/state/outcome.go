@@ -44,7 +44,7 @@ func ReadOutcome(directory, id string) (Outcome, error) {
 	if err := ValidTaskID(id); err != nil {
 		return Outcome{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "outcomes", id+".json"))
+	data, err := fsx.ReadFile(filepath.Join(directory, "outcomes", id+".json"))
 	if err != nil {
 		return Outcome{}, err
 	}
