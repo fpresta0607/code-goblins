@@ -119,13 +119,20 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
 .task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
 /* The CFO pinned above the columns is the one place on the board that says
-   Waiting on you. Its main action is Open Command Center, and its terminal is
-   on its icon and portrait. Hovered or focused, it rises over the columns so
-   its tooltips show in full. */
+   Waiting on you. At rest it is a plain bar, a card like the columns under
+   it, with only its terminal on its icon and portrait; while something waits
+   on the Overlord it is the CFO's dialogue box with Open Command Center.
+   Hovered or focused, it rises over the columns so its tooltips show in
+   full. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
 .task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
 .cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
 .cfo-pin:hover, .cfo-pin:focus-within { z-index: 3; }
+.cfo-rest { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; background: #0f1820d9; box-shadow: var(--shadow-1); backdrop-filter: blur(6px); }
+.cfo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.cfo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--edge); border-radius: 12px; background: #0b141b; }
+.cfo-rest-portrait .goblin-avatar { width: 48px; height: 48px; }
+.cfo-rest .mark { border-radius: 10px; }
 /* Paused tasks sit inside In progress, after its working cards, under a thin
    labelled divider, like a page break. */
 .paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
@@ -511,9 +518,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
 .toasts > .toast { position: relative; }
 .toasts > .toast:hover, .toasts > .toast:focus-within { z-index: 1; }
-/* Alerts and the CFO's banner are goblins' dialogue boxes in the workshop's
-   own lantern-and-leather palette: the speaker's portrait, the speaker's name
-   on a tab, and a stepped pixel frame with a hard shadow. Lantern means it
+/* Alerts, and the CFO's banner while it needs the Overlord, are goblins'
+   dialogue boxes in the workshop's own lantern-and-leather palette: the
+   speaker's portrait, the CFO's name on its banner's tab, and a stepped
+   pixel frame with a hard shadow. Lantern means it
    needs the Overlord and nothing else, so only then is the action filled.
    A box steps up once as it arrives and is still after that. The stepped
    fills and frames are drawn behind each box, portrait and button, never
@@ -521,7 +529,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 /* The goblin palette, shared by the dialogue boxes and the voice dock. */
 .dialogue, .voice-dock { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --ember: #D8664C; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
 .dialogue { --tone: var(--lantern); position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(3px 3px 0 var(--soot)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
-.dialogue.done, .dialogue.quiet { --tone: var(--moss); }
+.dialogue.done { --tone: var(--moss); }
 .dialogue.failed { --tone: var(--ember); }
 .dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--tone); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
 .dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon, .voice-card .pixel-icon { position: relative; isolation: isolate; }
