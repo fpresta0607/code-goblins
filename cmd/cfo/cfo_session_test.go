@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+
 	"slices"
 	"strings"
 	"testing"
@@ -36,44 +35,19 @@ func newSessionFixture(t *testing.T) *launcherFixture {
 func (f *launcherFixture) withLiveCFO() {
 	f.cfo = herdr.Endpoint{Target: herdr.Target{Session: "cfo-session", Pane: "w9:p2"}, WorkspaceID: "w9", TabID: "w9:t2", PaneID: "w9:p2"}
 	f.cfoLive = true
-	f.runtime.gitTop = func(context.Context) (string, error) {
-		f.t.Error("goblins picked a project for a CFO that is live")
-		return "", errors.New("not asked")
-	}
-}
-
-// projectsRoot makes a projects root holding the named folders, those in
-// checkouts with a .git of their own, and points the fixture at it with the
-// terminal in no checkout.
-func (f *launcherFixture) projectsRoot(folders []string, checkouts ...string) string {
-	f.t.Helper()
-	root := f.t.TempDir()
-	for _, folder := range folders {
-		if err := os.MkdirAll(filepath.Join(root, folder), 0o755); err != nil {
-			f.t.Fatal(err)
-		}
-	}
-	for _, checkout := range checkouts {
-		if err := os.MkdirAll(filepath.Join(root, checkout, ".git"), 0o755); err != nil {
-			f.t.Fatal(err)
-		}
-	}
-	f.runtime.projectsRoot = func() (string, error) { return root, nil }
-	f.runtime.gitTop = func(context.Context) (string, error) { return "", errors.New("not a git checkout") }
-	return root
 }
 
 // A CFO whose registration names a live process is never started twice:
-// goblins brings its registered tab to the front and attaches to the session
-// it registered in.
+// goblins runs no agent steps, brings its registered tab to the front and
+// attaches to the session it registered in.
 func TestGoblinsBringsALiveCFOToTheFrontWithoutStartingAnother(t *testing.T) {
 	f := newSessionFixture(t)
 	f.withLiveCFO()
 
 	exit, _, stderr := f.launch()
 
-	if exit != 0 || len(f.cfoStarts) != 0 {
-		t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want no CFO started", exit, f.cfoStarts, stderr)
+	if exit != 0 || len(f.setups) != 0 || len(f.nativeStarts) != 0 {
+		t.Fatalf("exit=%d setups=%+v nativeStarts=%q stderr=%q, want no agent steps and no CFO started", exit, f.setups, f.nativeStarts, stderr)
 	}
 	if len(f.focused) != 1 || f.focused[0] != f.cfo {
 		t.Errorf("focused %+v, want the registered CFO %+v", f.focused, f.cfo)
@@ -91,75 +65,92 @@ func TestGoblinsShowsANativeCFOInThisTerminal(t *testing.T) {
 
 	exit, _, stderr := f.launch()
 
-	if exit != 0 || len(f.cfoStarts) != 0 || len(f.nativeStarts) != 0 || len(f.focused) != 0 || len(f.attached) != 0 {
-		t.Fatalf("exit=%d cfoStarts=%q nativeStarts=%q focused=%+v attached=%q stderr=%q, want nothing started and nothing in Herdr", exit, f.cfoStarts, f.nativeStarts, f.focused, f.attached, stderr)
+	if exit != 0 || len(f.setups) != 0 || len(f.nativeStarts) != 0 || len(f.focused) != 0 || len(f.attached) != 0 {
+		t.Fatalf("exit=%d setups=%+v nativeStarts=%q focused=%+v attached=%q stderr=%q, want nothing started and nothing in Herdr", exit, f.setups, f.nativeStarts, f.focused, f.attached, stderr)
 	}
 	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != "cfo" {
 		t.Errorf("native terminals shown = %q, want the CFO's, cfo", f.nativeAttached)
 	}
 }
 
-// goblins --native with no live CFO starts one in native terminal cfo, in the
-// project picked, and shows it in this terminal, starting nothing in Herdr.
-func TestGoblinsNativeStartsTheCFOInANativeTerminal(t *testing.T) {
-	f := newSessionFixture(t)
+// With no CFO running, goblins starts one in the Code Goblins home, whatever
+// folder it is run from, and asks for no project: in Herdr, attached to the
+// fleet's session, or with --native in native terminal cfo shown here.
+func TestGoblinsStartsTheCFOInItsHome(t *testing.T) {
+	// Arrange
+	herdrStart, nativeStart := newSessionFixture(t), newSessionFixture(t)
 
-	exit, stdout, stderr := f.launch("--native")
+	// Act
+	herdrExit, herdrOut, herdrErr := herdrStart.launch()
+	nativeExit, nativeOut, nativeErr := nativeStart.launch("--native")
 
-	if exit != 0 || len(f.nativeStarts) != 1 || f.nativeStarts[0] != f.project || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
-		t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want the CFO started natively in %s", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr, f.project)
+	// Assert
+	if herdrExit != 0 || !slices.Equal(herdrStart.cfoStarts, []string{herdrStart.home.Root}) || len(herdrStart.nativeStarts) != 0 || !slices.Equal(herdrStart.attached, []string{"fixture-fleet"}) {
+		t.Errorf("goblins: exit=%d cfoStarts=%q nativeStarts=%q attached=%q stderr=%q, want the CFO started in Herdr in the home %s and the fleet's session attached", herdrExit, herdrStart.cfoStarts, herdrStart.nativeStarts, herdrStart.attached, herdrErr, herdrStart.home.Root)
 	}
-	if len(f.nativeAttached) != 1 || f.nativeAttached[0] != supervisor.NativeCFOTerminal {
-		t.Errorf("native terminals shown = %q, want %s", f.nativeAttached, supervisor.NativeCFOTerminal)
+	if !strings.Contains(herdrOut, "The CFO starts as claude in "+herdrStart.home.Root+".") {
+		t.Errorf("goblins: stdout = %q, want it to say where the CFO starts", herdrOut)
 	}
-	if !strings.Contains(stdout, "The CFO starts as claude in "+f.project+", in native terminal cfo.") {
-		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
+	if nativeExit != 0 || !slices.Equal(nativeStart.nativeStarts, []string{nativeStart.home.Root}) || len(nativeStart.cfoStarts) != 0 || !slices.Equal(nativeStart.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
+		t.Errorf("goblins --native: exit=%d nativeStarts=%q cfoStarts=%q nativeAttached=%q stderr=%q, want the CFO started natively in the home %s and shown", nativeExit, nativeStart.nativeStarts, nativeStart.cfoStarts, nativeStart.nativeAttached, nativeErr, nativeStart.home.Root)
 	}
-}
-
-// goblins --native never starts a second CFO beside a live one in Herdr: it
-// brings that one to the front.
-func TestGoblinsNativeBringsALiveHerdrCFOToTheFront(t *testing.T) {
-	f := newSessionFixture(t)
-	f.withLiveCFO()
-
-	exit, _, stderr := f.launch("--native")
-
-	if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.focused) != 1 {
-		t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q focused=%+v stderr=%q, want the live CFO brought to the front and none started", exit, f.nativeStarts, f.cfoStarts, f.focused, stderr)
+	if !strings.Contains(nativeOut, "The CFO starts as claude in "+nativeStart.home.Root+", in native terminal cfo.") {
+		t.Errorf("goblins --native: stdout = %q, want it to say where the CFO starts", nativeOut)
 	}
 }
 
-// A native CFO that cannot start is reported, and nothing is shown.
-func TestGoblinsNativeReportsACFOThatCannotStart(t *testing.T) {
+// A CFO that cannot start is reported, and nothing is shown.
+func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
+	// Arrange
+	herdrStart, nativeStart := newSessionFixture(t), newSessionFixture(t)
+	herdrStart.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, errors.New("herdr is not installed") }
+	nativeStart.runtime.startNativeCFO = func(home.Home, string, string) error { return errors.New("claude is not on PATH") }
+
+	// Act
+	herdrExit, _, herdrErr := herdrStart.launch()
+	nativeExit, _, nativeErr := nativeStart.launch("--native")
+
+	// Assert
+	if herdrExit != 1 || !strings.Contains(herdrErr, "could not be started in Herdr: herdr is not installed") || len(herdrStart.attached) != 0 || len(herdrStart.screens) != 0 {
+		t.Errorf("goblins: exit=%d stderr=%q attached=%q screens=%+v, want the failure reported and nothing shown", herdrExit, herdrErr, herdrStart.attached, herdrStart.screens)
+	}
+	if nativeExit != 1 || !strings.Contains(nativeErr, "could not be started in a native terminal: claude is not on PATH") || len(nativeStart.nativeAttached) != 0 || len(nativeStart.screens) != 0 {
+		t.Errorf("goblins --native: exit=%d stderr=%q nativeAttached=%q screens=%+v, want the failure reported and nothing shown", nativeExit, nativeErr, nativeStart.nativeAttached, nativeStart.screens)
+	}
+}
+
+// An unregistered CFO already running in the cfo tab keeps running where it
+// is, so goblins does not claim to start one.
+func TestGoblinsSaysACFOInTheCFOTabIsAlreadyRunning(t *testing.T) {
+	// Arrange
 	f := newSessionFixture(t)
-	f.runtime.startNativeCFO = func(home.Home, string, string) error { return errors.New("claude is not on PATH") }
+	f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
 
-	exit, _, stderr := f.launch("--native")
+	// Act
+	exit, stdout, stderr := f.launch()
 
-	if exit != 1 || !strings.Contains(stderr, "could not be started in a native terminal: claude is not on PATH") || len(f.nativeAttached) != 0 {
-		t.Fatalf("exit=%d stderr=%q nativeAttached=%q, want the failure reported and nothing shown", exit, stderr, f.nativeAttached)
+	// Assert
+	if exit != 0 || len(f.attached) != 1 {
+		t.Fatalf("exit=%d attached=%q stderr=%q, want an attach", exit, f.attached, stderr)
+	}
+	if !strings.Contains(stdout, "The CFO is already running in Herdr's cfo tab.") || strings.Contains(stdout, "The CFO starts") || !strings.HasPrefix(f.screens[0].title, "Your CFO is running\n") {
+		t.Errorf("stdout = %q, final screen %q; want the CFO already running and no start claimed", stdout, f.screens[0].title)
 	}
 }
 
 // With no CFO registered, a CFO already running in native terminal cfo, which
-// may not have registered yet, is shown rather than started a second time,
-// with or without --native.
+// may not have registered yet, is shown rather than started a second time.
 func TestGoblinsShowsAnUnregisteredCFOInNativeTerminalCFO(t *testing.T) {
-	for name, args := range map[string][]string{"goblins": nil, "goblins --native": {"--native"}} {
-		t.Run(name, func(t *testing.T) {
-			f := newSessionFixture(t)
-			f.cfoTerminalRuns = true
+	f := newSessionFixture(t)
+	f.cfoTerminalRuns = true
 
-			exit, stdout, stderr := f.launch(args...)
+	exit, _, stderr := f.launch()
 
-			if exit != 0 || len(f.nativeStarts) != 0 || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
-				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q attached=%q stderr=%q, want nothing started", exit, f.nativeStarts, f.cfoStarts, f.attached, stderr)
-			}
-			if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) || !strings.Contains(stdout, "The CFO is already running in native terminal cfo.") {
-				t.Errorf("native terminals shown = %q, stdout = %q; want cfo shown and said so", f.nativeAttached, stdout)
-			}
-		})
+	if exit != 0 || len(f.setups) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
+		t.Fatalf("exit=%d setups=%+v nativeStarts=%q attached=%q stderr=%q, want nothing started", exit, f.setups, f.nativeStarts, f.attached, stderr)
+	}
+	if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
+		t.Errorf("native terminals shown = %q, want cfo", f.nativeAttached)
 	}
 }
 
@@ -177,42 +168,6 @@ func TestGoblinsPrefersARegisteredHerdrCFOToAnUnregisteredNativeTerminal(t *test
 	}
 }
 
-// A cold start: the registered CFO's process has ended and the new board has
-// not checked the registration yet, so its snapshot's is empty. goblins
-// starts the CFO in the checkout the terminal is in and attaches to the
-// fleet's session.
-func TestGoblinsStartsTheCFOWhenTheRegisteredOneHasEnded(t *testing.T) {
-	f := newSessionFixture(t)
-
-	exit, stdout, stderr := f.launch()
-
-	if exit != 0 || len(f.cfoStarts) != 1 || f.cfoStarts[0] != f.project || len(f.focused) != 0 {
-		t.Fatalf("exit=%d cfoStarts=%q focused=%+v stderr=%q, want the CFO started in %s", exit, f.cfoStarts, f.focused, stderr, f.project)
-	}
-	if len(f.attached) != 1 || f.attached[0] != "fixture-fleet" {
-		t.Errorf("attached %q, want the fleet's session", f.attached)
-	}
-	if !strings.Contains(stdout, "The CFO starts as claude in "+f.project+".") || strings.Contains(stdout, "already running") {
-		t.Errorf("stdout = %q, want it to say where the CFO starts", stdout)
-	}
-}
-
-// An unregistered CFO already running in the cfo tab keeps running where it
-// is, so goblins does not claim it starts in the project picked.
-func TestGoblinsSaysACFOInTheCFOTabIsAlreadyRunning(t *testing.T) {
-	f := newSessionFixture(t)
-	f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
-
-	exit, stdout, stderr := f.launch()
-
-	if exit != 0 || len(f.attached) != 1 {
-		t.Fatalf("exit=%d attached=%q stderr=%q, want an attach", exit, f.attached, stderr)
-	}
-	if !strings.Contains(stdout, "The CFO is already running in Herdr's cfo tab.") || strings.Contains(stdout, "The CFO starts") {
-		t.Errorf("stdout = %q, want the CFO already running and no start in the project", stdout)
-	}
-}
-
 // A live CFO that cannot be brought to the front is reported, and nothing is
 // attached.
 func TestGoblinsReportsALiveCFOItCannotBringToTheFront(t *testing.T) {
@@ -222,64 +177,8 @@ func TestGoblinsReportsALiveCFOItCannotBringToTheFront(t *testing.T) {
 
 	exit, _, stderr := f.launch()
 
-	if exit != 1 || len(f.attached) != 0 || len(f.cfoStarts) != 0 || !strings.Contains(stderr, "herdr server is not running") {
-		t.Fatalf("exit=%d attached=%q cfoStarts=%q stderr=%q, want the failure and no attach", exit, f.attached, f.cfoStarts, stderr)
-	}
-}
-
-// Outside a checkout, goblins lists the checkouts under the projects root, a
-// folder with no .git left out, and starts the CFO in the one picked.
-func TestGoblinsAsksWhichProjectOutsideACheckout(t *testing.T) {
-	f := newSessionFixture(t)
-	root := f.projectsRoot([]string{"notes"}, "alpha", "beta")
-	f.runtime.stdin = strings.NewReader("2\n")
-
-	exit, stdout, stderr := f.launch()
-
-	if exit != 0 || len(f.cfoStarts) != 1 || f.cfoStarts[0] != filepath.Join(root, "beta") {
-		t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want beta", exit, f.cfoStarts, stderr)
-	}
-	if !strings.Contains(stdout, "  1  alpha\n  2  beta\n") || strings.Contains(stdout, "notes") {
-		t.Errorf("stdout = %q, want the two checkouts listed and the plain folder left out", stdout)
-	}
-}
-
-// A projects root with one checkout needs no question.
-func TestGoblinsTakesTheOnlyProjectWithoutAsking(t *testing.T) {
-	f := newSessionFixture(t)
-	root := f.projectsRoot(nil, "alpha")
-
-	exit, stdout, _ := f.launch()
-
-	if exit != 0 || len(f.cfoStarts) != 1 || f.cfoStarts[0] != filepath.Join(root, "alpha") || strings.Contains(stdout, "Project number") {
-		t.Fatalf("exit=%d cfoStarts=%q stdout=%q, want alpha without a question", exit, f.cfoStarts, stdout)
-	}
-}
-
-// A number that names no project starts nothing and attaches nothing.
-func TestGoblinsRefusesAProjectNumberThatNamesNoProject(t *testing.T) {
-	for _, answer := range []string{"3\n", "zero\n", ""} {
-		f := newSessionFixture(t)
-		f.projectsRoot(nil, "alpha", "beta")
-		f.runtime.stdin = strings.NewReader(answer)
-
-		exit, _, stderr := f.launch()
-
-		if exit != 1 || len(f.cfoStarts) != 0 || len(f.attached) != 0 {
-			t.Errorf("answer %q: exit=%d cfoStarts=%q attached=%q stderr=%q, want a refusal", answer, exit, f.cfoStarts, f.attached, stderr)
-		}
-	}
-}
-
-// With neither a checkout nor a projects root, goblins says how to give it one.
-func TestGoblinsNamesTheFixWhenThereIsNoProject(t *testing.T) {
-	f := newSessionFixture(t)
-	f.runtime.gitTop = func(context.Context) (string, error) { return "", errors.New("not a git checkout") }
-
-	exit, _, stderr := f.launch()
-
-	if exit != 1 || !strings.Contains(stderr, "cfo install --projects-root <dir>") || len(f.cfoStarts) != 0 {
-		t.Fatalf("exit=%d stderr=%q cfoStarts=%q, want the fix named", exit, stderr, f.cfoStarts)
+	if exit != 1 || len(f.attached) != 0 || len(f.nativeStarts) != 0 || !strings.Contains(stderr, "herdr server is not running") {
+		t.Fatalf("exit=%d attached=%q nativeStarts=%q stderr=%q, want the failure and no attach", exit, f.attached, f.nativeStarts, stderr)
 	}
 }
 
@@ -294,20 +193,6 @@ func TestGoblinsInsideHerdrOnlyBringsTheCFOToTheFront(t *testing.T) {
 
 	if exit != 0 || len(f.attached) != 0 || len(f.focused) != 1 || !strings.Contains(stdout, "The CFO is in front in Herdr.") {
 		t.Fatalf("exit=%d attached=%q focused=%+v stdout=%q, want the CFO in front and no attach", exit, f.attached, f.focused, stdout)
-	}
-}
-
-// A CFO that cannot be started is reported, and nothing is attached.
-func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
-	f := newSessionFixture(t)
-	f.runtime.startCFO = func(context.Context, string, string) (bool, error) {
-		return false, errors.New("herdr is not installed")
-	}
-
-	exit, _, stderr := f.launch()
-
-	if exit != 1 || len(f.attached) != 0 || !strings.Contains(stderr, "herdr is not installed") {
-		t.Fatalf("exit=%d attached=%q stderr=%q, want the failure and no attach", exit, f.attached, stderr)
 	}
 }
 
@@ -391,6 +276,7 @@ func TestStartingTheCFOStartsClaudeOnlyWhereNoAgentRuns(t *testing.T) {
 // goblins ends with herdr's own exit code.
 func TestGoblinsEndsWithHerdrsExitCode(t *testing.T) {
 	f := newSessionFixture(t)
+	f.withLiveCFO()
 	f.runtime.attachHerdr = func(string) int { return 3 }
 
 	if exit, _, stderr := f.launch(); exit != 3 {

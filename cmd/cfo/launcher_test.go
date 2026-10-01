@@ -21,6 +21,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -51,7 +52,6 @@ func fakeBoard(t *testing.T, snapshot string) string {
 type launcherFixture struct {
 	t         *testing.T
 	home      home.Home
-	project   string
 	starts    int
 	opened    []string
 	cfo       herdr.Endpoint
@@ -69,7 +69,34 @@ type launcherFixture struct {
 	harnesses []string
 	// cfoTerminalRuns is whether native terminal cfo's host answers.
 	cfoTerminalRuns bool
-	runtime         commandRuntime
+	// setups are the quick start's agent steps as each launch asked for them.
+	// They run the real steps over agents whose states are missing, ready
+	// unless named, choosing agent wherever they ask, and remember what they
+	// end on; setupErr ends them on no agent instead.
+	setups   []agentSetup
+	agent    string
+	missing  []string
+	setupErr error
+	// screens are the final screens shown, each answered with answer, the
+	// CFO's terminal unless a test says otherwise.
+	screens []finalScreen
+	answer  int
+	runtime commandRuntime
+}
+
+// agentSetup is one run of the quick start's agent steps: the agent
+// --harness named and whether goblins setup asked for the choice again.
+type agentSetup struct {
+	chosen string
+	rerun  bool
+}
+
+// finalScreen is the screen a launch ended on: its title, its choices and
+// the one Enter accepts.
+type finalScreen struct {
+	title    string
+	choices  []onboarding.Choice
+	selected int
 }
 
 // newLauncherFixture runs goblins against an isolated home whose supervisor
@@ -82,7 +109,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		t.Fatal(err)
 	}
 	// A live CFO by default, so a supervisor test prints only the banner.
-	f := &launcherFixture{t: t, home: h, cfoLive: true}
+	f := &launcherFixture{t: t, home: h, cfoLive: true, agent: "claude"}
 	f.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		goblins:     true,
@@ -107,8 +134,6 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.focused = append(f.focused, endpoint)
 			return nil
 		},
-		gitTop: func(context.Context) (string, error) { return f.project, nil },
-		stdin:  strings.NewReader(""),
 		startCFO: func(_ context.Context, project, harness string) (bool, error) {
 			f.cfoStarts = append(f.cfoStarts, project)
 			f.harnesses = append(f.harnesses, harness)
@@ -130,8 +155,33 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		nativeTerminalRuns: func(_, id string) bool {
 			return f.cfoTerminalRuns && id == supervisor.NativeCFOTerminal
 		},
+		setupAgent: func(ctx context.Context, stateDir, chosen string, rerun bool, _, _ io.Writer) (string, error) {
+			f.setups = append(f.setups, agentSetup{chosen, rerun})
+			if f.setupErr != nil {
+				return "", f.setupErr
+			}
+			return rememberAgent(ctx, stateDir, chosen, rerun, onboarding.Flow{
+				Detect: func(_ context.Context, id string) onboarding.Agent {
+					if slices.Contains(f.missing, id) {
+						return onboarding.Agent{ID: id, Name: id, State: onboarding.Missing, Reason: "Not installed"}
+					}
+					return onboarding.Agent{ID: id, Name: id, State: onboarding.Ready}
+				},
+				// The choice is answered with agent; a step for an agent that is
+				// not ready is cancelled, as Escape at the choice would be.
+				Choose: func(title string, _ []string, _ int) (int, error) {
+					if strings.HasPrefix(title, "Choose the agent") {
+						return slices.Index(onboarding.Agents, f.agent), nil
+					}
+					return 0, onboarding.ErrCancelled
+				},
+			})
+		},
+		choose: func(_ io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
+			f.screens = append(f.screens, finalScreen{title, choices, selected})
+			return f.answer, nil
+		},
 	}
-	f.project = filepath.Join(dir, "project")
 	// A goblin running these tests sits in a Herdr pane itself; each test
 	// says where it is and which session is the fleet's instead.
 	t.Setenv("HERDR_PANE_ID", "")
@@ -209,9 +259,10 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	}
 }
 
-// With no supervisor, goblins starts one, waits for its board, and opens the
-// board once; the next goblins finds it and only prints the link.
-func TestGoblinsStartsTheSupervisorAndOpensTheBoardOnce(t *testing.T) {
+// With no supervisor, goblins starts one, waits for its board and prints its
+// link, and opens no browser: the board opens only when it is chosen. The
+// next goblins finds the supervisor and starts no second one.
+func TestGoblinsStartsTheSupervisorAndNeverOpensTheBoardUnasked(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
 	var f *launcherFixture
 	f = newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
@@ -229,12 +280,12 @@ func TestGoblinsStartsTheSupervisorAndOpensTheBoardOnce(t *testing.T) {
 	if !strings.Contains(stdout, "  board   "+board+"\n") || !strings.Contains(stdout, "  status  CFO not connected · 0 goblins working · 0 waiting on you\n") {
 		t.Fatalf("stdout = %q, want the board line and the status line", stdout)
 	}
-	if len(f.opened) != 1 || f.opened[0] != board {
-		t.Fatalf("opened %q, want the board once", f.opened)
+	if len(f.opened) != 0 {
+		t.Fatalf("opened %q, want no browser opened unasked", f.opened)
 	}
 
-	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 1 {
-		t.Fatalf("second launch: exit=%d starts=%d opened=%q stderr=%q, want no second start or tab", exit, f.starts, f.opened, stderr)
+	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 0 {
+		t.Fatalf("second launch: exit=%d starts=%d opened=%q stderr=%q, want no second start and no tab", exit, f.starts, f.opened, stderr)
 	}
 }
 
