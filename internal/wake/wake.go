@@ -73,26 +73,33 @@ type Record struct {
 // retired even once the queue file empties.
 const ackFile = ".wake-ack"
 
+// lockBudget is how long a wake-state change waits for a live holder of
+// state/.wake-queue.lock, whose read-modify-write a loaded machine can slow
+// for seconds.
+const lockBudget = 5 * time.Second
+
 // withLock serializes a wake-state read-modify-write behind
-// state/.wake-queue.lock. Contention (a live holder) is retried at 50ms up
-// to 10 times (500ms total) before it is returned to the caller as an
-// error rather than swallowed; a dead holder is stolen by the lock package
+// state/.wake-queue.lock. A live holder is waited out within lockBudget,
+// 10 ms after the first attempt and twice as long after each next one up to
+// half a second, and past it the contention is returned to the caller
+// rather than swallowed; a dead holder is stolen by the lock package
 // itself, so a process killed inside fn cannot wedge the home.
 func withLock(dir string, fn func() error) error {
-	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if _, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake"); err != nil {
-			if errors.Is(err, lock.ErrHeld) {
-				lastErr = err
-				time.Sleep(50 * time.Millisecond)
-				continue
-			}
+	deadline := time.Now().Add(lockBudget)
+	wait := 10 * time.Millisecond
+	for {
+		_, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake")
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, lock.ErrHeld) || time.Now().Add(wait).After(deadline) {
 			return err
 		}
-		defer lock.ReleaseNamed(dir, wakeLockName)
-		return fn()
+		time.Sleep(wait)
+		wait = min(2*wait, 500*time.Millisecond)
 	}
-	return lastErr
+	defer lock.ReleaseNamed(dir, wakeLockName)
+	return fn()
 }
 
 func readAckFloor(dir string) (int, error) {

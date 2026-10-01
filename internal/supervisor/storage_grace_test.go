@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // The board showed the Overlord "supervisor persistence failed: rename
@@ -35,5 +36,27 @@ func TestATransientPersistFailureStaysOffTheBoard(t *testing.T) {
 				t.Errorf("the board shows %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+// A store that keeps failing past storageGrace is the Overlord's business,
+// and a clean cycle starts the grace over.
+func TestAPersistFailureThatKeepsFailingReachesTheBoard(t *testing.T) {
+	// Arrange
+	failure := fmt.Errorf("%w: rename .cfo-tmp-1 .supervisor.json: Access is denied", ErrStorage)
+	s := &Service{storageFailing: time.Now().Add(-storageGrace - time.Second)}
+
+	// Act
+	s.publish(failure)
+	shown := s.lastError
+	s.publish(nil)
+	s.publish(failure)
+
+	// Assert
+	if shown != failure.Error() {
+		t.Errorf("after failing past the grace the board shows %q, want %q", shown, failure.Error())
+	}
+	if s.lastError != "" {
+		t.Errorf("a failure right after a clean cycle reached the board: %q", s.lastError)
 	}
 }

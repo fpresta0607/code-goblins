@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,5 +70,43 @@ func TestAFleetReaderDoesNotBlockAReplace(t *testing.T) {
 	}
 	if got, err := ReadFile(path); err != nil || string(got) != "new" {
 		t.Errorf("ReadFile after the replace = %q, %v, want %q", got, err, "new")
+	}
+}
+
+// The wait is bounded: a reader that never lets go costs a write
+// transientBudget, then the write fails and leaves no temp file behind.
+func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".supervisor.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	budget := transientBudget
+	transientBudget = 300 * time.Millisecond
+	t.Cleanup(func() { transientBudget = budget })
+
+	// Act
+	started := time.Now()
+	err = AtomicWriteFile(path, []byte("new"))
+	took := time.Since(started)
+
+	// Assert
+	if err == nil {
+		t.Fatal("AtomicWriteFile replaced a file a reader never let go of")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("the error %q does not name %s", err, path)
+	}
+	if took > 2*time.Second {
+		t.Errorf("AtomicWriteFile took %s to give up, want about %s", took, transientBudget)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("the directory holds %d entries, want only the file (no temp file left)", len(entries))
 	}
 }
