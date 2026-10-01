@@ -551,6 +551,53 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 	})
 }
 
+// A live holder can release the lock between AcquireExclusiveNamed's refused
+// acquire and its reclaim read. That is the moment the lock becomes free, so
+// the reclaim must find nothing to reclaim rather than fail on the missing
+// record, and the retried acquire takes the lock.
+func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	name := ".watch.lock"
+	cmd := exec.Command("cmd", "/c", "ping -n 5 127.0.0.1 >NUL")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	holder, status := ownerInfo(cmd.Process.Pid, "watch")
+	if status == statusDead {
+		t.Fatal("child process unexpectedly dead")
+	}
+	if err := writeInfo(filepath.Join(dir, name), holder); err != nil {
+		t.Fatal(err)
+	}
+	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
+	if _, err := acquire(dir, name, self, false); !errors.Is(err, ErrHeld) {
+		t.Fatalf("acquire over a live holder error = %v, want ErrHeld", err)
+	}
+	if err := os.Remove(filepath.Join(dir, name)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self)
+	info, acquireErr := AcquireExclusiveNamed(dir, name)
+
+	// Assert
+	if reclaimErr != nil {
+		t.Fatalf("reclaim after the holder released = %v, want nothing to reclaim", reclaimErr)
+	}
+	if acquireErr != nil {
+		t.Fatalf("AcquireExclusiveNamed after the holder released = %v, want the free lock", acquireErr)
+	}
+	if info.PID != os.Getpid() {
+		t.Fatalf("lock taken by pid %d, want %d", info.PID, os.Getpid())
+	}
+	if err := ReleaseExclusiveNamed(dir, name); err != nil {
+		t.Fatalf("ReleaseExclusiveNamed cleanup: %v", err)
+	}
+}
+
 func TestExclusiveLeaseKeyCanonicalizesRelativePaths(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {

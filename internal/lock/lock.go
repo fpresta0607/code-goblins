@@ -418,6 +418,11 @@ func releaseNamed(dir, name string, remove func(string) error, sleep func(time.D
 
 func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
 	holder, err := ReadNamed(dir, name)
+	if errors.Is(err, os.ErrNotExist) {
+		// The holder released the lock since acquire found it held: there is
+		// nothing to reclaim, and the caller's next acquire takes the free lock.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
