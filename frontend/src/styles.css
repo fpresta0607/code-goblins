@@ -496,8 +496,11 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .count-badge { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--amber); color: #2b1d02; font-size: .9375rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 3px var(--level-2); }
 /* Alerts stack bottom right, newest at the bottom; each steps in as it
    arrives and is gone when it leaves. The tab color says whether it needs him,
-   failed or is done. */
+   failed or is done. The alert under the pointer or the keyboard rises over
+   its neighbours so the next one's tab never covers its tooltips. */
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
+.toasts > .toast { position: relative; }
+.toasts > .toast:hover, .toasts > .toast:focus-within { z-index: 1; }
 /* Alerts and the CFO's banner are goblins' dialogue boxes in the workshop's
    own lantern-and-leather palette: the speaker's portrait, the speaker's name
    on a tab, and a stepped pixel frame with a hard shadow. Lantern means it
@@ -831,19 +834,23 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .cfo-queue .column-hint { margin: -6px 0 2px; }
 /* Free memory at the head of Tasks, on a bar spanning twice the mark at which
    the CFO starts the next task, marked with it and the floor; each mark's
-   label sits on its outer side, so the two never meet. */
+   label sits on its outer side, so the two never meet. Every line is body
+   size, the apps holding the most commit and a leaking paged pool included. */
 .memory { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; background: #0b141bcc; }
-.memory-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: .9375rem; }
-.memory-line strong { font-variant-numeric: tabular-nums; }
+.memory-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 1rem; }
+.memory-line strong { flex: none; font-variant-numeric: tabular-nums; }
 .memory-bar { position: relative; height: 8px; border-radius: 8px; background: #1c2833; }
 .memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: var(--mint); transition: width .4s ease, background .2s ease; }
 .memory-fill.waiting { background: var(--amber); }
 .memory-fill.under { background: var(--red); }
 .memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: #e4eeeb; }
 .memory-mark.floor { background: var(--red); }
-.memory-scale { display: flex; color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.memory-scale { display: flex; color: var(--muted); font-size: 1rem; white-space: nowrap; }
 .memory-scale > span { flex: none; padding-left: 6px; }
 .memory-scale > .floor { min-width: max-content; padding: 0 6px 0 0; text-align: right; }
+.memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
+.memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }

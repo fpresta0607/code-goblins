@@ -62,10 +62,17 @@ export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
 }
-// Memory is the machine's free memory in bytes beside the fleet's floor,
-// under which nothing starts, and the mark at which the CFO starts the next
-// queued task.
-export interface Memory { available: number; total: number; floor: number; next: number }
+// Memory is the machine's free memory and free commit (memory plus page file)
+// in bytes beside the fleet's floor, under which nothing starts, and the mark
+// at which the CFO starts the next queued task; with the kernel's pools and,
+// while commit is the tighter, the apps holding the most of it.
+export interface Memory {
+  available: number; total: number; commit_available: number; commit_limit: number;
+  paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+}
+// CommitHolder is one app's commit: its first process and every process it
+// started.
+export interface CommitHolder { name: string; commit: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -320,7 +327,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, floor, next }) => ({ available: number(available), total: number(total), floor: number(floor), next: number(next) }))(object(v.memory)),
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+      available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
+      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
+      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+    }))(object(v.memory)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),

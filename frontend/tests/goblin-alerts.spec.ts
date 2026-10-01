@@ -105,6 +105,32 @@ test("the banner's portrait tooltip shows over the board column under it", async
   expect(owner).toBe("banner");
 });
 
+test("an alert's Dismiss tooltip shows over the next alert's name tab", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  // Every alert leaves by itself after eight seconds, so time stands still once
+  // the boxes show, or on a slow run the stack shifts under the pointer. The
+  // boxes step in and the tooltip slides in, so each is measured once it stops.
+  const settled = () => page.locator(".toasts").evaluate((stack) => Promise.all(stack.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+  await page.clock.install();
+  await open(page);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
+  await settled();
+  await page.addStyleTag({ content: ".toasts [data-tip]::after { pointer-events: auto; }" });
+  const dismiss = page.locator(".toasts .toast").first().getByRole("button", { name: /^Dismiss/ });
+  await dismiss.hover();
+  await settled();
+  const owner = await dismiss.evaluate((element) => {
+    const toast = element.closest(".toast")!, next = toast.nextElementSibling!.querySelector(".dialogue-tab")!.getBoundingClientRect();
+    const button = element.getBoundingClientRect(), tip = getComputedStyle(element, "::after");
+    const top = button.bottom + 8, left = button.right - parseFloat(tip.width) - parseFloat(tip.paddingLeft) - parseFloat(tip.paddingRight);
+    const x = Math.max(left, next.left) + 4, y = Math.max(top, next.top) + 4;
+    if (x >= Math.min(button.right, next.right) || y >= next.bottom) return "the tooltip does not reach the next tab";
+    const hit = document.elementFromPoint(x, y);
+    return hit && toast.contains(hit) ? "alert" : hit?.className ?? "nothing";
+  });
+  expect(owner).toBe("alert");
+});
+
 test("with reduced motion the boxes just appear", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
