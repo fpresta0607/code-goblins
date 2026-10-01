@@ -44,6 +44,12 @@ type credentialBoard struct {
 
 func newCredentialBoard(t *testing.T, names ...string) *credentialBoard {
 	t.Helper()
+	return newCredentialBoardFor(t, CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/apikeys"})
+}
+
+// newCredentialBoardFor is a board that took the CFO's request filed.
+func newCredentialBoardFor(t *testing.T, filed CredentialRequest) *credentialBoard {
+	t.Helper()
 	store, h := testStore(t)
 	b := &credentialBoard{t: t, home: h, vault: t.TempDir()}
 	t.Setenv(auth.StoreDirEnv, b.vault)
@@ -57,7 +63,7 @@ func newCredentialBoard(t *testing.T, names ...string) *credentialBoard {
 		},
 	}}
 	b.handler = NewHTTP(b.service, credentialBoardHost, nil)
-	request, err := b.service.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/apikeys"})
+	request, err := b.service.acceptCredentialRequest(filed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,11 +122,11 @@ func (b *credentialBoard) send(handler *HTTP, path, body string, change func(*ht
 	return response
 }
 
-// vaultValue reads what the credential store holds for name in the throwaway
+// vaultValue reads what the credential store holds for name in the request's
 // scope, straight from the file store.
 func (b *credentialBoard) vaultValue(name string) (string, bool) {
 	b.t.Helper()
-	data, err := os.ReadFile(filepath.Join(b.vault, "throwaway", name))
+	data, err := os.ReadFile(filepath.Join(b.vault, b.request.Project, name))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false
 	}

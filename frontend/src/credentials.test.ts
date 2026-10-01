@@ -9,7 +9,7 @@ import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
   project: "precisiondocs", repository: "C:\\dev\\precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], why: "Charge test cards", link: "",
-  existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], told: [], reason: "",
+  env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], written: [], told: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", ...changes,
 });
 
@@ -70,10 +70,11 @@ test("a format hint warns about a value of the wrong kind and advises on one it 
   assert.deepEqual(valueWarnings(undefined, "anything"), []);
 });
 
-test("each row says where its value goes: the repository, the credential scope and who reads it", () => {
+test("each row says where its value goes: the repository, the credential scope, the env file it is also set in, and who reads it", () => {
   const where = destination(request({ services: { STRIPE_SECRET_KEY: ["stripe", "billing"] } }), "STRIPE_SECRET_KEY");
-  assert.deepEqual(where, { repository: "precisiondocs", scope: "precisiondocs", usedBy: ["Goblins' auth.ps1", "stripe service", "billing service"] });
-  assert.deepEqual(destination(request({ repository: "" }), "DATABASE_URL"), { repository: "", scope: "precisiondocs", usedBy: ["Goblins' auth.ps1"] });
+  assert.deepEqual(where, { repository: "precisiondocs", scope: "precisiondocs", file: "", usedBy: ["Goblins' auth.ps1", "stripe service", "billing service"] });
+  assert.deepEqual(destination(request({ repository: "" }), "DATABASE_URL"), { repository: "", scope: "precisiondocs", file: "", usedBy: ["Goblins' auth.ps1"] });
+  assert.deepEqual(destination(request({ env_file: ".env.docker.local" }), "DATABASE_URL"), { repository: "precisiondocs", scope: "precisiondocs", file: ".env.docker.local", usedBy: ["Goblins' auth.ps1"] });
 });
 
 test("values are typed only on the board on this PC", () => {

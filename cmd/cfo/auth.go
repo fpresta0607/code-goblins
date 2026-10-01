@@ -26,7 +26,7 @@ import (
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
-       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--env-file <file>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 from its project scope
@@ -340,6 +340,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	task := flags.String("task", "", "the goblin that needs the values; a goblin names its own task")
 	why := flags.String("why", "", "what the values are for, in one line")
 	link := flags.String("link", "", "the https page the Overlord gets the values from")
+	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
 	names, err := parseAuthArgs(flags, args)
 	if err != nil {
 		return 2
@@ -348,19 +349,27 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	request, err := credentialRequest(runtime, *project, *task, *why, *link, names)
+	request, err := credentialRequest(runtime, *project, *task, *why, *link, *envFile, names)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 2
 	}
 	scope := request.Project
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// The board checks the file again when it takes the request and before
+	// each write; this check refuses it before anything is filed.
+	if request.EnvFile != "" {
+		if err := supervisor.EnvFileProblem(ctx, request.Repository, request.EnvFile); err != nil {
+			fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
+			return 2
+		}
+	}
 	h, err := home.Resolve()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	filed, err := supervisor.FileCredentialRequest(ctx, h, terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}}), request)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
@@ -368,6 +377,9 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	}
 	fmt.Fprintf(stdout, "filed credential request %s for %s: %s\n", filed.ID, scope, strings.Join(names, ", "))
 	fmt.Fprintln(stdout, "the Overlord pastes the values on its card in the board's Command Center; the CFO hears when they are stored, and running goblins of the project are told to re-source their credentials")
+	if request.EnvFile != "" {
+		fmt.Fprintf(stdout, "each value is also set in %s\n", filepath.Join(request.Repository, request.EnvFile))
+	}
 	for _, name := range names {
 		fmt.Fprintf(stdout, "his terminal fallback on this machine: %s\n", auth.StoreCommand(scope, name))
 	}
@@ -378,7 +390,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 // scope cfo auth store would write, and the checkout that scope is named for
 // when it is on this machine. It refuses anything shaped like a value without
 // repeating it.
-func credentialRequest(runtime commandRuntime, project, task, why, link string, names []string) (supervisor.CredentialRequest, error) {
+func credentialRequest(runtime commandRuntime, project, task, why, link, envFile string, names []string) (supervisor.CredentialRequest, error) {
 	// A path is judged by the scope it names: a checkout's parent folders
 	// are no part of the request.
 	shaped := func(text string) error {
@@ -399,7 +411,7 @@ func credentialRequest(runtime commandRuntime, project, task, why, link string, 
 	if err := shaped(scope); err != nil {
 		return supervisor.CredentialRequest{}, err
 	}
-	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link}
+	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link, EnvFile: envFile}
 	if resolved, err := runtime.resolveProject(project); err == nil {
 		if checkout, err := filepath.Abs(resolved); err == nil && auth.ProjectName(checkout) == scope {
 			if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {
