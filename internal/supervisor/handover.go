@@ -20,8 +20,10 @@ const watchLock = ".watch.lock"
 // answered the handover has been ended.
 const legacyExitWait = 5 * time.Second
 
-// AcquireWatchLock takes the watcher lock for this supervisor, taking it over
-// from a watcher that holds it.
+// AcquireWatchLock takes this home's watcher lock for this process, taking it
+// over from a watcher that holds it. Serve takes it this way, and so does cfo
+// update before it starts a supervisor from a build older than the handover,
+// which cannot take the lock from a watcher itself.
 func AcquireWatchLock(stateDir string) error {
 	for try := 1; ; try++ {
 		_, err := lock.AcquireExclusiveNamed(stateDir, watchLock)
@@ -37,6 +39,11 @@ func AcquireWatchLock(stateDir string) error {
 		}
 		return takeOverWatcher(stateDir, err, holder, readErr)
 	}
+}
+
+// ReleaseWatchLock releases the watcher lock AcquireWatchLock took.
+func ReleaseWatchLock(stateDir string) error {
+	return lock.ReleaseExclusiveNamed(stateDir, watchLock)
 }
 
 // vanishedHolderTries bounds how often serve takes the lock again when its

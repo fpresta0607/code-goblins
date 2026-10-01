@@ -95,6 +95,10 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
+	// A build stand-in an update test installs runs as that build.
+	if code, ok := runStandInBuild(); ok {
+		os.Exit(code)
+	}
 	// fakeDoctorTool's claude.exe is this binary answering doctor's --version
 	// probe; run as claude.exe any other way, it is the native CFO test's
 	// harness, below.
