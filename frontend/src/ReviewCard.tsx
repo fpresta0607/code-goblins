@@ -48,7 +48,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     {!asked && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
     {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + plainMessage(review.title)}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{plainMessage(review.title)}</strong><span>Review page</span></span>
+      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{plainMessage(waitReason(review))}</strong><span>Review page</span></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
     {review.lavish && pending && review.watched && <p className="review-status">{review.revising_since
