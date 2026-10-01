@@ -899,9 +899,9 @@ a.wait-open { min-height: 44px; border: 1px solid #68f1cb; border-radius: var(--
 .memory-fill.under { background: var(--red); }
 .memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: #e4eeeb; }
 .memory-mark.floor { background: var(--red); }
-.memory-scale { display: flex; color: var(--muted); font-size: 1rem; white-space: nowrap; }
-.memory-scale > span { flex: none; padding-left: 6px; }
-.memory-scale > .floor { min-width: max-content; padding: 0 6px 0 0; text-align: right; }
+.memory-scale { display: grid; color: var(--muted); font-size: 1rem; white-space: nowrap; }
+.memory-scale > .floor { padding-right: 6px; text-align: right; }
+.memory-scale > .next { grid-column: 3; padding-left: 6px; }
 .memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
 .memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
