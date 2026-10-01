@@ -581,8 +581,10 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 		if err := store.supersedeQuestions(); err != nil {
 			t.Fatal(err)
 		}
-		if got := store.Snapshot().Questions[0]; got.Status != "superseded" || !strings.Contains(got.Message, "CFO already handled") {
-			t.Fatalf("question = %+v", got)
+		// The CFO acks a question it answered, so the board closes it as
+		// answered by the CFO, never as withdrawn or superseded (item 0h).
+		if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredAt == nil || got.Answer != "" {
+			t.Fatalf("question = %+v, want it answered by the CFO with no choice recorded", got)
 		}
 	})
 }

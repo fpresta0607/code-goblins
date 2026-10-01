@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"context"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -259,7 +261,7 @@ func TestFileMovesWholeFoldersAndRecordsWhere(t *testing.T) {
 		before[id] = tree(t, filepath.Join(h.Data, id))
 	}
 
-	moved, err := File(h, filingNow)
+	moved, err := File(context.Background(), h, filingNow)
 
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +318,7 @@ func TestFileAddsTheParkedSectionWhereItIsMissing(t *testing.T) {
 	h := filingHome(t, "# Backlog\n\n## Queued\n- [ ] q1 - Queued work\n\n## Done\n- [x] d1 - Shipped\n")
 	taskFolder(t, h, "g1", StaleBriefAge)
 
-	if _, err := File(h, filingNow); err != nil {
+	if _, err := File(context.Background(), h, filingNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -344,7 +346,7 @@ func TestFileLeavesAHomeFromBeforeTheLayoutAlone(t *testing.T) {
 	taskFolder(t, h, "g2", StaleBriefAge)
 	before := tree(t, h.Data)
 
-	moved, err := File(h, filingNow)
+	moved, err := File(context.Background(), h, filingNow)
 
 	if err != nil || len(moved) != 0 {
 		t.Fatalf("File = %+v, %v; want nothing filed", moved, err)
@@ -361,7 +363,7 @@ func TestFileKeepsAnEarlierArchiveOfTheSameTask(t *testing.T) {
 	taskFolder(t, h, "g1", time.Hour)
 	write(t, filepath.Join(h.State, "g1.status"), "done: PR https://github.com/o/r/pull/2\n")
 
-	moved, err := File(h, filingNow)
+	moved, err := File(context.Background(), h, filingNow)
 
 	if err != nil || len(moved) != 1 {
 		t.Fatalf("File = %+v, %v; want g1 archived", moved, err)
@@ -387,7 +389,7 @@ func TestFileRecordsAFailedPassOnceAndRecovers(t *testing.T) {
 	write(t, finished, "a file where the archive folder should be")
 
 	for pass := 0; pass < 2; pass++ {
-		if _, err := File(h, filingNow.Add(time.Duration(pass)*time.Hour)); err == nil {
+		if _, err := File(context.Background(), h, filingNow.Add(time.Duration(pass)*time.Hour)); err == nil {
 			t.Fatalf("pass %d filed g1 into a file", pass)
 		}
 	}
@@ -405,7 +407,7 @@ func TestFileRecordsAFailedPassOnceAndRecovers(t *testing.T) {
 	if err := os.Remove(finished); err != nil {
 		t.Fatal(err)
 	}
-	if moved, err := File(h, filingNow.Add(2*time.Hour)); err != nil || len(moved) != 1 {
+	if moved, err := File(context.Background(), h, filingNow.Add(2*time.Hour)); err != nil || len(moved) != 1 {
 		t.Fatalf("File after the obstacle went = %+v, %v; want g1 archived", moved, err)
 	}
 }
@@ -423,7 +425,7 @@ func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
 	}
 	write(t, parked, "a file where the parked folder should be")
 
-	moved, err := File(h, filingNow)
+	moved, err := File(context.Background(), h, filingNow)
 
 	if err == nil {
 		t.Fatal("File parked a1 into a file")
@@ -437,7 +439,7 @@ func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h.Data, "archive", "finished", "b2", "brief.md")); err != nil {
 		t.Errorf("b2 was not archived: %v", err)
 	}
-	if _, err := File(h, filingNow.Add(time.Hour)); err == nil {
+	if _, err := File(context.Background(), h, filingNow.Add(time.Hour)); err == nil {
 		t.Fatal("the second pass parked a1 into a file")
 	}
 	log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog)))
@@ -449,6 +451,31 @@ func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
 	}
 	if strings.Count(string(log), "could not file") != 1 {
 		t.Errorf("the filing log records the same failure %d times, want once:\n%s", strings.Count(string(log), "could not file"), log)
+	}
+}
+
+// A watcher handing the lock to a serve stops its filing pass between moves:
+// the folders it had not reached stay where they are for the next pass, and
+// the stop is not recorded as a failure to file.
+func TestFileStopsBetweenMovesOnceItsContextIsDone(t *testing.T) {
+	h := filingHome(t, emptyBacklog)
+	taskFolder(t, h, "a1", StaleBriefAge)
+	taskFolder(t, h, "b2", StaleBriefAge)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	moved, err := File(ctx, h, filingNow)
+
+	if !errors.Is(err, context.Canceled) || len(moved) != 0 {
+		t.Fatalf("File = %+v, %v; want nothing moved and the stop reported", moved, err)
+	}
+	for _, id := range []string{"a1", "b2"} {
+		if _, err := os.Stat(filepath.Join(h.Data, id, "brief.md")); err != nil {
+			t.Errorf("data/%s was moved after the pass was stopped: %v", id, err)
+		}
+	}
+	if log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog))); err == nil && strings.Contains(string(log), "could not file") {
+		t.Errorf("the filing log records a stopped pass as a failure:\n%s", log)
 	}
 }
 
