@@ -43,6 +43,44 @@ func TestANativeGoblinAsksFromItsOwnTerminalOnly(t *testing.T) {
 	}
 }
 
+// Git Bash runs an MSYS program such as timeout by replacing its own Windows
+// process, so `timeout 60 cfo notify ...` has a parent that already exited and
+// its chain of parents never reaches the goblin's program: cg-board-polish's
+// page wait was refused that way on 2026-09-30. The proof value its
+// terminal's host put in the terminal's environment still proves where it
+// runs.
+func TestANativeGoblinAsksFromAProcessWhoseParentHasExited(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	writeNativeTask(t, stateDir, "task-9")
+	goblin := hostTerminal(t, stateDir, "task-9")
+
+	// Act
+	goblin.typeLine(t, "orphaned ask task-9")
+
+	// Assert
+	if lines := goblin.waitForLines(t, 1); len(lines) != 1 || lines[0] != "asked" {
+		t.Errorf("the goblin's own terminal recorded %q, want its question proven", lines)
+	}
+}
+
+// A Herdr server started from a goblin's terminal hands the terminal's proof
+// value to every pane it opens; a process in such a pane is not the goblin.
+func TestAGoblinsTerminalProofProvesNothingInAHerdrPane(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	writeNativeTask(t, stateDir, "task-9")
+	goblin := hostTerminal(t, stateDir, "task-9")
+
+	// Act
+	goblin.typeLine(t, "orphaned-in-herdr ask task-9")
+
+	// Assert
+	if lines := goblin.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "ask error: ") {
+		t.Errorf("the goblin's terminal recorded %q, want the question from a Herdr pane refused", lines)
+	}
+}
+
 // The Overlord's answer reaches a native goblin through its own terminal:
 // typed, submitted once its composer shows it, and delivered once the
 // harness works on it, on one line and stamped as a steer so the monitor never

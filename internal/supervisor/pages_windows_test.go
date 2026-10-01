@@ -76,8 +76,10 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 		"an answer that ends the review": {polls: []axi.PagePoll{{Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "he ended the review", closed: answered},
 		"the Overlord ended the review":  {polls: []axi.PagePoll{{Status: "ended", EndedBy: "user"}}, want: "the Overlord ended the review of", closed: Review{State: "cleared", Reason: "You ended the review on its page."}},
 		"an agent ended the review":      {polls: []axi.PagePoll{{Status: "ended", EndedBy: "agent"}}, want: "an agent, not the Overlord, ended the review of", closed: Review{State: "withdrawn", Reason: "An agent ended the review on its page; the CFO was told."}},
-		"the window disconnected":        {polls: []axi.PagePoll{{Status: "browser_disconnected"}}, want: "ask him whether to reopen it", closed: Review{State: "withdrawn", Reason: "The review window disconnected; the CFO was told."}},
-		"a page that cannot be polled":   {err: errors.New("No active Lavish Editor session for this file"), want: "cannot poll the page", closed: Review{State: "withdrawn", Reason: "The page could not be polled; the CFO was told."}},
+		// A closed review window is not the end of the review: his answers
+		// queue on the page, and reopening it resumes the same review.
+		"an answer after the window disconnected": {polls: []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "waiting"}, {Status: "feedback", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
+		"a page that cannot be polled":            {err: errors.New("No active Lavish Editor session for this file"), want: "cannot poll the page", closed: Review{State: "withdrawn", Reason: "The page could not be polled; the CFO was told."}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
@@ -121,8 +123,11 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 
 // The CFO's own page is polled too, so the CFO never holds its turn on a
 // poll: the Overlord's feedback comes back as a wake keyed by the item, since
-// there is no goblin, telling the CFO to act on it rather than relay it.
+// there is no goblin, telling the CFO to act on it rather than relay it. A
+// closed review window ends its review no more than a goblin's does.
 func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
+	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
+	pagePollPause = time.Millisecond
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
@@ -142,11 +147,14 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,Payments first\n"
+	polls := []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "feedback", Output: answer}}
 	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, _ time.Duration) (axi.PagePoll, error) {
 		if file != page {
 			t.Errorf("polled %s, want the CFO's page %s", file, page)
 		}
-		return axi.PagePoll{Status: "feedback", Output: answer}, nil
+		poll := polls[0]
+		polls = polls[1:]
+		return poll, nil
 	}}}
 
 	s.watchPages(context.Background())

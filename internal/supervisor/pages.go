@@ -68,8 +68,13 @@ func (s *Service) watchPages(ctx context.Context) {
 	}
 }
 
-// watchPage polls one item's page until the Overlord answers on it, ends it,
-// or leaves it, then gives the CFO what happened and closes the item.
+// watchPage polls one item's page until the Overlord answers on it or ends
+// it, the item closes, or the page cannot be polled, then gives the CFO what
+// happened and closes the item. A closed review window is not the end of the
+// review: lavish-axi keeps the session, his answers queue on the page until a
+// poll takes them, and reopening the page resumes the same review, so the
+// poll goes on after a pause that keeps a window that keeps disconnecting
+// from spinning it.
 func (s *Service) watchPage(ctx context.Context, r Review) {
 	failures := 0
 	for {
@@ -77,8 +82,15 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err == nil && poll.Status == "waiting" {
+		if err == nil && (poll.Status == "waiting" || poll.Status == "browser_disconnected") {
 			failures = 0
+			if poll.Status == "browser_disconnected" {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(pagePollPause):
+				}
+			}
 			continue
 		}
 		if err != nil {
@@ -140,9 +152,6 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 	case poll.Status == "ended":
 		detail = "the Overlord ended the review of " + r.LavishPage + " with no more feedback"
 		closed = Review{State: "cleared", Reason: "You ended the review on its page."}
-	case poll.Status == "browser_disconnected":
-		detail = "the Overlord's review window for " + r.LavishPage + " disconnected; ask him whether to reopen it or end it"
-		closed.Reason = "The review window disconnected; the CFO was told."
 	default:
 		detail = "lavish-axi reported " + poll.Status + " for the page " + r.LavishPage
 		closed.Reason = "The page's session changed; the CFO was told."

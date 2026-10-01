@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -674,7 +675,18 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		release()
 		return "", nil, err
 	}
-	if !descendsFrom(entries, p.Process) || entries[0].Start.After(connected) {
+	proven := descendsFrom(entries, p.Process)
+	if !proven && p.Host != "" && len(entries) > 0 {
+		// A chain of parents that stops short, as a Cygwin or MSYS exec leaves
+		// it, is proven by the proof value of the CFO's native terminal.
+		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
+			if env, err := proc.Environment(pid); err == nil {
+				program, err := terminalProgram(record, env)
+				proven = err == nil && program.PID == p.Process.PID && program.Start.Equal(p.Process.Start)
+			}
+		}
+	}
+	if !proven || entries[0].Start.After(connected) {
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
