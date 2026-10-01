@@ -146,6 +146,7 @@ The board shows the dropped order until a snapshot from the revision the save an
 The snapshot's `memory` is the machine's available physical memory, the standby list included, and its available commit (RAM plus page file, which every process's private memory is charged against and which a new process needs even while physical memory looks free), both read with `GlobalMemoryStatusEx`, beside the fleet's 4 GB floor and the 5 GB mark at which the CFO starts the next queued task; the meter at the head of Tasks shows it as a number and a bar spanning twice the 5 GB mark, or the machine's memory if that is less, marked at the floor and at the mark, whose fill turns amber under the mark and red under the floor, and the first queued task that is not blocked is marked Next up.
 It also carries the kernel's paged and nonpaged pool sizes, read with `GetPerformanceInfo`, since a paged pool that keeps growing is a driver leaking memory, and, while commit is the tighter of the two, `holders`: the three apps holding the most commit, each counting its first process and every process it started, so the Codex app's MCP servers count as its program rather than as python, read from one system process list.
 The meter shows whichever of free memory and free commit is the tighter, memory on a tie, labelled "Commit free (memory plus page file)" when it is commit and followed by one line naming those apps; Start's tooltip, the Next chip and Resume's tooltip follow the tighter one too, and one amber line warns when the paged pool passes 4 GB, since a driver is then leaking memory and a reboot frees it.
+A snapshot with no commit limit has not reported commit, so the meter shows memory rather than zero commit, and the labels under the bar give way toward the left so that neither leaves the box when a mark is at the end of the bar.
 Every queued card that is not blocked carries the same Start, a play button among its controls; a blocked card shows what it waits on instead.
 The board starts nothing on its own: the CFO dispatches queued work in the Tasks order.
 Start on a queued card sends `POST /api/tasks/start` with the task's ID, guarded by the Host, Origin and token checks like every other change, and the supervisor dispatches it through `cfo spawn <id> --project <p> --brief <data/<id>/brief.md> --harness <h> [--model <m>] [--effort <e>] [--mode <m>]`, the same binary the CFO runs.
@@ -211,6 +212,9 @@ Dragging a card or using Alt plus an arrow key changes only its saved browser po
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
 A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
+A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
+Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
+A card he placed stays where he put it, and an arranged card whose place it covers takes the nearest free place, along its row first and then the rows below, so the canvas never arranges a card onto another.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
@@ -474,6 +478,13 @@ A stored token does not change an already running native process's environment, 
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
+### The tab and the installed app
+
+The board's tab shows the goblin mark, from `/favicon.svg` with 16 and 32 px PNGs beside it, and its title counts what waits on the Overlord, such as (2) Code Goblins, dropping the count once nothing does.
+Its theme color is the #03050a base, so a browser that tints its bar, such as Chrome on Android, blends into the board.
+The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
+The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render them again from it whenever the mark changes.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
@@ -485,7 +496,12 @@ An answer to a question or on a review item, to a goblin or to a CFO, and a `cfo
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
-Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.
+Every surface wears SIQstack's glass from SIQshift's brand stylesheet: a 135-degree green-to-blue tint over the #03050a base, a green hairline border and a deep shadow with a green top highlight; a hovered card brightens its border and glows faintly, and what floats, such as a dialog, a menu or a tooltip, is the same glass laid on the solid #04060a surface so nothing behind it shows through.
+The tokens live once, in `frontend/src/styles.css` `:root`, under SIQshift's and SIQstack's own names.
+A selected card has a solid green edge and glow, and keyboard focus is SIQstack's 3 px blue ring, so a focused control never reads as selected.
+The active tab of a pill switch carries SIQstack's green, blue and purple ring; primary buttons are SIQshift's solid green pill.
+The goblins' dialogue boxes keep their lantern-and-leather look and add a green glass hairline that follows their stepped frame, with a faint green glow around it.
+The board has one dark theme, and status colors keep their meaning in it: working blue, waiting and next amber, failed red, merged purple, done mint.
 
 ## Deliberate CFO questions
 
@@ -575,7 +591,9 @@ A question the goblin asks while it waits (`--blocked`) replaces no wait: the go
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
-A wait whose answer the Overlord gives on a Lavish page names the page:
+Scrawl is the Overlord's name for the review page he annotates and answers on.
+The `lavish-axi` command serves it, and the command, the `--lavish` flags and the `lavish` state fields keep their names.
+A wait whose answer the Overlord gives on a Scrawl page names the page:
 
 ```powershell
 lavish-axi .lavish/plan.html --no-open
@@ -715,8 +733,8 @@ Its report names no native session, and the board treats it as live while the ta
 `--generation` is optional and refused when it is no longer the task's current generation.
 Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in a Herdr pane or a native terminal as it does for a question.
 A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
-The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
-For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
+The tailnet URL `lavish-axi` returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
+For a Scrawl page, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
 The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.
@@ -788,7 +806,8 @@ Native contracts were checked against installed versions and the primary [Codex 
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
 SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
-The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork.
+The board's palette and glass come from SIQshift's `packages/shared/styles/brand.css` and SIQstack's site (`src/app/brand.css`): the base and hero surfaces, the green, deep green and blue accents, the glass fill, border and shadow, the wordmark gradient, the electric tab ring and the blue focus ring, by their real values.
+The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork, and the 2026-09-30 SIQstack restyle, its regenerated workshop background and the goblin mark the tab and app icons are drawn from.
 The board self-hosts three OFL faces, so it renders the same offline: Pixelify Sans for headings at weight 400 only, because heavier weights close its C and G into O; Nunito for body text, never below 15 px; and JetBrains Mono for code.
 Their licenses sit beside the font files under `/assets/fonts/`.
 The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.

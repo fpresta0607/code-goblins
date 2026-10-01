@@ -8,11 +8,15 @@ const tasks = [
 const machine = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB };
 const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
 // The three states of the approved mockup: memory is the tighter, commit is
-// the tighter, and the kernel's paged pool is leaking.
+// the tighter, and the kernel's paged pool is leaking. Then the two that put
+// the start mark at the end of the bar: a snapshot with no commit figures,
+// and a machine with little more memory than the mark.
 const states = {
   memory: { ...machine, available: 7.3 * GB, commit_available: 20 * GB },
   commit: { ...machine, available: 3.4 * GB, commit_available: 2.5 * GB, holders },
   pool: { ...machine, available: 6.1 * GB, commit_available: 18 * GB, paged_pool: 15.6 * GB },
+  unreported: { ...machine, available: 5.6 * GB, commit_limit: 0, commit_available: 0 },
+  small: { ...machine, total: 6 * GB, commit_limit: 9 * GB, available: 3 * GB, commit_available: 6 * GB },
 };
 
 async function tasksColumn(page: Page, memory: object) {
@@ -46,8 +50,10 @@ for (const width of [1440, 390]) {
         const layout = await meter.evaluate((box) => {
           const inside = box.getBoundingClientRect();
           const texts = [...box.querySelectorAll<HTMLElement>(":scope > :not(.sr-only), :scope > * > span, :scope > * > strong")].filter((element) => element.textContent?.trim());
-          const [floor, next] = [...box.querySelectorAll<HTMLElement>(".memory-scale > span")].map((label) => label.getBoundingClientRect());
+          const [scale, floor, next, mark] = [".memory-scale", ".memory-scale > .floor", ".memory-scale > .next", ".memory-mark.floor"].map((selector) => box.querySelector<HTMLElement>(selector)!.getBoundingClientRect());
+          const hasRoomAtMark = mark.right + next.width <= scale.right;
           return {
+            floorAtMark: !hasRoomAtMark || Math.abs(mark.left - floor.right) <= 8,
             smallest: Math.min(...texts.map((element) => parseFloat(getComputedStyle(element).fontSize))),
             outside: [...box.children].filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
             labelsApart: floor.right <= next.left,
@@ -57,7 +63,7 @@ for (const width of [1440, 390]) {
         await column.screenshot({ path: testInfo.outputPath(`${state}-${width}.png`) });
 
         // Assert
-        expect(layout).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false });
+        expect(layout).toEqual({ smallest: 16, floorAtMark: true, outside: [], labelsApart: true, overflows: false });
       });
     }
 
@@ -65,6 +71,12 @@ for (const width of [1440, 390]) {
       const meter = (await tasksColumn(page, states.memory)).getByRole("group", { name: "Memory" });
       await expect(meter.locator(".memory-line")).toHaveText("Memory free7.3 GB");
       await expect(meter.locator(".memory-holders, .memory-warning")).toHaveCount(0);
+    });
+
+    test("a snapshot with no commit figures shows memory, not zero commit", async ({ page }) => {
+      const meter = (await tasksColumn(page, states.unreported)).getByRole("group", { name: "Memory" });
+      await expect(meter.locator(".memory-line")).toHaveText("Memory free5.6 GB");
+      await expect(meter.locator(".memory-fill")).toHaveClass(/ready/);
     });
 
     test("commit the tighter shows commit, names the apps holding it, and holds Start", async ({ page }) => {
