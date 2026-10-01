@@ -1,10 +1,12 @@
 package standin
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,10 @@ import (
 // RemoveAtCleanup. Unset, this is the ordinary run and the child test does
 // nothing.
 const childMode = "STANDIN_TEST_CHILD"
+
+// childFolder starts the line on which the child prints the folder its
+// t.TempDir gave it, for the parent to see where it landed.
+const childFolder = "standin child folder: "
 
 // goRetries is longer than the 2 seconds for which Go's own t.TempDir cleanup
 // retries a removal Windows refuses.
@@ -60,7 +66,23 @@ func keepImage(t *testing.T, program string) (release func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return func() { _ = windows.CloseHandle(image) }
+	return sync.OnceFunc(func() { _ = windows.CloseHandle(image) })
+}
+
+// holdOpen opens path the way a process that does not share its removal has
+// it: Windows refuses to remove it with a sharing violation meanwhile. It
+// returns what lets the file go.
+func holdOpen(t *testing.T, path string) (release func()) {
+	t.Helper()
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := windows.CreateFile(name, windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sync.OnceFunc(func() { _ = windows.CloseHandle(file) })
 }
 
 // TestChildLeavesAProgramWindowsStillHas is the test the parent below runs in
@@ -72,6 +94,7 @@ func TestChildLeavesAProgramWindowsStillHas(t *testing.T) {
 		return
 	}
 	dir := t.TempDir()
+	fmt.Println(childFolder + dir)
 	if mode == "standin" {
 		RemoveAtCleanup(t, dir)
 	}
@@ -86,7 +109,9 @@ func TestChildLeavesAProgramWindowsStillHas(t *testing.T) {
 // none holding the file open, and went 2.1 seconds later: Windows keeps a run
 // program's image for a while, and Go's cleanup retries for 2 seconds at
 // most. The first case is that premise, a folder left to t.TempDir failing
-// exactly so; the second is the same folder under RemoveAtCleanup.
+// exactly so; the second is the same folder under RemoveAtCleanup. The child's
+// temp folder is one of the parent's, so what the first case leaves behind
+// goes with the parent.
 func TestAFolderOfAProgramWindowsStillHasIsRemovedAtCleanup(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -97,11 +122,19 @@ func TestAFolderOfAProgramWindowsStillHasIsRemovedAtCleanup(t *testing.T) {
 		{"under RemoveAtCleanup, the test passes", "standin", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			temp := t.TempDir()
+			RemoveAtCleanup(t, temp)
 			child := exec.Command(os.Args[0], "-test.run=^TestChildLeavesAProgramWindowsStillHas$", "-test.count=1")
-			child.Env = append(os.Environ(), childMode+"="+test.mode)
+			child.Env = append(os.Environ(), childMode+"="+test.mode, "TMP="+temp)
 
 			output, err := child.CombinedOutput()
 
+			_, folder, _ := strings.Cut(string(output), childFolder)
+			folder, _, _ = strings.Cut(folder, "\n")
+			folder = strings.TrimSpace(folder)
+			if inTemp, relErr := filepath.Rel(temp, folder); relErr != nil || !filepath.IsLocal(inTemp) {
+				t.Fatalf("the child's folder %q is not under the parent's %s:\n%s", folder, temp, output)
+			}
 			if passed := err == nil; passed != test.wantPass {
 				t.Fatalf("the child test passed = %v, want %v:\n%s", passed, test.wantPass, output)
 			}
@@ -134,6 +167,32 @@ func TestRemovalGivesUpAtItsBoundOnAProgramNeverLetGo(t *testing.T) {
 	release()
 	if err := removeAll(dir, 300*time.Millisecond); err != nil {
 		t.Fatalf("the folder could not be removed once its program was let go: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the folder is still there after its removal (%v)", err)
+	}
+}
+
+// A file something still has open without sharing its removal, as a program
+// ended a moment ago can have its state, is refused with a sharing violation,
+// which Go's own cleanup retries as well. The removal waits that out too.
+func TestRemovalWaitsOutAFileStillHeldOpen(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(dir, "record")
+	if err := os.WriteFile(record, []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	release := holdOpen(t, record)
+	defer release()
+	time.AfterFunc(300*time.Millisecond, release)
+
+	err := removeAll(dir, 10*time.Second)
+
+	if err != nil {
+		t.Fatalf("removing a folder whose file was held open for a moment returned %v, want it removed", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("the folder is still there after its removal (%v)", err)
