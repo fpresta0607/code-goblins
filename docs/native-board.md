@@ -534,6 +534,7 @@ In a native terminal a process whose chain of parents stops short of the program
 The host records only the value's SHA-256 and when the terminal's program started, so the value proves nothing once Windows gives the program's pid to a later process.
 Every process the terminal starts inherits the value, so it proves nothing in a Herdr pane, to which a Herdr server started from the terminal would hand it, and `cfo serve` forgets the id and the value of the terminal it was started from before it starts anything.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
+Such a question never reaches the board, so once it has had 30 seconds to arrive `cfo answer` sends the CFO's choice straight to the goblin that asked, marks the notify answered and records nothing on the board; it refuses, sending nothing, when the goblin's current generation started after the notify, since that goblin never asked.
 The question is bound to the task generation and terminal that asked.
 The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned or moved successor: through Herdr to its pane, or typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
 The notify then reads answered: `cfo drain` prints the board's answer and acks the record without `--ack-blocking`, and the monitor stops re-asking it.
