@@ -8,11 +8,13 @@ import { pullRequestLabel } from "./workflow.ts";
 export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string };
 
 // An alert tells the Overlord that something needs him or finished: its key
-// is the one event it stands for, so an event alerts once. It is a goblin, or
-// the CFO, coming up to him: speaker names who, text is its one plain line,
-// and action is the one thing to do about it.
+// is the one event it stands for, a Command Center item's own id or a
+// goblin's news, and says is who says what, by which a copy of it is known.
+// It is a goblin, or the CFO, coming up to him: speaker names who, text is its
+// one plain line, and action is the one thing to do about it.
 export interface BoardAlert {
   key: string;
+  says: string;
   tone: "needs" | "failed" | "done";
   speaker: string;
   text: string;
@@ -35,11 +37,12 @@ const OPEN_COMMAND_CENTER = "Open Command Center";
 // it, falling back to its id.
 const nameOf = (tasks: Task[], id: string) => tasks.find((task) => task.id === id)?.title || id;
 
-// An item alerts by what it says and who says it, so the same ask filed again
-// under a new item, such as a wait a goblin files once more, is one event.
+// An item alerts by its own id, and says what it asks and who asks it, so the
+// same ask filed again under a new item, such as a wait a goblin files once
+// more, is known as a copy.
 function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   const target: AlertTarget = { kind: "command", key: item.key };
-  const alert = (task: string, text: string): BoardAlert => ({ key: "item:" + (task || "cfo") + ":" + text, tone: "needs", speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
+  const alert = (task: string, text: string): BoardAlert => ({ key: item.key, says: "item:" + (task || "cfo") + ":" + text, tone: "needs", speaker: task ? nameOf(tasks, task) : "CFO", text: shortened(text), action: OPEN_COMMAND_CENTER, task, target });
   const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CFO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
@@ -56,27 +59,32 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 // evidence or failed by its own report, or done with its pull request.
 // Anything else, such as working, in review or waiting on another task, is
 // routine and says nothing. A goblin blocked on its own question, which its
-// task reads as its report or as Waiting on the CFO, says nothing either: the
-// question alerts by itself when it reaches the Command Center.
+// task reads as Waiting on the CFO, says nothing either: a question with
+// choices alerts by itself when it reaches the Command Center, and one with
+// no choices is prose for the CFO, who is woken for it, so nothing waits on
+// the Overlord.
 function taskState(task: Task): "blocked" | "failed" | "done" | "" {
-  if (task.phase === "blocked") return task.report === "blocked" || task.reason.startsWith("Waiting on the CFO") ? "" : "blocked";
+  if (task.phase === "blocked") return task.reason.startsWith("Waiting on the CFO") ? "" : "blocked";
   if (task.phase === "failed" || task.report === "failed") return "failed";
   return (task.phase === "done" || task.report === "done") && task.pr ? "done" : "";
 }
 
 // A blocked goblin needs the Overlord, so its alert opens the Command Center
 // on its newest item waiting there, or with no item, on the first one waiting
-// or the inbox. Only its done or failed news opens the goblin itself. Its key
-// is the news itself: the same pull request or the same failure is one event,
-// and its next pull request is another.
+// or the inbox. Only its done or failed news opens the goblin itself. Its
+// news has no id of its own, so its key is what it says: the same pull request
+// or the same failure, and its next pull request is another.
 function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snapshot): BoardAlert {
   const name = shortened(task.title || task.id, NAME_LIMIT);
   const blocked = state === "blocked";
   const target: AlertTarget = blocked ? { kind: "command", key: newestItemOf(next, task.id)?.key || "" } : { kind: "task", id: task.id };
-  const alert = (tone: BoardAlert["tone"], news: string, text: string): BoardAlert => ({ key: "task:" + task.id + ":" + task.generation + ":" + state + ":" + news, tone, speaker: task.title || task.id, text: shortened(text), action: blocked ? OPEN_COMMAND_CENTER : "Open", task: task.id, target });
+  const alert = (tone: BoardAlert["tone"], news: string, text: string): BoardAlert => {
+    const key = "task:" + task.id + ":" + task.generation + ":" + state + ":" + news;
+    return { key, says: key, tone, speaker: task.title || task.id, text: shortened(text), action: blocked ? OPEN_COMMAND_CENTER : "Open", task: task.id, target };
+  };
   if (state === "done") return alert("done", task.pr, name + " finished: " + pullRequestLabel(task.pr) + " is ready.");
-  const reported = task.activity.startsWith(state + ": ") ? task.activity.slice(state.length + 2) : task.activity;
-  const said = task.report === state ? reported : task.reason;
+  const reported = task.activity.startsWith("failed: ") ? task.activity.slice("failed: ".length) : task.activity;
+  const said = state === "failed" && task.report === "failed" ? reported : task.reason;
   return alert(state === "failed" ? "failed" : "needs", said, name + (state === "failed" ? " failed: " : " is blocked: ") + (said || "it needs a decision to go on."));
 }
 
@@ -100,29 +108,49 @@ export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAle
   return [...items, ...tasks];
 }
 
-// How many alert keys a browser remembers having shown, newest last.
+// An alert a browser showed: its key, what it said, and when.
+export interface SeenAlert {
+  key: string;
+  says: string;
+  at: number;
+}
+
+// How many alerts a browser remembers having shown, newest last.
 export const SEEN_LIMIT = 100;
 
-// unseen is the alerts among a snapshot's that this page has never shown,
-// each once, and the keys remembered after showing them: an event alerts once
-// however often a snapshot, a reconnect or a reload brings it back.
-export function unseen(alerts: BoardAlert[], seen: readonly string[]): { fresh: BoardAlert[]; seen: string[] } {
-  const keys = new Set(seen);
+// How long the same words from the same speaker are one event.
+const SAME_EVENT_MS = 5 * 60 * 1000;
+
+// unseen is the alerts among a snapshot's that are not copies of one this
+// browser showed, each once, and the alerts remembered after showing them. An
+// item is a copy of one shown under its id, whenever that was, and any alert
+// is a copy of one that said the same less than five minutes before: a
+// snapshot, a reconnect or a reload brings no alert back, and the same news
+// later is a new event. An item that is a copy by its words is remembered
+// under its own id too, at the time of the one it copies, so it never alerts
+// later. The list comes back as it was given when nothing was added to it.
+export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: number): { fresh: BoardAlert[]; seen: readonly SeenAlert[] } {
+  const shown = [...seen];
   const fresh: BoardAlert[] = [];
   for (const alert of alerts) {
-    if (keys.has(alert.key)) continue;
-    keys.add(alert.key);
-    fresh.push(alert);
+    const isItem = alert.key !== alert.says;
+    if (isItem && shown.some((one) => one.key === alert.key)) continue;
+    const said = shown.find((one) => one.says === alert.says && now - one.at < SAME_EVENT_MS);
+    if (said && !isItem) continue;
+    shown.push({ key: alert.key, says: alert.says, at: said ? said.at : now });
+    if (!said) fresh.push(alert);
   }
-  return { fresh, seen: [...seen, ...fresh.map((alert) => alert.key)].slice(-SEEN_LIMIT) };
+  return { fresh, seen: shown.length === seen.length ? seen : shown.slice(-SEEN_LIMIT) };
 }
 
 // The most toasts shown at once; the oldest leaves first.
 const MAX_TOASTS = 4;
 
-// arrive stacks fresh alerts below the toasts on screen.
+// arrive stacks fresh alerts below the toasts on screen. A goblin's news that
+// comes again takes the place of its toast still resting there.
 export function arrive(shown: BoardAlert[], fresh: BoardAlert[]): BoardAlert[] {
-  return [...shown, ...fresh].slice(-MAX_TOASTS);
+  const keys = new Set(fresh.map((alert) => alert.key));
+  return [...shown.filter((toast) => !keys.has(toast.key)), ...fresh].slice(-MAX_TOASTS);
 }
 
 // A Windows notification is for an alert the Overlord would not see: the

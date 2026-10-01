@@ -372,6 +372,9 @@ A document the CFO or a goblin delivers with `cfo deliver` shows its file type, 
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
 Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
 Each event alerts once, however often the board reconnects or reloads, and a goblin's question alerts as that question alone.
+An item alerts once by its own id, and the same words from the same goblin within five minutes are one event.
+A goblin's news, or a wait it files again, more than five minutes later alerts again.
+Your browser remembers the last 100 alerts it showed.
 While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert, and clicking one opens its item and takes its alert off the board.
 
 <p align="center">
