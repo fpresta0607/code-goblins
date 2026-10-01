@@ -56,6 +56,10 @@ type EndpointSample struct {
 	// together locate the transcript the harness writes as it works.
 	Harness string
 	Session string
+	// ReadFailed marks an unknown sample whose terminal answered but whose
+	// screen could not be read, which the monitor reads again on its next
+	// scan before it wakes anybody.
+	ReadFailed bool
 }
 
 type Health string
@@ -102,6 +106,10 @@ const (
 	// (blocked, needs-decision, or checks-passed) whose wake was already
 	// delivered by the watcher's decision signal or cfo notify's own wake.
 	AwaitingDecision Reason = "awaiting_decision"
+	// GoblinIdle is a goblin that has sat at its prompt with nothing running,
+	// nothing asked and nothing reported for the idle window, read from its
+	// own screen and processes whatever harness it runs, hooks or none.
+	GoblinIdle Reason = "goblin_idle"
 )
 
 type EventSource string
@@ -145,11 +153,15 @@ type Observation struct {
 	// harness's last transcript write, or a reading in which the processes
 	// the harness started were using the processor. JobCPU and JobSampledAt
 	// are the reading the next one is measured against, and JobSampledSince
-	// is when the current run of consecutive readings began.
+	// is when the current run of consecutive readings began. ProgressReadAt
+	// and Jobs are the scan's own reading, when it was made and the processes
+	// it found running, so one scan reads the goblin's progress once.
 	EvidenceAt         *time.Time    `json:"evidence_at,omitempty"`
 	JobCPU             time.Duration `json:"job_cpu,omitempty"`
 	JobSampledAt       *time.Time    `json:"job_sampled_at,omitempty"`
 	JobSampledSince    *time.Time    `json:"job_sampled_since,omitempty"`
+	ProgressReadAt     *time.Time    `json:"-"`
+	Jobs               []string      `json:"-"`
 	IdleSince          *time.Time    `json:"idle_since,omitempty"`
 	StaleSince         *time.Time    `json:"stale_since,omitempty"`
 	NextEscalation     *time.Time    `json:"next_escalation,omitempty"`
@@ -182,6 +194,17 @@ type Observation struct {
 	// a whole busy budget has passed.
 	BusyWakeKind string     `json:"busy_wake_kind,omitempty"`
 	BusyWakeAt   *time.Time `json:"busy_wake_at,omitempty"`
+	// PromptSince is when the goblin was last seen settle at its prompt with
+	// nothing running, nothing asked and nothing reported, PromptStatus its
+	// status log's stamp then, and IdleWokeAt when it last woke the CFO as
+	// goblin_idle.
+	PromptSince  *time.Time `json:"prompt_since,omitempty"`
+	PromptStatus string     `json:"prompt_status,omitempty"`
+	IdleWokeAt   *time.Time `json:"idle_woke_at,omitempty"`
+	// ScreenUnreadSince is the scan whose read of the goblin's screen failed,
+	// kept until a read works, so one failed read is read again before it
+	// wakes anybody.
+	ScreenUnreadSince *time.Time `json:"screen_unread_since,omitempty"`
 }
 
 type Heartbeat struct {
@@ -353,7 +376,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthStale:
-		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer) {
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle) {
 			return errors.New("monitor: stale observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {
