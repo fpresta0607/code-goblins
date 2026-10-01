@@ -355,6 +355,41 @@ func TestBoardResumeLetsTheCLIReconcileOnlyAnOperationBoundLaunchBelowFiveGigaby
 	}
 }
 
+func TestBoardResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
+	tests := []struct {
+		name              string
+		available, commit uint64
+		status            int
+		want              string
+	}{
+		{name: "memory short", available: 4 * gigabyte, commit: 40 * gigabyte, status: 409, want: "Only 4.0 GB of memory is free; Resume needs 5 GB to keep the 4 GB floor"},
+		{name: "commit short", available: 16 * gigabyte, commit: 2*gigabyte + gigabyte/2, status: 409, want: "Only 2.5 GB of commit (RAM plus page file) is free; Resume needs 5 GB to keep the 4 GB floor"},
+		{name: "both fine", available: 5 * gigabyte, commit: 5 * gigabyte, status: 202},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoardWith(t, Memory{Available: test.available, Total: 32 * gigabyte, CommitAvailable: test.commit, CommitLimit: 48 * gigabyte}, spawner)
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"})
+
+			// Assert
+			if response.Code != test.status || !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("resume = %d %s, want %d saying %q", response.Code, response.Body, test.status, test.want)
+			}
+		})
+	}
+}
+
 func TestInterruptedResumeRemainsAvailableAfterPublishingAReplacementGeneration(t *testing.T) {
 	handler, h := orderBoard(t)
 	meta := state.TaskMeta{ID: "task", SpawnGen: "replacement", ResumeOperation: "resume-1", Backend: "native"}

@@ -16,12 +16,19 @@
 package runtime
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"time"
 )
 
 // Schema names the typed report, matching the convention fleet-view set.
 const Schema = "runtime-report.v1"
+
+// dispatchNext is the memory and the commit at which the next goblin starts:
+// the fleet's 4 GB floor and about 1 GB for the new session, the same mark
+// the board's Start holds a task to.
+const dispatchNext = 5 << 30
 
 // Inventory is everything the report is computed from: a plain value with no
 // I/O, so attribution is a pure function over fixtures. Collect builds the
@@ -176,7 +183,12 @@ type Machine struct {
 	// list plus the standby list Windows will evict for it. On a dev machine
 	// that is gigabytes wider than free memory, and it is the figure the
 	// dispatch budget is read from.
-	MemoryAvailable int64  `json:"memory_available"`
+	MemoryAvailable int64 `json:"memory_available"`
+	// CommitAvailable is what is left of the commit limit, memory plus page
+	// file. A process fails to start once it runs out, however much memory
+	// looks available, so the dispatch budget reads it beside memory.
+	CommitAvailable int64  `json:"commit_available"`
+	CommitLimit     int64  `json:"commit_limit"`
 	DiskTotal       int64  `json:"disk_total"`
 	DiskFree        int64  `json:"disk_free"`
 	DiskName        string `json:"disk_name"`
@@ -190,6 +202,29 @@ type Machine struct {
 	DockerVolumes     int64 `json:"docker_volumes"`
 	DockerBuildCache  int64 `json:"docker_build_cache"`
 	DockerReclaimable int64 `json:"docker_reclaimable"`
+}
+
+// Dispatch says whether the machine has room for the next goblin.
+type Dispatch struct {
+	Ready bool `json:"ready"`
+	// Line says so in one plain line, naming what is short when it is not.
+	Line string `json:"line"`
+}
+
+// Dispatch reads the machine against the mark at which the next goblin
+// starts, rounding down so a reading just under the mark never shows as it.
+func (m Machine) Dispatch() Dispatch {
+	gigabytes := func(bytes int64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
+	const wait = "Dispatch: wait, only %s free; the next goblin starts at 5 GB of both"
+	switch {
+	case m.MemoryAvailable < dispatchNext && m.CommitAvailable < dispatchNext:
+		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of memory and %.1f GB of commit (memory plus page file) are", gigabytes(m.MemoryAvailable), gigabytes(m.CommitAvailable)))}
+	case m.MemoryAvailable < dispatchNext:
+		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of memory is", gigabytes(m.MemoryAvailable)))}
+	case m.CommitAvailable < dispatchNext:
+		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of commit (memory plus page file) is", gigabytes(m.CommitAvailable)))}
+	}
+	return Dispatch{Ready: true, Line: fmt.Sprintf("Dispatch: ready, %.1f GB of memory and %.1f GB of commit are free", gigabytes(m.MemoryAvailable), gigabytes(m.CommitAvailable))}
 }
 
 // DockerTotal is everything Docker occupies on disk.
