@@ -205,3 +205,38 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 		t.Errorf("exit = %d, want 0: a missing presentation tool must not make doctor unhealthy\n%s", exit, stdout.String())
 	}
 }
+
+// cfo doctor shows what the monitor counted: the stale wakes it raised and the
+// ones it held back, each reason with the last goblin and the evidence that
+// held it, so a detector that stops seeing is visible rather than read as a
+// quiet fleet.
+func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	var empty bytes.Buffer
+	reportStaleWakes(&empty)
+	if !strings.Contains(empty.String(), "stale wakes: nothing counted yet") {
+		t.Errorf("a home the monitor never scanned reports %q, want nothing counted yet", empty.String())
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "state", "monitor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tally := `{"schema":"cfo-monitor-tally.v1","since":"2026-09-30T12:00:00Z","reasons":{"busy_turn_over_age":{"raised":1,"suppressed":3,"last":"2026-09-30T14:02:00Z","last_task":"g1","last_why":"the pane shows work running: ⎿  Running… (22s · timeout 10m)"},"goblin_idle":{"raised":2,"suppressed":0}}}`
+	if err := os.WriteFile(filepath.Join(root, "state", "monitor", "tally.json"), []byte(tally), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	reportStaleWakes(&stdout)
+
+	for _, want := range []string{
+		"stale wakes since 2026-09-30 12:00 UTC",
+		fmt.Sprintf("  %-20s raised %4d  held back %4d  last g1 at 09-30 14:02: the pane shows work running: ⎿  Running… (22s · timeout 10m)", "busy_turn_over_age", 1, 3),
+		fmt.Sprintf("  %-20s raised %4d  held back %4d", "goblin_idle", 2, 0),
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
