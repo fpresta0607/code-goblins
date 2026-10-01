@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,7 +50,7 @@ func TestWakesReachEveryCFOHarness(t *testing.T) {
 			continue
 		}
 		t.Run(pair[0]+"-cfo", func(t *testing.T) {
-			proveWakes(t, wakeProof{binary: binary, project: project, root: filepath.Join(results, pair[0]+"-cfo"), cfo: pair[0], goblin: pair[1], port: 4392 + i})
+			proveWakes(t, &wakeProof{binary: binary, project: project, root: filepath.Join(results, pair[0]+"-cfo"), cfo: pair[0], goblin: pair[1], port: 4392 + i})
 		})
 	}
 }
@@ -73,6 +75,10 @@ type wakeProof struct {
 	// cfoTerminal is the CFO's native terminal once it has started, whose
 	// screen a wait that gives up records.
 	cfoTerminal *host.Record
+	// seen is every record the queue has held since the proof began, by
+	// sequence, so a record the CFO acked between two looks still counts.
+	mu   sync.Mutex
+	seen map[int]wake.Record
 }
 
 func (p *wakeProof) say(format string, args ...any) {
@@ -80,7 +86,7 @@ func (p *wakeProof) say(format string, args ...any) {
 	fmt.Fprintln(p.log, line)
 }
 
-func proveWakes(t *testing.T, p wakeProof) {
+func proveWakes(t *testing.T, p *wakeProof) {
 	if err := os.MkdirAll(p.root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +105,11 @@ func proveWakes(t *testing.T, p wakeProof) {
 	writeProofFile(t, filepath.Join(p.home.Root, "AGENTS.md"), "# Scratch CFO home for the wake proof\n")
 	writeProofFile(t, filepath.Join(p.home.Root, home.InstalledMarker), "")
 	p.say("scratch home %s; CFO %s, goblin %s", p.home.Root, p.cfo, p.goblin)
+	p.seen = map[int]wake.Record{}
+	watching, stopWatching := context.WithCancel(context.Background())
+	watched := make(chan struct{})
+	go func() { defer close(watched); p.watchQueue(watching) }()
+	defer func() { stopWatching(); <-watched }()
 	p.setUpProject(t)
 	p.env = p.environment()
 
@@ -304,7 +315,7 @@ func (p *wakeProof) expectOneWake(t *testing.T, what string, within time.Duratio
 	var found []wake.Record
 	seen := map[int]bool{}
 	collect := func() {
-		for _, record := range p.records(t) {
+		for _, record := range p.records() {
 			if want(record) && !seen[record.Seq] {
 				seen[record.Seq] = true
 				found = append(found, record)
@@ -313,18 +324,44 @@ func (p *wakeProof) expectOneWake(t *testing.T, what string, within time.Duratio
 	}
 	p.await(t, "the wake for "+what, within, func() bool { collect(); return len(found) > 0 })
 	p.say("wake %d %s %s: %s", found[0].Seq, found[0].Kind, found[0].Key, found[0].Detail)
-	found[0].Once = what
 	return found[0]
 }
 
-// records reads every record the queue holds or has retired, from the queue
-// and the log of acked records this proof keeps, so a record acked between
-// two reads is still counted.
-func (p *wakeProof) records(t *testing.T) []wake.Record {
-	records, err := wake.Pending(p.home.State)
-	if err != nil {
-		return nil
+// watchQueueEvery is how often the proof reads the queue. A CFO takes a turn
+// of several seconds to drain and ack, so no record comes and goes between
+// two reads.
+const watchQueueEvery = 500 * time.Millisecond
+
+// watchQueue keeps every record the queue holds in p.seen until ctx ends.
+func (p *wakeProof) watchQueue(ctx context.Context) {
+	ticker := time.NewTicker(watchQueueEvery)
+	defer ticker.Stop()
+	for {
+		if records, err := wake.Pending(p.home.State); err == nil {
+			p.mu.Lock()
+			for _, record := range records {
+				p.seen[record.Seq] = record
+			}
+			p.mu.Unlock()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
+}
+
+// records is every record the queue has held since the proof began, acked
+// or not, in sequence order.
+func (p *wakeProof) records() []wake.Record {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	records := make([]wake.Record, 0, len(p.seen))
+	for _, record := range p.seen {
+		records = append(records, record)
+	}
+	sort.Slice(records, func(i, j int) bool { return records[i].Seq < records[j].Seq })
 	return records
 }
 
@@ -340,7 +377,7 @@ func (p *wakeProof) expectAcked(t *testing.T, record wake.Record) {
 	if data, err := os.ReadFile(filepath.Join(p.home.State, ".cfo-wake-typed")); err == nil {
 		p.say("typed wake lines have covered through: %s", strings.TrimSpace(string(data)))
 	}
-	for _, later := range p.records(t) {
+	for _, later := range p.records() {
 		if later.Seq > record.Seq && later.Kind == record.Kind && later.Key == record.Key {
 			t.Errorf("a second %s wake keyed %s followed wake %d: %d %s", record.Kind, record.Key, record.Seq, later.Seq, later.Detail)
 		}
