@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/installtest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,7 +80,7 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 			if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			cmd, _, _ := strippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
+			cmd, _, _ := installtest.StrippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
 
 			// Act
 			out, err := cmd.CombinedOutput()

@@ -1,4 +1,4 @@
-package codegoblins
+package installtest
 
 import (
 	"archive/zip"
@@ -16,7 +16,71 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
+
+// standInVariable makes a copy of this test binary stand in for a program,
+// such as cfo.exe or no-mistakes.exe, whose every command succeeds unless
+// standInFailVariable names it.
+const standInVariable = "CODE_GOBLINS_TEST_STAND_IN"
+
+// standInRecordVariable names a file a stand-in appends each command it runs
+// to, as its program's name and arguments on a line.
+const standInRecordVariable = "CODE_GOBLINS_TEST_STAND_IN_RECORD"
+
+// standInVersionVariable is the version a stand-in no-mistakes reports on
+// stdout for --version, as no-mistakes version vX.Y.Z does.
+const standInVersionVariable = "CODE_GOBLINS_TEST_STAND_IN_VERSION"
+
+// standInStderrVariable is text a stand-in writes to stderr for --version,
+// where no-mistakes writes its update notice.
+const standInStderrVariable = "CODE_GOBLINS_TEST_STAND_IN_STDERR"
+
+// standInFailVariable names a command, such as daemon stop, a stand-in exits
+// 1 for, as no-mistakes refuses to stop its daemon while a gate runs.
+const standInFailVariable = "CODE_GOBLINS_TEST_STAND_IN_FAIL"
+
+// standInHold is the command that keeps a stand-in running, as a no-mistakes
+// command still running holds its program.
+const standInHold = "hold"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(standInVariable) != "" {
+		command := strings.Join(os.Args[1:], " ")
+		if record := os.Getenv(standInRecordVariable); record != "" {
+			program := strings.TrimSuffix(strings.ToLower(filepath.Base(os.Args[0])), ".exe")
+			file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				os.Exit(1)
+			}
+			_, _ = fmt.Fprintf(file, "%s\r\n", strings.Join(append([]string{program}, os.Args[1:]...), " "))
+			_ = file.Close()
+		}
+		switch command {
+		case standInHold:
+			time.Sleep(time.Hour)
+		case "--version":
+			_, _ = fmt.Fprint(os.Stderr, os.Getenv(standInStderrVariable))
+			if version := os.Getenv(standInVersionVariable); version != "" {
+				fmt.Printf("no-mistakes version v%s (0000000) 2026-01-01T00:00:00Z\n", version)
+			}
+		}
+		if fail := os.Getenv(standInFailVariable); fail != "" && command == fail {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+func installScript(t *testing.T) string {
+	t.Helper()
+	script, err := filepath.Abs(filepath.Join("..", "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
 
 // noMistakesDownloads is where no-mistakes publishes its releases. The
 // install downloads from here, never through GitHub's API, which answers an
@@ -154,7 +218,7 @@ type noMistakesInstall struct {
 func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMistakesSetup) noMistakesInstall {
 	t.Helper()
 	binary := standIn(t)
-	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	base := ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	record := filepath.Join(t.TempDir(), "record.txt")
 	all := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}
 	for name, script := range setup.stubs {
@@ -173,7 +237,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 		"  throw \"offline: $Uri\"\n" +
 		"}\n" +
 		"function Start-Sleep { param([int]$Seconds) Add-Content -LiteralPath '" + record + "' -Value \"wait $Seconds\" }\n"
-	cmd, local, temp := strippedCommand(t, base, all, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+	cmd, local, temp := StrippedCommand(t, base, all, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
 	var bin string
 	for i, variable := range cmd.Env {
@@ -252,44 +316,41 @@ func assertUpdated(t *testing.T, run noMistakesInstall, pinned []byte) {
 // of times with a wait between attempts: two failures in a row, as a rate
 // limit or a 503 gives, still install it. It verifies the archive against
 // the release's checksums.txt, puts no-mistakes.exe where no-mistakes'
-// installer does, on the user's PATH, and starts its daemon. Each PowerShell
-// reports a failed download its own way, so both are run.
+// installer does, on the user's PATH, and starts its daemon. The retry does
+// not depend on the shell, so Windows PowerShell alone runs it; the install
+// workflow installs the real release in both PowerShells on a clean runner.
 func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) {
 	program := standIn(t)
-	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 2, publishedSums)
+	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 2, publishedSums)
 
-			run := runInstallWithNoMistakes(t, shell, releases, noMistakesSetup{})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
 
-			version := pinnedNoMistakes(t)
-			archive := "no-mistakes-v" + version + "-windows-amd64.zip"
-			if n := requests.Load(); n != 3 {
-				t.Errorf("the archive was requested %d times, want 3: two failures, then the download:\n%s", n, run.output)
-			}
-			if !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/"+archive+"\r\n") || !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/checksums.txt\r\n") {
-				t.Errorf("the pinned release v%s was not downloaded from %s:\n%s", version, noMistakesDownloads, run.record)
-			}
-			if waits := strings.Count(run.record, "wait "); waits != 2 {
-				t.Errorf("the install waited %d times, want once before each of the 2 retries:\n%s", waits, run.record)
-			}
-			if !strings.Contains(run.output, "Verified "+archive+" against the release's checksums.txt") {
-				t.Errorf("the archive was not verified against checksums.txt:\n%s", run.output)
-			}
-			if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, program) {
-				t.Fatalf("no-mistakes.exe was not installed at %s (%v):\n%s", installedNoMistakes(run.local), err, run.output)
-			}
-			if !strings.Contains(run.record, "no-mistakes daemon start\r\n") {
-				t.Errorf("the installed no-mistakes did not start its daemon:\n%s\n%s", run.record, run.output)
-			}
-			userEnv, err := os.ReadFile(run.userEnv)
-			if err != nil || !strings.Contains(string(userEnv), strings.ReplaceAll(filepath.Join(run.local, "no-mistakes"), `\`, `\\`)) {
-				t.Errorf("the no-mistakes folder is not on the user's PATH in %s (%v): %s", run.userEnv, err, userEnv)
-			}
-			assertNoAPICall(t, run)
-			assertNoDownloadLeft(t, run.temp)
-		})
+	version := pinnedNoMistakes(t)
+	archive := "no-mistakes-v" + version + "-windows-amd64.zip"
+	if n := requests.Load(); n != 3 {
+		t.Errorf("the archive was requested %d times, want 3: two failures, then the download:\n%s", n, run.output)
 	}
+	if !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/"+archive+"\r\n") || !strings.Contains(run.record, "download "+noMistakesDownloads+"v"+version+"/checksums.txt\r\n") {
+		t.Errorf("the pinned release v%s was not downloaded from %s:\n%s", version, noMistakesDownloads, run.record)
+	}
+	if waits := strings.Count(run.record, "wait "); waits != 2 {
+		t.Errorf("the install waited %d times, want once before each of the 2 retries:\n%s", waits, run.record)
+	}
+	if !strings.Contains(run.output, "Verified "+archive+" against the release's checksums.txt") {
+		t.Errorf("the archive was not verified against checksums.txt:\n%s", run.output)
+	}
+	if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, program) {
+		t.Fatalf("no-mistakes.exe was not installed at %s (%v):\n%s", installedNoMistakes(run.local), err, run.output)
+	}
+	if !strings.Contains(run.record, "no-mistakes daemon start\r\n") {
+		t.Errorf("the installed no-mistakes did not start its daemon:\n%s\n%s", run.record, run.output)
+	}
+	userEnv, err := os.ReadFile(run.userEnv)
+	if err != nil || !strings.Contains(string(userEnv), strings.ReplaceAll(filepath.Join(run.local, "no-mistakes"), `\`, `\\`)) {
+		t.Errorf("the no-mistakes folder is not on the user's PATH in %s (%v): %s", run.userEnv, err, userEnv)
+	}
+	assertNoAPICall(t, run)
+	assertNoDownloadLeft(t, run.temp)
 }
 
 // A no-mistakes download that keeps failing stops after its last attempt
@@ -298,7 +359,7 @@ func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) 
 func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T) {
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("never served")), 1000, publishedSums)
 
-	run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
 
 	if n := requests.Load(); n != 3 {
 		t.Errorf("the archive was requested %d times, want 3 attempts and no more:\n%s", n, run.output)
@@ -330,7 +391,7 @@ func TestOneLineInstallRefusesANoMistakesArchiveThatDoesNotMatchItsChecksum(t *t
 		t.Run(name, func(t *testing.T) {
 			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("a build the release did not publish")), 0, sums)
 
-			run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{})
+			run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
 
 			if !strings.Contains(run.output, "does not match the release's checksums.txt") {
 				t.Errorf("the install did not refuse the archive:\n%s", run.output)
@@ -404,41 +465,41 @@ func pinnedStandIn(t *testing.T) []byte {
 }
 
 // Rerunning the install moves an older no-mistakes, where the install put it,
-// to the pinned release: it reads the older version from stdout alone, where
-// an update notice on stderr may name another, downloads and verifies the
-// release first, then stops the daemon, which no-mistakes itself refuses while
-// a gate runs, replaces the program even while a no-mistakes command still
-// runs it, and starts the daemon again. Each PowerShell expands the archive
-// and moves the program with its own modules, so both are run.
+// to the pinned release, even in a window opened before that copy was
+// installed, whose PATH does not find it: it reads the older version from
+// stdout alone, where an update notice on stderr may name another, downloads
+// and verifies the release first, then stops the daemon, which no-mistakes
+// itself refuses while a gate runs, replaces the program even while a
+// no-mistakes command still runs it, and starts the daemon again. The update
+// does not depend on the shell, so Windows PowerShell alone runs it; the
+// install workflow installs the real release in both PowerShells on a clean
+// runner.
 func TestOneLineInstallUpdatesAnOlderNoMistakesToThePinnedRelease(t *testing.T) {
 	pinned := pinnedStandIn(t)
-	for _, shell := range oneLineShells(t) {
-		t.Run(filepath.Base(shell), func(t *testing.T) {
-			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinned), 0, publishedSums)
-			var older []byte
-			var exited chan struct{}
+	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinned), 0, publishedSums)
+	var older []byte
+	var exited chan struct{}
 
-			run := runInstallWithNoMistakes(t, shell, releases, noMistakesSetup{
-				seed: func(local string) {
-					older = seedNoMistakes(t, local)
-					exited = holdRunning(t, installedNoMistakes(local))
-				},
-				env: []string{olderVersion, standInStderrVariable + "=A new version of no-mistakes is available: v1.0.0 -> v999.0.0\nno-mistakes version v999.0.0 (0000000) 2026-01-01T00:00:00Z\n"},
-			})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
+		seed: func(local string) {
+			older = seedNoMistakes(t, local)
+			exited = holdRunning(t, installedNoMistakes(local))
+		},
+		staleWindow: true,
+		env:         []string{olderVersion, standInStderrVariable + "=A new version of no-mistakes is available: v1.0.0 -> v999.0.0\nno-mistakes version v999.0.0 (0000000) 2026-01-01T00:00:00Z\n"},
+	})
 
-			assertUpdated(t, run, pinned)
-			if old, err := os.ReadFile(installedNoMistakes(run.local) + ".old"); err != nil || !bytes.Equal(old, older) {
-				t.Errorf("the running copy was not moved aside to no-mistakes.exe.old, where no-mistakes removes it (%v)", err)
-			}
-			select {
-			case <-exited:
-				t.Errorf("the running no-mistakes command was stopped, want it left running")
-			default:
-			}
-			assertNoAPICall(t, run)
-			assertNoDownloadLeft(t, run.temp)
-		})
+	assertUpdated(t, run, pinned)
+	if old, err := os.ReadFile(installedNoMistakes(run.local) + ".old"); err != nil || !bytes.Equal(old, older) {
+		t.Errorf("the running copy was not moved aside to no-mistakes.exe.old, where no-mistakes removes it (%v)", err)
 	}
+	select {
+	case <-exited:
+		t.Errorf("the running no-mistakes command was stopped, want it left running")
+	default:
+	}
+	assertNoAPICall(t, run)
+	assertNoDownloadLeft(t, run.temp)
 }
 
 // While a gate runs, no-mistakes refuses to stop its daemon, and the install
@@ -448,7 +509,7 @@ func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
 	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 	var older []byte
 
-	run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
 		seed: func(local string) { older = seedNoMistakes(t, local) },
 		env:  []string{olderVersion, standInFailVariable + "=daemon stop"},
 	})
@@ -475,7 +536,7 @@ func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
 func TestOneLineInstallWarnsOfAnOlderNoMistakesItDidNotInstall(t *testing.T) {
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 
-	run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{stubs: map[string]string{"no-mistakes": existingNoMistakes("1.0.0")}})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{stubs: map[string]string{"no-mistakes": existingNoMistakes("1.0.0")}})
 
 	stub := filepath.Join(run.bin, "no-mistakes.cmd")
 	warning := regexp.MustCompile(`WARN\s+no-mistakes\s+` + regexp.QuoteMeta(stub) + ` is v1\.0\.0, older than the pinned v` + regexp.QuoteMeta(pinnedNoMistakes(t)) + `,.*run: no-mistakes update`)
@@ -493,74 +554,56 @@ func TestOneLineInstallWarnsOfAnOlderNoMistakesItDidNotInstall(t *testing.T) {
 	}
 }
 
-// A no-mistakes at the pinned release or newer is left as it is: nothing is
+// A no-mistakes at the pinned release is left as it is: nothing is
 // downloaded and its daemon keeps running.
-func TestOneLineInstallKeepsANoMistakesAtOrPastThePin(t *testing.T) {
-	for name, version := range map[string]string{"the pinned release": pinnedNoMistakes(t), "a newer release": "999.0.0"} {
-		t.Run(name, func(t *testing.T) {
-			releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
+func TestOneLineInstallKeepsANoMistakesAtThePin(t *testing.T) {
+	version := pinnedNoMistakes(t)
+	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 
-			run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{stubs: map[string]string{"no-mistakes": existingNoMistakes(version)}})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{stubs: map[string]string{"no-mistakes": existingNoMistakes(version)}})
 
-			if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
-				t.Errorf("no-mistakes %s was not reported present:\n%s", version, run.output)
-			}
-			if n := requests.Load(); n != 0 || strings.Contains(run.record, noMistakesDownloads) {
-				t.Errorf("the install downloaded no-mistakes (%d archive requests):\n%s", n, run.record)
-			}
-			if strings.Contains(run.record, "daemon") {
-				t.Errorf("the install touched the daemon:\n%s", run.record)
-			}
-		})
+	if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
+		t.Errorf("no-mistakes %s was not reported present:\n%s", version, run.output)
+	}
+	if n := requests.Load(); n != 0 || strings.Contains(run.record, noMistakesDownloads) {
+		t.Errorf("the install downloaded no-mistakes (%d archive requests):\n%s", n, run.record)
+	}
+	if strings.Contains(run.record, "daemon") {
+		t.Errorf("the install touched the daemon:\n%s", run.record)
 	}
 }
 
 // The install judges no-mistakes by the copy it manages even in a window
 // opened before that copy was installed, whose PATH does not find it: a newer
 // copy is kept, with nothing downloaded, stopped or started, and its folder
-// put on the PATH; an older one is updated through its own daemon stop, which
-// no-mistakes refuses while a gate runs.
-func TestOneLineInstallJudgesTheManagedNoMistakesThatThisWindowCannotSee(t *testing.T) {
-	pinned := pinnedStandIn(t)
-	t.Run("a newer copy", func(t *testing.T) {
-		releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinned), 0, publishedSums)
-		var newer []byte
+// put on the PATH. An older one is updated, as the update test shows in such
+// a window.
+func TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee(t *testing.T) {
+	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinnedStandIn(t)), 0, publishedSums)
+	var newer []byte
 
-		run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{
-			seed:        func(local string) { newer = seedNoMistakes(t, local) },
-			staleWindow: true,
-			env:         []string{standInVersionVariable + "=999.0.0"},
-		})
-
-		if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
-			t.Errorf("the newer no-mistakes was not reported present:\n%s", run.output)
-		}
-		if n := requests.Load(); n != 0 || strings.Contains(run.record, noMistakesDownloads) {
-			t.Errorf("the install downloaded no-mistakes (%d archive requests):\n%s", n, run.record)
-		}
-		if strings.Contains(run.record, "daemon") {
-			t.Errorf("the install touched the daemon:\n%s", run.record)
-		}
-		if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, newer) {
-			t.Errorf("no-mistakes.exe was changed (%v), want the newer copy kept", err)
-		}
-		userEnv, err := os.ReadFile(run.userEnv)
-		if err != nil || !strings.Contains(string(userEnv), strings.ReplaceAll(filepath.Join(run.local, "no-mistakes"), `\`, `\\`)) {
-			t.Errorf("the no-mistakes folder is not on the user's PATH in %s (%v): %s", run.userEnv, err, userEnv)
-		}
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
+		seed:        func(local string) { newer = seedNoMistakes(t, local) },
+		staleWindow: true,
+		env:         []string{standInVersionVariable + "=999.0.0"},
 	})
-	t.Run("an older copy", func(t *testing.T) {
-		releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinned), 0, publishedSums)
 
-		run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{
-			seed:        func(local string) { seedNoMistakes(t, local) },
-			staleWindow: true,
-			env:         []string{olderVersion},
-		})
-
-		assertUpdated(t, run, pinned)
-		assertNoDownloadLeft(t, run.temp)
-	})
+	if !regexp.MustCompile(`ok\s+no-mistakes\s+present`).MatchString(run.output) {
+		t.Errorf("the newer no-mistakes was not reported present:\n%s", run.output)
+	}
+	if n := requests.Load(); n != 0 || strings.Contains(run.record, noMistakesDownloads) {
+		t.Errorf("the install downloaded no-mistakes (%d archive requests):\n%s", n, run.record)
+	}
+	if strings.Contains(run.record, "daemon") {
+		t.Errorf("the install touched the daemon:\n%s", run.record)
+	}
+	if installed, err := os.ReadFile(installedNoMistakes(run.local)); err != nil || !bytes.Equal(installed, newer) {
+		t.Errorf("no-mistakes.exe was changed (%v), want the newer copy kept", err)
+	}
+	userEnv, err := os.ReadFile(run.userEnv)
+	if err != nil || !strings.Contains(string(userEnv), strings.ReplaceAll(filepath.Join(run.local, "no-mistakes"), `\`, `\\`)) {
+		t.Errorf("the no-mistakes folder is not on the user's PATH in %s (%v): %s", run.userEnv, err, userEnv)
+	}
 }
 
 // An archive that does not hold no-mistakes.exe where a release's archive
@@ -570,7 +613,7 @@ func TestOneLineInstallRefusesANoMistakesArchiveWithoutItsProgram(t *testing.T) 
 	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes/no-mistakes.exe", []byte("the program in a folder")), 0, publishedSums)
 	var older []byte
 
-	run := runInstallWithNoMistakes(t, windowsPowerShell(), releases, noMistakesSetup{
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{
 		seed: func(local string) { older = seedNoMistakes(t, local) },
 		env:  []string{olderVersion},
 	})
