@@ -328,7 +328,7 @@ func writePolicyMigrationJournal(path string, journal policyMigrationJournal) er
 }
 
 func loadPolicyMigrationJournal(path string) (policyMigrationJournal, error) {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return policyMigrationJournal{}, err
 	}

@@ -23,6 +23,8 @@ const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
 
+// A focus opens its item; one without a key opens the first item waiting on
+// the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
 // Whether the Overlord is typing somewhere on the board: in a text field, a
@@ -96,12 +98,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
+  // A presentation reaches him only when its goblin asks him to watch it; a
+  // goblin's own test run stays off the Command Center.
+  const watching = presentations.filter((event) => event.watch);
+  const needing = waiting.length + watching.length;
   const baseTitle = useRef(document.title);
-  useEffect(() => { document.title = countedTitle(baseTitle.current, waiting.length); }, [waiting.length]);
+  useEffect(() => { document.title = countedTitle(baseTitle.current, needing); }, [needing]);
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    if (focus) { setOpen(true); show(focus.key); setInbox(false); }
+    const key = focus?.key || waiting[0]?.key;
+    if (focus && key) { setOpen(true); show(key); setInbox(false); }
+    else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
   // or "You're all done" when nothing else waits.
@@ -129,6 +137,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
+  const shownKey = item?.key || "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -152,11 +161,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (showing && !element.open) {
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
-      // Start on the question itself, not the close button.
-      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus();
+      // Start on the question itself, not the close button, with the
+      // Command Center at its top however it was left.
+      element.scrollTop = 0;
+      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus({ preventScroll: true });
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
+  // Each item shows from its top; within one item the scroll stays where he
+  // puts it.
+  useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
@@ -205,10 +219,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const images = !item || item.kind === "run" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
-  // A presentation reaches him only when its goblin asks him to watch it; a
-  // goblin's own test run stays off the Command Center.
-  const watching = presentations.filter((event) => event.watch);
-  const needing = waiting.length + watching.length;
   const presenter = (event: BoardActivity) => event.cfo_identity ? "The CFO" : snapshot.tasks.find((task) => task.id === event.task_id)?.title || event.task_id;
   const settled = settledItems(snapshot).slice(0, 20);
   return <>

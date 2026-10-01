@@ -81,6 +81,11 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
+// The newest item a goblin has waiting on the Overlord, if any.
+export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
+  return asItems(snapshot).filter((item) => isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
+}
+
 // The item to show after the one at key: the next open item, wrapping to the
 // first, passing over what was sent in this sitting before the snapshot says
 // so. Null means nothing else waits on him.

@@ -29,6 +29,8 @@ type NativeProber struct {
 	StateDir string
 	// ReadScreen reads a host's console; nil reads it through the host.
 	ReadScreen func(host.Record) ([]string, error)
+	// Dial checks that a host answers on its pipe; nil dials it.
+	Dial func(host.Record) error
 }
 
 // Inspect samples the task's native terminal. The sample names the terminal
@@ -67,12 +69,16 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	if err != nil {
 		// A host that was killed leaves its record behind, so only an answer
 		// on its pipe says the terminal still runs.
-		client, dialErr := host.Dial(record)
-		if dialErr != nil {
+		dial := p.Dial
+		if dial == nil {
+			dial = dialHost
+		}
+		if dialErr := dial(record); dialErr != nil {
 			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume)}, nil
 		}
-		_ = client.Close()
-		return unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err)), nil
+		sample := unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err))
+		sample.ReadFailed = true
+		return sample, nil
 	}
 	sample := EndpointSample{
 		Verdict:             ProbePresent,
@@ -94,6 +100,14 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 		sample.Status, sample.Busy = herdr.AgentUnknown, herdr.BusyUnknown
 	}
 	return sample, nil
+}
+
+func dialHost(record host.Record) error {
+	client, err := host.Dial(record)
+	if err != nil {
+		return err
+	}
+	return client.Close()
 }
 
 // BackendProber inspects each task with the prober of the terminal backend

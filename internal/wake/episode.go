@@ -29,7 +29,7 @@ var ErrGenerationMismatch = errors.New("wake: recovery generation moved")
 // readEpisode is ReadEpisode's implementation, reused by PublishEpisode and
 // AckEpisode from inside the lock they already hold.
 func readEpisode(dir string) (Episode, error) {
-	data, err := os.ReadFile(filepath.Join(dir, episodeFile))
+	data, err := fsx.ReadFile(filepath.Join(dir, episodeFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return Episode{}, nil
 	}

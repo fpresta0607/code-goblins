@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // The test binary plays every part. As the command in a terminal it answers
@@ -358,6 +360,23 @@ func TestTheTerminalCarriesAProofOnlyItsHostsRecordProves(t *testing.T) {
 	v.waitFor(t, "host-proof "+record.ProofSum)
 	if record.Proves("outer-proof") || record.Proves("") || (Record{}).Proves("outer-proof") {
 		t.Errorf("record %+v proves another terminal's value, an empty one, or a record without a proof proves one", record)
+	}
+}
+
+// The record names when the terminal's program was created, which tells the
+// program from a later process that Windows gives its pid.
+func TestTheRecordNamesWhenTheTerminalsProgramStarted(t *testing.T) {
+	// Arrange
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	started, ok := proc.StartTime(record.ChildPID)
+
+	// Assert
+	if !ok || record.ChildStart.IsZero() || !record.ChildStart.Equal(started) {
+		t.Errorf("record names the program's start %v, want %v (found %t)", record.ChildStart, started, ok)
 	}
 }
 

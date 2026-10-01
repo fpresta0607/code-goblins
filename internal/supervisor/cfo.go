@@ -185,7 +185,7 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
 	if at < 0 {
-		program, err := terminalProgram(record, os.Getenv(host.IDVariable), os.Getenv(host.ProofVariable))
+		program, err := terminalProgram(record, os.Environ())
 		if err != nil || len(ancestry) == 0 {
 			return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
 		}
@@ -201,19 +201,24 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	return ancestry, at, nil
 }
 
-// terminalProgram proves that a process carrying terminal id and proof in its
-// environment runs in native terminal record, by the proof value its host put
-// there, and returns the terminal's program. It is how a process whose chain
-// of parents stops short of the program is proven, as a Cygwin or MSYS exec
-// leaves one: Git Bash runs timeout by replacing its own Windows process, so
-// `timeout 60 cfo notify ...` has a parent that already exited, and the MSYS
-// runtime breaks away from the terminal's job as well.
-func terminalProgram(record host.Record, id, proof string) (proc.Entry, error) {
-	if id != record.ID || !record.Proves(proof) {
+// terminalProgram proves that a process whose environment is env runs in
+// native terminal record, by the proof value its host put there, and returns
+// the terminal's program. It is how a process whose chain of parents stops
+// short of the program is proven, as a Cygwin or MSYS exec leaves one: Git
+// Bash runs timeout by replacing its own Windows process, so `timeout 60 cfo
+// notify ...` has a parent that already exited, and the MSYS runtime breaks
+// away from the terminal's job as well. Every descendant of the terminal
+// inherits the value, so a process in a Herdr pane proves nothing by it: a
+// Herdr server started from the terminal hands it to every pane it opens.
+func terminalProgram(record host.Record, env []string) (proc.Entry, error) {
+	if environmentValue(env, "HERDR_PANE_ID") != "" {
+		return proc.Entry{}, errors.New("it runs in a Herdr pane, not in the terminal")
+	}
+	if environmentValue(env, host.IDVariable) != record.ID || !record.Proves(environmentValue(env, host.ProofVariable)) {
 		return proc.Entry{}, errors.New("it carries no proof of the terminal")
 	}
 	program, err := proc.Ancestry(record.ChildPID, 1)
-	if err != nil || len(program) == 0 {
+	if err != nil || len(program) == 0 || !program[0].Start.Equal(record.ChildStart) {
 		return proc.Entry{}, fmt.Errorf("the terminal's program pid %d is not running", record.ChildPID)
 	}
 	return program[0], nil
@@ -407,11 +412,13 @@ type cfoState struct {
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
 	terminal string
+	// harness is the harness the registered CFO runs, as it registered.
+	harness string
 }
 
 func readCFOState(stateDir string) cfoState {
 	if primary, live := livePrimary(stateDir); live {
-		return cfoState{registered: true, terminal: primary.Host}
+		return cfoState{registered: true, terminal: primary.Host, harness: primary.Agent}
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}

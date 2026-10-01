@@ -160,7 +160,7 @@ func approvedPlan(h home.Home, digest string) ([]string, error) {
 	if !planDigest.MatchString(digest) {
 		return nil, fmt.Errorf("--plan %s is not a plan digest", digest)
 	}
-	data, err := os.ReadFile(planListingPath(h, digest))
+	data, err := fsx.ReadFile(planListingPath(h, digest))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("no dry run printed plan %s; run cfo home migrate first", digest)
 	}

@@ -327,6 +327,71 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 	}
 }
 
+// A goblin that paused itself and then lost its terminal, as the paused
+// Codex goblins did when Defender quarantined their hosts' binary, tells the
+// CFO on the first scan after the terminal goes and then once per pause
+// resurface interval that it is paused and its terminal is gone, not on every
+// scan after each wake is taken.
+func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := testService(stateDir, probe, &now)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(stateDir, "g1", "paused: Codex usage limit"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	paused, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Event == nil {
+		t.Fatalf("paused scan = %+v, want the pause surfaced", paused)
+	}
+	if _, err := service.Publish(*paused.Event); err != nil {
+		t.Fatal(err)
+	}
+	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; cfo switch g1 restarts its harness in place, resuming its session"}
+
+	// Act
+	var wakes []Event
+	var wakeScans []int
+	for scan := 0; scan < 36; scan++ {
+		now = now.Add(5 * time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event == nil {
+			continue
+		}
+		wakes = append(wakes, *result.Event)
+		wakeScans = append(wakeScans, scan)
+		if _, err := service.Publish(*result.Event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if len(wakes) == 0 || len(wakes) > 3 {
+		t.Fatalf("a paused task with no terminal woke the CFO %d times in 3 hours, want at least once and at most once an hour: %+v", len(wakes), wakes)
+	}
+	if wakeScans[0] != 0 {
+		t.Errorf("first wake came on scan %d (wake scans %v), want scan 0, the first scan after the terminal went", wakeScans[0], wakeScans)
+	}
+	for _, wake := range wakes {
+		if !strings.HasPrefix(wake.Detail, string(EndpointMissing)+": ") || !strings.Contains(wake.Detail, "paused") {
+			t.Errorf("wake detail = %q, want an endpoint_missing wake that says the task is paused", wake.Detail)
+		}
+	}
+}
+
 func TestScanUnknownEndpointPreservesCorruptRecordAndContinuesAfterRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
