@@ -167,19 +167,21 @@ func PublishRun(h home.Home, req RunRequest) error {
 
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
-// may put on the board (a question, a review record or an answer), which the
-// supervisor records only once the sending process is proven to be the CFO.
+// may put on the board (a question, a review record, an answer or a
+// credential request), which the supervisor records only once the sending
+// process is proven to be the CFO.
 type runPipeRequest struct {
-	Kind     string     `json:"kind,omitempty"`
-	ID       string     `json:"id"`
-	Title    string     `json:"title"`
-	Shell    string     `json:"shell"`
-	Admin    bool       `json:"admin"`
-	Cwd      string     `json:"cwd"`
-	Command  string     `json:"command"`
-	Question *Question  `json:"question,omitempty"`
-	Review   *Review    `json:"review,omitempty"`
-	Answer   *cfoAnswer `json:"answer,omitempty"`
+	Kind       string             `json:"kind,omitempty"`
+	ID         string             `json:"id"`
+	Title      string             `json:"title"`
+	Shell      string             `json:"shell"`
+	Admin      bool               `json:"admin"`
+	Cwd        string             `json:"cwd"`
+	Command    string             `json:"command"`
+	Question   *Question          `json:"question,omitempty"`
+	Review     *Review            `json:"review,omitempty"`
+	Answer     *cfoAnswer         `json:"answer,omitempty"`
+	Credential *CredentialRequest `json:"credential,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

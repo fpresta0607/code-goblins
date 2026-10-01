@@ -117,8 +117,73 @@ type Manifest struct {
 	// Services are reported in manifest order, so the author controls what a
 	// reader sees first.
 	Services []Service `json:"services"`
+	// Formats say what credential values look like, so a credential request's
+	// card can warn about a pasted value of the wrong kind. A hint warns; it
+	// never refuses a value.
+	Formats []Format `json:"formats,omitempty"`
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
+}
+
+// Format is the shape of the values a set of credential names takes.
+type Format struct {
+	// Names are credential names, each exact or ending in * to match every
+	// name that starts with what comes before it, such as STRIPE_*.
+	Names []string `json:"names"`
+	// Prefixes are how a value is expected to start, such as sk_ and rk_; a
+	// value that starts with none of them is warned about.
+	Prefixes []string `json:"prefixes,omitempty"`
+	// Warn holds advice for values that start a certain way, such as a live
+	// secret key where a restricted key would do.
+	Warn []FormatWarning `json:"warn,omitempty"`
+}
+
+// FormatWarning is advice for a value that starts with Prefix.
+type FormatWarning struct {
+	Prefix string `json:"prefix"`
+	Say    string `json:"say"`
+}
+
+// FormatFor returns the first format hint whose names match name.
+func (m Manifest) FormatFor(name string) (Format, bool) {
+	for _, format := range m.Formats {
+		for _, pattern := range format.Names {
+			if stem, wildcard := strings.CutSuffix(pattern, "*"); wildcard && strings.HasPrefix(name, stem) || pattern == name {
+				return format, true
+			}
+		}
+	}
+	return Format{}, false
+}
+
+// validateFormats refuses a hint that can never warn: one that names nothing,
+// says nothing, or matches names by a pattern FormatFor does not read.
+func validateFormats(formats []Format) error {
+	for index, format := range formats {
+		if len(format.Names) == 0 {
+			return fmt.Errorf("format %d names no credentials", index)
+		}
+		for _, pattern := range format.Names {
+			stem, _ := strings.CutSuffix(pattern, "*")
+			if !ValidEnvName(stem) {
+				return fmt.Errorf("format %d names %q, which is neither a credential name nor one ending in *", index, pattern)
+			}
+		}
+		if len(format.Prefixes) == 0 && len(format.Warn) == 0 {
+			return fmt.Errorf("format %d has neither prefixes nor warnings", index)
+		}
+		for _, prefix := range format.Prefixes {
+			if strings.TrimSpace(prefix) == "" || len(prefix) > 32 {
+				return fmt.Errorf("format %d has an empty or overlong prefix", index)
+			}
+		}
+		for _, warning := range format.Warn {
+			if strings.TrimSpace(warning.Prefix) == "" || len(warning.Prefix) > 32 || strings.TrimSpace(warning.Say) == "" || len(warning.Say) > 300 || strings.ContainsAny(warning.Say, "\r\n") {
+				return fmt.Errorf("format %d has a warning without a prefix or one line of advice", index)
+			}
+		}
+	}
+	return nil
 }
 
 // ManifestPath returns the manifest location for a project directory under a
@@ -202,7 +267,7 @@ func (m Manifest) Validate() error {
 			return err
 		}
 	}
-	return nil
+	return validateFormats(m.Formats)
 }
 
 // validateAliases refuses an alias that names something the service does not
