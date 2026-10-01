@@ -491,7 +491,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # The toolchain mirrors `cfo doctor`; its hints are the source of truth for
-    # where each tool comes from. npm is called as npm.cmd, which runs under any
+    # where each tool comes from, except no-mistakes, which comes from the
+    # release pinned above. npm is called as npm.cmd, which runs under any
     # execution policy, where the npm.ps1 shim is refused by the default one and
     # the one-line install cannot set it. Kind says how a missing tool gets
     # installed:
