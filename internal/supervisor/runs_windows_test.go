@@ -625,3 +625,46 @@ func TestPowerShellRunnerShowsAPromptBeforeItIsAnswered(t *testing.T) {
 		t.Fatalf("exit.txt = %d %v, want 7", code, ok)
 	}
 }
+
+// A run window takes what the Overlord types in it: the item's script reads
+// its window's console, not an empty input, so a prompt such as cfo auth
+// store's hidden one waits for an answer. It opens a real window.
+func TestRunWindowGivesTheItemItsConsoleAsInput(t *testing.T) {
+	// Arrange
+	exists := func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}
+	if _, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot")); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "command.ps1")
+	if err := os.WriteFile(script, []byte("\xef\xbb\xbfWrite-Output \"input redirected: $([Console]::IsInputRedirected)\"\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	started, err := OSRunLauncher{}.Launch(context.Background(), RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if window, err := os.FindProcess(started.PID); err == nil {
+			_ = window.Kill()
+			_, _ = window.Wait()
+		}
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	for _, ok := readRunExit(dir); !ok; _, ok = readRunExit(dir) {
+		if time.Now().After(deadline) {
+			t.Fatal("the run window never finished its script")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Assert
+	if output := readRunOutput(dir); !strings.Contains(output, "input redirected: False") {
+		t.Fatalf("output.log = %q, want the script to read its window's console", output)
+	}
+}
