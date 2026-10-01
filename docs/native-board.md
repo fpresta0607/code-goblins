@@ -9,6 +9,8 @@ Docker remains an optional project environment managed by the existing worktree 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
 While `serve` holds it, the Claude CFO's `stop-autoarm` hook still rewakes the idle CFO: it waits on the wake queue, rewakes once for each record no earlier rewake covered, and hosts the watcher itself again if `serve` stops.
+It counts `serve` as the watcher until its heartbeat is older than the stall window (15 minutes, `CFO_WATCHER_STALL`), because `serve` stamps its heartbeat in the loop that runs its reconcile cycle and a slow cycle can hold it past the turn-end guard's five minutes; past the window it reports supervision down, naming `serve`'s pid and saying to restart it, since nothing can take the watcher from a live `serve`.
+When its wait ends with its window and nothing queued, it rewakes the CFO to end a turn, which re-arms it.
 Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal, or `goblins stop` from any terminal, stops that process.
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.

@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 )
@@ -63,6 +64,7 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 
 	reportRouting(stdout)
 	reportProjectsRoot(stdout, runtime)
+	reportStaleWakes(stdout)
 
 	if !healthy {
 		return 1
@@ -142,6 +144,41 @@ func reportRouting(stdout io.Writer) {
 	for _, name := range names {
 		lane := table.Lanes[name]
 		fmt.Fprintf(stdout, "  %-11s %-7s %-8s %-7s %s\n", name, lane.Harness, valueOr(lane.Model, "default"), valueOr(lane.Effort, "default"), lane.Note)
+	}
+}
+
+// reportStaleWakes prints what the monitor counted: the task wakes it raised
+// and the stale wakes it held back because the goblin's pane showed work
+// running or a failed screen read was read again, by reason. A detector that
+// stops seeing then reads as nothing counted rather than as a quiet fleet. It
+// never counts against the health verdict.
+func reportStaleWakes(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	tally, err := monitor.ReadTally(h.State)
+	if err != nil {
+		fmt.Fprintf(stdout, "stale wakes: tally unreadable (%v)\n", err)
+		return
+	}
+	if tally.Since.IsZero() {
+		fmt.Fprintln(stdout, "stale wakes: nothing counted yet (the monitor counts once cfo serve or the watcher has scanned)")
+		return
+	}
+	fmt.Fprintf(stdout, "stale wakes since %s: raised and held back because the goblin showed it was working\n", tally.Since.UTC().Format("2006-01-02 15:04 UTC"))
+	reasons := make([]string, 0, len(tally.Reasons))
+	for reason := range tally.Reasons {
+		reasons = append(reasons, string(reason))
+	}
+	sort.Strings(reasons)
+	for _, reason := range reasons {
+		counted := tally.Reasons[monitor.Reason(reason)]
+		line := fmt.Sprintf("  %-20s raised %4d  held back %4d", reason, counted.Raised, counted.Suppressed)
+		if counted.Suppressed > 0 {
+			line += fmt.Sprintf("  last %s at %s: %s", counted.LastTask, counted.Last.UTC().Format("01-02 15:04"), counted.LastWhy)
+		}
+		fmt.Fprintln(stdout, line)
 	}
 }
 
