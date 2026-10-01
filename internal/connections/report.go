@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
 
@@ -24,7 +24,7 @@ func harnessReport(ctx context.Context, name string, args []string, dir string, 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	command := exec.CommandContext(ctx, program[0], program[1:]...)
+	command := execx.CommandContext(ctx, program[0], program[1:]...)
 	command.Dir, command.WaitDelay = dir, 2*time.Second
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")
@@ -34,7 +34,7 @@ func harnessReport(ctx context.Context, name string, args []string, dir string, 
 	}
 	if runtime.GOOS == "windows" {
 		command.Cancel = func() error {
-			return exec.Command("taskkill", "/PID", strconv.Itoa(command.Process.Pid), "/T", "/F").Run()
+			return execx.Command("taskkill", "/PID", strconv.Itoa(command.Process.Pid), "/T", "/F").Run()
 		}
 	}
 	input, err := command.StdinPipe()

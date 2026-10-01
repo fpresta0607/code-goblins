@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -91,7 +92,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	briefText, err := os.ReadFile(*brief)
+	briefText, err := fsx.ReadFile(*brief)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

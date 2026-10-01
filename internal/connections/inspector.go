@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -171,7 +172,7 @@ func (r workspaceRunner) Run(ctx context.Context, request execx.Request) (execx.
 }
 
 func readPrivate(path string) ([]byte, error) {
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if err != nil {
 		return nil, err
 	}

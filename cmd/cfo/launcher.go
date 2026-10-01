@@ -13,9 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -50,7 +50,7 @@ func writeBoardRecord(stateDir string, record boardRecord) error {
 // the browser.
 func readBoardRecord(stateDir string) (boardRecord, error) {
 	var record boardRecord
-	data, err := os.ReadFile(boardRecordPath(stateDir))
+	data, err := fsx.ReadFile(boardRecordPath(stateDir))
 	if err != nil {
 		return boardRecord{}, err
 	}
@@ -83,6 +83,7 @@ type launcherSnapshot struct {
 	} `json:"tasks"`
 	Questions []struct {
 		Status string `json:"status"`
+		Page   string `json:"page"`
 	} `json:"questions"`
 	Reviews []struct {
 		State string `json:"state"`
@@ -227,7 +228,8 @@ func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) 
 // statusLine says, in the board's words, what the CFO is doing, how many
 // goblins are working, and how much waits on the Overlord: the header badge's
 // count of pending questions, open review items and run items ready or
-// running.
+// running, where a question its goblin asked about its own open review page
+// is that page's one item.
 func statusLine(snapshot launcherSnapshot) string {
 	cfo := "CFO supervising"
 	if snapshot.Registration != "" {
@@ -241,7 +243,7 @@ func statusLine(snapshot launcherSnapshot) string {
 	}
 	waiting := 0
 	for _, question := range snapshot.Questions {
-		if question.Status == "pending" {
+		if question.Status == "pending" && question.Page == "" {
 			waiting++
 		}
 	}
@@ -264,7 +266,7 @@ func statusLine(snapshot launcherSnapshot) string {
 
 // logTail returns the last lines of a log, or says there is none.
 func logTail(path string, lines int) string {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return "(nothing)\n"
 	}
@@ -322,17 +324,18 @@ func serveArguments(preferred string) []string {
 // refuses that flag, so the start is retried inside the job rather than not
 // made.
 func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	defer log.Close()
 	var command *exec.Cmd
 	for _, flags := range []uint32{createNoWindow | createNewProcessGroup | createBreakawayFromJob, createNoWindow | createNewProcessGroup} {
-		command = exec.Command(executable, args...)
+		command = execx.Command(executable, args...)
 		command.Dir = dir
 		command.Stdout, command.Stderr = log, log
-		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
+		command.SysProcAttr.CreationFlags |= flags
+		command.SysProcAttr.HideWindow = true
 		if err = command.Start(); err == nil {
 			return command, nil
 		}
@@ -343,5 +346,5 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 // openInBrowser opens url in the default browser through the URL protocol
 // handler, with no console window.
 func openInBrowser(target string) error {
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target).Start()
+	return execx.Command("rundll32.exe", "url.dll,FileProtocolHandler", target).Start()
 }

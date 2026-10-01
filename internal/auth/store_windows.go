@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 var (
@@ -202,7 +203,7 @@ func restrictToOwner(path string) error {
 	if domain := os.Getenv("USERDOMAIN"); domain != "" {
 		user = domain + `\` + user
 	}
-	out, err := exec.Command("icacls", path, "/inheritance:r", "/grant:r", user+":(F)").CombinedOutput()
+	out, err := execx.Command("icacls", path, "/inheritance:r", "/grant:r", user+":(F)").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("auth: restrict %s: %w: %s", path, err, strings.TrimSpace(string(out)))
 	}

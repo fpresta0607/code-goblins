@@ -247,6 +247,11 @@ export function harnessName(id: string): string {
   return names[id] || id;
 }
 
+// A harness mark's tip: the harness, then the model and effort it runs, when known.
+export function harnessTip(harness: string, model: string, effort: string): string {
+  return [harnessName(harness), model, effort].filter(Boolean).join(" · ");
+}
+
 // fleetTraffic signs what each live task last reported, its status line and
 // the newest wake record it filed, and names the tasks whose signature moved
 // since the previous snapshot. Those are real reports reaching the CFO.

@@ -10,10 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // FileName is the policy file under the CFO home's data directory.
@@ -388,7 +389,7 @@ type Policy struct {
 // fault, which is the behaviour without this package at all.
 func Load(dataDir string) (Policy, error) {
 	path := filepath.Join(dataDir, FileName)
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Policy{Path: path}, nil
 	}
