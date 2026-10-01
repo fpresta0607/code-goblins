@@ -460,6 +460,12 @@ func runProcessAlive(pid int, start time.Time) bool {
 // result to the CFO as its answer, so the CFO continues without asking
 // whether it worked. The full output stays on the item.
 func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason string) error {
+	// A credential request takes no save between its terminal ending and the
+	// terminal's rows being checked.
+	if r.CredentialRequest != "" {
+		s.credentialSaves.Lock()
+		defer s.credentialSaves.Unlock()
+	}
 	output := readRunOutput(runDir(s.Store.Home.State, r))
 	ended, err := s.Store.finishRun(r.ID, r.RunAction, code, output, reason)
 	if err != nil || !ended {
