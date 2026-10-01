@@ -41,7 +41,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, and shows the CFO in this terminal: a CFO registered in a native terminal is shown here, a live CFO registered in Herdr is brought to the front there with this terminal attached to Herdr, and with neither a new CFO starts in native terminal cfo, shown here. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
 
 commands:
   version   print the cfo version
@@ -133,20 +133,18 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
-	// nativeCFO, liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr
-	// are how the launcher finds a live registered CFO, in a native terminal
-	// or in Herdr, and brings it to the front, finds the project or asks for
-	// one, starts the CFO in Herdr and hands the terminal to herdr attached to
-	// a session.
+	// nativeCFO, liveCFO, focusCFO, gitTop, stdin and attachHerdr are how the
+	// launcher finds a live registered CFO, in a native terminal or in Herdr,
+	// and brings it to the front, finds the project or asks for one, and hands
+	// the terminal to herdr attached to a live Herdr CFO's session.
 	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
 	gitTop      func(context.Context) (string, error)
 	stdin       io.Reader
-	startCFO    func(ctx context.Context, project, harness string) (bool, error)
 	attachHerdr func(string) int
 	// startNativeCFO and attachNative start the CFO in a native terminal and
-	// show a native terminal in this console, for goblins --native and a CFO
+	// show a native terminal in this console, for a new CFO and a CFO
 	// registered in one.
 	startNativeCFO func(h home.Home, project, harness string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
@@ -273,7 +271,6 @@ func defaultCommandRuntime() commandRuntime {
 		focusCFO:     focusCFOInHerdr,
 		gitTop:       gitTop,
 		stdin:        os.Stdin,
-		startCFO:     startCFOInHerdr,
 		attachHerdr:  attachHerdr,
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
@@ -298,20 +295,19 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
 		fs.SetOutput(stderr)
-		native := fs.Bool("native", false, "start a new CFO in a native terminal shown here instead of in Herdr")
 		harness := fs.String("harness", "", "the harness goblins starts the CFO as, remembered for later starts: claude, codex or pi")
 		if err := fs.Parse(args); err != nil {
 			return 2
 		}
 		if fs.NArg() != 0 {
-			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --native and --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
+			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
 			return 2
 		}
 		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runLauncher(stdout, stderr, runtime, *native, *harness)
+		return runLauncher(stdout, stderr, runtime, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)

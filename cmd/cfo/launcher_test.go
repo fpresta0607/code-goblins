@@ -49,14 +49,12 @@ type launcherFixture struct {
 	cfoLive   bool
 	nativeCFO string
 	focused   []herdr.Endpoint
-	cfoStarts []string
 	attached  []string
 	// nativeStarts are the projects a CFO was started in natively, and
 	// nativeAttached the native terminals shown in this terminal.
 	nativeStarts   []string
 	nativeAttached []string
-	// harnesses are the harnesses each CFO start, in Herdr or native, was
-	// asked to start.
+	// harnesses are the harnesses each CFO start was asked to start.
 	harnesses []string
 	// cfoTerminalRuns is whether native terminal cfo's host answers.
 	cfoTerminalRuns bool
@@ -100,11 +98,6 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		},
 		gitTop: func(context.Context) (string, error) { return f.project, nil },
 		stdin:  strings.NewReader(""),
-		startCFO: func(_ context.Context, project, harness string) (bool, error) {
-			f.cfoStarts = append(f.cfoStarts, project)
-			f.harnesses = append(f.harnesses, harness)
-			return true, nil
-		},
 		attachHerdr: func(session string) int {
 			f.attached = append(f.attached, session)
 			return 0
@@ -289,8 +282,8 @@ func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	if !slices.Equal(f.opened, []string{board}) {
 		t.Fatalf("opened %q, want the board once", f.opened)
 	}
-	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
-		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	if len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q focused=%v attached=%q native attached=%q, want none", f.nativeStarts, f.focused, f.attached, f.nativeAttached)
 	}
 
 	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {
