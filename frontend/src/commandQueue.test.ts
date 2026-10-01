@@ -123,7 +123,7 @@ test("only an answer that reached its asker counts as answered", () => {
     ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Delivery unconfirmed", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
-    ["a question the CFO retired with --ack-blocking", { status: "superseded", message: "The CFO already handled this question." }, "superseded", "The CFO already handled this question.", "close"],
+    ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
     ["an answer he gave in chat, recorded by the CFO", { status: "succeeded", answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }, "answered", "You answered in chat · recorded by the CFO", "check-double"],
     ["a question he dismissed", { status: "cleared", message: "You dismissed it: answered elsewhere or no longer needed." }, "cleared", "You dismissed it: answered elsewhere or no longer needed.", "close"],
@@ -350,4 +350,19 @@ test("a question he answered elsewhere finishes its open card as answered, like 
 
   // Assert
   assert.deepEqual(elsewhere, [true, false]);
+});
+
+test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "install-main-66714dea", identity: "cfo-1", title: "Install main", shell: "powershell", command: "cfo install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot);
+  const settled = settledItems(snapshot);
+
+  // Assert
+  assert.deepEqual(waiting, []);
+  assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
 });

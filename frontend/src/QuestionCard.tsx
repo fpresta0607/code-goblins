@@ -56,6 +56,8 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     </fieldset>
     {draft.error && !outcome && question.status === "pending" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
     {mark ? <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>
+      // An answer the board never saw marks no choice, so its line carries the check.
+      : closed && !question.answer ? <p className="question-outcome delivery succeeded" role="status"><Icon name="check-double" />{answeredLabel(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
       : closed ? <p className="question-outcome answered-by" role="status">{answeredBy(question)}{question.answered_at && " · " + age(question.answered_at)}</p>
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}
     <div className="card-actions">

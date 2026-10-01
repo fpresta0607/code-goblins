@@ -14,11 +14,15 @@ import (
 )
 
 // TestMain runs this test binary as a git that never answers when it is
-// started under that name, the stand-in for a git slowed past its deadline.
+// started under that name, the stand-in for a git slowed past its deadline,
+// and as a process holding the watcher lock when started as one.
 func TestMain(m *testing.M) {
 	if name := filepath.Base(os.Args[0]); strings.EqualFold(strings.TrimSuffix(name, filepath.Ext(name)), "git") {
 		time.Sleep(time.Minute)
 		os.Exit(0)
+	}
+	if stateDir := os.Getenv(lockHolderVariable); stateDir != "" {
+		os.Exit(holdWatcherLock(stateDir, os.Getenv(lockHolderModeVariable)))
 	}
 	os.Exit(m.Run())
 }

@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"context"
 	"maps"
 	"os"
 	"path/filepath"
@@ -168,7 +169,7 @@ func TestApplyMigrationBacksUpThenLeavesExactlyThePlan(t *testing.T) {
 		t.Errorf("f2, which an open row points at, moved: %v", err)
 	}
 
-	again, err := File(h, filingNow.Add(time.Hour))
+	again, err := File(context.Background(), h, filingNow.Add(time.Hour))
 	if err != nil || len(again) != 0 {
 		t.Errorf("filing the migrated home = %+v, %v; want nothing left to file", again, err)
 	}
