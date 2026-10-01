@@ -489,8 +489,11 @@ test("a page he sent a revision on waits on its goblin, so it leaves Waiting on 
   // Act
   const waiting = waitingItems(snapshot).map((item) => item.key);
   const settled = settledItems(snapshot).map((item) => item.key);
+  const onScreen = waitingItems(snapshot, new Set(["review:waiting-billing-7"]));
 
   // Assert
   assert.deepEqual(waiting, ["review:waiting-notes-3"]);
   assert.deepEqual(settled, []);
+  assert.deepEqual(onScreen.map((item) => item.key), ["review:waiting-billing-7", "review:waiting-notes-3"], "the card on screen when he revised stays, saying so");
+  assert.equal(nextOpenKey(onScreen, "review:waiting-notes-3"), null, "moving on never lands on a page that waits on its goblin");
 });
