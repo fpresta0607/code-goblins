@@ -47,6 +47,7 @@ func launchTerminal(t *testing.T, stateDir string, args ...string) Record {
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
+	pin(t, record.HostPID)
 	t.Cleanup(func() { end(record.HostPID) })
 	return record
 }
