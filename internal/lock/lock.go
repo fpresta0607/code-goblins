@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -190,7 +191,7 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < acquireAttempts; attempt++ {
 		err := writeInfo(path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
@@ -223,7 +224,7 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 
 			if unreadableCount >= 3 && time.Since(unreadableStart) >= 150*time.Millisecond {
 				// Grace period elapsed; treat as crash orphan.
-				if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+				if rerr := removeStale(path, attempt); rerr != nil {
 					return nil, rerr
 				}
 				unreadableCount = 0
@@ -273,12 +274,42 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 
 		// File still has the same dead holder; it is readable and unchanged.
 		// Safe to remove and retry the create.
-		if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+		if rerr := removeStale(path, attempt); rerr != nil {
 			return nil, rerr
 		}
 	}
 
-	return nil, errors.New("lock: failed to acquire after 10 attempts")
+	return nil, fmt.Errorf("lock: failed to acquire after %d attempts", acquireAttempts)
+}
+
+// acquireAttempts bounds acquire's loop, and so how long a stale record held
+// open by a reader is waited on.
+const acquireAttempts = 10
+
+// Windows refuses to delete a file another process has open without delete
+// sharing, as every reader of a lock record opens it, with
+// ERROR_SHARING_VIOLATION, and one already being deleted with
+// ERROR_ACCESS_DENIED.
+const (
+	errorAccessDenied     = syscall.Errno(5)
+	errorSharingViolation = syscall.Errno(32)
+)
+
+// removeStale removes a dead or unreadable holder's record. A reader holding
+// the record open only for a moment, a Stop hook or the board checking who
+// holds the lock, is waited out: its removal is retried on acquire's next
+// attempt until the last, which returns the failure. Any other failure
+// returns at once.
+func removeStale(path string, attempt int) error {
+	err := os.Remove(path)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if (errors.Is(err, errorSharingViolation) || errors.Is(err, errorAccessDenied)) && attempt < acquireAttempts-1 {
+		time.Sleep(50 * time.Millisecond)
+		return nil
+	}
+	return err
 }
 
 // ReadNamed returns the current holder recorded in dir/name.
@@ -387,6 +418,11 @@ func releaseNamed(dir, name string, remove func(string) error, sleep func(time.D
 
 func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
 	holder, err := ReadNamed(dir, name)
+	if errors.Is(err, os.ErrNotExist) {
+		// The holder released the lock since acquire found it held: there is
+		// nothing to reclaim, and the caller's next acquire takes the free lock.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
