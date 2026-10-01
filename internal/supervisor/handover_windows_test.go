@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -437,6 +438,70 @@ func TestServeLeavesALockHolderThatIsNotProvedAWatcherRunning(t *testing.T) {
 			}
 			if !test.mismatched && err == nil {
 				t.Error("serve started while a live holder it may not end held the watcher lock")
+			}
+		})
+	}
+}
+
+// A watcher yielding to serve lets the lock go between serve's acquire that
+// it refused and serve reading who held it (2026-10-01, the gate's baseline:
+// "existing watch owner must finish before serve: open .watch.lock: The
+// system cannot find the file specified."). The lock is free by then, so
+// serve takes it; a holder that keeps the lock and is no watcher is still
+// refused at once.
+func TestServeTakesALockItsHolderLetGoBeforeServeReadWhoHeldIt(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		session   string
+		isLetGo   bool
+		wantTaken bool
+	}{
+		{"a watcher that let go", watch.WatcherSession, true, true},
+		{"a holder that keeps it and is no watcher", "exclusive-spawn", false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			holder := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+			if err := holder.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
+			if _, err := lock.AcquireNamedOwner(stateDir, watchLock, holder.Process.Pid, test.session); err != nil {
+				t.Fatal(err)
+			}
+			previous := betweenRefusalAndRead
+			t.Cleanup(func() { betweenRefusalAndRead = previous })
+			refused := 0
+			betweenRefusalAndRead = func() {
+				refused++
+				if test.isLetGo && refused == 1 {
+					if err := os.Remove(filepath.Join(stateDir, watchLock)); err != nil {
+						t.Error(err)
+					}
+				}
+			}
+			began := time.Now()
+
+			err := AcquireWatchLock(stateDir)
+
+			if refused == 0 {
+				t.Fatal("the premise failed: the first acquire was not refused")
+			}
+			if test.wantTaken {
+				if err != nil {
+					t.Fatalf("serve refused a lock its holder had let go: %v", err)
+				}
+				defer lock.ReleaseExclusiveNamed(stateDir, watchLock)
+				if current, readErr := lock.ReadNamed(stateDir, watchLock); readErr != nil || current.PID != os.Getpid() {
+					t.Fatalf("lock holder = %+v, %v; want this process", current, readErr)
+				}
+				return
+			}
+			if !errors.Is(err, lock.ErrHeld) {
+				t.Fatalf("AcquireWatchLock = %v, want it refused as held", err)
+			}
+			if took := time.Since(began); took > 5*time.Second {
+				t.Errorf("the refusal took %s, want it at once", took)
 			}
 		})
 	}

@@ -3,6 +3,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,11 +23,29 @@ const legacyExitWait = 5 * time.Second
 // AcquireWatchLock takes the watcher lock for this supervisor, taking it over
 // from a watcher that holds it.
 func AcquireWatchLock(stateDir string) error {
-	if _, err := lock.AcquireExclusiveNamed(stateDir, watchLock); err != nil {
-		return takeOverWatcher(stateDir, err)
+	for try := 1; ; try++ {
+		_, err := lock.AcquireExclusiveNamed(stateDir, watchLock)
+		if err == nil {
+			return nil
+		}
+		betweenRefusalAndRead()
+		holder, readErr := lock.ReadNamed(stateDir, watchLock)
+		// The holder let go after it refused this acquire, as a watcher
+		// yielding to serve does: the lock is free, so take it.
+		if errors.Is(err, lock.ErrHeld) && errors.Is(readErr, os.ErrNotExist) && try < vanishedHolderTries {
+			continue
+		}
+		return takeOverWatcher(stateDir, err, holder, readErr)
 	}
-	return nil
 }
+
+// vanishedHolderTries bounds how often serve takes the lock again when its
+// holder let go between refusing an acquire and serve reading who it was.
+const vanishedHolderTries = 3
+
+// betweenRefusalAndRead runs between a refused acquire and the read of who
+// holds the lock; a test removes the record there.
+var betweenRefusalAndRead = func() {}
 
 // takeOverWatcher takes the lock from a watcher the Stop hook hosts, or a cfo
 // watch, when held says one holds it. The supervisor supersedes a watcher, so
@@ -36,9 +55,8 @@ func AcquireWatchLock(stateDir string) error {
 // serve refused to start until the hook's window ended. A watcher that
 // answered the request is yielding and only winding its cycle down, so it is
 // given up to HandoverAckWait more; one that never answered is ended.
-func takeOverWatcher(stateDir string, held error) error {
-	holder, err := lock.ReadNamed(stateDir, watchLock)
-	if !errors.Is(held, lock.ErrHeld) || err != nil || holder.Session != watch.WatcherSession {
+func takeOverWatcher(stateDir string, held error, holder *lock.Info, readErr error) error {
+	if !errors.Is(held, lock.ErrHeld) || readErr != nil || holder.Session != watch.WatcherSession {
 		return held
 	}
 	withdraw, err := watch.RequestHandover(stateDir)
