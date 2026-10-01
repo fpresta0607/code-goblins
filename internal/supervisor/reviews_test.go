@@ -62,7 +62,7 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 }
 
 // Clearing closes an open review once, only for the identity the board saw,
-// and a pending question can never be cleared.
+// and a question whose answer is on its way can never be cleared.
 func TestClearActionsCloseOnlyWhatTheOverlordMayClear(t *testing.T) {
 	store, _ := testStore(t)
 	r := openReview("mockups-review-1", "task-1")
@@ -80,11 +80,12 @@ func TestClearActionsCloseOnlyWhatTheOverlordMayClear(t *testing.T) {
 	}
 	store.mu.Lock()
 	store.db.Questions[0].Status = "superseded"
+	store.db.Questions[1].AnswerID = "answer-1"
 	store.mu.Unlock()
 	for name, a := range map[string]Action{
 		"a review for another identity": {ID: "clear-other", Kind: "review_clear", ReviewID: r.ID, Generation: strings.Repeat("b", 64)},
 		"a review with text":            {ID: "clear-text", Kind: "review_clear", ReviewID: r.ID, Generation: r.Identity, Text: "why"},
-		"a pending question":            {ID: "clear-pending", Kind: "question_clear", QuestionID: "question-pending", Generation: strings.Repeat("c", 64)},
+		"a question being answered":     {ID: "clear-pending", Kind: "question_clear", QuestionID: "question-pending", Generation: strings.Repeat("c", 64)},
 	} {
 		if _, err := store.Queue(a); err == nil {
 			t.Errorf("clearing %s was queued", name)

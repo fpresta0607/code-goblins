@@ -25,8 +25,10 @@ export const isOpen = (item: Item) => item.kind === "question" ? item.question.s
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
 // An item the Overlord answered outside the Command Center, such as on its own
-// page: its card finishes as one he answered from it does.
-export const answeredElsewhere = (item: Item) => item.kind === "review" && item.review.state === "answered" && !!item.review.answered_in;
+// page or in chat as the CFO recorded: its card finishes as one he answered
+// from it does.
+export const answeredElsewhere = (item: Item) => item.kind === "review" ? item.review.state === "answered" && !!item.review.answered_in
+  : item.kind === "question" && item.question.status === "succeeded" && !!item.question.answered_in;
 
 // A goblin's wait on the Overlord himself, raised by notify --waiting-on
 // overlord: a status to see and dismiss, not a question to answer. It closes
@@ -100,11 +102,11 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const outcome = actions.find((action) => action.id === submission.id) || draft.receipt;
   if (!outcome && !draft.sending && !draft.error) return undefined;
   const sent = object(JSON.parse(submission.payload));
-  const cleared = sent.kind === "review_clear";
+  const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
     confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || "Cleared" : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
     cleared,
   };
 }
@@ -165,12 +167,13 @@ export function answeredLabel(question: Question): string {
     // Superseded covers a replaced asker and a question the CFO retired with
     // cfo send --ack-blocking; the backend's message tells them apart.
     case "superseded": return question.message || "Superseded; the asker was replaced";
-    case "cleared": return "Closed without an answer";
+    case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Delivery unconfirmed";
   }
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
+  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CFO";
   return question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer;
 }
 

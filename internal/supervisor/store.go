@@ -594,9 +594,9 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		}
 	}
 	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
-		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
+		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed" || q.Status == "pending" && q.AnswerID == "")
 	}) {
-		return Action{}, errors.New("only a question that closed without an answer can be cleared; refresh the board")
+		return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
 	}
 	// A run item runs once: the action claims it here, under the store lock.
 	run := -1

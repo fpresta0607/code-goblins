@@ -525,7 +525,20 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return s.Store.clearReview(a.ReviewID, a.Generation, a.Text)
 	}
 	if a.Kind == "question_clear" {
-		return s.Store.clearQuestion(a.QuestionID, a.Generation)
+		evaluation, dismissed, err := s.Store.clearQuestion(a.QuestionID, a.Generation)
+		if err != nil || dismissed == nil {
+			return evaluation, err
+		}
+		// The CFO asked the question, or holds the goblin's notify that did,
+		// so it hears that the Overlord dismissed it.
+		whose := "your question " + dismissed.ID
+		if dismissed.Task != "" {
+			whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", dismissed.Task, dismissed.ID, dismissed.Seq)
+		}
+		if err := s.tellCFO(ctx, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+dismissed.Text); err != nil {
+			evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
+		}
+		return evaluation, nil
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)

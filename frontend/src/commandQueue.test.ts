@@ -125,6 +125,8 @@ test("only an answer that reached its asker counts as answered", () => {
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
     ["a question the CFO retired with --ack-blocking", { status: "superseded", message: "The CFO already handled this question." }, "superseded", "The CFO already handled this question.", "close"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
+    ["an answer he gave in chat, recorded by the CFO", { status: "succeeded", answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }, "answered", "You answered in chat · recorded by the CFO", "check-double"],
+    ["a question he dismissed", { status: "cleared", message: "You dismissed it: answered elsewhere or no longer needed." }, "cleared", "You dismissed it: answered elsewhere or no longer needed.", "close"],
   ];
   for (const [name, fields, outcome, label, icon] of cases) {
     const [candidate] = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-09-24T00:10:00Z", "pending", fields)] }).questions ?? [];
@@ -279,6 +281,7 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
+  const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
     ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
@@ -291,6 +294,7 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
     ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
     ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
     ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
+    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
 });
@@ -332,4 +336,18 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
+});
+
+test("a question he answered elsewhere finishes its open card as answered, like a page answer", () => {
+  // Arrange
+  const [inChat, onBoard] = parseSnapshot({ healthy: true, questions: [
+    question("herdr-strays-20260929", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }),
+    question("pick-a-layout", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Tree", answer_kind: "option", answered_option: "Tree", answered_by: "overlord" }),
+  ] }).questions ?? [];
+
+  // Act
+  const elsewhere = [inChat, onBoard].map((candidate) => answeredElsewhere({ kind: "question", key: "question:" + candidate.id, question: candidate }));
+
+  // Assert
+  assert.deepEqual(elsewhere, [true, false]);
 });
