@@ -52,6 +52,9 @@ type Agent struct {
 	// Reason says why the agent is not ready, in the quick start's words, and
 	// is empty when it is.
 	Reason string
+	// Fix is a command the person runs to make the agent ready, or empty.
+	// It is shown at the end of a line of its own, so it copies whole.
+	Fix string
 }
 
 // probeTimeout bounds one agent's status command.
@@ -87,7 +90,8 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 	// A native terminal starts a program itself, with no shell to run a
 	// script shim, and Claude Code's native build is claude.exe.
 	if id == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe") {
-		agent.Reason = "npm's claude.cmd comes first on PATH and a native terminal cannot start it; run: npm.cmd uninstall -g @anthropic-ai/claude-code"
+		agent.Reason = "npm's claude.cmd comes first on PATH and a native terminal cannot start it"
+		agent.Fix = "npm.cmd uninstall -g @anthropic-ai/claude-code"
 		if _, err := os.Stat(filepath.Join(d.ClaudeDirectory, "claude.exe")); d.ClaudeDirectory != "" && err == nil {
 			agent.State = Shadowed
 		}

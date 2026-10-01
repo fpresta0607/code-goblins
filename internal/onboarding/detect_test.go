@@ -131,7 +131,7 @@ func TestDetectCountsClaudeCodeOnlyAsItsNativeBuild(t *testing.T) {
 	codex := detector.Detect(context.Background(), "codex")
 
 	// Assert
-	if claude.State != Missing || claude.Reason != npmClaude {
+	if claude.State != Missing || claude.Reason != npmClaude || claude.Fix != npmUninstall {
 		t.Errorf("claude as a script = %+v, want it missing for its native build", claude)
 	}
 	if codex.State != Ready || !slices.Equal(probed, []string{"codex"}) {
@@ -139,8 +139,12 @@ func TestDetectCountsClaudeCodeOnlyAsItsNativeBuild(t *testing.T) {
 	}
 }
 
-// npmClaude is the reason Claude Code found as npm's script is not ready.
-const npmClaude = "npm's claude.cmd comes first on PATH and a native terminal cannot start it; run: npm.cmd uninstall -g @anthropic-ai/claude-code"
+// npmClaude is the reason Claude Code found as npm's script is not ready,
+// and npmUninstall the command that removes the script.
+const (
+	npmClaude    = "npm's claude.cmd comes first on PATH and a native terminal cannot start it"
+	npmUninstall = "npm.cmd uninstall -g @anthropic-ai/claude-code"
+)
 
 // Claude Code found as npm's script while its native build is installed is
 // shadowed, not missing: installing again would change nothing, and the
@@ -171,7 +175,7 @@ func TestDetectNamesTheUninstallWhenNpmsClaudeShadowsTheNativeBuild(t *testing.T
 			agent := detector.Detect(context.Background(), "claude")
 
 			// Assert
-			if agent.State != c.want || agent.Reason != npmClaude {
+			if agent.State != c.want || agent.Reason != npmClaude || agent.Fix != npmUninstall {
 				t.Errorf("Detect = %+v, want state %d with the uninstall named", agent, c.want)
 			}
 		})

@@ -3,6 +3,8 @@ package onboarding
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -403,5 +405,67 @@ func TestEscapeAtTheChoiceCancelsInTheQuickStartsWords(t *testing.T) {
 	// Assert
 	if !errors.Is(err, ErrCancelled) || !errors.Is(err, ErrBack) || err.Error() != "setup was cancelled; run goblins to continue" {
 		t.Errorf("Run error = %q, want the cancel in ErrCancelled's words", err)
+	}
+}
+
+// The uninstall that frees a shadowed Claude Code is shown at the end of a
+// line of its own on every screen that names it, so a person who copies it
+// never copies a period or a word with it: on the install screen, on the
+// shadowed screen, and again after Check again changes nothing.
+func TestTheUninstallCommandIsNeverFollowedByAnything(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		isNative bool
+	}{
+		{"no native build", false},
+		{"the native build shadowed", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			if c.isNative {
+				if err := os.WriteFile(filepath.Join(directory, "claude.exe"), nil, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			detector := Detector{ClaudeDirectory: directory, LookPath: func(name string) (string, error) { return name + ".cmd", nil }}
+			var shown []string
+			flow := Flow{
+				Detect: detector.Detect,
+				Choose: func(title string, choices []string, selected int) (int, error) {
+					shown = append(shown, title)
+					shown = append(shown, choices...)
+					if strings.HasPrefix(title, "Choose the agent") {
+						return selected, nil
+					}
+					if strings.Contains(title, "That changed nothing") || strings.Contains(title, "That did not finish") {
+						return 0, ErrCancelled
+					}
+					return 0, nil
+				},
+				Install: func(string) error { return nil },
+			}
+
+			// Act
+			_, err := flow.Run(context.Background(), "claude", false)
+
+			// Assert
+			if !errors.Is(err, ErrCancelled) {
+				t.Fatalf("Run error = %v, want the test's own cancel", err)
+			}
+			named := 0
+			for _, text := range shown {
+				for rest := text; strings.Contains(rest, "@anthropic-ai/claude-code"); {
+					_, rest, _ = strings.Cut(rest, "@anthropic-ai/claude-code")
+					named++
+					if rest != "" && !strings.HasPrefix(rest, "\n") {
+						t.Errorf("the uninstall is followed by %q in %q", rest, text)
+					}
+				}
+			}
+			if named < 2 {
+				t.Errorf("the uninstall was named %d times in %q, want it on the step and after it changed nothing", named, shown)
+			}
+		})
 	}
 }

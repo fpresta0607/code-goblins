@@ -52,11 +52,13 @@ func settleNativeCFO(ctx context.Context, stateDir, name string) []string {
 
 // settleCFO answers each startup dialog the CFO's screen shows whose answer
 // the harness's screens name as known and safe, as a goblin's spawn answers
-// it: Claude Code's trust in the home the quick start made, Codex's directory
-// trust and update prompt, and Codex's hook review without trusting the
-// hooks, which only the Overlord trusts. It stops at a screen it does not
-// know, which it never types into, and returns a line for each dialog it
-// answered and, for a dialog it may not have reached, what to choose there.
+// it. It is only for a CFO started in the Code Goblins home, the one folder
+// whose trust is known and safe to give: Claude Code's trust in the home the
+// quick start made, Codex's directory trust and update prompt, and Codex's
+// hook review without trusting the hooks, which only the Overlord trusts. It
+// stops at a screen it does not know, which it never types into, and returns
+// a line for each dialog it answered and, for a dialog it may not have
+// reached, what to choose there.
 func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []string {
 	var notes, answered []string
 	deadline := terminal.now().Add(cfoSettle)

@@ -75,6 +75,9 @@ func (f Flow) Run(ctx context.Context, saved string, rerun bool) (string, error)
 			return agent.ID, f.save(agent.ID)
 		}
 		title, choices, run := f.step(agent)
+		if agent.Fix != "" {
+			title += "\nRun: " + agent.Fix
+		}
 		if problem != "" {
 			title += "\n" + problem
 		}
@@ -126,7 +129,7 @@ func (f Flow) step(agent Agent) (title string, choices []string, run func(string
 		installer, _ := InstallerFor(agent.ID)
 		return "Install " + agent.Name + "\n" + agent.Reason + ". Enter runs " + installer.Describe() + ".", []string{"Install " + agent.Name, chooseAnother}, f.Install
 	case Shadowed:
-		return "Remove npm's " + agent.Name + "\n" + agent.Reason + ". Run it in another window, then press Enter to check again.", []string{checkAgain, chooseAnother}, func(string) error { return nil }
+		return "Remove npm's " + agent.Name + "\n" + agent.Reason + ". Run the command below in another window, then press Enter to check again.", []string{checkAgain, chooseAnother}, func(string) error { return nil }
 	case SignedOut:
 		return "Sign in to " + agent.Name + "\nEnter opens " + agent.Name + "'s own sign-in. Code Goblins never sees your password.", []string{"Open sign-in", chooseAnother}, f.Login
 	default:
