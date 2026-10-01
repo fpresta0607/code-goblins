@@ -331,7 +331,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:focus:not(:focus-visible) { outline: none; }
 .canvas-controls { position: absolute; bottom: 16px; left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; pointer-events: none; }
 .canvas-controls > * { pointer-events: auto; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); }
-.canvas-controls > div { display: flex; align-items: center; border-radius: 12px; padding: 2px; }
+.canvas-controls > div { display: flex; align-items: center; border-radius: var(--radius); padding: 2px; }
 
 .canvas-controls > button { border-radius: 50%; }
 .canvas-controls > button[data-tip]::after, .canvas-controls div button[data-tip]::after { top: auto; bottom: calc(100% + 8px); }
@@ -643,7 +643,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .terminal-state.live { color: var(--mint); }
 .terminal-state.live .status-dot { background: var(--accent-green); }
 .terminal-state.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: 12px; background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
+.terminal-error { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; margin: 0; padding: 10px 14px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
 /* A native terminal owns its scrollback and is sized to the panel, so the
@@ -1026,7 +1026,7 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .stop-task-dialog p { line-height: 1.55; }
 .stop-task-choices { display: grid; gap: 12px; margin: 18px 0; }
 .stop-task-choices button { width: 100%; min-height: 46px; }
-.preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: 12px; background: #163d3740; color: #9af2d7; }
+.preservation-notice { display: flex; gap: 10px; align-items: center; padding: 14px; border: 1px solid #4ee2b644; border-radius: var(--radius); background: #163d3740; color: #9af2d7; }
 .preservation-notice .icon { flex: none; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
