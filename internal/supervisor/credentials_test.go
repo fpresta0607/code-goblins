@@ -96,7 +96,13 @@ func (b *credentialBoard) body(values map[string]string, replace ...string) stri
 // change has had its say over the request.
 func (b *credentialBoard) post(handler *HTTP, body string, change func(*http.Request)) *httptest.ResponseRecorder {
 	b.t.Helper()
-	request := httptest.NewRequest("POST", "http://"+handler.Host+"/api/credentials/save", strings.NewReader(body))
+	return b.send(handler, "/api/credentials/save", body, change)
+}
+
+// send posts body to path the way the board's own page on this machine does.
+func (b *credentialBoard) send(handler *HTTP, path, body string, change func(*http.Request)) *httptest.ResponseRecorder {
+	b.t.Helper()
+	request := httptest.NewRequest("POST", "http://"+handler.Host+path, strings.NewReader(body))
 	request.Host = handler.Host
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+handler.Host)
@@ -615,6 +621,57 @@ func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 				t.Fatal("the refusal repeats the value")
 			}
 		})
+	}
+}
+
+// Each row shows where its value goes: the repository the request is for,
+// the credential scope, and every service of the project's auth.json that
+// reads the name, beside the project's goblins, who all get the scope.
+func TestCredentialRequestShowsWhereEachValueGoes(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	t.Setenv(auth.StoreDirEnv, t.TempDir())
+	manifest := auth.ManifestPath(h.Data, "throwaway")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte(`{"project":"throwaway","services":[
+		{"name":"stripe","method":"env","env":["STRIPE_SECRET_KEY"]},
+		{"name":"billing","method":"env","env":["STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET"]},
+		{"name":"mail","method":"env","env":["MAIL_KEY"],"aliases":{"MAIL_KEY":["RESEND_API_KEY"]}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	repository := filepath.Join(t.TempDir(), "throwaway")
+	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
+	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Repository: repository, Names: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "OTHER_KEY"}, Why: "Charge test cards"}
+
+	// Act
+	request, err := s.acceptCredentialRequest(base)
+	elsewhere := base
+	elsewhere.ID, elsewhere.Repository = "cred-1111111111111111", filepath.Join(t.TempDir(), "another")
+	_, elsewhereErr := s.acceptCredentialRequest(elsewhere)
+	relative := base
+	relative.ID, relative.Repository = "cred-2222222222222222", "throwaway"
+	_, relativeErr := s.acceptCredentialRequest(relative)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Repository != repository {
+		t.Fatalf("repository = %q, want %q", request.Repository, repository)
+	}
+	want := map[string][]string{"STRIPE_SECRET_KEY": {"stripe", "billing"}, "STRIPE_WEBHOOK_SECRET": {"billing"}, "RESEND_API_KEY": {"mail"}}
+	if len(request.Services) != len(want) {
+		t.Fatalf("services = %v, want %v", request.Services, want)
+	}
+	for name, services := range want {
+		if !slices.Equal(request.Services[name], services) {
+			t.Fatalf("services = %v, want %v", request.Services, want)
+		}
+	}
+	if elsewhereErr == nil || relativeErr == nil {
+		t.Fatalf("a repository of another scope = %v, a relative one = %v; want both refused", elsewhereErr, relativeErr)
 	}
 }
 

@@ -78,6 +78,11 @@ func TestAuthStoreHidesAValueTypedAtTheConsole(t *testing.T) {
 	if strings.Contains(c.shown(), canary) {
 		t.Fatal("the console showed the value as it was typed")
 	}
+	// A board run captures this output, so not even the value's redacted
+	// shape is printed for a value typed at the console.
+	if strings.Contains(c.shown(), canary[:4]+"***") {
+		t.Fatal("the console showed the value's redacted shape")
+	}
 	if !prompted || !stored {
 		shown := c.shown()
 		t.Fatalf("prompted %v, stored %v; the console shows %q", prompted, stored, shown[max(0, len(shown)-400):])

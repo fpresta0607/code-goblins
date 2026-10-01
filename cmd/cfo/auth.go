@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -308,7 +309,13 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
+	if isConsole {
+		// A board run keeps this output, so a typed value leaves no trace
+		// at all, not even its redacted shape.
+		fmt.Fprintf(stdout, "stored %s in %s\n", key, store.Describe())
+	} else {
+		fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
+	}
 	if key.IsShared() {
 		fmt.Fprintln(stdout, "shared scope: only services a manifest declares shared will read this")
 		return 0
@@ -341,20 +348,12 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprint(stderr, authUsage)
 		return 2
 	}
-	if shape := auth.SecretShape(*project); shape != "" {
-		fmt.Fprintf(stderr, "cfo auth request: --project looks like a credential value, not a project: %s\n", shape)
-		return 2
-	}
-	scope, err := credentialScope(runtime, *project)
+	request, err := credentialRequest(runtime, *project, *task, *why, *link, names)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 2
 	}
-	request := supervisor.CredentialRequest{Project: scope, Task: *task, Names: names, Why: strings.TrimSpace(*why), Link: *link}
-	if err := supervisor.CredentialRequestProblem(request); err != nil {
-		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
-		return 2
-	}
+	scope := request.Project
 	h, err := home.Resolve()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -373,6 +372,42 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stdout, "his terminal fallback on this machine: %s\n", auth.StoreCommand(scope, name))
 	}
 	return 0
+}
+
+// credentialRequest builds a request from cfo auth request's arguments: the
+// scope cfo auth store would write, and the checkout that scope is named for
+// when it is on this machine. It refuses anything shaped like a value without
+// repeating it.
+func credentialRequest(runtime commandRuntime, project, task, why, link string, names []string) (supervisor.CredentialRequest, error) {
+	// A path is judged by the scope it names: a checkout's parent folders
+	// are no part of the request.
+	shaped := func(text string) error {
+		if shape := auth.SecretShape(text); shape != "" {
+			return fmt.Errorf("--project looks like a credential value, not a project: %s", shape)
+		}
+		return nil
+	}
+	if !strings.ContainsAny(project, `/\:`) {
+		if err := shaped(project); err != nil {
+			return supervisor.CredentialRequest{}, err
+		}
+	}
+	scope, err := credentialScope(runtime, project)
+	if err != nil {
+		return supervisor.CredentialRequest{}, err
+	}
+	if err := shaped(scope); err != nil {
+		return supervisor.CredentialRequest{}, err
+	}
+	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link}
+	if resolved, err := runtime.resolveProject(project); err == nil {
+		if checkout, err := filepath.Abs(resolved); err == nil && auth.ProjectName(checkout) == scope {
+			if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {
+				request.Repository = checkout
+			}
+		}
+	}
+	return request, supervisor.CredentialRequestProblem(request)
 }
 
 // credentialKey builds and validates one store key from the operator's
