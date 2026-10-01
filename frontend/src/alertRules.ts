@@ -31,7 +31,7 @@ function itemAlert(snapshot: Snapshot, item: Item): BoardAlert {
   }
   if (item.kind === "review") {
     const asker = item.review.task ? taskTitle(snapshot, item.review.task) : "The CFO";
-    return { key: item.key, tone: "needs", title: asker + (waitsOnOverlord(item.review) ? " is waiting on you" : " wants your review"), text: shortened(item.review.title), task: item.review.task, target };
+    return { key: item.key, tone: "needs", title: asker + (waitsOnOverlord(item.review) ? " is waiting on you" : " wants your review"), text: shortened(plainMessage(item.review.title)), task: item.review.task, target };
   }
   return { key: item.key, tone: "needs", title: "A command waits for you to run it", text: shortened(item.run.title), task: "", target };
 }

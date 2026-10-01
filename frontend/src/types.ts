@@ -173,6 +173,9 @@ export interface Question {
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
   id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
+  // link is the web link a goblin's wait gave as the place to go, the only
+  // one its card opens.
+  link: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -349,7 +352,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),

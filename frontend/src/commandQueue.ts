@@ -41,7 +41,8 @@ export const waitReason = (review: Review) => review.title.replace(/^Waiting on 
 
 // What a wait points at, so its card says it plainly and opens it: the page
 // the goblin named, else its own newest question still waiting, else a file
-// it delivered, else a web link in its words. Null when it names nothing.
+// it delivered, else the web link it gave as the link (cfo notify --link),
+// never an address it only names in its words. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
   if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
@@ -49,8 +50,8 @@ export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | nul
   if (question) return { kind: "item", key: "question:" + question.id, label: "Open its question", says: "It waits on your answer to its question." };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
   if (file?.document) return { kind: "item", key: "review:" + file.id, label: "Open the file", says: "It waits on you to open " + file.document.name + "." };
-  const link = /https?:\/\/[^\s<>"'()]+/.exec(review.title)?.[0].replace(/[.,;:!?]+$/, "");
-  if (link && URL.canParse(link)) return { kind: "page", url: link, label: "Open the link", says: "It waits on you at " + new URL(link).host + "." };
+  const link = URL.canParse(review.link) ? new URL(review.link) : null;
+  if (link && (link.protocol === "https:" || link.protocol === "http:")) return { kind: "page", url: review.link, label: "Open the link", says: "It waits on you at " + link.host + "." };
   return null;
 }
 

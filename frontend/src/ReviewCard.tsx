@@ -6,7 +6,8 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
-import { messageElements } from "./messageText";
+import { inlineElements, leadAndRest, messageElements, plainMessage } from "./messageText";
+import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
@@ -37,13 +38,17 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   // The goblin's question this page carries, which the card shows as its own.
   const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
   const closedAt = review.window_closed_at ? new Date(review.window_closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  // The goblin's own words, formatted: its lead line heads the card, and the
+  // details, a table of values to enter, or a closing line follow it.
+  const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    {asked ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked.text)}</div>
-      : <h3 id={"review-" + review.id} tabIndex={-1}>{status ? waitReason(review) : review.title}</h3>}
+    {asked ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked.text, copyValues)}</div>
+      : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
+    {!asked && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
-    {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{review.title}</strong><span>Review page</span></span>
+    {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + plainMessage(review.title)}>
+      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{plainMessage(review.title)}</strong><span>Review page</span></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
     {review.lavish && pending && review.watched && <p className="review-status">{closedAt

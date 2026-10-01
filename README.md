@@ -435,7 +435,7 @@ cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
 cfo cleanup <id>
 cfo reap [--dry-run|--apply]
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>] [--link <https-url>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]

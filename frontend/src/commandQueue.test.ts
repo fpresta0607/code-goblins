@@ -17,7 +17,7 @@ test("a goblin's wait on the Overlord is a status card, anything else under revi
   for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
 });
 
-test("a goblin's wait says what it waits on and opens it: its page, its own question, a file it delivered, or a link it names", () => {
+test("a goblin's wait says what it waits on and opens it: its page, its own question, a file it delivered, or the link it gave", () => {
   const wait = (title: string, extra: Record<string, unknown> = {}) => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title: "Waiting on you: " + title, ...extra });
   const target = (item: ReturnType<typeof wait>, others: { questions?: unknown[]; reviews?: unknown[] } = {}) => {
     const snapshot = parseSnapshot({ healthy: true, questions: others.questions || [], reviews: [item, ...(others.reviews || [])] });
@@ -29,9 +29,12 @@ test("a goblin's wait says what it waits on and opens it: its page, its own ques
     { kind: "item", key: "question:notify-billing-6", label: "Open its question", says: "It waits on your answer to its question." }, "its newest open question, never another goblin's or an answered one");
   assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
     { kind: "item", key: "review:report-billing", label: "Open the file", says: "It waits on you to open report.pdf." });
-  assert.deepEqual(target(wait("sign in at https://dashboard.stripe.com/login, then tell me")), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
+  assert.deepEqual(target(wait("sign in to Stripe, then tell me", { link: "https://dashboard.stripe.com/login" })), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
   assert.equal(target(wait("log in to Stripe")), null, "a wait that names nothing to open offers nothing");
-  assert.equal(target(wait("open file:///C:/secret.txt")), null, "only a web link opens");
+  // The Overlord, 2026-09-28: a card offered Open the link for a hostname the
+  // goblin only named in its prose. Only the link the goblin gave opens.
+  assert.equal(target(wait("so https://mcp.precisiondocs.ai serves the connector")), null, "a web address in the prose is not the link");
+  assert.equal(target(wait("open it", { link: "file:///C:/secret.txt" })), null, "only a web link opens");
 });
 
 test("a wait's card reads the goblin's reason, without the queue's prefix or the page it already opens", () => {
@@ -40,6 +43,7 @@ test("a wait's card reads the goblin's reason, without the queue's prefix or the
   assert.equal(reason("Waiting on you: log in to Stripe"), "log in to Stripe");
   assert.equal(reason("Waiting on you: pick a plan (page " + page + ")", page), "pick a plan");
   assert.equal(reason("A title without the prefix"), "A title without the prefix");
+  assert.equal(reason("Waiting on you: Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |"), "Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |");
 });
 
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {

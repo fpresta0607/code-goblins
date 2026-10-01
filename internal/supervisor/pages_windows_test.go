@@ -33,7 +33,7 @@ func waitOnAPage(t *testing.T, store *Store) (string, string) {
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, 7, "pick a plan", pageLink, page); err != nil {
+	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, 7, "pick a plan", pageLink, page, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -59,7 +59,7 @@ func askOnAPage(t *testing.T, store *Store) (state.TaskMeta, wake.Record, string
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a store on the page"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page); err != nil {
+	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

@@ -65,6 +65,12 @@ test("a goblin waiting on the Overlord says so, and a review item asks for revie
   assert.equal(plan.title, "Goblin a wants your review");
 });
 
+test("a wait that carries a table alerts with its words on one line, without the table", () => {
+  const records = { ...review("waiting-a-4"), title: "Waiting on you: Add the DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nthen tell me" };
+  const [alert] = boardAlerts(snapshot({}), snapshot({ reviews: [records] }));
+  assert.equal(alert.text, "Waiting on you: Add the DNS records in Cloudflare then tell me");
+});
+
 test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
   const pr = "https://github.com/o/r/pull/7";
   const working = snapshot({ tasks: [task("a", "working")] });
