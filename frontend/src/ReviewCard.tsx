@@ -43,7 +43,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       : <h3 id={"review-" + review.id} tabIndex={-1}>{status ? waitReason(review) : review.title}</h3>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
     {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{review.title}</strong><span>Review page</span></span>
+      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{waitReason(review)}</strong><span>Review page</span></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
     {review.lavish && pending && review.watched && <p className="review-status">{closedAt
