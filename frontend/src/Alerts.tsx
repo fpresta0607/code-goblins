@@ -33,8 +33,9 @@ function rememberSeen(seen: readonly SeenAlert[]) {
 // Overlord or finished, each opening its item, and a Windows notification for
 // each while he is not looking at the board, once he allows them. The board
 // asks for that once, with the first alert. Each event shows once on each:
-// opening or dismissing it on one leaves the other, and clicking its Windows
-// notification opens the toast's own item.
+// opening or dismissing its toast closes its notification, a toast that only
+// times out leaves it, and clicking the notification removes the toast and
+// opens its item.
 export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (target: AlertTarget) => void }) {
   const previous = useRef<Snapshot | null>(null);
   const [stored] = useState(readSeen);
