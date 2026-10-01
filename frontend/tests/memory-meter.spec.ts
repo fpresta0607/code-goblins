@@ -50,8 +50,10 @@ for (const width of [1440, 390]) {
         const layout = await meter.evaluate((box) => {
           const inside = box.getBoundingClientRect();
           const texts = [...box.querySelectorAll<HTMLElement>(":scope > :not(.sr-only), :scope > * > span, :scope > * > strong")].filter((element) => element.textContent?.trim());
-          const [floor, next] = [...box.querySelectorAll<HTMLElement>(".memory-scale > span")].map((label) => label.getBoundingClientRect());
+          const [scale, floor, next, mark] = [".memory-scale", ".memory-scale > .floor", ".memory-scale > .next", ".memory-mark.floor"].map((selector) => box.querySelector<HTMLElement>(selector)!.getBoundingClientRect());
+          const hasRoomAtMark = mark.right + next.width <= scale.right;
           return {
+            floorAtMark: !hasRoomAtMark || Math.abs(mark.left - floor.right) <= 8,
             smallest: Math.min(...texts.map((element) => parseFloat(getComputedStyle(element).fontSize))),
             outside: [...box.children].filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
             labelsApart: floor.right <= next.left,
@@ -61,7 +63,7 @@ for (const width of [1440, 390]) {
         await column.screenshot({ path: testInfo.outputPath(`${state}-${width}.png`) });
 
         // Assert
-        expect(layout).toEqual({ smallest: 16, outside: [], labelsApart: true, overflows: false });
+        expect(layout).toEqual({ smallest: 16, floorAtMark: true, outside: [], labelsApart: true, overflows: false });
       });
     }
 
