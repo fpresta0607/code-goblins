@@ -581,8 +581,10 @@ func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {
 		if err := store.supersedeQuestions(); err != nil {
 			t.Fatal(err)
 		}
-		if got := store.Snapshot().Questions[0]; got.Status != "superseded" || !strings.Contains(got.Message, "CFO already handled") {
-			t.Fatalf("question = %+v", got)
+		// The CFO acks a question it answered, so the board closes it as
+		// answered by the CFO, never as withdrawn or superseded (item 0h).
+		if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredAt == nil || got.Answer != "" {
+			t.Fatalf("question = %+v, want it answered by the CFO with no choice recorded", got)
 		}
 	})
 }
@@ -729,6 +731,63 @@ func TestCFOAnswerRefusesBeforeSendingAnything(t *testing.T) {
 			}
 			if entries, err := os.ReadDir(filepath.Join(h.State, answersInbox)); !os.IsNotExist(err) && len(entries) != 0 {
 				t.Fatalf("a refused answer left %d records for the board", len(entries))
+			}
+		})
+	}
+}
+
+// A goblin's question can wait in the CFO's queue without ever reaching the
+// board, when its notify could not show it there (cg-native-desktop's 3593 on
+// 2026-10-01, refused by the board's proof). Once the question has had its
+// moment to arrive, cfo answer delivers the choice to the goblin that asked
+// and marks the notify answered, instead of asking the CFO to try again for a
+// question that never comes. One raised a moment ago may still be on its
+// way, and one asked before the goblin restarted reaches nobody.
+func TestCFOAnswersAQuestionThatNeverReachedTheBoard(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		grace     time.Duration
+		restarted bool
+		refusal   string
+	}{
+		{name: "a question past its moment to arrive", grace: 0},
+		{name: "a question raised a moment ago", grace: time.Hour, refusal: "has not reached the board yet"},
+		{name: "a question asked before the goblin restarted", grace: 0, restarted: true, refusal: "restarted"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			defer func(grace time.Duration) { questionArrival = grace }(questionArrival)
+			questionArrival = c.grace
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, runner, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			spawned := record.Time.Add(-time.Hour)
+			if c.restarted {
+				spawned = record.Time.Add(time.Second)
+			}
+			meta.SpawnGen = fmt.Sprintf("s%d", spawned.UnixNano())
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			chosen, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "")
+
+			// Assert
+			if c.refusal != "" {
+				if err == nil || !strings.Contains(err.Error(), c.refusal) || len(runner.prompts) != 0 {
+					t.Fatalf("answer = %q, %v with %d prompts, want refused (%q) with nothing sent", chosen, err, len(runner.prompts), c.refusal)
+				}
+				return
+			}
+			want := fmt.Sprintf("CFO: decision %d: SQLite", record.Seq)
+			if err != nil || chosen != "SQLite" || len(runner.prompts) != 1 || runner.prompts[0] != want {
+				t.Fatalf("answer = %q, %v with prompts %q; want SQLite delivered once as %q", chosen, err, runner.prompts, want)
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCFO {
+				t.Fatalf("notify = %+v (%v), want it marked answered by the CFO", pending, err)
 			}
 		})
 	}

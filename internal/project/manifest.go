@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type Command []string
@@ -87,7 +88,7 @@ func Path(dataDir, projectName string) string {
 	return filepath.Join(dataDir, "projects", projectName, "project.json")
 }
 func Load(path string) (Manifest, error) {
-	b, err := os.ReadFile(path)
+	b, err := fsx.ReadFile(path)
 	if err != nil {
 		return Manifest{}, err
 	}

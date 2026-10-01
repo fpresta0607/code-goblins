@@ -11,10 +11,15 @@ import (
 )
 
 // AtomicWriteFile replaces path with data by writing a temp file in the same
-// directory and renaming it over path. The rename retries briefly because
-// antivirus and indexer scans on Windows hold transient sharing locks.
+// directory and renaming it over path. The rename goes through os.Root,
+// which on Windows renames with POSIX semantics, so it replaces a file that
+// a reader holds open with FILE_SHARE_DELETE, as Open opens it. A reader
+// that does not share deletion (Go's os.Open, PowerShell's Get-Content, an
+// antivirus or indexer scan) still blocks it until it lets go, so the rename
+// waits that out within transientBudget.
 func AtomicWriteFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".cfo-tmp-*")
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".cfo-tmp-*")
 	if err != nil {
 		return err
 	}
@@ -25,21 +30,54 @@ func AtomicWriteFile(path string, data []byte) error {
 		os.Remove(tmpName)
 		return err
 	}
-	var renameErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if renameErr = os.Rename(tmpName, path); renameErr == nil {
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
+	root, err := os.OpenRoot(dir)
+	if err == nil {
+		err = retryTransient(func() error { return root.Rename(filepath.Base(tmpName), filepath.Base(path)) })
+		root.Close()
 	}
-	os.Remove(tmpName)
-	return renameErr
+	if err != nil {
+		os.Remove(tmpName)
+		var renameErr *os.LinkError
+		if errors.As(err, &renameErr) {
+			renameErr.Old, renameErr.New = tmpName, path
+		}
+		return err
+	}
+	return nil
+}
+
+// Remove is os.Remove for a fleet file another process may be holding: a
+// removal that meets another process's brief hold on the file waits it out
+// within transientBudget. A missing file is an error, as with os.Remove.
+func Remove(path string) error {
+	return retryTransient(func() error { return os.Remove(path) })
+}
+
+// transientBudget is how long a state file operation waits out another
+// process holding the file before it reports the failure.
+var transientBudget = 5 * time.Second
+
+// retryTransient runs op until it succeeds, fails for any reason other than
+// another process holding the file, or would outlast transientBudget,
+// waiting 10 ms after the first attempt and twice as long after each next
+// one, up to half a second.
+func retryTransient(op func() error) error {
+	deadline := time.Now().Add(transientBudget)
+	wait := 10 * time.Millisecond
+	for {
+		err := op()
+		if err == nil || !heldByAnother(err) || time.Now().Add(wait).After(deadline) {
+			return err
+		}
+		time.Sleep(wait)
+		wait = min(2*wait, 500*time.Millisecond)
+	}
 }
 
 // ReadLines returns the file's lines, treating CRLF and LF endings equally.
 // A missing file returns an error satisfying errors.Is(err, os.ErrNotExist).
 func ReadLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+	data, err := ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

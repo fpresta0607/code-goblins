@@ -295,7 +295,7 @@ func TouchHeartbeat(stateDir string, now time.Time) error {
 }
 
 func readStrictJSON(path string, out any) error {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return err
 	}

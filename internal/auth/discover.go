@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // envFileNames are the local secret files a project keeps outside git, in
@@ -342,7 +343,7 @@ func flyAccessToken() (string, string) {
 		return "", ""
 	}
 	path := filepath.Join(home, flyConfigRelative)
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return "", ""
 	}
@@ -629,7 +630,7 @@ func envFiles(projectDir string) []string {
 // use - comments, blank lines, `export ` prefixes, and quoted values - and
 // ignores anything else rather than guessing.
 func ParseEnvFile(path string) (map[string]string, error) {
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if err != nil {
 		return nil, err
 	}

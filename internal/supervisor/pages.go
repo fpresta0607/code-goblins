@@ -68,8 +68,13 @@ func (s *Service) watchPages(ctx context.Context) {
 	}
 }
 
-// watchPage polls one item's page until the Overlord answers on it, ends it,
-// or leaves it, then gives the CFO what happened and closes the item.
+// watchPage polls one item's page until the Overlord answers on it or ends
+// it, the item closes, or the page cannot be polled, then gives the CFO what
+// happened and closes the item. A closed review window is not the end of the
+// review: lavish-axi keeps the session, his answers queue on the page until a
+// poll takes them, and reopening the page resumes the same review, so the
+// poll goes on after a pause that keeps a window that keeps disconnecting
+// from spinning it.
 func (s *Service) watchPage(ctx context.Context, r Review) {
 	failures := 0
 	for {
@@ -77,8 +82,18 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err == nil && poll.Status == "waiting" {
+		if err == nil && (poll.Status == "waiting" || poll.Status == "browser_disconnected") {
 			failures = 0
+			if poll.Status == "browser_disconnected" {
+				if err := s.Store.windowClosed(r.ID, time.Now().UTC()); err != nil {
+					s.publish(err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(pagePollPause):
+				}
+			}
 			continue
 		}
 		if err != nil {
@@ -101,16 +116,20 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 // opens a new item. The poll consumed the page's feedback, so the wake is
 // retried until the CFO has it, and the item stays open until then. The CFO's
 // own page has no goblin to key or relay to, so its wake is keyed by the item.
+// An item the Overlord answered on its page closes answered, by him, on the
+// page, and one he ended there closes as his clear; only an item that closed
+// without his word is withdrawn.
 func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll, pollErr error) {
-	var detail, reason string
-	relay, key, answered := "relay it to the goblin", r.Task, "The Overlord answered on the page; the CFO relays it."
+	var detail string
+	relay, key, answered := "relay it to the goblin", r.Task, "You answered on its page; the CFO relays it to the goblin."
 	if r.Task == "" {
-		relay, key, answered = "act on it", r.ID, "The Overlord answered on the page; the CFO has it."
+		relay, key, answered = "act on it", r.ID, "You answered on its page; the CFO has it."
 	}
+	closed := Review{State: "withdrawn"}
 	switch {
 	case pollErr != nil:
 		detail = fmt.Sprintf("the supervisor cannot poll the page %s (%v); the Overlord's answer on it reaches nobody, so ask him in text", r.LavishPage, pollErr)
-		reason = "The page could not be polled; the CFO was told."
+		closed.Reason = "The page could not be polled; the CFO was told."
 	case poll.Status == "feedback":
 		if saved, err := savePageFeedback(s.Store.Home.State, r, poll.Output); err == nil {
 			detail = "the Overlord answered on the page " + r.LavishPage + "; his feedback is in " + saved + ", " + relay
@@ -129,16 +148,19 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 		if poll.Ended {
 			detail += "; he ended the review"
 		}
-		reason = answered
+		closed = Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: answered}
+		if err := s.Store.answerQuestionsOnPage(r, strings.Join(poll.Prompts, "\n")); err != nil {
+			s.publish(err)
+		}
+	case poll.Status == "ended" && poll.EndedBy == "agent":
+		detail = "an agent, not the Overlord, ended the review of " + r.LavishPage + " before he answered on it"
+		closed.Reason = "An agent ended the review on its page; the CFO was told."
 	case poll.Status == "ended":
 		detail = "the Overlord ended the review of " + r.LavishPage + " with no more feedback"
-		reason = "The Overlord ended the review."
-	case poll.Status == "browser_disconnected":
-		detail = "the Overlord's review window for " + r.LavishPage + " disconnected; ask him whether to reopen it or end it"
-		reason = "The review window disconnected; the CFO was told."
+		closed = Review{State: "cleared", Reason: "You ended the review on its page."}
 	default:
 		detail = "lavish-axi reported " + poll.Status + " for the page " + r.LavishPage
-		reason = "The page's session changed; the CFO was told."
+		closed.Reason = "The page's session changed; the CFO was told."
 	}
 	for {
 		_, err := wake.Append(s.Store.Home.State, "review", key, detail)
@@ -155,7 +177,7 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
 		s.publish(err)
 	}
-	if err := s.Store.withdrawReview(r.ID, reason); err != nil {
+	if err := s.Store.closeReview(r.ID, closed); err != nil {
 		s.publish(err)
 	}
 }

@@ -124,15 +124,17 @@ func NewNativeWaiter(dir string) (*DirWaiter, error) {
 // one arrived. Its bool return has two halves, both load-bearing to
 // watch.Run's contract on Config.WaitEvent: true is returned ONLY when a
 // completed ReadDirectoryChangesW named at least one *.status or
-// *.turn-ended file, or lost its content to a buffer overflow (in which case
+// *.turn-ended file or a serve's handover request, or lost its content to a
+// buffer overflow (in which case
 // a real change is assumed since there is no way to say otherwise). Every
 // other path - a closed or degraded waiter, an API failure, an ordinary
 // timeout, or a completed read that named only bookkeeping files - returns
 // false, but the bookkeeping-only case reissues against the SAME deadline
 // instead of returning immediately: see the loop below.
 //
-// Filtering to the two suffixes ScanSignals actually acts on keeps unrelated
-// typed monitor records and other bookkeeping from waking the watcher.
+// Filtering to the two suffixes ScanSignals actually acts on, and the one
+// request the watcher yields to at once, keeps unrelated typed monitor records
+// and other bookkeeping from waking the watcher.
 func (w *DirWaiter) Wait(timeout time.Duration) bool {
 	// Degraded is checked before closed: once tripped it stays true for the
 	// waiter's remaining lifetime, including after Close, so every later
@@ -255,9 +257,12 @@ func (w *DirWaiter) matchesStatusFile() bool {
 // BYTES over UTF-16, then the name itself, with NextEntryOffset 0 marking
 // the last record) and reports whether any of them names a file ending in
 // .status or .turn-ended, matched case-insensitively: exactly the two
-// suffixes ScanSignals acts on.
+// suffixes ScanSignals acts on, or a serve's handover request, which the
+// watcher yields to at once.
 func bufferNamesStatusFile(data []byte) bool {
-	return bufferNamesMatching(data, hasStatusSuffix)
+	return bufferNamesMatching(data, func(name string) bool {
+		return hasStatusSuffix(name) || strings.EqualFold(name, HandoverName)
+	})
 }
 
 func bufferNamesMatching(data []byte, matches func(string) bool) bool {

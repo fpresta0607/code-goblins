@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,7 +279,7 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 	}
 	named := map[string]string{}
 	for _, file := range files {
-		data, err := os.ReadFile(file)
+		data, err := fsx.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
@@ -314,7 +315,7 @@ func noteNames(named map[string]string, text, where string) bool {
 // the supervisor's database: a question not yet closed, an open review item
 // and a run card ready or running.
 func openBoardText(h home.Home) (string, error) {
-	data, err := os.ReadFile(filepath.Join(h.State, ".supervisor.json"))
+	data, err := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -358,11 +359,15 @@ func openBoardText(h home.Home) (string, error) {
 // row, and records the move in the filing log. A move that fails is skipped
 // and the rest still made, so a folder a process still holds open stays
 // exactly where it was for the next pass without holding back the others.
-// It returns the moves it made, with every failure joined.
-func Apply(h home.Home, moves []Move, now time.Time) ([]Move, error) {
+// Once ctx is done it makes no further move. It returns the moves it made,
+// with every failure joined.
+func Apply(ctx context.Context, h home.Home, moves []Move, now time.Time) ([]Move, error) {
 	var done []Move
 	var failures []error
 	for _, move := range moves {
+		if err := ctx.Err(); err != nil {
+			return done, errors.Join(append(failures, err)...)
+		}
 		if err := os.MkdirAll(filepath.Dir(move.To), 0o755); err != nil {
 			failures = append(failures, fmt.Errorf("file %s: %w", move.ID, err))
 			continue
@@ -398,17 +403,18 @@ func logLine(h home.Home, move Move, now time.Time) string {
 // without the layout marker is left alone, because reorganising it is the
 // migration its owner decides on. A pass that fails is recorded in the
 // filing log, once until the failure changes, so a folder a process holds
-// open shows there instead of being retried in silence.
-func File(h home.Home, now time.Time) ([]Move, error) {
+// open shows there instead of being retried in silence. A pass stopped
+// because ctx is done is not a failure: the next pass files the rest.
+func File(ctx context.Context, h home.Home, now time.Time) ([]Move, error) {
 	laidOut, err := exists(filepath.Join(h.Data, Marker))
 	if err != nil || !laidOut {
 		return nil, err
 	}
 	moves, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
 	if err == nil {
-		moves, err = Apply(h, moves, now)
+		moves, err = Apply(ctx, h, moves, now)
 	}
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		err = errors.Join(err, recordFailure(h, now, err))
 	}
 	return moves, err
@@ -417,7 +423,7 @@ func File(h home.Home, now time.Time) ([]Move, error) {
 func recordFailure(h home.Home, now time.Time, failure error) error {
 	path := filepath.Join(h.Data, filepath.FromSlash(FilingLog))
 	message := " could not file: " + strings.ReplaceAll(failure.Error(), "\n", " ")
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -500,7 +506,7 @@ func dataPath(h home.Home, path string) string {
 
 // addParkedRow adds row to the backlog file: see withParkedRow.
 func addParkedRow(path, row string) error {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -562,7 +568,7 @@ func headingIndex(lines []string, name string) int {
 }
 
 func appendLog(path, line string) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := fsx.OpenAppend(path, 0o644)
 	if err != nil {
 		return err
 	}

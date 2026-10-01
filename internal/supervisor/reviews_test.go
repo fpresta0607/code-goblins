@@ -487,7 +487,7 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 		{"an answer delivered", answer(true), false, false},
 		{"an item the CFO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CFO answered task-1's question." }, false, false},
 		{"a page answered for the CFO to relay", func(r *Review) {
-			r.State, r.Reason = "withdrawn", "The Overlord answered on the page; the CFO relays it."
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason = "answered", "overlord", "page", "You answered on its page; the CFO relays it to the goblin."
 		}, false, false},
 		{"an earlier wait's delivered answer", answer(true), true, true},
 	} {
@@ -554,6 +554,65 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "task-1 reported again: working: charging the card" {
 		t.Fatalf("a wait the goblin moved past = %+v, want it withdrawn with the new report", got)
+	}
+}
+
+// A goblin waiting on the Overlord that asks the CFO a question waits on both
+// at once: the question replaces nothing, so the wait's item stays in the
+// Command Center while the question is open, and once the CFO answers, the
+// board reads the goblin as waiting on the Overlord again. On 2026-10-01 each
+// question cg-credential-requests asked (3620, 3624) withdrew its wait, and it
+// filed the wait again each time.
+func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: look at the credential card"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.acceptReview(openReview("waiting-task-1-7", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	question, err := wake.Append(h.State, "notify", "task-1", "blocked: May I add to the shared files?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "blocked: May I add to the shared files?"); err != nil {
+		t.Fatal(err)
+	}
+	task := func() Evaluation {
+		t.Helper()
+		snapshot, err := s.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+		if i < 0 {
+			t.Fatal("task-1 missing from the snapshot")
+		}
+		return snapshot.Tasks[i].Evaluation
+	}
+
+	// Act
+	retired := store.retireItems()
+	asking := task()
+	if err := wake.MarkAnswered(h.State, question.Seq, wake.AnsweredByCFO, "Yes, keep the hunks small"); err != nil {
+		t.Fatal(err)
+	}
+	answered := task()
+
+	// Assert
+	if retired != nil {
+		t.Fatal(retired)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" {
+		t.Errorf("the wait after the goblin asked the CFO = %+v, want it still open", got)
+	}
+	if asking.Phase != "blocked" {
+		t.Errorf("task-1 with its question open = %+v, want blocked on it", asking)
+	}
+	if answered.Phase != "waiting" || answered.WaitingOn != "overlord" {
+		t.Errorf("task-1 once the CFO answered = %+v, want waiting on the Overlord again", answered)
 	}
 }
 

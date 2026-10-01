@@ -21,7 +21,10 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/siqspeak"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -56,7 +59,8 @@ type HTTP struct {
 	openWindow func(ctx context.Context, program string, args ...string) error
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
-	build string
+	build     string
+	readVoice func() (siqspeak.Snapshot, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -67,7 +71,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, readVoice: voiceReader(install.MachineProjectsRoot)}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +98,13 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch {
+	case r.URL.Path == "/api/voice" && r.Method == "POST":
+		h.voice(w, r)
+	case r.URL.Path == "/api/alive" && r.Method == "GET":
+		// Liveness for goblins and its status and stop: the supervisor's own
+		// pid, answered without building the fleet's snapshot, which can
+		// take longer than any launcher waits.
+		respond(w, 200, map[string]int{"pid": os.Getpid()})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
 		snapshot, err := h.Service.Snapshot()
 		if err != nil {
@@ -156,9 +167,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" {
 			http.NotFound(w, r)
 			return
+		}
+		if r.URL.Path == "/manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json")
 		}
 		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")
@@ -396,7 +410,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusTail(dir, id string) ([]string, error) {
-	f, err := os.Open(filepath.Join(dir, id+".status"))
+	f, err := fsx.Open(filepath.Join(dir, id+".status"))
 	if errors.Is(err, os.ErrNotExist) {
 		return []string{}, nil
 	}
