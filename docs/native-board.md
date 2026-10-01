@@ -7,14 +7,22 @@ Docker remains an optional project environment managed by the existing worktree 
 `serve` does not care where it was started: started from a Herdr pane, such as the CFO's own, it first drops that pane's variables (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_STARTUP_CWD`, `HERDR_SOCKET_PATH` and `HERDR_BIN_PATH`) and keeps every other `HERDR_` variable, such as `HERDR_SESSION` and the user's configuration in `HERDR_CONFIG_PATH`, so a terminal it opens, or any other program it runs, is not refused by herdr as nested inside that pane.
 
 The service takes the existing `.watch.lock` before opening recovery state.
-An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
+Another `serve` holding it is refused, so two supervisors never run, and a `serve` started while this home's board answers as its recorded supervisor names that board and exits 1 before taking an address; a watcher holding it, the one the CFO's `stop-autoarm` hook hosts or a `cfo watch`, hands it over, because the supervisor supersedes it.
+`serve` writes `state/serve.handover` naming its pid, start time and host, and writes it again every second while it waits; the watcher's wait wakes on that file, so it yields the lock at once, with nothing appended and no episode published, and no watcher takes the lock while a live `serve` waits for it.
+On 2026-10-01 an install stopped `serve`, the CFO's Stop hook took the lock in the gap, and every new `serve` refused to start until the hook's window ended, which can run for hours.
+A watcher in the middle of a cycle answers at once in `state/serve.handover.ack`, naming itself and the `serve` by pid and start time, and stops its monitor scan, orphan sweep and filing pass; `serve` waits up to five more minutes for a watcher that answered, so the Stop hook that rewakes an idle CFO is never ended for being slow.
+A watcher from a binary older than the handover never reads the request, so after 30 seconds without an answer `serve` ends that one process, and only once it has proved it through the one handle it ends it by: the lock names it as a watcher by pid, start time and host, the process was created at that start time, and its command line is `cfo` or `goblins` running `hook stop-autoarm` or `watch`.
+A holder running anything else, a terminal's host, a `serve`, a gate's test or another program, is left running and `serve` refuses as before; starting the board never ends a worker, a terminal's host, or a watcher's parent, and pending wakes stay in the durable queue.
 While `serve` holds it, the Claude CFO's `stop-autoarm` hook still rewakes the idle CFO: it waits on the wake queue, rewakes once for each record no earlier rewake covered, and hosts the watcher itself again if `serve` stops.
 It counts `serve` as the watcher until its heartbeat is older than the stall window (15 minutes, `CFO_WATCHER_STALL`), because `serve` stamps its heartbeat in the loop that runs its reconcile cycle and a slow cycle can hold it past the turn-end guard's five minutes; past the window it reports supervision down, naming `serve`'s pid and saying to restart it, since nothing can take the watcher from a live `serve`.
 When its wait ends with its window and nothing queued, it rewakes the CFO to end a turn, which re-arms it.
 Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal, or `goblins stop` from any terminal, stops that process.
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
-`goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
-Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to 30 seconds for the board to answer, and opens it in the browser once.
+`goblins` with no command reads that record and asks the board's `/api/alive`, which answers with the supervisor's pid without building the fleet's snapshot: only a successful answer naming the recorded pid is the running supervisor, and anything else at the address, a page not found, an answer that names no pid or another one, makes the record stale.
+On 2026-10-01 a healthy board took eight seconds to build its snapshot, the launcher's three-second wait read it as dead, and `goblins` tried to start a second supervisor.
+A live supervisor gets a status line from the snapshot within three seconds, or one saying the fleet's status is still loading, or that the board could not read the fleet's state, and `goblins` starts and opens nothing and goes on to the CFO.
+Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to a minute for the board to answer, which covers a watcher handing it the lock, and opens it in the browser once.
+Two `goblins` started at once each start a `serve`: the one whose start finds `serve.log` held by the other's, or whose `serve` exits finding the other taking the lock over or holding it, waits for the other's board instead of failing.
 The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 `goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
@@ -25,11 +33,11 @@ Otherwise it picks the project (the git checkout its terminal is in, else the on
 An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
 It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
-`goblins status` reads the board record and prints the board's link, the status line and the supervisor's pid, and exits 1 when no board answers there.
+`goblins status` reads the board record and prints the board's link, the status line and the supervisor's pid, and exits 1 when the supervisor the record names does not answer as itself there.
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
 The supervisor checks for that request on its notification tick, which comes at least every two seconds between cycles, and stops as it would on Ctrl-C, removing its record; a request naming any other pid is left over from a supervisor that already ended, so it is removed and stops nothing.
 A supervisor also removes any request left from before it started, so a reused pid cannot stop it.
-`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose address does not answer is removed without stopping anything.
+`goblins stop --force` ends the recorded pid's process tree with `taskkill /T /F` and removes the record instead, and a record whose supervisor does not answer as itself is removed without stopping anything; a supervisor whose snapshot is slow still answers, so its record is never taken for stale.
 Restarting with the same CFO home recovers durable events, evaluations, actions, and lineage.
 
 ## Native hook setup
@@ -203,6 +211,9 @@ Dragging a card or using Alt plus an arrow key changes only its saved browser po
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
 A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
+A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
+Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
+A card he placed stays where he put it, and an arranged card whose place it covers takes the nearest free place, along its row first and then the rows below, so the canvas never arranges a card onto another.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
@@ -366,7 +377,7 @@ The primary CFO writes that registration itself: Claude's SessionStart hook does
 Registering the same process in the same pane again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
 Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` must have one of the caller's own process ancestors in its foreground, and that harness must hold the home's session lock, taking it only when no live session does.
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
-Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
+Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, or the caller to carry the terminal's proof value (see [Goblin questions](#goblin-questions)), and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
 The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it within five seconds, the Herdr sender's confirmation budget.
@@ -466,6 +477,13 @@ A stored token does not change an already running native process's environment, 
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
+### The tab and the installed app
+
+The board's tab shows the goblin mark, from `/favicon.svg` with 16 and 32 px PNGs beside it, and its title counts what waits on the Overlord, such as (2) Code Goblins, dropping the count once nothing does.
+Its theme color is the #03050a base, so a browser that tints its bar, such as Chrome on Android, blends into the board.
+The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
+The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render them again from it whenever the mark changes.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
@@ -477,7 +495,12 @@ An answer to a question or on a review item, to a goblin or to a CFO, and a `cfo
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
-Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.
+Every surface wears SIQstack's glass from SIQshift's brand stylesheet: a 135-degree green-to-blue tint over the #03050a base, a green hairline border and a deep shadow with a green top highlight; a hovered card brightens its border and glows faintly, and what floats, such as a dialog, a menu or a tooltip, is the same glass laid on the solid #04060a surface so nothing behind it shows through.
+The tokens live once, in `frontend/src/styles.css` `:root`, under SIQshift's and SIQstack's own names.
+A selected card has a solid green edge and glow, and keyboard focus is SIQstack's 3 px blue ring, so a focused control never reads as selected.
+The active tab of a pill switch carries SIQstack's green, blue and purple ring; primary buttons are SIQshift's solid green pill.
+The goblins' dialogue boxes keep their lantern-and-leather look and add a green glass hairline that follows their stepped frame, with a faint green glow around it.
+The board has one dark theme, and status colors keep their meaning in it: working blue, waiting and next amber, failed red, merged purple, done mint.
 
 ## Deliberate CFO questions
 
@@ -497,6 +520,7 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
+For a CFO in a native terminal, a publisher whose chain of parents stops short of the CFO is proven instead by the terminal's proof value, as for a goblin's question.
 The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
 A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
 Each card sends only its own answer.
@@ -530,19 +554,23 @@ An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's wo
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
 Only a process running under the task's own terminal can surface its notify, by the same proof `cfo register` uses: under the harness in the foreground of its Herdr pane, or under the program of its native terminal, whose host must answer.
+In a native terminal a process whose chain of parents stops short of the program, as Git Bash leaves `timeout 60 cfo notify ...` when it runs timeout, an MSYS program, by replacing its own Windows process, is proven instead by the proof value the terminal's host put in the terminal's environment as `CFO_HOST_PROOF`, beside `CFO_HOST_ID`; the CFO's own registration, its pipe proof and the sender of its sends take the same proof in a native terminal.
+The host records only the value's SHA-256 and when the terminal's program started, so the value proves nothing once Windows gives the program's pid to a later process.
+Every process the terminal starts inherits the value, so it proves nothing in a Herdr pane, to which a Herdr server started from the terminal would hand it, and `cfo serve` forgets the id and the value of the terminal it was started from before it starts anything.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
 Such a question never reaches the board, so once it has had 30 seconds to arrive `cfo answer` sends the CFO's choice straight to the goblin that asked, marks the notify answered and records nothing on the board; it refuses, sending nothing, when the goblin's current generation started after the notify, since that goblin never asked.
 The question is bound to the task generation and terminal that asked.
 The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned or moved successor: through Herdr to its pane, or typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
 The notify then reads answered: `cfo drain` prints the board's answer and acks the record without `--ack-blocking`, and the monitor stops re-asking it.
 The CFO still acks it in the ordinary way.
-Once the CFO acks a notify it handled itself, the board retires its copy, and an answer queued before that ack is refused with nothing sent.
+The CFO acks a notify once it answered the goblin itself, such as with `cfo send`, so the board then closes its copy as answered by the CFO (`answered_by: cfo`, no choice recorded), which reads "The CFO answered it" with the check of any answer, and an answer queued before that ack is refused with nothing sent.
+`cfo answer --record-only` can still record which choice it was.
 One window stays open: if the CFO answers with `cfo send` and the Overlord answers on the board before the CFO acks, the goblin receives both, each labelled with its sender.
 The CFO answers a goblin's question in a structured way with `cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]`, from the registered primary CFO only.
 The choice is named in full or by its first word (the `a`, `b` labels goblins give their options), and a label that names two choices, a choice the question does not offer, a notify without choices, one already answered or handled, and a restarted goblin are refused before anything is sent.
 The goblin receives `CFO: decision <seq>: <choice>. <note>` the way `cfo send` types, the notify reads answered so `cfo drain` acks it without `--ack-blocking`, and the board records the choice, that the CFO gave it and when, even when the CFO drains the notify first.
 Every answer, on the board or through `cfo answer`, is recorded on its question as `answered_option` (the choice; empty for a written answer), `answered_by` (`cfo` or `overlord`) and `answered_at`, so a closed question shows which option was chosen.
-A question that closed without an answer, because its goblin restarted or ended or the CFO handled it, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question cannot be cleared or dropped, so an unanswered decision is never hidden.
+A question that closed without an answer, because its goblin restarted or ended or the CFO session that asked it changed, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question cannot be cleared or dropped, so an unanswered decision is never hidden.
 
 ## Working and waiting reports
 
@@ -556,7 +584,8 @@ cfo notify <id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
 Both write a status line only, so they wake nobody, and a newer one of them replaces an older blocked or failed reading on the board while the question itself stays in the CFO's queue.
 The task reads `working` with the reason, or `waiting` with the reason and `waiting_on` naming the target, unless a newer question, the gate's own decision, or a merge says otherwise.
 A wait on another task clears itself once that task reports done, and a wait on CI or a deploy lasts until the goblin reports again; the CFO releases any wait with a `--working` line of its own.
-Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer.
+Waiting on the Overlord is the one wait that wakes the CFO: it also opens a review item for him, named `waiting-<task>-<wake sequence>`, which he can answer or clear, and which is withdrawn once the goblin reports anything newer than a question.
+A question the goblin asks while it waits (`--blocked`) replaces no wait: the goblin waits on the Overlord and on the question at once, the item stays, the task reads blocked while the question is open, and once it is answered the task reads the wait it still stands on.
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
@@ -570,8 +599,9 @@ cfo notify task-id --waiting-on overlord "pick a plan" --lavish .lavish/plan.htm
 The notify opens the page without a browser, and refuses, recording nothing, when the file is not an HTML page or `lavish-axi` cannot show it.
 The page's link goes into the wait's line, so the CFO's wake carries it, and onto the wait's review item.
 `cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so nobody, goblin or CFO, polls a page themselves.
-Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
-How it closes says who closed it: his feedback closes it as answered, by the Overlord (`answered_by: overlord`), on the page (`answered_in: page`), which also ends the goblin's wait because the CFO relays it; his own end of the review on the page closes it as his clear (You ended the review on its page.); and it reads withdrawn only when it closed without his word, such as a window that disconnected, a page that cannot be polled, or an agent that ended the review itself (lavish-axi reports `ended_by: agent`).
+Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; or a page that cannot be polled three times running.
+A closed or disconnected review window is not one of them: lavish-axi keeps the session and queues every answer he gives on the page, so the poll goes on, ten seconds after a disconnect, and when he reopens the page the same review resumes and the next poll takes everything he sent, however many answers.
+How it closes says who closed it: his feedback closes it as answered, by the Overlord (`answered_by: overlord`), on the page (`answered_in: page`), which also ends the goblin's wait because the CFO relays it; his own end of the review on the page closes it as his clear (You ended the review on its page.); and it reads withdrawn only when it closed without his word, such as a page that cannot be polled or an agent that ended the review itself (lavish-axi reports `ended_by: agent`).
 Only the item gets the page polled, so when it cannot be published the notify says nothing watches the page and fails, telling the goblin to ask in text with `--blocked`; the wait's line is already recorded and still reaches the CFO.
 
 The monitor watches for the mistake this rule prevents.
@@ -601,7 +631,7 @@ A `--lavish` link follows the presentation URL rule below, and a refusal names t
 `cfo serve` then polls that page exactly as it polls a page wait, and whatever becomes of it reaches the CFO as a `review` wake, keyed by the goblin or, on the CFO's own item, by the item's ID, and the item closes.
 For another round, publish the page again under a new ID.
 An item stays open until the Overlord clears it (`review_clear`), its reporter withdraws it with a reason, or the supervisor retires it; nothing expires it, and a `cfo serve` restart keeps it.
-The supervisor retires a goblin's item nobody waits on any more, on every reconcile: a wait on the Overlord once its task reports anything newer, any other item once its task reports done after publishing it, and every item of a task that is gone, such as one cleaned up; a goblin's page or images stay while it keeps working, asks or waits, because it still wants the Overlord's look, and the item reads Withdrawn: <task> finished: <report> or <task> is gone.
+The supervisor retires a goblin's item nobody waits on any more, on every reconcile: a wait on the Overlord once its task reports anything newer than a question, any other item once its task reports done after publishing it, and every item of a task that is gone, such as one cleaned up; a goblin's page or images stay while it keeps working, asks or waits, because it still wants the Overlord's look, and the item reads Withdrawn: <task> finished: <report> or <task> is gone.
 A delivered document is never retired, because its copy outlives the goblin: it stays until the Overlord opens, downloads or clears it.
 When the CFO answers a goblin's question with `cfo answer`, the goblin's waits on the Overlord raised up to that question close at once, since it has what it was waiting for, and each reads The CFO answered <task>'s question.; a wait it raised after the question stays open.
 The registered primary CFO can clear any open item with `cfo review --clear <id> --reason "<why>"`, such as one a retired goblin left; the item reads Cleared by the CFO: <why>, and `state/reviews.audit` records every clear the CFO makes, with its time, item, goblin and reason, one per line.
@@ -609,16 +639,26 @@ The Overlord can instead answer it (`review_answer`): his text goes once to the 
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
-The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin's own blocked report does not alert, since the question it raises does.
-Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, its name on a tab, one plain line such as cg-board-kill asks: Which layout should I keep?, and one action.
-A goblin speaks by its title, as its card does, falling back to its id.
+The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin blocked on its own question, which its task reads as Waiting on the CFO, does not alert, since the question it raises does.
+Each alert stands for one event and shows once in a browser, however often a snapshot, a supervisor restart or a reload brings it back.
+A goblin blocked on a question with no choices does not alert either: that question is prose for the CFO, who is woken for it, and the goblin's card still reads Waiting on the CFO.
+A Command Center item alerts once by its own id.
+The same words from the same goblin within five minutes are one event, so a wait or a question filed again under a new id, or a goblin's news replayed by a supervisor restart or a flicker back to work, does not alert again.
+A wait or a question folded this way is remembered under its own id too, so it does not alert when a later snapshot brings it back.
+A goblin's news is its generation, its state and the news itself, its pull request or what it reported, so its next pull request alerts at once, and the same news, or a wait filed again, more than five minutes later alerts again.
+The browser remembers the last 100 alerts it showed.
+Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action; it has no name tab, since its line already says who speaks.
+A goblin speaks by its title, as its card does, falling back to its id, cut to 60 characters in the line so what happened still shows; a goblin's wait says what it waits for once, without the Waiting on you: that heads its Command Center card.
 What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
-A goblin's finished or failed news offers Open and its name, outlined, on that goblin, with a moss tab when it finished and an ember tab when it failed.
+A goblin's finished or failed news offers Open, outlined, on that goblin.
 Lantern means it needs the Overlord and nothing else.
 An alert steps up once as it arrives, or just appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
-While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item.
+While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item and takes the alert off the board, and opening or dismissing the alert on the board closes its notification.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview that opens the page with Open review.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
+A goblin's pending question asked in the same generation as one of its open page items is that page's item, so the Command Center shows one card for the two: the snapshot names the item in the question's `page` and the newest such question in the item's `question`, the stack and the inbox list the page's card alone, and an alert or link to the question opens it.
+That card shows the question as its body, the page's preview and Open review, and a status line instead of choices, since he answers on the page: Waiting for your answer, or, once the page's window disconnected (`window_closed_at`), when it closed and that nothing he sends there is lost.
+An answer in either place closes both: his answer on the page closes the question as answered by him on the page (`answered_in: page`, with what he wrote) and marks its notify answered, so `cfo drain` retires it, and the CFO's `cfo answer` or his own board answer to the question closes the page's item as answered through its question (`answered_in: question`).
 A card open on screen when he answers on the page finishes as one he answered from it does: a check with Answered and You answered on its page, then the next open item, and History lists it with a double check; a Clear or Dismiss the board refused because the answer had already closed it shows no error, and no card shows a refusal once its item has closed.
 Any other item takes a written answer with Send answer or closes with Clear.
 `cfo deliver` hands the Overlord a document the same way: the registered primary CFO delivers any file it can read, a goblin only one from its worktree, task scratch or data directory, at most 64 MiB, and the file is copied beside the item so it outlives the original.
@@ -641,12 +681,13 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 ```
 
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
+For a CFO in a native terminal, a process whose chain stops short of the CFO is proven instead by the terminal's proof value, which the supervisor reads from that process's own environment.
 The sending process must also have started before it connected, so a process that later took its PID proves nothing.
 The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
 The pipe is the supervisor's own: it creates the first instance of its name, waiting up to two seconds for a stopping supervisor to let go, grants the current Windows user alone, and rejects remote clients.
 A supervisor that finds the name still taken serves nothing and lists that among the board's issues, and every command that uses the pipe sends only to the process holding this home's watch lock, so a squatter never receives a request.
-The supervisor thus proves the sending process descends from the process `state/primary.json` names: a request from a process outside the CFO's tree is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
-Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json` or starts a process with a spoofed parent can still pass the check, so it is not a boundary between processes of the same user.
+The supervisor thus proves the sending process runs under the process `state/primary.json` names: a request from a process outside the CFO's tree or terminal is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
+Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json`, starts a process with a spoofed parent, or copies the proof value out of a process in the CFO's terminal can still pass the check, so it is not a boundary between processes of the same user.
 The Overlord reading the exact command before Run, and Windows UAC for an admin item, remain the final check.
 The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.
@@ -654,17 +695,20 @@ The board sees each item in `snapshot.runs` with its exact command, shell, folde
 On the board a run item is a card in the Command Center stack, counted in the header badge while it is ready or running.
 The card shows why the CFO needs it, the shell with its mark (the GNU Bash mark for Git Bash, a terminal glyph for either PowerShell, since Simple Icons carries no PowerShell mark), an Admin badge with a shield when it runs elevated, the exact command in a monospace block that wraps and has a copy button, and the folder it runs in.
 One button runs it, enabled only while the item is ready and the board is connected: **Run**, or **Run as administrator** with a note that Windows will ask to confirm.
-The card then says Running, and Finished or Failed with the exit code, or Expired; its output shows as a terminal shows it, read every second from `GET /api/runs/<id>/output` while the command runs and kept with its exit code after, newest at the bottom; a finished item moves to the inbox's history with the same words.
-A goblin's wait on the Overlord himself (`cfo notify --waiting-on overlord`, a review item whose id is `waiting-<task>-<n>`) shows as a status card: who waits and what for, in the goblin's own words, and no answer box; it closes by itself once the goblin reports again or the CFO answers it.
+The card then says Running, and Finished or Failed with the exit code, or Expired or Withdrawn by the CFO; its output shows as a terminal shows it, read every second from `GET /api/runs/<id>/output` while the command runs and kept with its exit code after, newest at the bottom; a finished item moves to the inbox's history with the same words.
+A goblin's wait on the Overlord himself (`cfo notify --waiting-on overlord`, a review item whose id is `waiting-<task>-<n>`) shows as a status card: who waits and what for, in the goblin's own words, and no answer box; it closes by itself once the goblin reports again, other than with a question, or the CFO answers it.
 The card opens what the wait points at, as its main button, with Dismiss beside it: the page the goblin named with `--lavish` (Open the page), else that goblin's newest question still waiting in the Command Center (Open its question), else a file it delivered with `cfo deliver` (Open the file), else a web link in its words (Open the link); a wait that names none of these offers Dismiss alone.
 The board never opens a path from a wait's text, only a web link or an item it already holds.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
+The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
+Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.
+A connection repair the Overlord asked for from a goblin's connections panel is the board's own item, not the CFO's, and cannot be withdrawn.
 Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
 An admin item launches through `Start-Process -Verb RunAs`, so Windows itself asks the Overlord to confirm, and a declined prompt ends the item failed with that reason.
 The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
 When the command finishes, its exit code and the last 64 KiB of its output are on the item, and the CFO receives the result as the Overlord's answer, with the end of the output.
 Every run appends a line to `state/runs.audit`: the time, the item's ID, the SHA-256 of exactly the script file that ran, and its exit code, or none when it did not finish.
-Finished and expired items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
+Finished, expired and withdrawn items are pruned a week after they end; a waiting or running item is never dropped, and a new request is refused while all 64 held items are one or the other.
 Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
 Items that speak for the CFO (its questions, its own items with their withdrawals, every clear, documents from `cfo deliver` without `--task`, and `cfo answer`) reach the board only over the supervisor's pipe, which proves the sender descends from the registered CFO process, like run items; the question, review and answer inboxes refuse any file that claims to be the CFO's and name it on the board.
 Known limit: every goblin runs as the same Windows user as the CFO, and a process of that user can still spoof another goblin's items, including withdrawing them, since a goblin's identity is a hash of its task record, which any of them can read.
@@ -758,7 +802,8 @@ Native contracts were checked against installed versions and the primary [Codex 
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
 SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
-The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork.
+The board's palette and glass come from SIQshift's `packages/shared/styles/brand.css` and SIQstack's site (`src/app/brand.css`): the base and hero surfaces, the green, deep green and blue accents, the glass fill, border and shadow, the wordmark gradient, the electric tab ring and the blue focus ring, by their real values.
+The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork, and the 2026-09-30 SIQstack restyle, its regenerated workshop background and the goblin mark the tab and app icons are drawn from.
 The board self-hosts three OFL faces, so it renders the same offline: Pixelify Sans for headings at weight 400 only, because heavier weights close its C and G into O; Nunito for body text, never below 15 px; and JetBrains Mono for code.
 Their licenses sit beside the font files under `/assets/fonts/`.
 The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.

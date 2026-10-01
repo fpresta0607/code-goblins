@@ -35,7 +35,10 @@ type NativeProber struct {
 
 // Inspect samples the task's native terminal. The sample names the terminal
 // as its tab, gb-<id>, the way a Herdr task's tab is named.
-func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointSample, error) {
+func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error) {
+	if err := ctx.Err(); err != nil {
+		return EndpointSample{}, err
+	}
 	unknown := func(detail string) EndpointSample {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: detail}
 	}
@@ -63,7 +66,11 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	// is read again before anything is concluded from it.
 	screen, err := read(record)
 	for attempt := 1; err != nil && attempt < screenReads; attempt++ {
-		time.Sleep(screenReread)
+		select {
+		case <-ctx.Done():
+			return EndpointSample{}, ctx.Err()
+		case <-time.After(screenReread):
+		}
 		screen, err = read(record)
 	}
 	if err != nil {

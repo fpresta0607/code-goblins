@@ -5,9 +5,10 @@ import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type Activit
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, asksOverlord, waitingTarget, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
-const layoutKey = "cfo-orchestration-layout-v1";
+// v1 saved every card's place at each drag, which pinned the whole canvas.
+const layoutKey = "cfo-orchestration-layout-v2";
 
 function readLayout(): { positions: Record<string, Point>; error: string } {
   try {
@@ -32,8 +33,10 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
-  const automatic = useMemo(() => arrange(nodes), [nodes]);
+  const awaited = useMemo(() => waitingOn(snapshot, nodes), [snapshot, nodes]);
+  const automatic = useMemo(() => arrange(nodes, awaited), [nodes, awaited]);
   const [layout, setLayout] = useState(readLayout);
+  const positions = useMemo(() => settle(automatic, layout.positions), [automatic, layout.positions]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The graph fills the visible canvas, centered, until a zoom or a pan by
   // hand takes over; Fit hands it back. A dragged card holds the frame still.
@@ -78,7 +81,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
     return false;
   };
   const visible = nodes.filter((node) => !hidden(node));
-  const point = (id: string) => layout.positions[id] || automatic[id];
+  const point = (id: string) => positions[id];
   const xs = visible.map((node) => point(node.id).x), ys = visible.map((node) => point(node.id).y);
   const fitLeft = xs.length ? Math.max(0, Math.min(...xs) - 40) : 0;
   const fitTop = ys.length ? Math.max(0, Math.min(...ys) - 40) : 0;
@@ -97,9 +100,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   const move = (id: string, next: Point) => setLayout((prior) => ({ ...prior, positions: {
     ...prior.positions, [id]: { x: Math.max(0, Math.min(50000, next.x)), y: Math.max(0, Math.min(50000, next.y)) },
   } }));
+  // Only the cards he placed by hand are saved, so the canvas keeps arranging
+  // every other card around them.
   const save = () => {
     try {
-      const retained = Object.fromEntries(nodes.map((node) => [node.id, point(node.id)]));
+      const retained = Object.fromEntries(nodes.flatMap((node) => layout.positions[node.id] ? [[node.id, layout.positions[node.id]]] : []));
       localStorage.setItem(layoutKey, JSON.stringify(retained));
     } catch { setLayout((prior) => ({ ...prior, error: "Layout could not be saved in this browser." })); }
   };
@@ -183,8 +188,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             {/* A goblin waiting on another goblin: a dashed line from the
                 waiting card to the one it waits on, apart from the family tree. */}
             {visible.flatMap((node) => {
-              const awaited = node.task && ownsTaskSession(node.session, node.task) ? waitingTarget(snapshot, node.task) : undefined;
-              const target = awaited && visible.find((other) => other.task?.id === awaited.id && ownsTaskSession(other.session, other.task));
+              const target = visible.find((other) => other.id === awaited[node.id]);
               if (!target) return [];
               const from = point(node.id), to = point(target.id);
               let path: string, ex: number, ey: number;
@@ -193,6 +197,15 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
                 const sx = from.x + NODE_WIDTH / 2, sy = from.y + NODE_HEIGHT, dip = Math.max(from.y, to.y) + NODE_HEIGHT + 56;
                 ex = to.x + NODE_WIDTH / 2; ey = to.y + NODE_HEIGHT;
                 path = `M${sx},${sy} C${sx},${dip} ${ex},${dip} ${ex},${ey}`;
+              } else if (Math.abs(to.x - from.x) < NODE_WIDTH) {
+                // One under the other, as the canvas arranges a waiting
+                // goblin: straight down the middle of what they share, apart
+                // from the waiting card's own connector at its center.
+                ex = (Math.max(from.x, to.x) + Math.min(from.x, to.x) + NODE_WIDTH) / 2;
+                const upper = to.y < from.y;
+                const sy = upper ? from.y : from.y + NODE_HEIGHT;
+                ey = upper ? to.y + NODE_HEIGHT : to.y;
+                path = `M${ex},${sy} L${ex},${ey}`;
               } else {
                 const right = to.x > from.x;
                 const sx = from.x + (right ? NODE_WIDTH : 0), sy = from.y + NODE_HEIGHT / 2;

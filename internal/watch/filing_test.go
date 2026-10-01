@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,16 +84,16 @@ func TestFileDataRunsAtMostOncePerInterval(t *testing.T) {
 	cfg.FileEvery = time.Hour
 	var last time.Time
 
-	fileData(cfg, &last)
+	fileData(context.Background(), cfg, &last)
 	finishTask(t, h, "g2")
-	fileData(cfg, &last)
+	fileData(context.Background(), cfg, &last)
 
 	if !filed(t, h, "g1") || filed(t, h, "g2") {
 		t.Fatalf("filed g1 %v, g2 %v; want only the first pass to have run", filed(t, h, "g1"), filed(t, h, "g2"))
 	}
 
 	last = last.Add(-cfg.FileEvery)
-	fileData(cfg, &last)
+	fileData(context.Background(), cfg, &last)
 
 	if !filed(t, h, "g2") {
 		t.Error("the pass after the interval did not file g2")
