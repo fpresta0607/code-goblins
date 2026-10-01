@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,9 +26,17 @@ import (
 
 // fakeBoard answers /api/snapshot the way cfo serve does and returns its
 // address.
+// fakeBoardPID is the supervisor every fake board answers as, the pid the
+// fixture records.
+const fakeBoardPID = 4242
+
 func fakeBoard(t *testing.T, snapshot string) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		if r.URL.Path != "/api/snapshot" {
 			http.NotFound(w, r)
 			return
@@ -139,7 +148,7 @@ func (f *launcherFixture) launch(args ...string) (int, string, string) {
 
 func (f *launcherFixture) record(board string) {
 	f.t.Helper()
-	if err := writeBoardRecord(f.home.State, boardRecord{PID: 4242, URL: board}); err != nil {
+	if err := writeBoardRecord(f.home.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -178,6 +187,10 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 		return nil, nil
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		http.Error(w, "wake record is malformed", http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(server.Close)
@@ -349,7 +362,7 @@ func TestGoblinsReplacesAStaleBoardRecord(t *testing.T) {
 	gone.Close()
 	board := fakeBoard(t, busySnapshot)
 	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
-		if err := writeBoardRecord(h.State, boardRecord{PID: 5151, URL: board}); err != nil {
+		if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 			t.Fatal(err)
 		}
 		return make(chan struct{}), nil
@@ -439,6 +452,32 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 	} {
 		if got := statusLine(c.snapshot); got != c.want {
 			t.Errorf("%s: statusLine = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// The status line counts what the Command Center's badge counts, from the
+// board's own snapshot.
+func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
+	for name, c := range map[string]struct {
+		snapshot string
+		want     int
+	}{
+		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
+		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
+	} {
+		// Arrange
+		var snapshot launcherSnapshot
+		if err := json.Unmarshal([]byte(c.snapshot), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		got := statusLine(snapshot)
+
+		// Assert
+		if want := fmt.Sprintf("CFO supervising · 0 goblins working · %d waiting on you", c.want); got != want {
+			t.Errorf("%s: statusLine = %q, want %q", name, got, want)
 		}
 	}
 }
