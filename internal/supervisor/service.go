@@ -904,8 +904,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		// A goblin's own newer report says what it is doing, unless a question
-		// or the gate holds it or its work already merged.
-		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, reportedAt, report); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+		// or the gate holds it or its work already merged. A question it asked
+		// since replaces no such report: once answered, the goblin stands on
+		// it again.
+		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
+		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
 		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
