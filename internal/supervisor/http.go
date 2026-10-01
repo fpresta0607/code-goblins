@@ -136,6 +136,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fixConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
 		h.saveCredentials(w, r)
+	case r.URL.Path == "/api/credentials/terminal" && r.Method == "POST":
+		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":

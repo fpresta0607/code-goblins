@@ -67,6 +67,43 @@ func TestAuthRequestRefusesValuesWithoutRepeatingThem(t *testing.T) {
 	}
 }
 
+// A request names the checkout its scope is for, so the card can show the
+// repository a value goes to; a scope with no checkout here names none.
+func TestAuthRequestNamesTheRepositoryItsScopeIsFor(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	checkout := filepath.Join(root, "Acme-Shop")
+	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtime := commandRuntime{projectsRoot: func() (string, error) { return root, nil }}
+	request := func(project string) (string, string) {
+		t.Helper()
+		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", []string{"STRIPE_SECRET_KEY"})
+		if err != nil {
+			t.Fatalf("credentialRequest(%q) = %v", project, err)
+		}
+		return filed.Project, filed.Repository
+	}
+
+	// Act
+	byNameScope, byNameRepository := request("acme")
+	byPathScope, byPathRepository := request(checkout)
+	elsewhereScope, elsewhereRepository := request("elsewhere")
+	notesScope, notesRepository := request(filepath.Join(root, "notes"))
+
+	// Assert
+	if byNameScope != "Acme-Shop" || byNameRepository != checkout || byPathScope != "Acme-Shop" || byPathRepository != checkout {
+		t.Fatalf("by name = %q %q, by path = %q %q; want the checkout's scope and folder", byNameScope, byNameRepository, byPathScope, byPathRepository)
+	}
+	if elsewhereScope != "elsewhere" || elsewhereRepository != "" || notesScope != "notes" || notesRepository != "" {
+		t.Fatalf("no checkout = %q %q, a folder without .git = %q %q; want the scope and no repository", elsewhereScope, elsewhereRepository, notesScope, notesRepository)
+	}
+}
+
 // A value saved on the board reaches running goblins through cfo auth
 // store's own refresh: each live task of the project gets its auth.ps1
 // regenerated and a re-source notice, which names the script and never the

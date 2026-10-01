@@ -74,6 +74,10 @@ type Run struct {
 
 	ConnectionTask       string `json:"connection_task,omitempty"`
 	ConnectionGeneration string `json:"connection_generation,omitempty"`
+	// CredentialRequest is the credential request whose card opened this
+	// terminal, and CredentialNames the names it stores.
+	CredentialRequest string   `json:"credential_request,omitempty"`
+	CredentialNames   []string `json:"credential_names,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -462,6 +466,11 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		return err
 	}
 	err = appendRunAudit(s.Store.Home.State, r, code, time.Now().UTC())
+	// A credential request's terminal tells the CFO the names it stored.
+	if r.CredentialRequest != "" {
+		s.credentialTerminalEnded(r, code)
+		return err
+	}
 	if r.ConnectionTask != "" {
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)

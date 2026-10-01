@@ -68,19 +68,27 @@ type CredentialRequest struct {
 	By       string `json:"by"`
 	// Task is the goblin that needs the values: the asker, or the goblin the
 	// CFO asked for.
-	Task    string   `json:"task,omitempty"`
-	Project string   `json:"project"`
-	Names   []string `json:"names"`
-	Why     string   `json:"why"`
-	Link    string   `json:"link,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Project string `json:"project"`
+	// Repository is the checkout the project scope is named for, when it is
+	// on this machine.
+	Repository string   `json:"repository,omitempty"`
+	Names      []string `json:"names"`
+	Why        string   `json:"why"`
+	Link       string   `json:"link,omitempty"`
 	// Existing are the names the scope already held a value for when the
 	// board last looked, which a save replaces only once confirmed.
 	Existing []string         `json:"existing,omitempty"`
 	Hints    []CredentialHint `json:"hints,omitempty"`
+	// Services are the services of the project's auth.json that read each
+	// name, beside the project's goblins, whose auth.ps1 carries the scope.
+	Services map[string][]string `json:"services,omitempty"`
 	// State is open, saved or expired.
 	State    string   `json:"state"`
 	Saved    []string `json:"saved,omitempty"`
 	Replaced []string `json:"replaced,omitempty"`
+	// Typed are the saved names typed in the card's terminal.
+	Typed []string `json:"typed,omitempty"`
 	// Told are the running goblins told to re-source their credentials.
 	Told      []string   `json:"told,omitempty"`
 	Reason    string     `json:"reason,omitempty"`
@@ -100,7 +108,14 @@ type CredentialHint struct {
 
 func (r CredentialRequest) clone() CredentialRequest {
 	r.Names, r.Existing, r.Hints = slices.Clone(r.Names), slices.Clone(r.Existing), slices.Clone(r.Hints)
-	r.Saved, r.Replaced, r.Told = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told)
+	r.Saved, r.Replaced, r.Told, r.Typed = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed)
+	if r.Services != nil {
+		services := make(map[string][]string, len(r.Services))
+		for name, users := range r.Services {
+			services[name] = slices.Clone(users)
+		}
+		r.Services = services
+	}
 	if r.ClosedAt != nil {
 		closed := *r.ClosedAt
 		r.ClosedAt = &closed
@@ -111,7 +126,7 @@ func (r CredentialRequest) clone() CredentialRequest {
 // sameCredentialRequest reports whether two filings ask the same thing, so a
 // retry of one changes nothing.
 func sameCredentialRequest(a, b CredentialRequest) bool {
-	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
+	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
 }
 
 // validCredentialRequest refuses a request without its ID and asker, and
@@ -139,6 +154,8 @@ func CredentialRequestProblem(r CredentialRequest) error {
 		return errors.New("a credential request's task is not a task ID")
 	case !auth.ValidProjectName(r.Project):
 		return errors.New("a credential request needs a project scope")
+	case r.Repository != "" && (!filepath.IsAbs(r.Repository) || filepath.Clean(r.Repository) != r.Repository || len(r.Repository) > 1024 || strings.ContainsFunc(r.Repository, unicode.IsControl) || auth.ProjectName(r.Repository) != r.Project):
+		return errors.New("a credential request's repository is the absolute path of the checkout its scope is named for")
 	case len(r.Names) == 0 || len(r.Names) > maxCredentialNames:
 		return fmt.Errorf("a credential request asks for 1 to %d names", maxCredentialNames)
 	}
@@ -297,7 +314,7 @@ func (s *Service) ingestCredentialRequests() error {
 // fresh generation, with the names its scope already holds and each name's
 // format hint, open for a day.
 func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialRequest, error) {
-	r.Existing, r.Hints, r.Saved, r.Replaced, r.Told, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, "", nil
+	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, "", nil
 	if err := validCredentialRequest(r); err != nil {
 		return r, err
 	}
@@ -317,6 +334,18 @@ func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialReques
 		for _, name := range r.Names {
 			if format, found := manifest.FormatFor(name); found {
 				r.Hints = append(r.Hints, CredentialHint{Name: name, Prefixes: format.Prefixes, Warn: format.Warn})
+			}
+			for _, service := range manifest.Services {
+				reads := slices.Contains(service.Env, name)
+				for _, aliases := range service.Aliases {
+					reads = reads || slices.Contains(aliases, name)
+				}
+				if reads {
+					if r.Services == nil {
+						r.Services = map[string][]string{}
+					}
+					r.Services[name] = append(r.Services[name], service.Name)
+				}
 			}
 		}
 	}
@@ -496,15 +525,11 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	}
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
-	request, found := s.Store.credential(input.ID)
-	switch {
-	case !found || input.Generation == "" || input.Generation != request.Generation:
-		return refuse(http.StatusConflict, "This credential request is not on the board; refresh the board.")
-	case request.State != "open":
-		return refuse(http.StatusConflict, "This credential request was already "+request.State+"; ask for a new one to store again.")
-	case !time.Now().Before(request.ExpiresAt):
-		return refuse(http.StatusConflict, "This credential request expired; ask for a new one.")
-	case len(input.Values) == 0:
+	request, err := s.openCredential(input.ID, input.Generation)
+	if err != nil {
+		return credentialOutcome{}, err
+	}
+	if len(input.Values) == 0 {
 		return refuse(http.StatusBadRequest, "Paste at least one value.")
 	}
 	names := make([]string, 0, len(input.Values))
@@ -526,33 +551,9 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, name+" holds a line break or another control character; paste it as one line.")
 		}
 	}
-	for _, name := range input.Replace {
-		if !slices.Contains(names, name) {
-			return refuse(http.StatusBadRequest, "Confirm replacing only names you are saving.")
-		}
-	}
-	store, err := s.Options.Credentials()
+	store, existing, err := s.confirmReplacing(request, names, input.Replace)
 	if err != nil {
-		return refuse(http.StatusServiceUnavailable, "The credential store cannot be opened: "+bounded(err.Error(), 300))
-	}
-	existing, err := storedNames(store, request.Project, request.Names)
-	if err != nil {
-		return refuse(http.StatusServiceUnavailable, "The credential store cannot be listed: "+bounded(err.Error(), 300))
-	}
-	if !slices.Equal(existing, request.Existing) {
-		if _, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) { r.Existing = existing }); err != nil {
-			return credentialOutcome{}, err
-		}
-		s.notify()
-	}
-	var unconfirmed []string
-	for _, name := range names {
-		if slices.Contains(existing, name) && !slices.Contains(input.Replace, name) {
-			unconfirmed = append(unconfirmed, name)
-		}
-	}
-	if len(unconfirmed) > 0 {
-		return credentialOutcome{}, credentialRefusal{status: http.StatusConflict, Message: strings.Join(unconfirmed, ", ") + " already holds a value for " + request.Project + "; confirm replacing it.", Existing: unconfirmed}
+		return credentialOutcome{}, err
 	}
 	var saved, replaced []string
 	var failure error
@@ -586,6 +587,199 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		return credentialOutcome{}, fmt.Errorf("stored %s, then %w; the request is closed and the CFO is told", strings.Join(saved, ", "), failure)
 	}
 	return credentialOutcome{ID: closed.ID, State: closed.State, Saved: saved, Replaced: replaced}, nil
+}
+
+// openCredential finds the open request a card names, under its current
+// generation and within its lifetime.
+func (s *Service) openCredential(id, generation string) (CredentialRequest, error) {
+	request, found := s.Store.credential(id)
+	switch {
+	case !found || generation == "" || generation != request.Generation:
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request is not on the board; refresh the board."}
+	case request.State != "open":
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request was already " + request.State + "; ask for a new one to store again."}
+	case !time.Now().Before(request.ExpiresAt):
+		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request expired; ask for a new one."}
+	}
+	return request, nil
+}
+
+// confirmReplacing refuses to store names the scope already holds unless
+// replace confirms each, naming the ones to confirm. It reads which names the
+// scope holds from the store's listing, records them on the request for its
+// card, and returns the store and those names.
+func (s *Service) confirmReplacing(request CredentialRequest, names, replace []string) (auth.Store, []string, error) {
+	for _, name := range replace {
+		if !slices.Contains(names, name) {
+			return nil, nil, credentialRefusal{status: http.StatusBadRequest, Message: "Confirm replacing only names you are storing."}
+		}
+	}
+	store, err := s.Options.Credentials()
+	if err != nil {
+		return nil, nil, credentialRefusal{status: http.StatusServiceUnavailable, Message: "The credential store cannot be opened: " + bounded(err.Error(), 300)}
+	}
+	existing, err := storedNames(store, request.Project, request.Names)
+	if err != nil {
+		return nil, nil, credentialRefusal{status: http.StatusServiceUnavailable, Message: "The credential store cannot be listed: " + bounded(err.Error(), 300)}
+	}
+	if !slices.Equal(existing, request.Existing) {
+		if _, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) { r.Existing = existing }); err != nil {
+			return nil, nil, err
+		}
+		s.notify()
+	}
+	var unconfirmed []string
+	for _, name := range names {
+		if slices.Contains(existing, name) && !slices.Contains(replace, name) {
+			unconfirmed = append(unconfirmed, name)
+		}
+	}
+	if len(unconfirmed) > 0 {
+		return nil, nil, credentialRefusal{status: http.StatusConflict, Message: strings.Join(unconfirmed, ", ") + " already holds a value for " + request.Project + "; confirm replacing it.", Existing: unconfirmed}
+	}
+	return store, existing, nil
+}
+
+// credentialTerminalInput is what a card's Run posts: the request and the
+// names it confirmed replacing. It names no value: each one is typed in the
+// terminal it opens.
+type credentialTerminalInput struct {
+	ID         string   `json:"id"`
+	Generation string   `json:"generation"`
+	Replace    []string `json:"replace"`
+}
+
+// openCredentialTerminal opens a visible terminal on this PC that stores the
+// values a request still needs with cfo auth store, which reads each one
+// without showing it, so a value never passes through the board. It takes the
+// save's checks, from this machine only.
+func (h *HTTP) openCredentialTerminal(w http.ResponseWriter, r *http.Request) {
+	if problem := loopbackProblem(r, h.Host); problem != "" {
+		apiError(w, http.StatusForbidden, problem)
+		return
+	}
+	var input credentialTerminalInput
+	if err := decodeBody(w, r, &input, 4096); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := h.Service.credentialTerminal(input)
+	var refusal credentialRefusal
+	switch {
+	case errors.As(err, &refusal):
+		respond(w, refusal.status, refusal)
+	case err != nil:
+		apiError(w, http.StatusInternalServerError, err.Error())
+	default:
+		respond(w, http.StatusOK, struct {
+			RunID string `json:"run_id"`
+		}{run.ID})
+	}
+}
+
+// credentialTerminal makes the run item that opens a request's terminal, for
+// every name it does not have yet, and queues it to run at once.
+func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error) {
+	if s.Options.Credentials == nil || s.Options.Runs == nil {
+		return Run{}, credentialRefusal{status: http.StatusServiceUnavailable, Message: "This board cannot open a terminal; copy the command instead."}
+	}
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
+	request, err := s.openCredential(input.ID, input.Generation)
+	if err != nil {
+		return Run{}, err
+	}
+	names := slices.DeleteFunc(slices.Clone(request.Names), func(name string) bool { return slices.Contains(request.Saved, name) })
+	if _, _, err := s.confirmReplacing(request, names, input.Replace); err != nil {
+		return Run{}, err
+	}
+	if slices.ContainsFunc(s.Store.Snapshot().Runs, func(r Run) bool {
+		return r.CredentialRequest == request.ID && (r.State == "ready" || r.State == "running")
+	}) {
+		return Run{}, credentialRefusal{status: http.StatusConflict, Message: "A terminal for this request is already open; finish it there."}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return Run{}, err
+	}
+	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(s.Store.Home.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n" +
+		"Write-Host " + quote("Type or paste each value for "+request.Project+", then press Enter. Nothing you type is shown.") + "\n"
+	for _, name := range names {
+		command += "& " + quote(executable) + " auth store --project " + quote(request.Project) + " " + quote(name) + "\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n"
+	}
+	command += "exit 0\n"
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return Run{}, err
+	}
+	identity := sha256.Sum256([]byte(s.Instance + "\n" + request.ID + "\n" + request.Generation))
+	now := time.Now().UTC()
+	run, err := s.recordBoardRun(Run{ID: "credential-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: "Type " + strings.Join(names, ", ") + " for " + request.Project + " in a terminal on this PC", Shell: "powershell", Command: command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), CredentialRequest: request.ID, CredentialNames: names})
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := s.Store.Queue(Action{ID: "run-" + run.ID, Kind: "run", RunID: run.ID, Generation: run.Identity}); err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
+// credentialTerminalEnded checks the rows a request's terminal stored: each
+// name it ran for that the scope holds now and did not hold before, and,
+// when the terminal finished cleanly, every name it ran for that the scope
+// holds. The request closes once every name is stored, and the CFO hears the
+// names; cfo auth store refreshed the project's goblins itself.
+func (s *Service) credentialTerminalEnded(r Run, code *int) {
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
+	request, found := s.Store.credential(r.CredentialRequest)
+	if !found || request.State != "open" || s.Options.Credentials == nil {
+		return
+	}
+	var stored []string
+	if store, err := s.Options.Credentials(); err == nil {
+		stored, _ = storedNames(store, request.Project, r.CredentialNames)
+	}
+	finished := code != nil && *code == 0
+	var typed []string
+	for _, name := range r.CredentialNames {
+		if slices.Contains(stored, name) && (finished || !slices.Contains(request.Existing, name)) {
+			typed = append(typed, name)
+		}
+	}
+	if len(typed) == 0 {
+		s.credentialNotice(request, "the terminal for "+strings.Join(r.CredentialNames, ", ")+" in "+request.Project+" ended with nothing stored ("+request.ID+"); the card still asks for them")
+		return
+	}
+	now := time.Now().UTC()
+	updated, err := s.Store.updateCredential(request.ID, func(c *CredentialRequest) {
+		for _, name := range typed {
+			if !slices.Contains(c.Saved, name) {
+				c.Saved = append(c.Saved, name)
+			}
+			if !slices.Contains(c.Typed, name) {
+				c.Typed = append(c.Typed, name)
+			}
+			if slices.Contains(c.Existing, name) && !slices.Contains(c.Replaced, name) {
+				c.Replaced = append(c.Replaced, name)
+			}
+		}
+		if !slices.ContainsFunc(c.Names, func(name string) bool { return !slices.Contains(c.Saved, name) }) {
+			c.State, c.ClosedAt = "saved", &now
+		}
+	})
+	if err != nil {
+		s.publish(err)
+		return
+	}
+	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); cfo auth store refreshed the project's running goblins itself"
+	if updated.State == "open" {
+		remaining := slices.DeleteFunc(slices.Clone(updated.Names), func(name string) bool { return slices.Contains(updated.Saved, name) })
+		detail += "; the card still asks for " + strings.Join(remaining, ", ")
+	}
+	s.credentialNotice(updated, detail)
+	s.notify()
 }
 
 // afterCredentialSave runs the refresh cfo auth store runs after it writes,

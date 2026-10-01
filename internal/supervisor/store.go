@@ -236,6 +236,9 @@ func cloneDatabase(d Database) Database {
 	for i := range d.Reviews {
 		d.Reviews[i].ImageSums = slices.Clone(d.Reviews[i].ImageSums)
 	}
+	for i := range d.Runs {
+		d.Runs[i].CredentialNames = slices.Clone(d.Runs[i].CredentialNames)
+	}
 	return d
 }
 
