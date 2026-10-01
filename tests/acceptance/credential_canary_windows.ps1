@@ -4,22 +4,40 @@
 # place a value must never reach and prints hit counts only. The canary lives
 # in this process's memory and in one temporary file the browser driver
 # deletes the moment it reads it: it is never printed, never an argument and
-# never logged.
+# never logged. The browser then fills a plain sign-in form with values the
+# proof makes up, and the same search has to find what the browser kept of
+# them: a search that cannot see a browser keep a value has not shown that it
+# kept none.
 #
 # It builds its own CFO home with its own board on a free port, so it touches
 # nothing of the live fleet except one throwaway entry in Windows Credential
 # Manager, which it deletes at the end and says so. Every process it starts it
 # stops by its pid.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\acceptance\credential_canary_windows.ps1 -Binary .\cfo.exe [-Transcript <agent session .jsonl> ...]
+# A fresh browser profile is not isolation: on 1 October 2026 Edge signed the
+# proof's new profiles in to the Windows account by itself and synced them.
+# The browser therefore starts with sync and automatic sign-in switched off on
+# a profile that disallows sign-in, and the proof reads the browser's own
+# sign-in state before it types anything: an account, or a state it cannot
+# read, fails the run with nothing typed. It checks again at the end that the
+# profile stayed signed out and holds no saved form entry it did not type.
+#
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\acceptance\credential_canary_windows.ps1 -Binary .\cfo.exe [-Transcript <agent session .jsonl> ...] [-Browser <browser .exe>] [-Visible]
 #
 # -Transcript names the transcripts of the agent sessions that ran the proof,
 # such as the Claude Code session of the goblin or the CFO, which are searched
-# too. It exits 0 only when every check holds.
+# too. -Browser names the browser to drive in place of Edge, such as Chrome.
+# -Visible opens that browser in a window for about a minute in place of a
+# headless one, because only a visible browser shows its offer to save a
+# password: the proof then also checks that the browser offered to save the
+# plain form's password and never offered to save the card's value. It exits 0
+# only when every check holds.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$Binary,
-    [string[]]$Transcript = @()
+    [string[]]$Transcript = @(),
+    [string]$Browser = '',
+    [switch]$Visible
 )
 $ErrorActionPreference = 'Stop'
 foreach ($name in @('CFO_HOME','CFO_STATE_OVERRIDE','CFO_TASK_ID','CFO_SPAWN_GEN','CFO_ROLE','CFO_HOST_ID','CFO_PARENT_SESSION_ID','CFO_ROOT_SESSION_ID','CFO_PARENT_HARNESS','CFO_CREDENTIAL_DIR')) {
@@ -106,7 +124,8 @@ function Probe([string]$Path, [string]$Body, [hashtable]$Headers) {
 function Save-Body($Request, [string]$Name, [string]$Value) {
     return (@{ id = $Request.id; generation = $Request.generation; values = @{ $Name = $Value } } | ConvertTo-Json -Compress)
 }
-# Hits counts the files under each root whose bytes hold text.
+# Hits counts the files under each root whose bytes hold text, written as
+# UTF-8 or as UTF-16, the two ways programs on Windows write it.
 # It counts every file it read in $script:searched, and every root it could
 # not find, folder it could not list and file it could not read in
 # $script:unread, because a search that skipped something has not shown it
@@ -124,7 +143,7 @@ function Read-Shared([string]$Path) {
 }
 function Hits([string[]]$Roots, [string]$Text) {
     $latin = [Text.Encoding]::GetEncoding(28591)
-    $needle = $latin.GetString($utf8.GetBytes($Text))
+    $needles = @($latin.GetString($utf8.GetBytes($Text)), $latin.GetString([Text.Encoding]::Unicode.GetBytes($Text)))
     $found = [Collections.Generic.List[string]]::new()
     foreach ($root in $Roots) {
         if (-not (Test-Path -LiteralPath $root)) { $script:unread++; continue }
@@ -132,7 +151,8 @@ function Hits([string[]]$Roots, [string]$Text) {
         foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable unlisted) {
             try { $bytes = Read-Shared $file.FullName } catch { $script:unread++; continue }
             $script:searched++
-            if ($latin.GetString($bytes).Contains($needle)) { $found.Add($file.FullName) }
+            $content = $latin.GetString($bytes)
+            if ($content.Contains($needles[0]) -or $content.Contains($needles[1])) { $found.Add($file.FullName) }
         }
         $script:unread += @($unlisted).Count
     }
@@ -218,17 +238,33 @@ try {
     Start-Sleep -Seconds 4
     Check 'the expired request closed as expired' ((Request-For $expiring).state -eq 'expired')
 
-    # The real save, through the card, in a headless browser.
+    # The real save, through the card, in a browser.
     $canaryFile = [IO.Path]::GetTempFileName()
     Write-UTF8 $canaryFile $canary
-    $driver = & node (Join-Path $repository 'tests\acceptance\credential_card.mjs') --url $board --request $request.id --name $name --canary-file $canaryFile | Out-String
+    $arguments = @((Join-Path $repository 'tests\acceptance\credential_card.mjs'), '--url', $board, '--request', $request.id, '--name', $name, '--canary-file', $canaryFile)
+    if ($Browser) { $arguments += @('--browser', $Browser) }
+    if ($Visible) { $arguments += @('--visible', 'yes') }
+    $driver = & node @arguments | Out-String
     Remove-Item -LiteralPath $canaryFile -Force -ErrorAction SilentlyContinue
     $card = $driver | ConvertFrom-Json
+    if ($card.error) { Write-Host "the browser driver stopped early: $($card.error)" }
+    Check 'the proof''s browser was signed out, with sync off, before anything was typed' ([bool]$card.signed_out_before_typing)
     Check 'the card saved the canary' ([bool]$card.saved)
-    Check 'the proof''s browser was stopped, each process by its pid' ([bool]$card.browser_stopped)
+    Check 'the proof''s browser closed, and none of its processes is left running' ([bool]$card.browser_stopped)
+    if (-not $card.profile_removed) { Write-Host "the browser profile is still on disk: $($card.profile)" }
     Check 'the proof''s browser profile was removed' ([bool]$card.profile_removed)
-    Write-Host "canary: the browser profile: $($card.profile_hits) hit(s) in $($card.profile_files) file(s) read, $($card.profile_unreadable) unreadable"
+    Write-Host "canary: the browser profile: $($card.profile_hits) hit(s) in $($card.profile_files) file(s) read, $($card.profile_unreadable) unreadable$(if ($card.profile_hits -gt 0) { ': ' + (@($card.profile_hit_files) -join ', ') })"
     Check 'the browser profile holds no canary in any of its files' ($card.profile_hits -eq 0 -and $card.profile_unreadable -eq 0 -and $card.profile_files -gt 0)
+    Write-Host "plain form: the browser profile holds its user name in $(@($card.plain_form_files).Count) file(s): $(@($card.plain_form_files) -join ', ')"
+    Check 'the same search finds what the browser kept of a plain form, so it can see a browser keep a value' (@($card.plain_form_files).Count -gt 0)
+    Write-Host "browser profile at the end: signed out $($card.signed_out_at_the_end); saved form entries the proof did not type: $($card.foreign_form_entries); logins stored for the board: $($card.login_rows)"
+    Check 'the proof''s browser profile stayed signed out and holds no saved form entry the proof did not type' ([bool]$card.signed_out_at_the_end -and $card.foreign_form_entries -eq 0)
+    Check 'the browser''s login store holds no entry for the board' ($card.login_rows -eq 0 -or $card.login_rows -eq -1)
+    if ($Visible) {
+        Write-Host ("visible browser: {0} window element(s) read; offers to keep a password after the card's save: [{1}]; other mentions of one: [{2}]; offers after the plain form: [{3}]" -f $card.ui_examined, (@($card.password_offers) -join ' | '), (@($card.password_named) -join ' | '), (@($card.plain_form_offers) -join ' | '))
+        Check 'the visible browser offered to save the plain form''s password, so the proof can see an offer' (@($card.plain_form_offers).Count -gt 0)
+        Check 'the visible browser never offered to save the card''s value as a password' ($card.ui_examined -gt 0 -and @($card.password_offers).Count -eq 0)
+    }
     Check 'a replay of the save is refused (409)' ((Probe '/api/credentials/save' $refused $loopback) -eq 409)
 
     $deadline = (Get-Date).AddSeconds(90)
