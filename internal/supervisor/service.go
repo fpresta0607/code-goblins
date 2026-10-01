@@ -69,7 +69,12 @@ type Service struct {
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
+	// registration is what the last recovery cycle found wrong with the
+	// registration named registrationIdentity. It stands for that
+	// registration alone: Snapshot shows it only while its own read finds the
+	// same one.
 	registration         string
+	registrationIdentity string
 	connectionChecks     *connections.Cache
 	connectionInspector  *connections.Inspector
 	history              []Task
@@ -428,8 +433,9 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 	return err
 }
 
-// checkRegistration runs on the once-a-minute recovery cycle, so a CFO that
-// exited or moved shows as one state on the board before anyone tries to
+// checkRegistration runs on the once-a-minute recovery cycle and asks the
+// terminal backend what Snapshot's own read of the registration cannot, so a
+// CFO that moved shows as one state on the board before anyone tries to
 // deliver to it.
 func (s *Service) checkRegistration(ctx context.Context) {
 	if s.Options.CFO == nil {
@@ -438,11 +444,12 @@ func (s *Service) checkRegistration(ctx context.Context) {
 	check, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	problem := ""
-	if err := s.Options.CFO.check(check); err != nil {
+	identity, err := s.Options.CFO.examine(check)
+	if err != nil {
 		problem = err.Error()
 	}
 	s.mu.Lock()
-	s.registration = problem
+	s.registration, s.registrationIdentity = problem, identity
 	s.mu.Unlock()
 }
 
@@ -803,8 +810,9 @@ type Snapshot struct {
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
-	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Registration: s.registration, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
 	history := append([]Task(nil), s.history...)
+	checked, checkedIdentity := s.registration, s.registrationIdentity
 	for i := range d.Activity {
 		if d.Activity[i].CFOIdentity != "" {
 			d.Activity[i].Live = d.Activity[i].CFOIdentity == s.presentationIdentity && out.At.Sub(s.presentationChecked) < 2*time.Minute
@@ -813,10 +821,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	s.mu.Unlock()
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
-	// A starting CFO registers itself after sign-in, and one registered since
-	// the last check is no longer missing.
-	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {
-		out.Registration = ""
+	// The registration problem comes from the same read as the rest, so the
+	// board never shows a running CFO beside the problem of one it replaced.
+	// What the recovery cycle found is added only for the registration it
+	// examined.
+	if s.Options.CFO != nil {
+		out.Registration = cfo.problem
+		if cfo.registered && cfo.problem == "" && cfo.identity == checkedIdentity {
+			out.Registration = checked
+		}
 	}
 	// The board sees how many images a question has, never where they are.
 	out.Questions = make([]Question, len(d.Questions))
