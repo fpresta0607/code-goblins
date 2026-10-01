@@ -21,10 +21,10 @@ func withScratchHost(inv Inventory, cwd, state string) Inventory {
 	return inv
 }
 
-// A cfo host run with another CFO home's --state is a goblin's test or proof,
-// the native counterpart of a Herdr server of another session: its harness is
-// that goblin's fixture while the goblin lives, tied to it by where the host
-// was started or by the goblin's Claude Code scratchpad the home sits in; a
+// A cfo host run with another CFO home's --state is a goblin's test or proof:
+// its harness is that goblin's fixture while the goblin lives, tied to it by
+// where the host was started or by the goblin's Claude Code scratchpad the
+// home sits in; a
 // dead goblin's leftover is reported against that goblin; and a scratch home
 // no goblin can be tied to is never reported as this fleet's orphan. Reap
 // used to report every one of them as an unsupervised harness, waking the
@@ -84,9 +84,6 @@ func TestAScratchHomeInASpacedWorktreesScratchpadIsItsGoblinsFixture(t *testing.
 			inv := fleetWithGoblin(test.alive, "done: PR https://example.invalid/pull/1")
 			inv.Tasks[0].Meta.Worktree = spacedWorktree
 			inv.Worktrees[0].Path = spacedWorktree
-			if test.alive {
-				inv.Panes[0].AgentCwd = spacedWorktree
-			}
 			inv = withScratchHost(inv, `C:\Windows\System32`, spacedScratch+`\home\state`)
 
 			orphans := classOf(Classify(inv), OrphanProcess)

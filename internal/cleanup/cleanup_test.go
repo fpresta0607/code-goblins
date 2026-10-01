@@ -11,51 +11,22 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 type cleanupRunner struct {
-	gitStatus    string
-	snapshotBody string
-	snapshotErr  bool
-	tabCloseErr  bool
-	tabClosed    []string
-	requests     []execx.Request
+	gitStatus string
+	requests  []execx.Request
 }
 
 func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.requests = append(r.requests, req)
-	if req.Name == "git" {
-		if len(req.Args) != 3 || req.Args[0] != "status" || req.Args[1] != "--porcelain=v1" || req.Args[2] != "--untracked-files=all" {
-			return execx.Result{}, fmt.Errorf("unexpected git request: %#v", req)
-		}
+	if req.Name == "git" && len(req.Args) == 3 && req.Args[0] == "status" && req.Args[1] == "--porcelain=v1" && req.Args[2] == "--untracked-files=all" {
 		return execx.Result{Stdout: []byte(r.gitStatus)}, nil
 	}
-	if req.Name != "herdr" || len(req.Args) < 2 || req.Args[len(req.Args)-2] != "--session" {
-		return execx.Result{}, fmt.Errorf("unexpected request: %#v", req)
-	}
-	args := req.Args[:len(req.Args)-2]
-	if len(args) == 2 && args[0] == "api" && args[1] == "snapshot" {
-		if r.snapshotErr {
-			return execx.Result{ExitCode: 1, Stderr: []byte(`{"error":{"code":"server_unavailable"}}`)}, nil
-		}
-		return execx.Result{Stdout: []byte(r.snapshotBody)}, nil
-	}
-	if len(args) == 3 && args[0] == "tab" && args[1] == "close" {
-		if r.tabCloseErr {
-			return execx.Result{ExitCode: 1, Stderr: []byte("tab close refused")}, nil
-		}
-		r.tabClosed = append(r.tabClosed, args[2])
-		return jsonResultOK(), nil
-	}
-	return execx.Result{}, fmt.Errorf("unexpected Herdr args: %q", args)
-}
-
-func jsonResultOK() execx.Result {
-	return execx.Result{Stdout: []byte(`{"result":{"type":"ok"}}`)}
+	return execx.Result{}, fmt.Errorf("unexpected request: %#v", req)
 }
 
 type cleanupGit struct {
@@ -91,10 +62,8 @@ type cleanupFixture struct {
 	meta     state.TaskMeta
 }
 
-func cleanupSnapshot(panes, agents string) string {
-	return `{"result":{"type":"session_snapshot","snapshot":{"protocol":22,"workspaces":[{"workspace_id":"ws","label":"cfo"}],"tabs":[{"tab_id":"tab-g1","workspace_id":"ws","label":"gb-g1"}],"panes":[` + panes + `],"agents":[` + agents + `]}}}`
-}
-
+// newCleanupFixture readies task g1, a native goblin whose terminal has ended,
+// for cleanup.
 func newCleanupFixture(t *testing.T) *cleanupFixture {
 	t.Helper()
 	// The Go temporary directory a cleanup removes lives under the user cache
@@ -129,23 +98,12 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	project := makeCanonicalDir("project")
 	worktreeDir := makeCanonicalDir("worktree")
 
-	meta := state.TaskMeta{
-		ID:               "g1",
-		Window:           "fleet:pane-g1",
-		Worktree:         worktreeDir,
-		Project:          project,
-		Harness:          "claude",
-		Backend:          "herdr",
-		HerdrSession:     "fleet",
-		HerdrWorkspaceID: "ws",
-		HerdrTabID:       "tab-g1",
-		HerdrPaneID:      "pane-g1",
-	}
+	meta := state.TaskMeta{ID: "g1", Window: "native", Worktree: worktreeDir, Project: project, Harness: "claude", Backend: "native"}
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
 
-	runner := &cleanupRunner{snapshotBody: cleanupSnapshot(`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`, "")}
+	runner := &cleanupRunner{}
 	git := &cleanupGit{top: worktreeDir}
 	fixture := &cleanupFixture{
 		stateDir: stateDir,
@@ -158,7 +116,6 @@ func newCleanupFixture(t *testing.T) *cleanupFixture {
 	fixture.service = Service{
 		StateDir:  stateDir,
 		Commands:  runner,
-		Terminal:  &herdr.Client{Commands: runner, Session: "fleet"},
 		Worktrees: worktree.Service{Git: git},
 	}
 	return fixture
@@ -171,26 +128,6 @@ func (f *cleanupFixture) assertNoLifecycleRequests(t *testing.T) {
 			switch argument {
 			case "close", "delete", "remove", "restart", "send-text", "send-keys", "stop":
 				t.Fatalf("cleanup issued a lifecycle command: %s %q", request.Name, request.Args)
-			}
-		}
-	}
-}
-
-// assertOnlyTabCloseLifecycle proves the one lifecycle action a successful
-// cleanup takes: closing the recorded tab after the endpoint proved inactive.
-func (f *cleanupFixture) assertOnlyTabCloseLifecycle(t *testing.T) {
-	t.Helper()
-	if len(f.runner.tabClosed) != 1 || f.runner.tabClosed[0] != "tab-g1" {
-		t.Fatalf("tab closes = %v, want exactly [tab-g1]", f.runner.tabClosed)
-	}
-	for _, request := range f.runner.requests {
-		for _, argument := range request.Args {
-			switch argument {
-			case "delete", "remove", "restart", "send-text", "send-keys", "stop", "close":
-				if argument == "close" && request.Name == "herdr" {
-					continue
-				}
-				t.Fatalf("cleanup issued an unexpected lifecycle command: %s %q", request.Name, request.Args)
 			}
 		}
 	}
@@ -235,41 +172,12 @@ func TestCleanupReturnsCleanInactiveWorktree(t *testing.T) {
 	if _, event := state.SplitStatus(status[0]); event != "stopped: returned worktree "+fixture.worktree+" via cfo cleanup" {
 		t.Fatalf("status = %v; want one done line recording the returned worktree", status)
 	}
-	fixture.assertOnlyTabCloseLifecycle(t)
+	fixture.assertNoLifecycleRequests(t)
 	if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 		t.Fatalf("task lock still held after cleanup: %v", err)
 	}
 	if err := lock.ReleaseExclusiveNamed(fixture.stateDir, state.CleanupLockName("g1")); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestCleanupAcceptsMissingPaneAsInactiveEvidence(t *testing.T) {
-	fixture := newCleanupFixture(t)
-	fixture.runner.snapshotBody = cleanupSnapshot("", "")
-
-	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err != nil {
-		t.Fatalf("Cleanup with a structurally missing pane: %v", err)
-	}
-	if len(fixture.git.returned) != 1 {
-		t.Fatalf("worktree return calls = %v, want one", fixture.git.returned)
-	}
-	fixture.assertOnlyTabCloseLifecycle(t)
-}
-
-func TestCleanupTabCloseFailurePreservesMetadataAndSkipsReturn(t *testing.T) {
-	fixture := newCleanupFixture(t)
-	fixture.runner.tabCloseErr = true
-
-	_, err := fixture.service.Cleanup(context.Background(), "g1")
-	if err == nil || !strings.Contains(err.Error(), "close task tab") {
-		t.Fatalf("Cleanup error = %v, want tab close refusal", err)
-	}
-	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, "g1"); metaErr != nil {
-		t.Fatalf("metadata lost after tab close failure: %v", metaErr)
-	}
-	if len(fixture.git.returned) != 0 {
-		t.Fatalf("worktree return calls = %v, want none when the tab close fails", fixture.git.returned)
 	}
 }
 
@@ -311,67 +219,24 @@ func TestCleanupRefusals(t *testing.T) {
 			want: "uncommitted or untracked changes",
 		},
 		{
-			name: "active agent",
-			setup: func(f *cleanupFixture) {
-				f.runner.snapshotBody = cleanupSnapshot(
-					`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`,
-					`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws","agent":"claude","agent_status":"working"}`)
-			},
-			want: "still has agent",
-		},
-		{
-			name: "done agent is still present",
-			setup: func(f *cleanupFixture) {
-				f.runner.snapshotBody = cleanupSnapshot(
-					`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`,
-					`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws","agent":"claude","agent_status":"done"}`)
-			},
-			want: "still has agent",
-		},
-		{
-			name: "mismatched endpoint identity",
-			setup: func(f *cleanupFixture) {
-				f.runner.snapshotBody = cleanupSnapshot(`{"pane_id":"pane-g1","tab_id":"tab-other","workspace_id":"ws"}`, "")
-			},
-			want: "not recorded tab",
-		},
-		{
-			name: "duplicate endpoint identity",
-			setup: func(f *cleanupFixture) {
-				pane := `{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`
-				f.runner.snapshotBody = cleanupSnapshot(pane+","+pane, "")
-			},
-			want: "ambiguous",
-		},
-		{
-			name: "unreadable Herdr evidence",
-			setup: func(f *cleanupFixture) {
-				f.runner.snapshotErr = true
-			},
-			want: "unreadable",
-		},
-		{
-			name: "session drift",
-			setup: func(f *cleanupFixture) {
-				f.service.Terminal = &herdr.Client{Commands: f.runner, Session: "other"}
-			},
-			want: "does not match the Herdr client session",
-		},
-		{
 			name: "incomplete metadata",
 			setup: func(f *cleanupFixture) {
-				if err := state.WriteMeta(filepath.Join(f.stateDir, "g1.meta"), map[string]string{
-					"backend":            "herdr",
-					"herdr_session":      "fleet",
-					"herdr_tab_id":       "tab-g1",
-					"herdr_workspace_id": "ws",
-					"project":            f.project,
-					"worktree":           f.worktree,
-				}); err != nil {
+				if err := state.WriteMeta(filepath.Join(f.stateDir, "g1.meta"), map[string]string{"backend": "native", "project": f.project}); err != nil {
 					t.Fatal(err)
 				}
 			},
-			want: "missing herdr_pane_id",
+			want: "missing worktree",
+		},
+		{
+			// This build cannot read a Herdr pane, so it cannot prove one
+			// holds no agent; the refusal names how to retire the record.
+			name: "a task recorded in Herdr",
+			setup: func(f *cleanupFixture) {
+				if err := state.WriteTaskMeta(f.stateDir, herdrRecord(f)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "recorded in Herdr by an older build",
 		},
 	}
 	for _, test := range tests {
@@ -623,7 +488,7 @@ func TestCleanupRefusesToArchiveWhenCredentialsCannotBeDropped(t *testing.T) {
 // A worktree pinned by a dead handle or deleted out from under the record can
 // never validate, so the normal path refuses forever and the task sits in the
 // fleet as "Under Way". --force-archive retires the record without touching
-// the directory: no Return, no delete, the tab closed best-effort.
+// the directory: no Return, no delete.
 func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T) {
 	fixture := newCleanupFixture(t)
 	fixture.git.top = fixture.project // WorktreeTop resolves to the primary: validation fails
@@ -650,23 +515,38 @@ func TestForceArchiveRetiresUnvalidatableWorktreeWithoutTouchingIt(t *testing.T)
 	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
 		t.Error("task metadata still present after force archive")
 	}
-	if len(fixture.runner.tabClosed) != 1 {
-		t.Errorf("tab closes = %v, want the recorded tab closed once", fixture.runner.tabClosed)
-	}
 }
 
-// Force is not a bypass for a running goblin: a pane with a live agent still
-// refuses, exactly as the normal path does.
-func TestForceArchiveStillRefusesLiveAgent(t *testing.T) {
+// herdrRecord is task g1 as an older build recorded it in Herdr.
+func herdrRecord(f *cleanupFixture) state.TaskMeta {
+	return state.TaskMeta{ID: "g1", Window: "fleet:pane-g1", Worktree: f.worktree, Project: f.project, Harness: "claude", Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-g1", HerdrPaneID: "pane-g1"}
+}
+
+// A task an older build recorded in Herdr is retired by --force-archive
+// without anything asked of Herdr: its record goes, its worktree stays, and
+// its pane is named for the operator to close.
+func TestForceArchiveRetiresATaskRecordedInHerdr(t *testing.T) {
 	fixture := newCleanupFixture(t)
-	fixture.git.top = fixture.project
-	fixture.runner.snapshotBody = cleanupSnapshot(`{"pane_id":"pane-g1","tab_id":"tab-g1","workspace_id":"ws"}`,
-		`{"pane_id":"pane-g1","agent":"claude","status":"working"}`)
-	fixture.service.ForceArchive = true
-	if _, err := fixture.service.Cleanup(context.Background(), "g1"); err == nil || !strings.Contains(err.Error(), "active endpoint") {
-		t.Fatalf("err = %v, want live-agent refusal", err)
+	if err := state.WriteTaskMeta(fixture.stateDir, herdrRecord(fixture)); err != nil {
+		t.Fatal(err)
 	}
-	fixture.assertMetadataPreserved(t)
+	fixture.service.ForceArchive = true
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	if err != nil {
+		t.Fatalf("force archive of a Herdr record: %v", err)
+	}
+	if !strings.Contains(result.Output, "force-archived g1") || !strings.Contains(result.Output, "Herdr pane pane-g1 of session fleet") {
+		t.Errorf("output = %q, want the record retired and its pane named", result.Output)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
+		t.Error("task metadata still present after force archive")
+	}
+	if _, err := os.Stat(fixture.worktree); err != nil || len(fixture.git.returned) != 0 {
+		t.Errorf("worktree %v, returned %v; want it left in place", err, fixture.git.returned)
+	}
+	fixture.assertNoLifecycleRequests(t)
 }
 
 // TestForceArchiveRetiresARecordWhoseWorktreeIsGone: --force-archive exists

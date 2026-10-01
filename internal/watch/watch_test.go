@@ -839,10 +839,8 @@ func reapConfig(dir string, inv reap.Inventory) Config {
 func orphanFleet() reap.Inventory {
 	start := time.Date(2026, 9, 5, 7, 0, 0, 0, time.UTC)
 	return reap.Inventory{
-		FleetRootPIDs: []int{100},
 		Processes: []reap.Process{
-			{PID: 100, ParentPID: 1, Name: "herdr.exe", CommandLine: "herdr server", Start: start},
-			{PID: 400, ParentPID: 100, Name: "powershell.exe", CommandLine: "powershell", Start: start.Add(time.Minute)},
+			{PID: 400, ParentPID: 1, Name: "powershell.exe", CommandLine: "powershell", Start: start.Add(time.Minute)},
 			{PID: 31032, ParentPID: 400, Name: "claude.exe", CommandLine: "claude --dangerously-skip-permissions", Start: start.Add(2 * time.Minute)},
 		},
 	}

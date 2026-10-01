@@ -11,7 +11,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/cleanup"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -133,18 +132,14 @@ func runReap(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 }
 
 // defaultReap builds the production sweep for one invocation, composing the
-// services that already own each primitive: herdr for panes, cleanup for
-// worktree return, proc for processor time.
+// services that already own each primitive: cleanup for worktree return, proc
+// for processor time.
 func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.Result, error) {
 	commands := execx.OSRunner{}
-	session := herdrSession()
-	client := &herdr.Client{Commands: commands, Session: session}
 	service := reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
 			Home:      h,
-			Session:   session,
-			Panes:     client,
 			Processes: reap.CIMProcesses{Commands: commands},
 			Commands:  commands,
 
@@ -158,7 +153,6 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 			_, err := cleanup.Service{
 				StateDir:     h.State,
 				Commands:     commands,
-				Terminal:     client,
 				Worktrees:    worktree.Service{Commands: commands},
 				ForceArchive: forceArchive,
 

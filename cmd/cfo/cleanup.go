@@ -8,27 +8,26 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/cleanup"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const cleanupUsage = `usage: cfo cleanup <id> [--force-archive]
 
-Close the task tab and return one clean, proven-inactive task worktree,
-removing the worktree and pruning its Git administrative entry.
+Close the task's terminal and return one clean, proven-inactive task
+worktree, removing the worktree and pruning its Git administrative entry.
 Refuses dirty worktrees, active agents, ambiguous identity, and the primary
 checkout.
 
 --force-archive retires a task whose worktree can no longer be validated (a
-directory pinned by a dead handle, or already gone). It archives the task
-record and leaves the directory untouched - nothing on disk is deleted - and
-still refuses a pane with a live agent.
+directory pinned by a dead handle, or already gone), and a task an older
+build recorded in Herdr. It archives the task record and leaves the directory
+untouched - nothing on disk is deleted - and still refuses a terminal at
+work.
 `
 
 // runCleanup returns one validated task's worktree through the guarded
-// cleanup service. It accepts only a local task ID, never a raw path or an
-// explicit Herdr target.
+// cleanup service. It accepts only a local task ID, never a raw path.
 func runCleanup(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo cleanup: task ID is required")
@@ -87,7 +86,6 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 	service := cleanup.Service{
 		StateDir:     h.State,
 		Commands:     commands,
-		Terminal:     &herdr.Client{Commands: commands, Session: herdrSession()},
 		Worktrees:    worktree.Service{Commands: commands},
 		ForceArchive: forceArchive,
 	}

@@ -107,10 +107,8 @@ func onlyFinding(t *testing.T, result Result, class Class) Finding {
 
 func orphanProcessInventory() Inventory {
 	return Inventory{
-		FleetRootPIDs: []int{100},
 		Processes: []Process{
-			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
-			process(400, 100, "powershell.exe", "powershell", fixtureLater),
+			process(400, 1, "powershell.exe", "powershell", fixtureLater),
 			process(31032, 400, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
 		},
 	}
@@ -261,15 +259,12 @@ func TestForceNamesOneProcess(t *testing.T) {
 }
 
 // TestATaskForceNeverClearsARefusalAboutAProcess: a task id says that task is
-// over and can say nothing about whether the sweep's view of what is running
-// is complete. A pane that cannot report its processes leaves a live goblin
-// indistinguishable from an orphan, and that refusal answers to the pid alone,
-// so forcing the unreadable task behind this server must not kill it.
+// over and can say nothing about a process that still runs. Ending a process
+// answers to its pid alone, so forcing the unreadable task behind this server
+// must not kill it.
 func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
 	const worktree = `C:\dev\pd\.worktrees\gb-broken`
 	inventory := Inventory{
-		Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
-		UnresolvedPanes: []string{"pane-b"},
 		UnreadableTasks: []string{"broken"},
 		Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
 		Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
@@ -289,11 +284,11 @@ func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, result, StaleServer)
-	if hold := finding.Hold(); !strings.Contains(hold, "process identity") {
-		t.Fatalf("hold = %q, want the unresolved-pane refusal to survive a task force", hold)
+	if hold := finding.Hold(); !strings.Contains(hold, "authorised only by naming this process") {
+		t.Fatalf("hold = %q, want the refusal about the process to survive a task force", hold)
 	}
 	if len(runner.killed) != 0 {
-		t.Fatalf("a task force killed a process the sweep could not account for: %v", runner.killed)
+		t.Fatalf("a task force killed a process nobody named: %v", runner.killed)
 	}
 	// A held finding is exactly what the operator reads to decide whether to
 	// name this pid, so the one number that separates a live process from an
@@ -325,7 +320,7 @@ func worktreeInventory(t *testing.T, verb string) Inventory {
 		Worktrees: []WorktreeDir{{Path: path, Project: filepath.Dir(filepath.Dir(path)), Registration: RegistrationListed, TaskID: "old"}},
 	}
 	if verb != "" {
-		inventory.Tasks = []Task{task("old", path, "pane-gone", verb)}
+		inventory.Tasks = []Task{task("old", path, verb)}
 	}
 	return inventory
 }
@@ -438,8 +433,7 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	// A meta beside the record is what routes the removal through cfo cleanup
 	// rather than through the bare worktree return.
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: `C:\dev\pd\.worktrees\gb-old`,
-		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "p",
+		ID: "old", Backend: "native", Project: `C:\dev\pd`, Worktree: `C:\dev\pd\.worktrees\gb-old`,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -464,8 +458,7 @@ func TestTheReapedLineOutlivesTheRecordItRetires(t *testing.T) {
 	meta := func(t *testing.T, h home.Home, worktree string) {
 		t.Helper()
 		if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-			ID: "old", Backend: "herdr", Project: filepath.Dir(filepath.Dir(worktree)), Worktree: worktree,
-			HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "pane-gone",
+			ID: "old", Backend: "native", Project: filepath.Dir(filepath.Dir(worktree)), Worktree: worktree,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -500,7 +493,7 @@ func TestTheReapedLineOutlivesTheRecordItRetires(t *testing.T) {
 		h := testHome(t)
 		gone := filepath.Join(t.TempDir(), ".worktrees", "gb-old")
 		meta(t, h, gone)
-		service := newService(t, h, Inventory{Tasks: []Task{task("old", gone, "pane-gone", "done")}}, &gitRunner{})
+		service := newService(t, h, Inventory{Tasks: []Task{task("old", gone, "done")}}, &gitRunner{})
 		service.Clean = func(_ context.Context, id string, _ bool) error {
 			return state.RemoveTaskMeta(h.State, id)
 		}
@@ -920,7 +913,7 @@ func TestForcedEmptyWorktreeIsPrunedRatherThanLeftRegistered(t *testing.T) {
 func TestUnconfirmableRegistrationKeepsTheWorkGate(t *testing.T) {
 	path := populatedWorktree(t, "gb-utah")
 	inventory := Inventory{
-		Tasks: []Task{task("utah", path, "pane-gone", "done")},
+		Tasks: []Task{task("utah", path, "done")},
 		// The zero value, which is what the collector produces for every
 		// directory under a root whose registration could not be read.
 		Worktrees: []WorktreeDir{{Path: path, Project: filepath.Dir(filepath.Dir(path)), TaskID: "utah"}},
@@ -958,7 +951,7 @@ func TestApplyHoldsAnUnfinishedTasksShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := Inventory{
-		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Tasks:     []Task{task("wedged", shell, "working")},
 		Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "wedged"}},
 	}
 
@@ -988,7 +981,7 @@ func TestEveryRefusalInAHoldNeedsItsOwnForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := Inventory{
-		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Tasks:     []Task{task("wedged", shell, "working")},
 		Processes: []Process{process(4242, 1, "rg.exe", "rg --files "+shell, fixtureLater)},
 		Worktrees: []WorktreeDir{{Path: shell, Project: repo, Registration: RegistrationUnlisted, TaskID: "wedged"}},
 	}
@@ -1090,8 +1083,7 @@ func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
 		}
 		h := testHome(t)
 		if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-			ID: "fresh", Backend: "herdr", Project: repo, Worktree: shell,
-			HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "pane-gone",
+			ID: "fresh", Backend: "native", Project: repo, Worktree: shell,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -1110,16 +1102,14 @@ func TestReapingARecordLessShellManufacturesNoStatusLog(t *testing.T) {
 }
 
 // TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies pins the
-// mechanism to the words. The pane refusal answers to the same pid the kill
-// does, so the one key the line names clears the whole hold, and the line says
-// exactly that and no more. Claiming the evidence outlives that force would be
-// the command describing what it wishes were true, and an operator whose Herdr
-// cannot report pane identity would read themselves as locked out of killing a
-// genuine orphan until they fixed Herdr.
+// mechanism to the words. The refusal for a process the sweep could not place
+// answers to the same pid the kill does, so the one key the line names clears
+// the whole hold, and the line says exactly that and no more. Claiming the
+// evidence outlives that force would be the command describing what it wishes
+// were true, and an operator would read themselves as locked out of killing a
+// genuine orphan.
 func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T) {
 	inventory := orphanProcessInventory()
-	inventory.Panes = []Pane{{ID: "pane-b", HasAgent: true}}
-	inventory.UnresolvedPanes = []string{"pane-b"}
 
 	h := testHome(t)
 	runner := &gitRunner{}
@@ -1131,17 +1121,17 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 		t.Fatal(err)
 	}
 	finding := onlyFinding(t, held, OrphanProcess)
-	if !strings.Contains(finding.Hold(), "process identity") {
-		t.Fatalf("hold = %q, want the unresolved-pane refusal", finding.Hold())
+	if !strings.Contains(finding.Hold(), "could not determine what this process belongs to") {
+		t.Fatalf("hold = %q, want the refusal for a process the sweep could not place", finding.Hold())
 	}
 	if !strings.Contains(finding.Hold(), "Name 31032 with --force to take responsibility for it") {
 		t.Fatalf("hold = %q, want the one key that clears every refusal on the line", finding.Hold())
 	}
 	if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
-		t.Fatalf("hold = %q, claims the pane evidence outlives the --force the same line names", finding.Hold())
+		t.Fatalf("hold = %q, claims the missing evidence outlives the --force the same line names", finding.Hold())
 	}
 	if len(runner.killed) != 0 {
-		t.Fatalf("a process was killed on incomplete pane evidence: %v", runner.killed)
+		t.Fatalf("a process the sweep could not place was killed unnamed: %v", runner.killed)
 	}
 
 	t.Run("naming its key overrides it", func(t *testing.T) {
@@ -1156,7 +1146,7 @@ func TestAnUnestablishedRefusalIsOverridableExactlyAsItsHoldImplies(t *testing.T
 			t.Fatalf("hold = %q, want the operator's own pid force to clear it", finding.Hold())
 		}
 		if len(runner.killed) != 1 || runner.killed[0] != 31032 {
-			t.Fatalf("killed = %v, want the forced pid, because a broken Herdr must not lock the operator out", runner.killed)
+			t.Fatalf("killed = %v, want the forced pid, because missing evidence must not lock the operator out", runner.killed)
 		}
 	})
 }
@@ -1171,13 +1161,12 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 	h := testHome(t)
 	worktree := populatedWorktree(t, "gb-old")
 	inventory := Inventory{
-		Tasks:     []Task{task("old", worktree, "pane-gone", "done")},
+		Tasks:     []Task{task("old", worktree, "done")},
 		Worktrees: []WorktreeDir{{Path: worktree, Project: filepath.Dir(filepath.Dir(worktree)), Registration: RegistrationListed, TaskID: "old"}},
 		Processes: []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
 	}
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: worktree,
-		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "p",
+		ID: "old", Backend: "native", Project: `C:\dev\pd`, Worktree: worktree,
 	}); err != nil {
 		t.Fatal(err)
 	}

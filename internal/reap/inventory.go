@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -29,24 +27,14 @@ type ProcessLister interface {
 	List(ctx context.Context) ([]Process, error)
 }
 
-// PaneReader is the read-only slice of the Herdr client the sweep needs: the
-// structural snapshot (which panes and agents exist) plus each pane's
-// operating-system identity.
-type PaneReader interface {
-	Snapshot(ctx context.Context) (herdr.SessionSnapshot, error)
-	PaneProcessInfo(ctx context.Context, target herdr.Target) (herdr.PaneProcessInfo, error)
-}
-
 // Collector assembles one Inventory from every source.
 //
-// The two sources that decide what is alive - the pane table and the process
-// table - are hard requirements: with either missing, every live goblin reads
-// as an orphan, so the sweep refuses rather than reporting a fleet it cannot
-// see. Everything else degrades and says so in the returned notes.
+// The process table decides, with the native terminal hosts, what is alive,
+// so a process table that cannot be read refuses the sweep rather than
+// reporting a fleet it cannot see. Everything else degrades and says so in the
+// returned notes.
 type Collector struct {
 	Home      home.Home
-	Session   string
-	Panes     PaneReader
 	Processes ProcessLister
 	// Commands runs git, which is the only source that can say whether a
 	// directory under .worktrees/ is a worktree at all.
@@ -64,13 +52,14 @@ type Collector struct {
 	WorkingDirectory func(pid int) (string, error)
 }
 
-// Collect reads state, panes, processes and worktree directories once each.
+// Collect reads state, terminal hosts, processes and worktree directories
+// once each.
 func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	if c.Home.State == "" {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State}
+	inv := Inventory{SelfPIDs: selfAncestry(), StateDir: c.Home.State}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -104,53 +93,12 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 
 	inv.Worktrees = c.worktrees(ctx, inv.Tasks, &notes)
 
-	var processes []Process
-	listed := false
-	if c.Panes != nil {
-		panes, unresolved, unplaced, paneErr := c.readPanes(ctx)
-		if paneErr != nil {
-			// Every pane reads as gone when Herdr is unreadable, which would
-			// classify the whole live fleet as orphaned. Refuse instead: a
-			// sweep that cannot see panes has no business reporting orphans,
-			// unless no Herdr server runs for this session, when no pane can
-			// exist and a fleet of native terminals is swept on its own
-			// evidence. Another session's server is a test fixture, and a
-			// Herdr CLI call is no server.
-			if c.Processes == nil {
-				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
-			}
-			var err error
-			if processes, err = c.Processes.List(ctx); err != nil {
-				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
-			}
-			listed = true
-			if slices.ContainsFunc(processes, c.runsSessionServer) {
-				return Inventory{}, notes, fmt.Errorf("reap: read Herdr panes: %w", paneErr)
-			}
-			notes = append(notes, "no Herdr server runs for session "+c.Session+", so there are no panes; native terminals and processes decide")
-		}
-		inv.Panes = panes
-		inv.UnresolvedPanes = unresolved
-		inv.UnplacedAgents = unplaced
-		for _, pane := range unresolved {
-			notes = append(notes, "pane "+pane+" could not report its process identity; process findings are held")
-		}
-		for _, pane := range unplaced {
-			notes = append(notes, "the agent on pane "+pane+" reported no working directory, so it cannot be placed in a worktree; findings that rest on placing it are held")
-		}
-	} else {
-		notes = append(notes, "no pane reader configured; pane evidence is missing")
-	}
-
 	if c.Processes != nil {
-		if !listed {
-			var err error
-			if processes, err = c.Processes.List(ctx); err != nil {
-				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
-			}
+		processes, err := c.Processes.List(ctx)
+		if err != nil {
+			return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
 		}
 		inv.Processes = processes
-		inv.FleetRootPIDs = herdrRoots(processes)
 		c.placeHarnesses(inv.Processes)
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
@@ -158,12 +106,6 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	c.nativeHosts(&inv, &notes)
 
 	return inv, notes, nil
-}
-
-// runsSessionServer reports whether process is the Herdr server of the
-// collector's session.
-func (c Collector) runsSessionServer(process Process) bool {
-	return isHerdrServer(process) && strings.EqualFold(herdrSession(process.CommandLine), c.Session)
 }
 
 // nativeHosts reads every native terminal's host record. A record that cannot
@@ -228,53 +170,6 @@ func taskReported(lines []string) []string {
 		kept = append(kept, line)
 	}
 	return kept
-}
-
-// readPanes pairs each pane in the structural snapshot with its
-// operating-system identity and whether an agent is registered on it, and
-// returns the panes whose identity could not be read. Such a pane still counts
-// as a live pane, because it exists, which is what keeps its worktree off the
-// list; but its shell pid is missing from the supervised set, so it is named
-// separately and every process finding is held while any pane is unresolved.
-//
-// The third return is the panes whose agent reported no working directory.
-// Herdr declares that field nullable, so one agent answering with nothing is a
-// legitimate state rather than a fault, and it is neither an agent working
-// nowhere nor a fleet-wide failure: it is one agent the sweep cannot place, so
-// it is carried out and the classes that rest on placing it hold.
-//
-// That per-agent answer is why no protocol check stands here. A snapshot whose
-// working directories all arrive empty leaves every agent unplaced and every
-// destructive finding held, while the recoverable ones the operator asked for
-// still get done. Refusing the whole sweep on a protocol bump would instead
-// fail Collect, so the watcher records an error, fires no wake, and nothing at
-// all is swept.
-func (c Collector) readPanes(ctx context.Context) (panes []Pane, unresolved, unplaced []string, err error) {
-	snapshot, err := c.Panes.Snapshot(ctx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	agents := make(map[string]herdr.SnapshotAgent, len(snapshot.Agents))
-	for _, agent := range snapshot.Agents {
-		agents[agent.PaneID] = agent
-		if agent.Cwd == "" {
-			unplaced = append(unplaced, agent.PaneID)
-		}
-	}
-	panes = make([]Pane, 0, len(snapshot.Panes))
-	for _, pane := range snapshot.Panes {
-		agent, hasAgent := agents[pane.ID]
-		entry := Pane{ID: pane.ID, HasAgent: hasAgent, AgentCwd: agent.Cwd}
-		info, err := c.Panes.PaneProcessInfo(ctx, herdr.Target{Session: c.Session, Pane: pane.ID})
-		if err == nil {
-			entry.ShellPID = info.ShellPID
-			entry.ForegroundPID = info.ForegroundProcessGroupID
-		} else {
-			unresolved = append(unresolved, pane.ID)
-		}
-		panes = append(panes, entry)
-	}
-	return panes, unresolved, unplaced, nil
 }
 
 // worktrees enumerates every .worktrees/ directory the fleet could own: the
@@ -496,19 +391,6 @@ func registrationOf(path string, registered []os.FileInfo, answered bool) Regist
 		}
 	}
 	return RegistrationUnlisted
-}
-
-// herdrRoots finds the Herdr server processes. Every pane shell CFO ever
-// created descends from one, which is what makes an unsupervised harness
-// attributable to the fleet rather than to the operator's own editor.
-func herdrRoots(processes []Process) []int {
-	var roots []int
-	for _, process := range processes {
-		if executableName(process.Name) == "herdr" {
-			roots = append(roots, process.PID)
-		}
-	}
-	return roots
 }
 
 // placeHarnesses reads the working directory of every harness-shaped process

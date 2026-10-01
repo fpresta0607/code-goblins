@@ -41,16 +41,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// nativeCleanupFixture is the cleanup fixture's task recorded as a native one:
-// no Herdr identity, its terminal found by the host record hostPID names, or
-// by none when hostPID is zero.
+// nativeCleanupFixture is the cleanup fixture's task with its terminal found
+// by the host record hostPID names, or by none when hostPID is zero.
 func nativeCleanupFixture(t *testing.T, hostPID int) *cleanupFixture {
 	t.Helper()
 	fixture := newCleanupFixture(t)
-	fixture.meta = state.TaskMeta{ID: "g1", Window: "native", Worktree: fixture.worktree, Project: fixture.project, Harness: "claude", Backend: "native"}
-	if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
-		t.Fatal(err)
-	}
 	if hostPID != 0 {
 		record, err := json.Marshal(map[string]any{"id": "g1", "pipe": `\\.\pipe\cfo-host-g1`, "token": "0123", "version": 1, "host_pid": hostPID, "child_pid": hostPID, "started": testStarted})
 		if err != nil {
@@ -144,9 +139,9 @@ func reusedPID(t *testing.T) int {
 	return command.Process.Pid
 }
 
-// assertNoHerdrRequests proves a native cleanup never asks Herdr anything: the
-// task has no pane to read or tab to close.
-func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
+// assertOnlyGitRequests proves a cleanup runs nothing but git: its terminal is
+// read and closed through its host.
+func (f *cleanupFixture) assertOnlyGitRequests(t *testing.T) {
 	t.Helper()
 	for _, request := range f.runner.requests {
 		if request.Name != "git" {
@@ -157,9 +152,7 @@ func (f *cleanupFixture) assertNoHerdrRequests(t *testing.T) {
 
 // A native task whose terminal has ended - its host gone with its record, or
 // its record left behind by a host that ended, even once a later process has
-// its pid - is cleaned like a Herdr one:
-// its worktree returned and its record retired, with nothing asked of Herdr.
-// cfo cleanup used to refuse every native task as not a Herdr task.
+// its pid - is cleaned: its worktree returned and its record retired.
 func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 	for name, hostPID := range map[string]func(*testing.T) int{
 		"no host record":                          func(*testing.T) int { return 0 },
@@ -183,7 +176,7 @@ func TestCleanupReturnsANativeTaskWhoseTerminalHasEnded(t *testing.T) {
 			if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err == nil {
 				t.Error("task metadata survives a successful cleanup")
 			}
-			fixture.assertNoHerdrRequests(t)
+			fixture.assertOnlyGitRequests(t)
 		})
 	}
 }
@@ -216,7 +209,7 @@ func TestCleanupClosesANativeTerminalIdleAtItsComposer(t *testing.T) {
 			if returned := len(fixture.git.returned); returned != map[bool]int{false: 1, true: 0}[force] {
 				t.Errorf("worktree return calls = %v", fixture.git.returned)
 			}
-			fixture.assertNoHerdrRequests(t)
+			fixture.assertOnlyGitRequests(t)
 		})
 	}
 }
@@ -245,7 +238,7 @@ func TestCleanupLeavingRunningTerminalsRefusesAnIdleNativeTerminal(t *testing.T)
 				t.Errorf("the idle terminal no longer answers: %v", err)
 			}
 			fixture.assertMetadataPreserved(t)
-			fixture.assertNoHerdrRequests(t)
+			fixture.assertOnlyGitRequests(t)
 		})
 	}
 }
@@ -276,7 +269,7 @@ func TestCleanupRefusesANativeTaskThatMayBeWorking(t *testing.T) {
 					t.Fatalf("Cleanup error = %v, want %q", err, test.want)
 				}
 				fixture.assertMetadataPreserved(t)
-				fixture.assertNoHerdrRequests(t)
+				fixture.assertOnlyGitRequests(t)
 				if name == "a turn in progress" {
 					if _, err := host.ReadRecord(fixture.stateDir, "g1"); err != nil {
 						t.Errorf("the working terminal was closed: %v", err)

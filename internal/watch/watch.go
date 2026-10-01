@@ -62,9 +62,9 @@ type Config struct {
 	// orphaned harness must reach the CFO without a human asking, and a
 	// process nobody is watching is exactly what nobody asks about.
 	Reap *reap.Service
-	// ReapEvery bounds how often the sweep actually runs. It costs a Herdr
-	// snapshot and one process-table query, which is far too much for every
-	// Poll, and an orphan that has already leaked can wait minutes.
+	// ReapEvery bounds how often the sweep actually runs. It costs one
+	// process-table query, which is far too much for every Poll, and an
+	// orphan that has already leaked can wait minutes.
 	ReapEvery time.Duration
 
 	// FileEvery bounds how often the watcher files the home's data: finished
@@ -148,9 +148,9 @@ func ConfigFromEnv(h home.Home) Config {
 	// A home that cannot be read only costs the transcript half of the
 	// progress evidence; the process half still reads.
 	userHome, _ := os.UserHomeDir()
-	// Every Herdr read the monitor and the sweep make goes over the session's
-	// socket, found once through Herdr's status, rather than starting a
-	// herdr process each time.
+	// Every Herdr read the monitor makes goes over the session's socket,
+	// found once through Herdr's status, rather than starting a herdr
+	// process each time.
 	sockets := herdr.NewSocketCache()
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
@@ -168,17 +168,12 @@ func ConfigFromEnv(h home.Home) Config {
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}
-	// The sweep shares the monitor's Herdr client construction and its
-	// session, so orphan detection can never look at a different session than
-	// supervision does.
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
 	cfg.Reap = &reap.Service{
 		Home: h,
 		Inventory: reap.Collector{
 			Home:      h,
-			Session:   session,
-			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
 			Commands:  execx.OSRunner{},
 

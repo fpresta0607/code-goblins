@@ -23,17 +23,29 @@ func process(pid, ppid int, name, command string, start time.Time) Process {
 	return Process{PID: pid, ParentPID: ppid, Name: name, CommandLine: command, Start: start}
 }
 
-func task(id, worktree, pane, verb string) Task {
+func task(id, worktree, verb string) Task {
 	return Task{
 		ID:       id,
-		Meta:     state.TaskMeta{ID: id, Worktree: worktree, Project: `C:\dev\proj`, HerdrPaneID: pane, Backend: "herdr"},
+		Meta:     state.TaskMeta{ID: id, Worktree: worktree, Project: `C:\dev\proj`, Backend: "native"},
 		Verb:     verb,
 		Terminal: IsTerminal(verb),
 	}
 }
 
+// withTerminal gives task id a native terminal that still runs: its host's
+// record, its host process, started before the record, and the harness under
+// it.
+func withTerminal(inv Inventory, id string, hostPID int) Inventory {
+	inv.NativeHosts = append(inv.NativeHosts, NativeHost{ID: id, HostPID: hostPID, Started: fixtureLater})
+	inv.Processes = append(inv.Processes,
+		process(hostPID, 1, "cfo.exe", `cfo.exe host --id `+id, fixtureStart),
+		process(hostPID+1, hostPID, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
+	)
+	return inv
+}
+
 func TestPausedTaskIsRetainedWithoutOrphanWorktreeOrMetadataFindings(t *testing.T) {
-	paused := task("paused", `C:\dev\proj\.worktrees\gb-paused`, "gone", "paused")
+	paused := task("paused", `C:\dev\proj\.worktrees\gb-paused`, "paused")
 	paused.IsPaused = true
 	for _, hasDirectory := range []bool{true, false} {
 		inventory := Inventory{Tasks: []Task{paused}}
@@ -58,18 +70,12 @@ func classOf(findings []Finding, class Class) []Finding {
 }
 
 func TestClassify(t *testing.T) {
-	const (
-		herdrPID = 100
-		shellPID = 200
-		livePID  = 300
-	)
-	// Every case shares one live pane: a goblin doing its job must never be
-	// classified, and a fixture with no live work would not prove that.
-	livePane := Pane{ID: "pane-live", ShellPID: shellPID, ForegroundPID: livePID, HasAgent: true}
-	liveProcesses := []Process{
-		process(herdrPID, 1, "herdr.exe", `herdr server`, fixtureStart),
-		process(shellPID, herdrPID, "powershell.exe", `powershell -NoExit`, fixtureLater),
-		process(livePID, shellPID, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
+	// Every case shares one goblin working in its native terminal: a goblin
+	// doing its job must never be classified, and a fixture with no live work
+	// would not prove that.
+	fleet := func(inv Inventory) Inventory {
+		inv.Tasks = append(inv.Tasks, task("live", `C:\dev\pd\.worktrees\gb-live`, "working"))
+		return withTerminal(inv, "live", 200)
 	}
 
 	cases := []struct {
@@ -80,53 +86,31 @@ func TestClassify(t *testing.T) {
 		assert    func(t *testing.T, findings []Finding)
 	}{
 		{
-			name: "orphan process is a harness whose pane is gone",
-			inventory: Inventory{
-				Panes:         []Pane{livePane},
-				FleetRootPIDs: []int{herdrPID},
-				Processes: append(append([]Process{}, liveProcesses...),
-					process(400, herdrPID, "powershell.exe", `powershell -NoExit -Command herdr-prompt-shim`, fixtureLater),
+			name: "an orphan harness runs under no terminal of the fleet and is held until named",
+			inventory: fleet(Inventory{
+				Processes: []Process{
+					process(400, 1, "powershell.exe", `powershell -NoExit`, fixtureLater),
 					process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
-				),
-			},
+				},
+			}),
 			want:      OrphanProcess,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
 				if findings[0].PID != 31032 {
 					t.Fatalf("orphan pid = %d, want 31032", findings[0].PID)
 				}
-				// The one thing holding a fleet-descended orphan is the
-				// authorisation its kill needs, carried from the moment it is
-				// classified so the line states it even when something else
-				// holds the finding too.
-				want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"
+				// Nothing ties it to the fleet, and its kill needs its own pid;
+				// both refusals answer to that pid, so naming it clears them.
+				want := unidentifiedHold + "; also " + killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"
 				if findings[0].Hold() != want {
-					t.Fatalf("hold = %q, want only the kill authorisation keyed to the pid: %q", findings[0].Hold(), want)
-				}
-			},
-		},
-		{
-			name: "a harness outside the fleet is reported but held",
-			inventory: Inventory{
-				Panes:         []Pane{livePane},
-				FleetRootPIDs: []int{herdrPID},
-				Processes: append(append([]Process{}, liveProcesses...),
-					process(900, 1, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
-				),
-			},
-			want:      OrphanProcess,
-			wantCount: 1,
-			assert: func(t *testing.T, findings []Finding) {
-				if !strings.Contains(findings[0].Hold(), "Herdr ancestry") {
-					t.Fatalf("hold = %q, want an attribution refusal", findings[0].Hold())
+					t.Fatalf("hold = %q, want %q", findings[0].Hold(), want)
 				}
 			},
 		},
 		{
 			name: "the sweep never reports the session it runs inside",
 			inventory: Inventory{
-				SelfPIDs:      []int{31032, 400},
-				FleetRootPIDs: []int{herdrPID},
+				SelfPIDs: []int{31032, 400},
 				Processes: []Process{
 					process(400, 1, "powershell.exe", `powershell`, fixtureLater),
 					process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
@@ -137,15 +121,11 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name: "stale server is rooted in a finished task's worktree",
-			inventory: Inventory{
-				Panes:         []Pane{livePane},
-				FleetRootPIDs: []int{herdrPID},
-				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-gone", "done")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
-				Processes: append(append([]Process{}, liveProcesses...),
-					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest),
-				),
-			},
+			inventory: fleet(Inventory{
+				Tasks:     []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "done")},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
+				Processes: []Process{process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest)},
+			}),
 			want:      StaleServer,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
@@ -156,25 +136,19 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name: "a server in a working task's worktree is doing its job",
-			inventory: Inventory{
-				Panes:         []Pane{livePane},
-				FleetRootPIDs: []int{herdrPID},
-				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-live", "working")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
-				Processes: append(append([]Process{}, liveProcesses...),
-					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest),
-				),
-			},
+			inventory: withTerminal(fleet(Inventory{
+				Tasks:     []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "working")},
+				Worktrees: []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
+				Processes: []Process{process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest)},
+			}), "pp-money", 250),
 			want:      StaleServer,
 			wantCount: 0,
 		},
 		{
-			name: "orphan worktree has no live pane and no record",
-			inventory: Inventory{
-				Panes:     []Pane{livePane},
-				Processes: liveProcesses,
+			name: "orphan worktree has no live terminal and no record",
+			inventory: fleet(Inventory{
 				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pdocs-help-docs"}},
-			},
+			}),
 			want:      OrphanWorktree,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
@@ -186,23 +160,18 @@ func TestClassify(t *testing.T) {
 			},
 		},
 		{
-			name: "a worktree whose task is still working is left alone",
-			inventory: Inventory{
-				Panes:     []Pane{livePane},
-				Processes: liveProcesses,
-				Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
+			name: "a worktree whose goblin's terminal runs is left alone",
+			inventory: fleet(Inventory{
 				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
-			},
+			}),
 			want:      OrphanWorktree,
 			wantCount: 0,
 		},
 		{
-			name: "orphan meta has no pane, no process and no worktree",
-			inventory: Inventory{
-				Panes:     []Pane{livePane},
-				Processes: liveProcesses,
-				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-			},
+			name: "orphan meta has no live terminal, no process and no worktree",
+			inventory: fleet(Inventory{
+				Tasks: []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "done")},
+			}),
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
@@ -213,22 +182,18 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name: "a meta whose worktree still exists belongs to the worktree class",
-			inventory: Inventory{
-				Panes:     []Pane{livePane},
-				Processes: liveProcesses,
-				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
+			inventory: fleet(Inventory{
+				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "done")},
 				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "utah"}},
-			},
+			}),
 			want:      OrphanMeta,
 			wantCount: 0,
 		},
 		{
 			name: "a non-terminal meta is reported but held",
-			inventory: Inventory{
-				Panes:     []Pane{livePane},
-				Processes: liveProcesses,
-				Tasks:     []Task{task("wedged", `C:\dev\pd\.worktrees\gb-wedged`, "pane-gone", "working")},
-			},
+			inventory: fleet(Inventory{
+				Tasks: []Task{task("wedged", `C:\dev\pd\.worktrees\gb-wedged`, "working")},
+			}),
 			want:      OrphanMeta,
 			wantCount: 1,
 			assert: func(t *testing.T, findings []Finding) {
@@ -263,22 +228,15 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// TestClassifyLiveFleetIsNeverReported is the whole point of the pane
-// cross-reference: a goblin with a pane, an agent and a running harness must
-// produce nothing at all, whatever else is on the machine.
+// TestClassifyLiveFleetIsNeverReported is the whole point of the terminal
+// cross-reference: a goblin whose terminal runs its harness, and a dev server
+// under that harness, must produce nothing at all.
 func TestClassifyLiveFleetIsNeverReported(t *testing.T) {
-	inventory := Inventory{
-		Panes:         []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
-		FleetRootPIDs: []int{100},
-		Tasks:         []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
-		Processes: []Process{
-			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
-			process(200, 100, "powershell.exe", "powershell", fixtureLater),
-			process(300, 200, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
-			process(301, 300, "node.exe", `node C:\dev\pd\.worktrees\gb-live\node_modules\next\dist\bin\next dev`, fixtureLatest),
-		},
-	}
+	inventory := withTerminal(Inventory{
+		Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "working")},
+		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
+		Processes: []Process{process(301, 201, "node.exe", `node C:\dev\pd\.worktrees\gb-live\node_modules\next\dist\bin\next dev`, fixtureLatest)},
+	}, "live", 200)
 	if findings := Classify(inventory); len(findings) != 0 {
 		t.Fatalf("a healthy fleet produced findings: %+v", findings)
 	}
@@ -428,44 +386,6 @@ func TestFindingsDigestIsOrderIndependent(t *testing.T) {
 	}
 }
 
-// TestUnresolvedPaneHoldsEveryProcessFinding: a pane that exists but cannot
-// say what is running in it leaves a live goblin indistinguishable from an
-// orphan, so nothing may be killed on that evidence.
-func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
-	inventory := Inventory{
-		Panes:           []Pane{{ID: "pane-a", HasAgent: true}},
-		UnresolvedPanes: []string{"pane-a"},
-		FleetRootPIDs:   []int{100},
-		Tasks:           []Task{task("old", `C:\dev\pd\.worktrees\gb-old`, "pane-b", "done")},
-		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
-		Processes: []Process{
-			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
-			process(400, 100, "powershell.exe", "powershell", fixtureLater),
-			process(31032, 400, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
-			process(555, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old\node_modules\vite\bin\vite.js`, fixtureLatest),
-		},
-	}
-	findings := Classify(inventory)
-	for _, class := range []Class{OrphanProcess, StaleServer} {
-		matched := classOf(findings, class)
-		if len(matched) != 1 {
-			t.Fatalf("got %d %s findings, want 1", len(matched), class)
-		}
-		if !strings.Contains(matched[0].Hold(), "process identity") {
-			t.Fatalf("%s hold = %q, want the unresolved-pane refusal", class, matched[0].Hold())
-		}
-	}
-	// The remedy here is fixing Herdr, and the refusal says so in its own
-	// words. What the rendered line must not do is tell the operator that
-	// something still stands after the --force it names, because this refusal
-	// answers to the same pid the kill does and that force clears both.
-	for _, finding := range classOf(findings, OrphanProcess) {
-		if strings.Contains(finding.Hold(), "resolve it rather than overriding it") {
-			t.Errorf("hold = %q, claims evidence survives a --force that clears every refusal on the line", finding.Hold())
-		}
-	}
-}
-
 // TestClassifyProcessPopulations is the fix for four identical sweeps in
 // ninety minutes, fourteen findings each, every one a false positive. The
 // image name says nothing on this machine: claude.exe is the Overlord's
@@ -475,7 +395,6 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 // something the sweep has any business reporting.
 func TestClassifyProcessPopulations(t *testing.T) {
 	const (
-		herdrPID        = 100
 		desktopPID      = 700
 		codexDesktopPID = 750
 		gatePID         = 800
@@ -486,7 +405,6 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	// actually appear and a fixture with one at a time would not prove the
 	// classifier keeps them apart.
 	processes := []Process{
-		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
 		// The desktop application: one parent under sihost, then the Chromium
 		// children it spawns, each carrying a --type= switch.
 		process(desktopPID, 7996, "claude.exe", desktopExe+" ", fixtureStart),
@@ -502,12 +420,11 @@ func TestClassifyProcessPopulations(t *testing.T) {
 		// A no-mistakes review round: the daemon and the reviewer it launched.
 		process(gatePID, 1, "no-mistakes.exe", `no-mistakes.exe daemon run --root C:\Users\x\.no-mistakes`, fixtureStart),
 		process(801, gatePID, "claude.exe", `claude --model opus --effort high -p --verbose --output-format stream-json --json-schema "{}"`, fixtureLater),
-		// The real thing: a harness that descends from the Herdr server and
-		// has no pane left.
-		process(400, herdrPID, "powershell.exe", "powershell -NoExit", fixtureLater),
+		// The real thing: a harness that runs under no terminal of the fleet.
+		process(400, 1, "powershell.exe", "powershell -NoExit", fixtureLater),
 		process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
 	}
-	findings := classOf(Classify(Inventory{FleetRootPIDs: []int{herdrPID}, Processes: processes}), OrphanProcess)
+	findings := classOf(Classify(Inventory{Processes: processes}), OrphanProcess)
 
 	reported := make(map[int]Finding, len(findings))
 	for _, finding := range findings {
@@ -532,8 +449,8 @@ func TestClassifyProcessPopulations(t *testing.T) {
 	if !ok {
 		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
 	}
-	if want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"; orphan.Hold() != want {
-		t.Errorf("hold = %q, want the genuine orphan held by nothing but its kill authorisation: %q", orphan.Hold(), want)
+	if want := unidentifiedHold + "; also " + killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"; orphan.Hold() != want {
+		t.Errorf("hold = %q, want the genuine orphan held until its pid is named: %q", orphan.Hold(), want)
 	}
 	if len(findings) != 1 {
 		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
@@ -549,9 +466,7 @@ func TestClassifyProcessPopulations(t *testing.T) {
 // process still stands after a force that in fact ends it.
 func TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined(t *testing.T) {
 	inventory := Inventory{
-		FleetRootPIDs: []int{100},
 		Processes: []Process{
-			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(900, 1, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
 		},
 	}
@@ -644,16 +559,15 @@ func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
 // TestLiveGoblinOutranksUnconfirmedRegistration: git worktree list can fail
 // for reasons that say nothing about the directory (git missing, an index
 // lock, a root that is not a repository), and every directory under that root
-// then has an unknown registration. A pane holding an agent right now is
+// then has an unknown registration. A goblin's terminal running right now is
 // harder evidence than that, so it wins.
 func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
-	inventory := Inventory{
-		Panes: []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
-		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
+	inventory := withTerminal(Inventory{
+		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "working")},
 		// The zero value: the repository could not be asked, so nothing about
 		// this directory was established.
 		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
-	}
+	}, "live", 200)
 	if findings := Classify(inventory); len(findings) != 0 {
 		t.Fatalf("a live goblin's worktree was reported: %+v", findings)
 	}
@@ -666,7 +580,7 @@ func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
 // the work gate protects.
 func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
 	inventory := Inventory{
-		Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
+		Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "done")},
 		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
 	}
 	findings := Classify(inventory)
@@ -692,7 +606,7 @@ func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
 func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
 	const shell = `C:\dev\pd\.worktrees\gb-dead`
 	inventory := Inventory{
-		Tasks:     []Task{task("dead", shell, "pane-gone", "done")},
+		Tasks:     []Task{task("dead", shell, "done")},
 		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
 	}
 	findings := Classify(inventory)
@@ -713,7 +627,7 @@ func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
 func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
 	const shell = `C:\dev\pd\.worktrees\gb-wedged`
 	inventory := Inventory{
-		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
+		Tasks:     []Task{task("wedged", shell, "working")},
 		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "wedged"}},
 	}
 	finding := classOf(Classify(inventory), OrphanDirectory)[0]
@@ -851,17 +765,13 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 	})
 
 	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
-		// The unplaced agent answers to its pane and to neither key the line
-		// names, so here something really does stand behind the --force.
-		const worktree = `C:\dev\pd\.worktrees\gb-broken`
-		inventory := Inventory{
-			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
-			UnplacedAgents:  []string{"pane-b"},
-			UnreadableTasks: []string{"broken"},
-			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
-			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
-		}
-		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
+		// The evidence refusal answers to a key neither proposal names, so
+		// here something really does stand behind the --force.
+		finding := Finding{Class: StaleServer, TaskID: "broken", PID: 555}
+		finding.refuseUntilEstablished("nothing about what this directory is could be established from here", "shell")
+		finding.refuseUnlessForced("its task record could not be read", "broken")
+		finding.refuseUnlessForced(killNeedsItsOwnPID, "555")
+		hold := finding.Hold()
 		if !strings.Contains(hold, "Name every one of broken and 555 with --force") {
 			t.Fatalf("hold = %q, want both keys a --force does answer: the task and the pid its kill needs", hold)
 		}
@@ -895,12 +805,12 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 // record one.
 func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 	finding := Finding{Class: StaleServer, TaskID: "broken", PID: 555}
-	finding.refuseUntilEstablished("1 pane(s) could not report their process identity", "555")
+	finding.refuseUntilEstablished("nothing about what this directory is could be established from here", "555")
 	finding.refuseUnlessForced("its task record could not be read", "broken")
 	if len(finding.Holds) != 2 {
 		t.Fatalf("holds = %+v, want both refusals kept", finding.Holds)
 	}
-	for _, want := range []string{"could not report their process identity", "task record could not be read"} {
+	for _, want := range []string{"could be established from here", "task record could not be read"} {
 		if !strings.Contains(finding.Hold(), want) {
 			t.Fatalf("hold = %q, want it to carry %q", finding.Hold(), want)
 		}
@@ -917,72 +827,25 @@ func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
 	server := process(35012, 1, "node.exe", `node `+worktree+`\frontend\node_modules\vite\bin\vite.js`, fixtureLatest)
-	landing := task("pd-landing", worktree, "w9:p8Y", "done")
+	landing := task("pd-landing", worktree, "done")
 	worktrees := []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}}
 
-	t.Run("a pane holding an agent says the goblin is working", func(t *testing.T) {
-		inventory := Inventory{
-			// The pane the task record names, with an agent on it: exactly
-			// what herdr reported while the sweep offered up the server.
-			Panes:     []Pane{{ID: "w9:p8Y", ShellPID: 900, ForegroundPID: 901, HasAgent: true}},
+	t.Run("its terminal running says the goblin is working", func(t *testing.T) {
+		inventory := withTerminal(Inventory{
 			Tasks:     []Task{landing},
 			Worktrees: worktrees,
 			Processes: []Process{server},
-		}
-		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
-			t.Fatalf("a live goblin's dev server was offered up: %+v", findings)
-		}
-	})
-
-	t.Run("an agent working in the worktree says so too", func(t *testing.T) {
-		inventory := Inventory{
-			// The record's pane id no longer matches the pane the goblin is
-			// in, so the only thing left to ask is where the agents are
-			// working. One of them is working under this worktree.
-			Panes: []Pane{
-				{ID: "w9:p0", ShellPID: 800, HasAgent: true, AgentCwd: `C:\dev\code-goblins`},
-				{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`},
-			},
-			Tasks:     []Task{landing},
-			Worktrees: worktrees,
-			Processes: []Process{server},
-		}
-		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 0 {
-			t.Fatalf("a server was offered up while an agent is working in its worktree: %+v", findings)
-		}
-	})
-
-	t.Run("and the worktree it is working in is not an orphan either", func(t *testing.T) {
-		inventory := Inventory{
-			// The same drift, one class over, and the worse outcome: this
-			// finding proposes returning the checkout the goblin is working
-			// in, and cleanup's own guard cannot stop it, because that counts
-			// panes matching the recorded pane id too.
-			Panes:     []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`}},
-			Tasks:     []Task{landing},
-			Worktrees: worktrees,
-			Processes: []Process{server},
-		}
-		if findings := classOf(Classify(inventory), OrphanWorktree); len(findings) != 0 {
-			t.Fatalf("a worktree an agent is working in was offered up for return: %+v", findings)
-		}
-	})
-
-	t.Run("a neighbouring worktree with a longer name is not that agent's", func(t *testing.T) {
-		inventory := Inventory{
-			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `-two`}},
-			Tasks:     []Task{landing},
-			Worktrees: worktrees,
-			Processes: []Process{server},
-		}
-		if findings := classOf(Classify(inventory), StaleServer); len(findings) != 1 {
-			t.Fatalf("got %d findings, want the abandoned server reported: %+v", len(findings), findings)
+		}, "pd-landing", 900)
+		findings := Classify(inventory)
+		for _, class := range []Class{StaleServer, OrphanWorktree} {
+			if found := classOf(findings, class); len(found) != 0 {
+				t.Fatalf("a live goblin's %s was offered up: %+v", class, found)
+			}
 		}
 	})
 
 	t.Run("with the goblin gone it is reported, and done is not what establishes that", func(t *testing.T) {
 		inventory := Inventory{
-			Panes:     []Pane{{ID: "w9:pOther", ShellPID: 900, HasAgent: true}},
 			Tasks:     []Task{landing},
 			Worktrees: worktrees,
 			Processes: []Process{server},
@@ -995,40 +858,13 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		if findings[0].Hold() != want {
 			t.Fatalf("hold = %q, want an abandoned server of a finished task held by nothing but its kill authorisation: %q", findings[0].Hold(), want)
 		}
-		if !strings.Contains(findings[0].Detail, "no pane holding an agent working there") {
+		if !strings.Contains(findings[0].Detail, "no live terminal of its goblin") {
 			t.Fatalf("detail = %q, want it to state the evidence that established this", findings[0].Detail)
 		}
 	})
 
-	t.Run("an agent that reported no working directory holds both classes", func(t *testing.T) {
-		// Herdr declares an agent's working directory nullable, so one agent
-		// answering with nothing is a state the fleet reaches without anything
-		// being broken. With the record's pane id drifted, that agent is the
-		// only thing that could still place this goblin, and it might be it.
-		inventory := Inventory{
-			Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
-			UnplacedAgents: []string{"w9:pMoved"},
-			Tasks:          []Task{landing},
-			Worktrees:      worktrees,
-			Processes:      []Process{server},
-		}
-		findings := Classify(inventory)
-		for _, class := range []Class{StaleServer, OrphanWorktree} {
-			found := classOf(findings, class)
-			if len(found) != 1 {
-				t.Fatalf("got %d %s findings, want one: %+v", len(found), class, findings)
-			}
-			if !strings.Contains(found[0].Hold(), "reported no working directory") {
-				t.Errorf("%s hold = %q, want it held because an agent could not be placed", class, found[0].Hold())
-			}
-			if strings.Contains(found[0].Detail, "no pane holding an agent working there") {
-				t.Errorf("%s detail = %q, claims the evidence its own hold says could not be gathered", class, found[0].Detail)
-			}
-		}
-	})
-
 	t.Run("a task that never said done is reported but held", func(t *testing.T) {
-		working := task("pd-landing", worktree, "w9:pGone", "working")
+		working := task("pd-landing", worktree, "working")
 		inventory := Inventory{
 			Tasks:     []Task{working},
 			Worktrees: worktrees,
@@ -1040,55 +876,6 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 		}
 		if !strings.Contains(findings[0].Hold(), "terminal status") {
 			t.Fatalf("hold = %q, want it held because the task never finished", findings[0].Hold())
-		}
-	})
-}
-
-// TestAnUnplacedAgentRefusalAnswersToThatAgent: a refusal about an agent that
-// did not say where it is running is not answered by naming the process beside
-// it or the task it belongs to. Keying it to either let one refusal be cleared
-// by the key for another, which is what the refusal model exists to stop:
-// naming a pid says nothing about where an unrelated agent is working, and
-// naming a task id says its work is over, not that nobody else is in its
-// directory.
-func TestAnUnplacedAgentRefusalAnswersToThatAgent(t *testing.T) {
-	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
-	inventory := Inventory{
-		Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
-		UnplacedAgents: []string{"w9:pMoved"},
-		Tasks:          []Task{task("pd-landing", worktree, "w9:p8Y", "working")},
-		Worktrees:      []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}},
-		Processes: []Process{
-			process(35012, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest),
-		},
-	}
-
-	for _, testCase := range []struct {
-		name  string
-		class Class
-		force map[string]bool
-	}{
-		{"a task force does not answer it on a worktree", OrphanWorktree, map[string]bool{"pd-landing": true}},
-		{"a pid force does not answer it on a server", StaleServer, map[string]bool{"35012": true}},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			findings := classOf(Classify(inventory), testCase.class)
-			if len(findings) != 1 {
-				t.Fatalf("got %d %s findings, want 1: %+v", len(findings), testCase.class, findings)
-			}
-			finding := findings[0]
-			finding.clearForced(testCase.force)
-			if !strings.Contains(finding.Hold(), "no working directory") {
-				t.Fatalf("hold = %q, want the unplaced-agent refusal to survive a key that does not answer it", finding.Hold())
-			}
-		})
-	}
-
-	t.Run("naming the pane that could not be placed is what answers it", func(t *testing.T) {
-		finding := classOf(Classify(inventory), StaleServer)[0]
-		finding.clearForced(map[string]bool{"w9:pMoved": true})
-		if strings.Contains(finding.Hold(), "no working directory") {
-			t.Fatalf("hold = %q, want the refusal answered by the agent it is about", finding.Hold())
 		}
 	})
 }

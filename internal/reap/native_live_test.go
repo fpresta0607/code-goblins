@@ -3,7 +3,6 @@ package reap
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -63,7 +61,7 @@ func TestAnUnreadableHostRecordHoldsItsGoblin(t *testing.T) {
 		process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
 	}
 
-	inv, notes, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
+	inv, notes, err := Collector{Home: h, Processes: processes}.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +96,7 @@ func TestAHostRecordGoneSinceTheListingIsAnEndedHost(t *testing.T) {
 		process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
 	}
 
-	inv, notes, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
+	inv, notes, err := Collector{Home: h, Processes: processes}.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +142,7 @@ func TestAnUnreadableHostRecordHoldsTheTaskRecord(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(h.State, "hosts", "board.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	inv, _, err := Collector{Home: h, Session: "default", Processes: stubProcesses{}}.Collect(context.Background())
+	inv, _, err := Collector{Home: h, Processes: stubProcesses{}}.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,14 +156,11 @@ func TestAnUnreadableHostRecordHoldsTheTaskRecord(t *testing.T) {
 	}
 }
 
-// A native goblin has no Herdr pane: its harness runs under its terminal's
-// host. While that host runs, the goblin is alive for every class, exactly as
-// a goblin whose pane holds an agent is, even after it said done: its harness
+// A goblin's harness runs under its terminal's host. While that host runs,
+// the goblin is alive for every class, even after it said done: its harness
 // is supervised, its dev server is doing its job, and its worktree is in use.
 // A host that has ended, or a record whose pid now names a process that
 // started after the host recorded itself, is no evidence of a live goblin.
-// Reap used to read only Herdr panes, so a live native goblin's harness read
-// as an unsupervised process and its dev server as stale.
 func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 	for name, test := range map[string]struct {
 		hostStart   time.Time
@@ -185,7 +180,7 @@ func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 			if test.hostRunning {
 				processes = append(processes, process(400, 1, "cfo.exe", `cfo.exe host --id board`, test.hostStart))
 			}
-			inv, _, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
+			inv, _, err := Collector{Home: h, Processes: processes}.Collect(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,65 +198,6 @@ func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 			}
 			if !test.wantAlive && !reported[StaleServer] {
 				t.Errorf("the dev server of a native goblin whose host is gone was not reported: %v", lines(findings))
-			}
-		})
-	}
-}
-
-// unreadablePanes is a Herdr that cannot be read: not installed, or its
-// server not answering.
-type unreadablePanes struct{}
-
-func (unreadablePanes) Snapshot(context.Context) (herdr.SessionSnapshot, error) {
-	return herdr.SessionSnapshot{}, errors.New("herdr is not running")
-}
-
-func (unreadablePanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
-	return herdr.PaneProcessInfo{}, errors.New("herdr is not running")
-}
-
-// With no Herdr server for the fleet's session in the process table no pane
-// can exist, so a machine that runs its goblins natively still sweeps for
-// orphans, even past a test fixture's server for another session or a
-// short-lived Herdr CLI call; the fleet session's server that runs but cannot
-// be read could hide live goblins, so the sweep still refuses.
-func TestTheSweepRunsWithoutHerdrOnlyWhenNoHerdrServerRuns(t *testing.T) {
-	cases := []struct {
-		name    string
-		herdr   []Process
-		wantErr bool
-	}{
-		{name: "no Herdr process", wantErr: false},
-		{name: "the fleet session's server that cannot be read", herdr: []Process{process(300, 1, "herdr.exe", `herdr server`, fixtureStart)}, wantErr: true},
-		{name: "the fleet session's server named by flag", herdr: []Process{process(300, 1, "herdr.exe", `herdr --session default server`, fixtureStart)}, wantErr: true},
-		{name: "another session's server", herdr: []Process{process(300, 1, "herdr.exe", `herdr --session fx123 server`, fixtureStart)}, wantErr: false},
-		{name: "a Herdr CLI call", herdr: []Process{process(300, 1, "herdr.exe", `herdr pane list`, fixtureStart)}, wantErr: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h, _ := nativeHome(t)
-			processes := stubProcesses{
-				process(400, 1, "cfo.exe", `cfo.exe host --id board`, fixtureStart),
-				process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
-			}
-			processes = append(processes, tc.herdr...)
-
-			inv, notes, err := Collector{Home: h, Session: "default", Panes: unreadablePanes{}, Processes: processes}.Collect(context.Background())
-
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("Collect swept past a Herdr server it could not read: %+v", inv)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Collect refused a machine with no Herdr server for its session: %v", err)
-			}
-			if len(inv.NativeHosts) == 0 {
-				t.Errorf("native hosts = %v, want the goblin's host read", inv.NativeHosts)
-			}
-			if !strings.Contains(strings.Join(notes, " "), "no Herdr server runs") {
-				t.Errorf("notes = %q, want one saying Herdr is not running", notes)
 			}
 		})
 	}
