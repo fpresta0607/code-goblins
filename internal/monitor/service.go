@@ -283,6 +283,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	observation.TaskID = meta.ID
 	observation.Endpoint = endpointString(meta)
 	observation.LastObserved = now
+	// A goblin whose terminal was gone runs a new harness, so a turn it is in
+	// began on its return, not before the terminal went.
+	if prior.Reason == EndpointMissing {
+		observation.BusySince = nil
+	}
 
 	if s.Probe == nil {
 		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now), EndpointSample{}
@@ -335,17 +340,10 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		return unknownObservation(observation, EndpointUnknown, detail, now), sample
 	}
 
-	// A goblin back at an endpoint that was missing or unreadable is read as
-	// it is now. A wake about the endpoint still waiting to be published no
-	// longer applies, and one whose terminal was gone runs a new harness, so
-	// a turn it is in began on its return, not before the terminal went.
-	if observation.Reason == EndpointMissing || observation.Reason == EndpointUnknown {
-		if observation.PendingEvent != nil && strings.HasPrefix(observation.PendingEvent.Detail, string(observation.Reason)) {
-			observation.PendingEvent = nil
-		}
-		if observation.Reason == EndpointMissing {
-			observation.BusySince = nil
-		}
+	// A goblin back at its endpoint is read as it is now: a wake about the
+	// endpoint still waiting to be published no longer applies.
+	if pending := observation.PendingEvent; pending != nil && (strings.HasPrefix(pending.Detail, string(EndpointMissing)) || strings.HasPrefix(pending.Detail, string(EndpointUnknown))) {
+		observation.PendingEvent = nil
 	}
 	observation.EndpointVerdict = ProbePresent
 	if observation.LastSeen.IsZero() {
@@ -1026,6 +1024,9 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	}
 	observation.Health = HealthUnknown
 	observation.Reason = reason
+	if reason == EndpointMissing {
+		observation.BusySince = nil
+	}
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.NextPauseResurface = nil
@@ -1049,6 +1050,7 @@ func (s Service) pausedMissingObservation(observation Observation, detail string
 	observation.EndpointVerdict = ProbeMissing
 	observation.Health = HealthPaused
 	observation.Reason = EndpointMissing
+	observation.BusySince = nil
 	observation.StaleSince = nil
 	observation.NextEscalation = nil
 	observation.Escalation = 0

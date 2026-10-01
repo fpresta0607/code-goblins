@@ -104,6 +104,72 @@ func TestAGoblinBackFromAMissingEndpointIsReadAsItIsNow(t *testing.T) {
 	}
 }
 
+// A relaunched goblin can be read before its new harness registers: its pane
+// is back but its agent is not, so that scan reads its endpoint unknown while
+// the wake about its missing terminal still waits behind another goblin's.
+// Once it is read working, that wake no longer applies and the turn the crash
+// cut short is not the turn it is in.
+func TestAGoblinBackFromAMissingEndpointByWayOfAnUnknownOneIsReadAsItIsNow(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 30, 23, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	missing := taskEvent(meta.ID, EndpointMissing, "recorded pane pane-g1 is absent")
+	writeRecord(t, stateDir, Observation{
+		Schema: Schema, TaskID: meta.ID, Endpoint: endpointString(meta), EndpointVerdict: ProbeMissing,
+		Digest: "before the crash", LastObserved: now.Add(-2 * time.Minute), LastSeen: now.Add(-100 * time.Minute), LastProgress: now.Add(-105 * time.Minute),
+		BusySince: timePointer(now.Add(-3 * time.Hour)),
+		Health:    HealthUnknown, Reason: EndpointMissing, PendingEvent: &missing,
+	})
+	registering := sampleForStatus(meta, herdr.AgentWorking, "registering")
+	registering.Agent = herdr.AgentDead
+	probe := &fakeProber{samples: map[string]EndpointSample{meta.ID: registering}}
+	service := testService(stateDir, probe, &now)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatalf("scan before the harness registers: %v", err)
+	}
+	now = now.Add(time.Minute)
+	probe.samples[meta.ID] = sampleForStatus(meta, herdr.AgentWorking, "back at work")
+
+	woke := scanAndPublish(t, service, &now, 8)
+
+	if len(woke) != 0 {
+		t.Errorf("a goblin working in the turn it began on its return woke the CFO: %q", woke)
+	}
+	record, err := ReadObservation(stateDir, meta.ID)
+	if err != nil {
+		t.Fatalf("its record does not read back: %v", err)
+	}
+	if record.Health != HealthBusy || record.Reason != None {
+		t.Errorf("record health %s reason %s, want %s %s", record.Health, record.Reason, HealthBusy, None)
+	}
+}
+
+// A goblin already read back at work can still hold the wake about its
+// missing terminal, raised before the crash and never published. That wake no
+// longer applies whatever the record now says.
+func TestAGoblinReadBackAtWorkDoesNotPublishTheWakeAboutItsMissingTerminal(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 9, 30, 23, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	missing := taskEvent(meta.ID, EndpointMissing, "recorded pane pane-g1 is absent")
+	writeRecord(t, stateDir, Observation{
+		Schema: Schema, TaskID: meta.ID, Endpoint: endpointString(meta), EndpointVerdict: ProbePresent,
+		Digest: "back at work", LastObserved: now.Add(-time.Minute), LastSeen: now.Add(-time.Minute), LastProgress: now.Add(-time.Minute),
+		BusySince: timePointer(now.Add(-time.Minute)),
+		Health:    HealthBusy, Reason: None, PendingEvent: &missing,
+	})
+	probe := &fakeProber{samples: map[string]EndpointSample{meta.ID: sampleForStatus(meta, herdr.AgentWorking, "back at work")}}
+	service := testService(stateDir, probe, &now)
+
+	woke := scanAndPublish(t, service, &now, 4)
+
+	if len(woke) != 0 {
+		t.Errorf("a goblin back at work woke the CFO: %q", woke)
+	}
+}
+
 // One wake is published a cycle across the whole fleet, so a goblin's wake
 // can still be waiting when its next reading is stale. That reading keeps the
 // waiting wake rather than raising a second, but it still records when the
