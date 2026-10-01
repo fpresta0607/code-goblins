@@ -520,6 +520,7 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.
 The card shows the choices as a plain list of radio buttons, each the answer's own text with no A, B or C, because the Overlord picks an answer, not a letter.
 `cfo notify` and `cfo question` refuse, recording nothing, a choice that is only a letter or number, such as `a`, `B)`, `(c)` or `2`, and say to write the answer itself as the choice.
 When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows; the answer is still the goblin's choice word for word.
