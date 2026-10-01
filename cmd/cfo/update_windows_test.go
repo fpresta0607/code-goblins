@@ -51,7 +51,11 @@ func writeBuild(t *testing.T, path, build string) []byte {
 
 func newUpdateHome(t *testing.T, previous, candidate string) *updateHome {
 	t.Helper()
-	root := t.TempDir()
+	return newUpdateHomeIn(t, t.TempDir(), previous, candidate)
+}
+
+func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome {
+	t.Helper()
 	u := &updateHome{t: t, root: root, state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
 	if err := os.MkdirAll(u.state, 0o700); err != nil {
 		t.Fatal(err)
@@ -462,6 +466,79 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 	if _, ok := proc.StartTime(child.Process.Pid); !ok {
 		t.Fatal("the premise failed: the ended process's start time is not readable through the held handle")
 	}
+}
+
+// The recovery line names the home, its state and the candidate's kept copy
+// as PowerShell literal strings, so a path with a quote or a space pastes as
+// it is.
+func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
+	root := `C:\Users\O'Brien\Code Goblins`
+	copy := root + `\state\update\candidate.exe`
+	for _, test := range []struct {
+		name  string
+		state string
+		want  string
+	}{
+		{"the home's own state", root + `\state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
+		{"a state elsewhere", `D:\fleet's state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'D:\fleet''s state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := recoverCommand(home.Home{Root: root, State: test.state}, &update.Journal{Copy: copy})
+
+			if got != test.want {
+				t.Fatalf("recoverCommand = %s\nwant            %s", got, test.want)
+			}
+		})
+	}
+}
+
+// The line an unfinished update prints is the recovery: pasted into Windows
+// PowerShell in another folder, with no CFO home in its environment and both
+// cfo.exe and goblins.exe gone, it puts the previous build back and its board
+// serves. The home's path has a quote and a space in it.
+func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "O'Brien goblins")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	u := newUpdateHomeIn(t, root, "previous", "crash")
+	u.serving()
+	code, output := u.run([]string{"CFO_TEST_UPDATE_HOLD=goblins.exe"})
+	if code != updateDegraded {
+		t.Fatalf("update exited %d, want %d:\n%s", code, updateDegraded, output)
+	}
+	var line string
+	printed := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+	for at := 0; at+1 < len(printed); at++ {
+		if strings.HasSuffix(printed[at], "in Windows PowerShell:") {
+			line = strings.TrimSpace(printed[at+1])
+		}
+	}
+	if line == "" {
+		t.Fatalf("the update printed no recovery line:\n%s", output)
+	}
+	for _, name := range update.Aliases {
+		if err := os.Remove(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var environment []string
+	for _, variable := range os.Environ() {
+		name, _, _ := strings.Cut(variable, "=")
+		if !strings.EqualFold(name, "CFO_HOME") && !strings.EqualFold(name, "CFO_STATE_OVERRIDE") && !strings.EqualFold(name, "CFO_TEST_UPDATE_ROOT") {
+			environment = append(environment, variable)
+		}
+	}
+	pasted := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", line+"; exit $LASTEXITCODE")
+	pasted.Dir = t.TempDir()
+	pasted.Env = append(environment, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+
+	recovered, err := pasted.CombinedOutput()
+
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != updateRolledBack {
+		t.Fatalf("the pasted line %s ended %v, want exit %d:\n%s", line, err, updateRolledBack, recovered)
+	}
+	u.previousServes()
 }
 
 // When a verified copy is the way back, the copy started is proved the

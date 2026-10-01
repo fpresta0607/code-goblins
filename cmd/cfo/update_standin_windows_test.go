@@ -83,8 +83,24 @@ func runStandInBuild() (int, bool) {
 	return 0, true
 }
 
+// standInHome is the home the test names with CFO_TEST_UPDATE_ROOT, or, when
+// the test sets CFO_TEST_UPDATE_RESOLVE instead, the one cfo resolves from its
+// environment, as a pasted recovery line resolves it. With neither, a stand-in
+// refuses rather than fall back on a home it inherited.
 func standInHome() home.Home {
+	if os.Getenv("CFO_TEST_UPDATE_RESOLVE") != "" {
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return h
+	}
 	root := os.Getenv("CFO_TEST_UPDATE_ROOT")
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "stand-in build: the test named no home")
+		os.Exit(2)
+	}
 	return home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
 }
 

@@ -426,6 +426,7 @@ cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
 cfo serve [--listen <loopback-address>]
+<candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
 cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--backend <herdr|native>] [--yolo]
@@ -456,6 +457,13 @@ cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [-
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+If an update stops part way, it prints a recovery line that runs the candidate's kept copy, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
+
+```powershell
+$env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; & 'C:\Users\you\AppData\Local\CodeGoblins\state\update\candidate.exe' update --recover
+```
 
 ## Your data
 

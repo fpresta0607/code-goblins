@@ -111,7 +111,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// read, is never overwritten: its verified copies are the way back.
 	switch journal, err := update.ReadJournal(h.State); {
 	case err == nil && !journal.Phase.Finished():
-		fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first with %q update --recover\n", journal.Phase, journal.Copy)
+		fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", journal.Phase, recoverCommand(h, &journal))
 		return 1
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be read (%v); nothing was changed\n", err)
@@ -124,7 +124,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return 1
 	}
 	updateInterrupt("prepared")
-	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, %q update --recover puts it back.\n", update.Dir(h.State), journal.Copy)
+	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h, journal))
 
 	if running, ok := homeSupervisor(h.State); ok {
 		fmt.Fprintf(stdout, "Stopping the supervisor (pid %d).\n", running.pid)
@@ -175,7 +175,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 	journal, err := update.ReadJournal(h.State)
 	if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(stdout, "No update of this home to recover.")
+		fmt.Fprintf(stdout, "No update of the home %s to recover.\n", h.Root)
 		return 0
 	}
 	if err == nil {
@@ -227,7 +227,7 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 			if err = awaitSupervisor(h.State, started, false); err == nil {
 				if restoreErr != nil {
 					_ = recordUpdate(h.State, journal, update.Degraded, fmt.Sprintf("the previous build serves from %s (pid %d); the aliases still need repair: %v", program, started.pid, restoreErr))
-					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; run %q update --recover\n", program, started.pid, journal.Copy)
+					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; repair them in Windows PowerShell:\n  %s\n", program, started.pid, recoverCommand(h, journal))
 					return updateDegraded
 				}
 				_ = recordUpdate(h.State, journal, update.RolledBack, "the previous build serves again after: "+cause.Error())
@@ -243,8 +243,26 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 		lastErr = err
 	}
 	_ = recordUpdate(h.State, journal, update.RollingBack, "the previous build did not serve: "+lastErr.Error())
-	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run %q update --recover again, or goblins --board.\n", lastErr, journal.Copy)
+	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run this again in Windows PowerShell, or goblins --board:\n  %s\n", lastErr, recoverCommand(h, journal))
 	return updateBoardDown
+}
+
+// recoverCommand is the update --recover line to paste into Windows
+// PowerShell: it runs the candidate's kept copy, so it works with cfo.exe and
+// goblins.exe both gone, and names this home and its state itself, so it
+// works from any folder.
+func recoverCommand(h home.Home, journal *update.Journal) string {
+	line := "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; "
+	if !sameHomePath(h.State, filepath.Join(h.Root, "state")) {
+		line += "$env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; "
+	}
+	return line + "& " + powerShellQuote(journal.Copy) + " update --recover"
+}
+
+// powerShellQuote is text as a PowerShell literal string, which expands
+// nothing and escapes only its quote.
+func powerShellQuote(text string) string {
+	return "'" + strings.ReplaceAll(text, "'", "''") + "'"
 }
 
 // previousProgram is the program the previous build's supervisor starts
