@@ -14,7 +14,7 @@ test("paused and stopped tasks have explicit columns and status even without a l
 
 test("Start creates a missing brief but refuses dependency and memory blocks", () => {
   const task = parseSnapshot({ healthy: true, tasks: [{ id: "work", verified: false, phase: "queued", brief: false }] }).tasks[0];
-  const memory = { available: 5 * 2 ** 30, total: 32 * 2 ** 30, floor: 4 * 2 ** 30, next: 5 * 2 ** 30 };
+  const memory = { available: 5 * 2 ** 30, total: 32 * 2 ** 30, commit_available: 40 * 2 ** 30, commit_limit: 48 * 2 ** 30, paged_pool: 2 ** 29, nonpaged_pool: 2 ** 28, floor: 4 * 2 ** 30, next: 5 * 2 ** 30, holders: [] };
   assert.equal(startBlock(task, memory, false), "");
   assert.equal(startBlock({ ...task, reason: "Brief ready at data/work/brief.md; not dispatched yet", brief: true }, memory, false), "");
   assert.match(startBlock({ ...task, reason: "Waiting on the Overlord", dependencies: ["overlord"] }, memory, false), /Overlord/);

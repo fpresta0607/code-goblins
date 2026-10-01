@@ -1,13 +1,14 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { object, type Snapshot, type Task } from "./types";
 import type { CardStart } from "./TaskCard";
 import { message, request } from "./api";
-import { queueBlock } from "./start";
+import { memoryBlock, queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 
-export function TaskControls({ task, snapshot, start, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; onAdjust: (source: HTMLElement) => void;
+// leading is a control shown first in the group, such as a card's terminal button.
+export function TaskControls({ task, snapshot, start, leading, onAdjust }: {
+  task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; onAdjust: (source: HTMLElement) => void;
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const [pending, setPending] = useState<{ action: string; revision: number | null } | null>(null);
@@ -20,7 +21,7 @@ export function TaskControls({ task, snapshot, start, onAdjust }: {
   const isResumeRetry = task.lifecycle?.action === "resume" && ["failed", "resuming"].includes(task.lifecycle.phase);
   const canResume = task.phase === "paused" || isResumeRetry;
   const canPause = !!task.generation && !canResume && !task.archived;
-  const resumeBlock = !isResumeRetry && snapshot.memory && snapshot.memory.available < snapshot.memory.next ? "Resume needs 5 GB free to keep the 4 GB floor" : "";
+  const resumeBlock = !isResumeRetry && memoryBlock(snapshot.memory) ? "Resume needs " + memoryBlock(snapshot.memory) : "";
   const act = async (action: "pause" | "resume" | "stop") => {
     if (isChanging) return;
     setConfirmation(null); setProblem("");
@@ -35,16 +36,20 @@ export function TaskControls({ task, snapshot, start, onAdjust }: {
     } catch (error: unknown) { setProblem(message(error)); setPending(null); }
   };
   if (task.archived || task.phase === "stopped") return null;
+  const problemText = problem || task.action_error || start?.problem;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + (task.title || task.id)}>
+      {leading}
       {isQueued && start && !queueBlock(task) && <button className="icon-button raised" aria-label={"Start " + task.title} data-tip={start.blocked || "Start"} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" /></button>}
       {isQueued && <button className="icon-button raised" aria-label={"Adjust " + task.title} data-tip="Adjust" disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
       {canPause && <button className="icon-button raised" aria-label={"Pause " + task.title} data-tip="Pause" disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" /></button>}
       {canResume && <button className="icon-button raised" aria-label={"Resume " + task.title} data-tip={resumeBlock || "Resume"} aria-disabled={!!resumeBlock || isChanging} onClick={() => { if (!resumeBlock && !isChanging) void act("resume"); }}><Icon name="play" /></button>}
       <button className="icon-button raised danger" aria-label={"Stop " + task.title} data-tip="Stop" data-tip-align="end" disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" /></button>
     </div>
-    {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: "Stopping" }[pending.action] : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : "Stopping"}...</p>}
-    {(problem || task.action_error || start?.problem) && <p className="task-action-problem" role="alert">{problem || task.action_error || start?.problem}</p>}
+    {(isChanging || problemText) && <div className="task-notes">
+      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: "Stopping" }[pending.action] : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : "Stopping"}...</p>}
+      {problemText && <p className="task-action-problem" role="alert">{problemText}</p>}
+    </div>}
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}
   </>;
 }

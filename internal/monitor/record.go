@@ -400,11 +400,18 @@ func validateObservationState(observation Observation) error {
 		}
 		return nil
 	case HealthPaused:
-		if observation.EndpointVerdict != ProbePresent || observation.Reason != DeclaredPause {
+		// A paused goblin is either read declaring its pause, or its pause
+		// stands while its terminal is gone.
+		declared := observation.EndpointVerdict == ProbePresent && observation.Reason == DeclaredPause
+		gone := observation.EndpointVerdict == ProbeMissing && observation.Reason == EndpointMissing
+		if !declared && !gone {
 			return errors.New("monitor: paused observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: paused observation has incompatible timing state")
+		}
+		if gone {
+			return nil
 		}
 		return requireProgress()
 	case HealthParked:
