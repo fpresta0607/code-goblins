@@ -474,11 +474,12 @@ test("a run item states its progress in plain words with its exit code", () => {
     { id: "d", state: "failed", exit_code: 2, reason: "The command exited with 2." },
     { id: "e", state: "failed", reason: "Windows asked to confirm and it was declined." },
     { id: "f", state: "expired", reason: "It waited more than 24 hours." },
+    { id: "g", state: "withdrawn", reason: "the candidate binary is gone" },
   ] });
   const runs = snapshot.runs ?? [];
   assert.equal(runs[0].command, "Get-Date");
   assert.equal(runs[0].exit_code, null);
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
-    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false]];
+    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });

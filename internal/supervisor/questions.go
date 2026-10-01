@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -57,6 +58,13 @@ type Question struct {
 	AnsweredOption string     `json:"answered_option,omitempty"`
 	AnsweredBy     string     `json:"answered_by,omitempty"`
 	AnsweredAt     *time.Time `json:"answered_at,omitempty"`
+	// AnsweredIn says where an answer given outside the question's own card
+	// came from, such as page for the Overlord's answer on the review page
+	// that carries it.
+	AnsweredIn string `json:"answered_in,omitempty"`
+	// Page is, on the board only, the open review item whose page carries
+	// this question, so the Command Center shows the two as one.
+	Page string `json:"page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -636,6 +644,7 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
+	s.closePagesOfQuestion(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 
@@ -674,7 +683,18 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		release()
 		return "", nil, err
 	}
-	if !descendsFrom(entries, p.Process) || entries[0].Start.After(connected) {
+	proven := descendsFrom(entries, p.Process)
+	if !proven && p.Host != "" && len(entries) > 0 {
+		// A chain of parents that stops short, as a Cygwin or MSYS exec leaves
+		// it, is proven by the proof value of the CFO's native terminal.
+		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
+			if env, err := proc.Environment(pid); err == nil {
+				program, err := terminalProgram(record, env)
+				proven = err == nil && program.PID == p.Process.PID && program.Start.Equal(p.Process.Start)
+			}
+		}
+	}
+	if !proven || entries[0].Start.After(connected) {
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}

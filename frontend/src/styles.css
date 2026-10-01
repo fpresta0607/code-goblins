@@ -774,7 +774,8 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .page-shot span { color: var(--muted); font-size: .9375rem; }
 .open-overlay { position: absolute; right: 14px; bottom: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: var(--accent); color: #04110c; font-weight: 800; }
 .open-overlay .icon { width: 18px; height: 18px; }
-.review-status { margin: 0; color: var(--muted); }
+.review-status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); }
+.review-status .icon { flex: none; }
 .open-inline { justify-self: start; }
 /* A delivered document: its file type as an icon, its name and facts. */
 .doc-row { display: flex; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--edge); border-radius: 14px; background: #0b141b; min-width: 0; }

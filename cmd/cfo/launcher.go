@@ -89,6 +89,7 @@ type launcherSnapshot struct {
 	} `json:"tasks"`
 	Questions []struct {
 		Status string `json:"status"`
+		Page   string `json:"page"`
 	} `json:"questions"`
 	Reviews []struct {
 		State string `json:"state"`
@@ -295,7 +296,8 @@ func anotherSupervisorStarting(stateDir string) bool {
 // statusLine says, in the board's words, what the CFO is doing, how many
 // goblins are working, and how much waits on the Overlord: the header badge's
 // count of pending questions, open review items and run items ready or
-// running.
+// running, where a question its goblin asked about its own open review page
+// is that page's one item.
 func statusLine(snapshot launcherSnapshot) string {
 	cfo := "CFO supervising"
 	if snapshot.Registration != "" {
@@ -309,7 +311,7 @@ func statusLine(snapshot launcherSnapshot) string {
 	}
 	waiting := 0
 	for _, question := range snapshot.Questions {
-		if question.Status == "pending" {
+		if question.Status == "pending" && question.Page == "" {
 			waiting++
 		}
 	}

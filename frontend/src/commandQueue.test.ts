@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -24,7 +24,7 @@ test("a goblin's wait says what it waits on and opens it: its page, its own ques
     return waitTarget((snapshot.reviews || []).find((candidate) => candidate.id === "waiting-billing-7")!, snapshot);
   };
   const page = "http://127.0.0.1:4387/p/plan";
-  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open the page", says: "It waits on your answer on its review page." });
+  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open review", says: "It waits on your answer on its review page." });
   assert.deepEqual(target(wait("answer my question in the Command Center"), { questions: [question("notify-billing-5", "billing", "2026-09-27T09:00:00Z"), question("notify-billing-6", "billing", "2026-09-27T09:30:00Z"), question("notify-notes-1", "notes", "2026-09-27T09:45:00Z"), question("notify-billing-2", "billing", "2026-09-27T09:50:00Z", "succeeded")] }),
     { kind: "item", key: "question:notify-billing-6", label: "Open its question", says: "It waits on your answer to its question." }, "its newest open question, never another goblin's or an answered one");
   assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
@@ -177,6 +177,27 @@ test("a review he answered on its own page reads as answered by him there, with 
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:r1")!), false, "an answer sent from its card is not an answer given elsewhere");
 });
 
+test("a question asked with its review page open is that page's card, never a second one", () => {
+  const page = "http://127.0.0.1:4387/session/ec2e";
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "pending", { page: "waiting-polish-3584" }), question("notify-theme-9", "theme", "2026-09-30T23:44:00Z")],
+    reviews: [review("waiting-polish-3584", "polish", "2026-09-30T23:42:53Z", "open", { lavish: page, lavish_page: "C:/data/review-kanban/index.html", question: "notify-polish-3585" })],
+  });
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["review:waiting-polish-3584", "question:notify-theme-9"], "one card for the page and its question");
+  assert.equal(cardKey(snapshot, "question:notify-polish-3585"), "review:waiting-polish-3584", "an alert for the question opens the page's card");
+  assert.equal(cardKey(snapshot, "question:notify-theme-9"), "question:notify-theme-9");
+});
+
+test("a question answered on the page that carried it says so", () => {
+  const [onPage, cleared] = parseSnapshot({ healthy: true, questions: [
+    question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "succeeded", { answer: "Build as drawn", answer_kind: "other", answered_by: "overlord", answered_in: "page", answered_at: "2026-09-30T23:50:00Z" }),
+    question("notify-polish-3586", "polish", "2026-09-30T23:43:02Z", "succeeded", { answer: "", answer_kind: "other", answered_by: "overlord", answered_in: "page", answered_at: "2026-09-30T23:50:00Z" }),
+  ] }).questions ?? [];
+  assert.equal(questionOutcome(onPage), "answered");
+  assert.equal(answeredLabel(onPage), "You answered on its page: Build as drawn");
+  assert.equal(answeredLabel(cleared), "You answered on its page");
+});
+
 test("a run item waits in the stack while ready or running and settles with its exit code", () => {
   const run = (id: string, state: string, extra: Record<string, unknown> = {}) => ({ id, identity: "cfo-1", title: "Run " + id, shell: "powershell", command: "Get-Date", state, created_at: "2026-09-24T00:0" + id.length + ":00Z", ...extra });
   const snapshot = parseSnapshot({ healthy: true,
@@ -311,4 +332,19 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
+});
+
+test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "install-main-66714dea", identity: "cfo-1", title: "Install main", shell: "powershell", command: "cfo install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot);
+  const settled = settledItems(snapshot);
+
+  // Assert
+  assert.deepEqual(waiting, []);
+  assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
 });
