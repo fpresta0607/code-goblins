@@ -86,7 +86,8 @@ type launcherSnapshot struct {
 		Page   string `json:"page"`
 	} `json:"questions"`
 	Reviews []struct {
-		State string `json:"state"`
+		State         string `json:"state"`
+		RevisingSince string `json:"revising_since"`
 	} `json:"reviews"`
 	Runs []struct {
 		State string `json:"state"`
@@ -229,7 +230,8 @@ func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) 
 // goblins are working, and how much waits on the Overlord: the header badge's
 // count of pending questions, open review items and run items ready or
 // running, where a question its goblin asked about its own open review page
-// is that page's one item.
+// is that page's one item, and a page he sent a revision on waits on its
+// goblin's next version, not on him.
 func statusLine(snapshot launcherSnapshot) string {
 	cfo := "CFO supervising"
 	if snapshot.Registration != "" {
@@ -248,7 +250,7 @@ func statusLine(snapshot launcherSnapshot) string {
 		}
 	}
 	for _, review := range snapshot.Reviews {
-		if review.State == "open" {
+		if review.State == "open" && review.RevisingSince == "" {
 			waiting++
 		}
 	}
