@@ -170,19 +170,19 @@ func TestAGoblinReadBackAtWorkDoesNotPublishTheWakeAboutItsMissingTerminal(t *te
 	}
 }
 
-// One wake is published a cycle across the whole fleet, so a goblin's wake
-// can still be waiting when its next reading is stale. That reading keeps the
-// waiting wake rather than raising a second, but it still records when the
-// goblin went stale and when it escalates: a stale record without them is
-// refused, and the scan fails on it every cycle.
-func TestAStaleReadingWhileAnEarlierWakeWaitsStillRecordsItsStaleTimestamps(t *testing.T) {
+// One wake is published a cycle across the whole fleet, so a goblin can go
+// stale while an earlier wake of its own still waits. It is held as it was
+// until that wake is published: every record it writes meanwhile is valid,
+// and the reading after the waiting wake goes out raises the stale one.
+func TestAGoblinThatGoesStaleWhileAnEarlierWakeWaitsWakesOnceThatWakeIsPublished(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		status string
 		reason Reason
 	}{
-		{"idle past the stall window", herdr.AgentIdle, UnchangedIdle},
 		{"working past the busy budget", herdr.AgentWorking, BusyTurnOverAge},
+		{"idle past the stall window", herdr.AgentIdle, UnchangedIdle},
+		{"awaiting an answer", herdr.AgentDone, AwaitingAnswer},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -201,20 +201,25 @@ func TestAStaleReadingWhileAnEarlierWakeWaitsStillRecordsItsStaleTimestamps(t *t
 
 			for minute := 0; minute < 4; minute++ {
 				if _, err := service.Scan(context.Background()); err != nil {
-					t.Fatalf("scan at minute %d: %v", minute, err)
+					t.Fatalf("scan at minute %d while the earlier wake waits: %v", minute, err)
+				}
+				record, err := ReadObservation(stateDir, meta.ID)
+				if err != nil {
+					t.Fatalf("its record at minute %d does not read back: %v", minute, err)
+				}
+				if record.PendingEvent == nil || *record.PendingEvent != refused {
+					t.Fatalf("pending wake at minute %d %+v, want the waiting harness_error wake kept", minute, record.PendingEvent)
 				}
 				now = now.Add(time.Minute)
 			}
+			if _, err := service.Publish(refused); err != nil {
+				t.Fatal(err)
+			}
 
-			record, err := ReadObservation(stateDir, meta.ID)
-			if err != nil {
-				t.Fatalf("its record does not read back: %v", err)
-			}
-			if record.Health != HealthStale || record.Reason != test.reason || record.StaleSince == nil || record.NextEscalation == nil {
-				t.Errorf("record health %s reason %s stale since %v next escalation %v, want %s with both timestamps", record.Health, record.Reason, record.StaleSince, record.NextEscalation, test.reason)
-			}
-			if record.PendingEvent == nil || *record.PendingEvent != refused {
-				t.Errorf("pending wake %+v, want the waiting harness_error wake kept", record.PendingEvent)
+			woke := scanAndPublish(t, service, &now, 4)
+
+			if len(woke) != 1 || !strings.HasPrefix(woke[0], string(test.reason)) {
+				t.Errorf("wakes after the waiting one went out %q, want one %s", woke, test.reason)
 			}
 		})
 	}

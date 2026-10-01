@@ -396,7 +396,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 					}
 					detail += "; its pane still shows work running: " + running
 				}
-				return s.busyOverAgeObservation(observation, kind, detail, now), sample
+				return s.busyOverAgeObservation(observation, sample, kind, detail, now), sample
 			}
 		}
 		return workingObservation(observation, sample, now), sample
@@ -489,11 +489,6 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 		observation.NextEscalation = &next
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
-		// A wake still waiting to be published goes first; this reading
-		// records when the goblin went stale without raising a second.
-		if observation.PendingEvent != nil {
-			return observation
-		}
 		// A genuine stall: no liveness signal (agent counters or status log)
 		// moved for the stall window and no notify arrived. This is
 		// the uncooperative case a dead or wedged goblin cannot notify about,
@@ -726,7 +721,10 @@ func quietSince(observation Observation, stretch, now time.Time) time.Duration {
 // clears StaleSince and lets a fresh wedge wake again, unless it is the same
 // kind of wedge woken for within the last busy budget: that is the one the
 // CFO already has, seen again after a scan that lost sight of it.
-func (s Service) busyOverAgeObservation(observation Observation, kind, detail string, now time.Time) Observation {
+func (s Service) busyOverAgeObservation(observation Observation, sample EndpointSample, kind, detail string, now time.Time) Observation {
+	if observation.StaleSince == nil && observation.PendingEvent != nil {
+		return workingObservation(observation, sample, now)
+	}
 	observation.LastSeen = now
 	observation.Health = HealthStale
 	observation.Reason = BusyTurnOverAge
@@ -738,9 +736,6 @@ func (s Service) busyOverAgeObservation(observation Observation, kind, detail st
 	next := now.Add(s.staleEscalateAfter())
 	observation.NextEscalation = &next
 	observation.Escalation = 0
-	if observation.PendingEvent != nil {
-		return observation
-	}
 	if kind == observation.BusyWakeKind && observation.BusyWakeAt != nil && now.Sub(*observation.BusyWakeAt) < s.busyTurnMax() {
 		return observation
 	}
@@ -862,7 +857,7 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 			waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
 		}
 	}
-	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting {
+	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting || observation.PendingEvent != nil {
 		observation.Health = HealthIdle
 		observation.Reason = None
 		observation.StaleSince = nil
@@ -883,6 +878,16 @@ func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, obser
 func awaitingInputObservation(observation Observation, detail string, now time.Time) Observation {
 	first := observation.Reason != AwaitingAnswer
 	observation.IdleSince = nil
+	if first && observation.PendingEvent != nil {
+		observation.Health = HealthIdle
+		observation.Reason = None
+		observation.StaleSince = nil
+		observation.NextEscalation = nil
+		observation.NextPauseResurface = nil
+		observation.Escalation = 0
+		observation.DemandDeepInspection = false
+		return observation
+	}
 	observation.Health = HealthStale
 	observation.Reason = AwaitingAnswer
 	observation.NextPauseResurface = nil
@@ -892,7 +897,7 @@ func awaitingInputObservation(observation Observation, detail string, now time.T
 	}
 	observation.Escalation = 0
 	observation.DemandDeepInspection = true
-	if first && observation.PendingEvent == nil {
+	if first {
 		event := taskEvent(observation.TaskID, AwaitingAnswer, detail)
 		observation.PendingEvent = &event
 	}
