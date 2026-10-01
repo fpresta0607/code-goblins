@@ -364,3 +364,24 @@ test("a request whose values also go to an env file shows the file and its check
   await expect(row).toContainText("Pasted on the card · also set in .env.docker.local");
   await expect(row).toContainText("File .env.docker.local · gitignored, checked · local dev");
 });
+
+// The theme of 1 October 2026 dropped tokens the card still read, and its
+// borders and backgrounds went with them without a test saying so.
+test("every style token the card reads is one the board's theme defines", async ({ page }) => {
+  // Arrange
+  await answer(page);
+  const card = await openCard(page);
+
+  // Act
+  const tokens = await card.evaluate((element) => {
+    const defined = getComputedStyle(element);
+    const sheet = [...document.styleSheets].find((candidate) => [...candidate.cssRules].some((rule) => rule.cssText.includes(".credential-table-wrap")));
+    const read = new Set<string>();
+    for (const rule of sheet?.cssRules || []) for (const found of rule.cssText.matchAll(/var\((--[\w-]+)/g)) read.add(found[1]);
+    return { read: read.size, missing: [...read].filter((token) => !defined.getPropertyValue(token).trim()) };
+  });
+
+  // Assert
+  expect(tokens.read).toBeGreaterThan(5);
+  expect(tokens.missing).toEqual([]);
+});
