@@ -18,6 +18,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
 // boardRecord says where the running supervisor serves its board. cfo serve
@@ -92,11 +94,20 @@ type launcherSnapshot struct {
 	} `json:"runs"`
 }
 
-// launcherStartTimeout bounds the wait for a supervisor goblins started, and
-// launcherPoll is how often it looks.
+// launcherStartTimeout bounds the wait for a supervisor goblins started,
+// which can include a watcher handing it the lock, and launcherPoll is how
+// often it looks.
 var (
-	launcherStartTimeout = 30 * time.Second
+	launcherStartTimeout = time.Minute
 	launcherPoll         = 250 * time.Millisecond
+)
+
+// aliveTimeout bounds the liveness probe, and snapshotTimeout the fetch of
+// the fleet's snapshot for the status line, which never decides whether the
+// supervisor runs.
+var (
+	aliveTimeout    = 3 * time.Second
+	snapshotTimeout = 3 * time.Second
 )
 
 // runLauncher is goblins with no arguments, or with --native or --harness. It finds
@@ -153,10 +164,13 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 	board, status, running := liveBoard(ctx, h.State)
 	if !running {
 		exited, err := runtime.startServe(h)
-		if err != nil {
+		if err != nil && !errors.Is(err, errorSharingViolation) {
 			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
 			return "", false, false
 		}
+		// A serve.log another process holds open is the supervisor another
+		// goblins started a moment ago, writing it: this one waits for that
+		// board.
 		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
 			return "", false, false
@@ -168,46 +182,80 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 }
 
 // liveBoard returns the board a supervisor serves at the address its record
-// names, with the status line for its snapshot. Any answer from that address
-// is the supervisor, even one that could not read the fleet's state; a record
-// whose address does not answer is stale: its supervisor ended without
-// removing it.
+// names, with the status line for its snapshot. A record whose supervisor
+// does not answer is stale: its supervisor ended without removing it.
 func liveBoard(ctx context.Context, stateDir string) (string, string, bool) {
 	record, err := readBoardRecord(stateDir)
 	if err != nil {
 		return "", "", false
 	}
-	status, err := boardStatus(ctx, record.URL)
-	if err != nil {
+	if err := boardAlive(ctx, record); err != nil {
 		return "", "", false
 	}
-	return record.URL, status, true
+	return record.URL, boardStatus(ctx, record.URL), true
 }
 
-// boardStatus fetches the board's snapshot and returns its status line, or
-// says the board could not read the fleet's state. It fails only when the
-// board does not answer.
-func boardStatus(ctx context.Context, board string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+// boardAlive reports whether the supervisor the record names answers as
+// itself, asking only for its pid. It never waits on the fleet's snapshot: on
+// 2026-10-01 a healthy board took eight seconds to build one, the launcher
+// read the supervisor as dead, and goblins started a second one over it. Only
+// a successful answer naming the recorded pid is that supervisor; any other
+// listener at the address, or an answer that names no pid or another, means
+// the record is stale.
+func boardAlive(ctx context.Context, record boardRecord) error {
+	ctx, cancel := context.WithTimeout(ctx, aliveTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, board+"/api/snapshot", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, record.URL+"/api/alive", nil)
 	if err != nil {
-		return "", err
+		return err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", err
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("the board at %s answered HTTP %d, not as a supervisor", record.URL, response.StatusCode)
+	}
+	var alive struct {
+		PID int `json:"pid"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&alive); err != nil {
+		return fmt.Errorf("the board at %s did not say which supervisor it is: %w", record.URL, err)
+	}
+	if alive.PID != record.PID {
+		return fmt.Errorf("the board at %s is pid %d, not the recorded pid %d", record.URL, alive.PID, record.PID)
+	}
+	return nil
+}
+
+// boardStatus fetches the board's snapshot and returns its status line, or
+// says why there is none. A snapshot that does not come within
+// snapshotTimeout leaves the line saying so; the board is up either way.
+func boardStatus(ctx context.Context, board string) string {
+	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, board+"/api/snapshot", nil)
+	if err != nil {
+		return "the board is up but its status could not be asked for"
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "the board is up; the fleet's status is still loading"
 	}
 	defer response.Body.Close()
 	var snapshot launcherSnapshot
 	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&snapshot) != nil {
-		return fmt.Sprintf("the board is up but could not read the fleet's state (HTTP %d)", response.StatusCode), nil
+		return fmt.Sprintf("the board is up but could not read the fleet's state (HTTP %d)", response.StatusCode)
 	}
-	return statusLine(snapshot), nil
+	return statusLine(snapshot)
 }
 
 // waitForBoard waits for a supervisor this launch started to answer, and
-// gives up when it exits first or the wait runs out.
+// gives up when it exits first or the wait runs out. When two goblins start
+// at once, the other's supervisor can be taking the watcher lock over from a
+// watcher, or already hold it, when this launch's exits, before it has
+// written its board record: this launch waits for that board instead.
 func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) (string, string, bool) {
 	deadline := time.After(launcherStartTimeout)
 	for {
@@ -216,12 +264,25 @@ func waitForBoard(ctx context.Context, stateDir string, exited <-chan struct{}) 
 		}
 		select {
 		case <-exited:
-			return "", "", false
+			if !anotherSupervisorStarting(stateDir) {
+				return "", "", false
+			}
+			exited = nil
 		case <-deadline:
 			return "", "", false
 		case <-time.After(launcherPoll):
 		}
 	}
+}
+
+// anotherSupervisorStarting reports whether a live supervisor is waiting for
+// a watcher to hand it the watcher lock, or holds the lock.
+func anotherSupervisorStarting(stateDir string) bool {
+	if watch.HandoverPending(stateDir) {
+		return true
+	}
+	holder, err := lock.ReadNamed(stateDir, ".watch.lock")
+	return err == nil && holder.Session != watch.WatcherSession && holder.VerifiedAlive()
 }
 
 // statusLine says, in the board's words, what the CFO is doing, how many
@@ -283,6 +344,10 @@ const (
 	createNewProcessGroup  = 0x00000200
 	createBreakawayFromJob = 0x01000000
 )
+
+// errorSharingViolation is Windows' ERROR_SHARING_VIOLATION, which opening a
+// file another process holds without sharing fails with.
+const errorSharingViolation = syscall.Errno(32)
 
 // startDetachedServe starts this binary's serve in the home, detached from
 // this terminal. The returned channel closes when the supervisor exits.

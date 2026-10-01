@@ -39,6 +39,10 @@ const (
 	seenPrefix    = ".seen-"
 )
 
+// WatcherSession is the session a watcher records on the lock it holds, which
+// tells a starting supervisor the holder is a watcher it supersedes.
+const WatcherSession = "watch"
+
 // Config carries watch.Run's tunables and its injection seams. Monitor is the
 // structural Herdr monitor ConfigFromEnv installs for production; tests may
 // leave it nil, in which case the signals-only path still advances monitor's
@@ -325,7 +329,10 @@ func CommitSignatures(stateDir string, changes []Change) error {
 // close reason, while a monitor event discovered in the same cycle stays
 // persisted for the next cycle so two wake episodes never conflict.
 func Run(cfg Config) (string, error) {
-	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), "watch"); err != nil {
+	// A serve waiting for the lock is taking over: no watcher takes the lock
+	// from under it, and once it holds the lock this acquire finds it held.
+	awaitHandover(cfg.Home.State)
+	if _, err := lock.AcquireNamedOwner(cfg.Home.State, watchLockName, os.Getpid(), WatcherSession); err != nil {
 		// The lock was never acquired, so there is no LIFO defer pair to
 		// register here: call Cleanup directly rather than deferring it,
 		// or a waiter Task 9 already constructed (its handles open, before
@@ -469,6 +476,12 @@ func Run(cfg Config) (string, error) {
 		// nothing appended and no episode published: the successor owns the
 		// cycle now.
 		if !lock.HeldByNamed(cfg.Home.State, watchLockName, os.Getpid()) {
+			return "", nil
+		}
+		// A serve asking for the lock is the supervisor now: yield it,
+		// with nothing appended and no episode published, exactly as
+		// when a successor took it.
+		if HandoverPending(cfg.Home.State) {
 			return "", nil
 		}
 	}

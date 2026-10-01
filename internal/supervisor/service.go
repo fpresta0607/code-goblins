@@ -109,8 +109,10 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if err := os.MkdirAll(h.State, 0700); err != nil {
 		return nil, err
 	}
-	if _, err := lock.AcquireExclusiveNamed(h.State, ".watch.lock"); err != nil {
-		return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
+	if _, err := lock.AcquireExclusiveNamed(h.State, watchLock); err != nil {
+		if err := takeOverWatcher(h.State, err); err != nil {
+			return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
+		}
 	}
 	clearStopRequest(h.State)
 	store, err := Open(h)

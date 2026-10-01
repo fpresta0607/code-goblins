@@ -25,9 +25,17 @@ import (
 
 // fakeBoard answers /api/snapshot the way cfo serve does and returns its
 // address.
+// fakeBoardPID is the supervisor every fake board answers as, the pid the
+// fixture records.
+const fakeBoardPID = 4242
+
 func fakeBoard(t *testing.T, snapshot string) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		if r.URL.Path != "/api/snapshot" {
 			http.NotFound(w, r)
 			return
@@ -139,7 +147,7 @@ func (f *launcherFixture) launch(args ...string) (int, string, string) {
 
 func (f *launcherFixture) record(board string) {
 	f.t.Helper()
-	if err := writeBoardRecord(f.home.State, boardRecord{PID: 4242, URL: board}); err != nil {
+	if err := writeBoardRecord(f.home.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -178,6 +186,10 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 		return nil, nil
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		http.Error(w, "wake record is malformed", http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(server.Close)
@@ -349,7 +361,7 @@ func TestGoblinsReplacesAStaleBoardRecord(t *testing.T) {
 	gone.Close()
 	board := fakeBoard(t, busySnapshot)
 	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
-		if err := writeBoardRecord(h.State, boardRecord{PID: 5151, URL: board}); err != nil {
+		if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 			t.Fatal(err)
 		}
 		return make(chan struct{}), nil
