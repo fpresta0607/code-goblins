@@ -196,16 +196,17 @@ func (d Dialog) Focused(screen []string) (string, bool) {
 // a background job it will report back from, whichever harness drew it: the
 // interrupt hint Claude Code and Codex show while a turn runs, Codex's status
 // row, pi's rule, Claude Code's spinner and the "Running…" under a tool in
-// progress, and the count of background shells in Claude Code's footer. The
-// line that ends a Claude Code turn says "1 shell still running" and stays on
-// screen after the shell ends, so only the footer's count is read.
+// progress, and the count of background shells and monitors in Claude Code's
+// footer. The line that ends a Claude Code turn says "1 shell still running"
+// or "1 monitor still running" and stays on screen after the job ends, so only
+// the footer's count is read.
 var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`esc to interrupt`),
 	regexp.MustCompile(`^[•◦]\s+Working \(`),
 	regexp.MustCompile(`Running…`),
 	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
-	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
+	regexp.MustCompile(`(^|·)\s*\d+ (shells?|monitors?)\s*(·|$)`),
 }
 
 // RunningWork returns the first row of screen that shows a tool, a turn or a

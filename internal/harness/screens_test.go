@@ -193,11 +193,14 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		screen  []string
 		running string
 	}{
-		"claude tool running":       {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⎿  Running… (22s · timeout 10m)"},
-		"claude spinner":            {[]string{"✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)"},
-		"claude interrupt hint":     {[]string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"},
-		"claude background shell":   {[]string{"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"},
-		"claude two shells at end":  {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 shells"}, "⏵⏵ bypass permissions on · 2 shells"},
+		"claude tool running":      {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⎿  Running… (22s · timeout 10m)"},
+		"claude spinner":           {[]string{"✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)"},
+		"claude interrupt hint":    {[]string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"},
+		"claude background shell":  {[]string{"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"},
+		"claude two shells at end": {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 shells"}, "⏵⏵ bypass permissions on · 2 shells"},
+		// cg-native-desktop on 2026-10-01, a Monitor watching its gate.
+		"claude background monitor": {[]string{"✻ Sautéed for 1s · done 10:57 PM · 1 monitor still running", "  ⏵⏵ bypass permissions on · 1 monitor · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 monitor · ← 1 agent · ↓ to manage"},
+		"claude two monitors":       {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 monitors"}, "⏵⏵ bypass permissions on · 2 monitors"},
 		"codex status row":          {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
 		"codex status row, wrapped": {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
 		"pi rule":                   {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
