@@ -13,19 +13,32 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
 
+<p align="center"><a href="https://www.siqstack.com/goblins">Visit the website</a></p>
+
 <p align="center">
   <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with the question waiting on you, two queued tasks under the memory meter, goblins in progress, and beside them the selected goblin's panel with its status line and the diff of its change" width="900" />
   <br />
   <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
 </p>
 
-## Why Code Goblins
+## Why choose Code Goblins?
 
-Most coding-agent tools make you manage more agents. Code Goblins is built to do the opposite.
+**Build across multiple repositories with one supervisor, separate working copies, and a clear view of what your machine can handle.**
 
 You talk to one supervisor: the **CFO**. The CFO decomposes the objective, dispatches specialized **goblins** in parallel, gives each worker an isolated git worktree, watches for failures and blocked work, switches harnesses when necessary, runs the delivery pipeline, and brings decisions back to you only when human judgment is actually required.
 
-The goal is not maximum agent count. The goal is **minimum human intervention per production-ready change**.
+As the number of projects grows, Code Goblins keeps the development workflow manageable:
+
+- **Keep project work separate.** Each worker gets its own git worktree. Independent repositories can progress together, while the CFO queues dependent work. By default, dependencies install separately per worktree against shared package caches, reducing repeated downloads while keeping each environment independent.
+- **Dispatch within your memory budget.** `cfo runtime` reports free RAM, commit, disk, the WSL footprint, and whether the next goblin fits. The board's Start and Resume actions require at least 5 GB of free RAM and free commit, so a busy machine can hold queued work until headroom returns.
+- **Know which local services belong to which project.** Optional Docker support inventories containers, ports, volumes, declared memory limits, and disk/cache use. Project worktree profiles record local stack startup and teardown commands, including Compose or Supabase workflows. This inventory is read-only; container isolation and cleanup depend on your project setup.
+- **Carry the right context into each task.** Project-scoped credentials and runtime settings describe the repository's services and verification rules. Compact task/runtime capsules give configured workers that context; saved briefs, decisions, and shared CFO memory survive sessions and harness changes.
+- **Review evidence across the fleet.** The `no-mistakes` pipeline runs review, tests, documentation, lint, and CI, with bounded repair cycles and machine-readable delivery checks. Inspect each task's changes and PR before you approve its merge.
+- **Keep your choice of coding agents.** Run Claude Code, Codex, Pi, and Kimi workers in one fleet, and switch a task's harness while keeping its identity and worktree. The Windows-native Go supervisor is MIT licensed and its source is inspectable.
+
+**Current tradeoffs:** Work uses your Windows machine's resources and needs it running. Your agent subscriptions and provider usage fees still apply. Automatic CFO wake-ups currently work with Claude Code; a Codex or Pi CFO learns about completed or blocked work when you next prompt it. See [Start the CFO](#start-the-cfo).
+
+The goal is **minimum human intervention per production-ready change**.
 
 ```text
                               YOU
@@ -542,7 +555,7 @@ Code Goblins is now maintained as an **independent standalone project** with its
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. Submit changes for review; Franco Presta reviews contributions and performs all merges into this repository. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 If you are working on orchestration, the standard is simple: features should reduce human intervention **without weakening evidence that the delivered change is correct**.
 
