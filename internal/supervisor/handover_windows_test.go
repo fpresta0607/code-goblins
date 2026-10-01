@@ -29,7 +29,13 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), program)
+	// Not t.TempDir: a process just ended can keep its image open for a
+	// moment, so the copy is removed with a retry once the process is gone.
+	dir, err := os.MkdirTemp("", "cfo-stand-in-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, program)
 	copyExecutable(t, self, path)
 	cmd := exec.Command(path, arguments...)
 	cmd.Env = append(os.Environ(), lockHolderVariable+"="+stateDir, lockHolderModeVariable+"="+mode, "CFO_POLL=300")
@@ -45,6 +51,9 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		<-stand.exited
+		for deadline := time.Now().Add(10 * time.Second); os.RemoveAll(dir) != nil && time.Now().Before(deadline); {
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
 	if mode != "idle" {
 		for deadline := time.Now().Add(15 * time.Second); !lock.HeldByNamed(stateDir, watchLock, stand.pid); time.Sleep(20 * time.Millisecond) {
