@@ -335,6 +335,18 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		return unknownObservation(observation, EndpointUnknown, detail, now), sample
 	}
 
+	// A goblin back at an endpoint that was missing or unreadable is read as
+	// it is now. A wake about the endpoint still waiting to be published no
+	// longer applies, and one whose terminal was gone runs a new harness, so
+	// a turn it is in began on its return, not before the terminal went.
+	if observation.Reason == EndpointMissing || observation.Reason == EndpointUnknown {
+		if observation.PendingEvent != nil && strings.HasPrefix(observation.PendingEvent.Detail, string(observation.Reason)) {
+			observation.PendingEvent = nil
+		}
+		if observation.Reason == EndpointMissing {
+			observation.BusySince = nil
+		}
+	}
 	observation.EndpointVerdict = ProbePresent
 	if observation.LastSeen.IsZero() {
 		observation.LastSeen = now
@@ -473,15 +485,17 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 	observation.Health = HealthStale
 	observation.Reason = reason
 	observation.NextPauseResurface = nil
-	if observation.PendingEvent != nil {
-		return observation
-	}
 	if observation.StaleSince == nil {
 		observation.StaleSince = timePointer(now)
 		next := now.Add(s.staleEscalateAfter())
 		observation.NextEscalation = &next
 		observation.Escalation = 0
 		observation.DemandDeepInspection = false
+		// A wake still waiting to be published goes first; this reading
+		// records when the goblin went stale without raising a second.
+		if observation.PendingEvent != nil {
+			return observation
+		}
 		// A genuine stall: no liveness signal (agent counters or status log)
 		// moved for the stall window and no notify arrived. This is
 		// the uncooperative case a dead or wedged goblin cannot notify about,
@@ -492,6 +506,9 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 		}
 		event := taskEvent(observation.TaskID, reason, detail)
 		observation.PendingEvent = &event
+		return observation
+	}
+	if observation.PendingEvent != nil {
 		return observation
 	}
 	if observation.NextEscalation != nil && !now.Before(*observation.NextEscalation) {
@@ -716,13 +733,16 @@ func (s Service) busyOverAgeObservation(observation Observation, kind, detail st
 	observation.Health = HealthStale
 	observation.Reason = BusyTurnOverAge
 	observation.NextPauseResurface = nil
-	if observation.PendingEvent != nil || observation.StaleSince != nil {
+	if observation.StaleSince != nil {
 		return observation
 	}
 	observation.StaleSince = timePointer(now)
 	next := now.Add(s.staleEscalateAfter())
 	observation.NextEscalation = &next
 	observation.Escalation = 0
+	if observation.PendingEvent != nil {
+		return observation
+	}
 	if kind == observation.BusyWakeKind && observation.BusyWakeAt != nil && now.Sub(*observation.BusyWakeAt) < s.busyTurnMax() {
 		return observation
 	}
