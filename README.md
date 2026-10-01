@@ -396,6 +396,18 @@ A command the CFO needs you to run arrives as a run card with its shell, an **Ad
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
 </p>
 
+When the CFO or a goblin needs a secret, such as `STRIPE_SECRET_KEY`, it files `cfo auth request` with the names only, and a credential card arrives with an alert.
+Each row says where its value goes (the repository, the credential scope, and the goblins and services that read it), what it is for and where to get it, and has a hidden field you paste the value into; Ctrl+V and right-click Paste work in every field.
+**Save** sends the values to the board on this PC, which stores them in the project's scope as `cfo auth store` does, tells the project's running goblins to reload their credentials and tells the CFO the names only; the fields empty after every save, and each saved row shows a check.
+A name the scope already holds is replaced only once you confirm **Replace and save**, and a value of the wrong kind, such as a live Stripe key where a restricted one is advised, shows a warning without blocking the save.
+Below the table, the exact `cfo auth store` line has **Copy** and **Run**: Run opens a PowerShell window on this PC where you type or paste each value without it being shown.
+Values are typed only on the board on this PC: a board opened through Tailscale or from another machine shows the card read-only, with the commands to copy.
+A request takes one save and expires after 24 hours.
+
+<p align="center">
+  <img src="docs/images/credential-card.webp" alt="A credential card in the Command Center: Add Stripe billing needs two credentials for precisiondocs; each row shows its name, where it is saved (the repository, the credential scope, and the goblins' auth.ps1 and stripe service), what it is for, the page to get it from, and a hidden value field, one with a warning to use a restricted key, the other noting a stored value that saving replaces; below, the cfo auth store command with Copy and Run, and Save" width="640" />
+</p>
+
 ### Open in VS Code
 
 **Open in VS Code** opens the selected goblin's own isolated worktree, the folder it is actually editing, in your installed VS Code, and **Open folder** opens it in File Explorer.
