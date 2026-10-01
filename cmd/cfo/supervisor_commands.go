@@ -35,12 +35,11 @@ func runStatus(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, "The supervisor is not running; goblins starts it.")
 		return 1
 	}
-	status, err := boardStatus(context.Background(), record.URL)
-	if err != nil {
+	if err := boardAlive(context.Background(), record); err != nil {
 		fmt.Fprintln(stdout, "The supervisor is not running; goblins starts it.")
 		return 1
 	}
-	fmt.Fprintf(stdout, "  board   %s\n  status  %s\n  pid     %d\n", record.URL, status, record.PID)
+	fmt.Fprintf(stdout, "  board   %s\n  status  %s\n  pid     %d\n", record.URL, boardStatus(context.Background(), record.URL), record.PID)
 	return 0
 }
 
@@ -66,7 +65,7 @@ func runStop(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stdout, "The supervisor is not running.")
 		return 0
 	}
-	if _, err := boardStatus(ctx, record.URL); err != nil {
+	if err := boardAlive(ctx, record); err != nil {
 		// Nothing answers where the record points: its supervisor ended
 		// without removing it.
 		removeBoardRecord(h.State, record.PID)
@@ -87,7 +86,7 @@ func runStop(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		return 1
 	}
 	for deadline := time.Now().Add(stopTimeout); time.Now().Before(deadline); time.Sleep(stopPoll) {
-		if _, err := boardStatus(ctx, record.URL); err != nil {
+		if err := boardAlive(ctx, record); err != nil {
 			fmt.Fprintf(stdout, "The supervisor (pid %d) stopped.\n", record.PID)
 			return 0
 		}

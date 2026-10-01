@@ -331,6 +331,16 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 	return time.Time{}, ""
 }
 
+// standingReport is latestReport passed over the questions the goblin asked
+// since: a question waits beside what the goblin stands on, such as a wait on
+// the Overlord, and replaces nothing.
+func standingReport(lines []string, spawned time.Time) (time.Time, string) {
+	return latestReport(slices.DeleteFunc(slices.Clone(lines), func(line string) bool {
+		_, event := state.SplitStatus(line)
+		return strings.HasPrefix(strings.TrimSpace(event), "blocked: ")
+	}), spawned)
+}
+
 // reportKind is what a goblin's latest report says about it: working,
 // blocked, failed, done or waiting, or empty for anything else, so the board
 // can tell a goblin's own failure or finish from routine news.
