@@ -696,7 +696,8 @@ Every other endpoint that changes anything still refuses one, as the connection 
 The save is taken only from the board's own page on this machine: its Host must name 127.0.0.1, localhost or ::1 with the board's port, its peer must be this machine, and any forwarding or Tailscale identity header (`X-Forwarded-*`, `Forwarded`, `Via`, `X-Real-Ip` or any `Tailscale-*` header) refuses it, so a board shared through `tailscale serve`, which reaches the same port on this machine, never takes a value.
 It also passes every check other actions pass: POST only, the exact Host and Origin, and the per-session `X-CFO-Token`.
 It must name an open request and its current generation, and only names that request asks for, each with a non-empty value of one line and at most 16 KiB.
-A request takes one save: the same save sent again, or another value for it, is refused, and a request nobody saves expires after 24 hours, when the CFO is told by name so it can ask again.
+A request takes one save: the same save sent again, or another value for it, is refused, and a request nobody saves expires after 24 hours, when the CFO is told the names still unsaved so it can ask again.
+While the request's terminal is open, its save is refused and it does not expire; it expires on the first check after the terminal ends.
 A name the project's scope already holds is replaced only when the save confirms it; otherwise the save is refused naming the names to confirm, and nothing is stored.
 Every refusal stores nothing and leaves the request open.
 The board holds at most 64 requests, never drops an open one to make room, and prunes a closed one a week after it closed.
@@ -708,9 +709,10 @@ The value is nowhere else: not in `state/` otherwise, the inboxes, the board's s
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
-`POST /api/credentials/terminal` with the request's ID and generation opens that fallback for the Overlord: a visible PowerShell window on this PC, a run item the board makes itself, that runs `cfo auth store` for each name the request does not have yet, so he types or pastes each value there and it never passes through the board.
-It takes the save's checks (this machine only, the open request and its generation, confirming each name it would replace) and opens one window at a time per request.
-When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, closes the request once every name is stored, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
+`POST /api/credentials/terminal` with the request's ID and generation opens that fallback for the Overlord: a visible PowerShell window on this PC, a run item the board makes itself, that runs `cfo auth store` for each name the request does not have yet that the scope does not hold, and for each name the scope holds that the request confirms replacing, so he types or pastes each value there and it never passes through the board.
+It takes the save's checks (this machine only, the open request and its generation) and opens one window at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
+When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
+A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
 
 ## Nonblocking presentation notices
 

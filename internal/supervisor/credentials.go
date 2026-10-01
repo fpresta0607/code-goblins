@@ -294,6 +294,9 @@ func (s *Service) ingestCredentialRequests() error {
 		if errors.Is(invalid, ErrStorage) {
 			return invalid
 		}
+		if errors.Is(invalid, ErrDeferred) {
+			continue
+		}
 		if invalid != nil {
 			s.Store.mu.Lock()
 			s.Store.issue("Credential request refused: " + bounded(invalid.Error(), 300))
@@ -572,7 +575,17 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	}
 	now := time.Now().UTC()
 	closed, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) {
-		r.State, r.Saved, r.Replaced, r.ClosedAt = "saved", saved, replaced, &now
+		r.State, r.ClosedAt = "saved", &now
+		for _, name := range saved {
+			if !slices.Contains(r.Saved, name) {
+				r.Saved = append(r.Saved, name)
+			}
+		}
+		for _, name := range replaced {
+			if !slices.Contains(r.Replaced, name) {
+				r.Replaced = append(r.Replaced, name)
+			}
+		}
 		if failure != nil {
 			r.Reason = failure.Error()
 		}
@@ -581,7 +594,7 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		return credentialOutcome{}, fmt.Errorf("stored %s, but the board could not record it: %w", strings.Join(saved, ", "), err)
 	}
 	s.credentialWork.Add(1)
-	go s.afterCredentialSave(closed)
+	go s.afterCredentialSave(closed, saved)
 	s.notify()
 	if failure != nil {
 		return credentialOutcome{}, fmt.Errorf("stored %s, then %w; the request is closed and the CFO is told", strings.Join(saved, ", "), failure)
@@ -590,7 +603,7 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 }
 
 // openCredential finds the open request a card names, under its current
-// generation and within its lifetime.
+// generation and within its lifetime, with no terminal open for it.
 func (s *Service) openCredential(id, generation string) (CredentialRequest, error) {
 	request, found := s.Store.credential(id)
 	switch {
@@ -600,20 +613,56 @@ func (s *Service) openCredential(id, generation string) (CredentialRequest, erro
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request was already " + request.State + "; ask for a new one to store again."}
 	case !time.Now().Before(request.ExpiresAt):
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This credential request expired; ask for a new one."}
+	case credentialTerminalOpen(s.Store.Snapshot().Runs, request.ID):
+		return request, credentialRefusal{status: http.StatusConflict, Message: "A terminal for this request is open; finish it there first."}
 	}
 	return request, nil
 }
 
+// credentialTerminalOpen reports whether a terminal for the request is ready
+// or running: until it ends, neither a save, another terminal nor expiry acts
+// on the request.
+func credentialTerminalOpen(runs []Run, id string) bool {
+	return slices.ContainsFunc(runs, func(r Run) bool {
+		return r.CredentialRequest == id && (r.State == "ready" || r.State == "running")
+	})
+}
+
 // confirmReplacing refuses to store names the scope already holds unless
-// replace confirms each, naming the ones to confirm. It reads which names the
-// scope holds from the store's listing, records them on the request for its
-// card, and returns the store and those names.
+// replace confirms each, naming the ones to confirm. It returns the store and
+// the names the scope holds.
 func (s *Service) confirmReplacing(request CredentialRequest, names, replace []string) (auth.Store, []string, error) {
 	for _, name := range replace {
 		if !slices.Contains(names, name) {
 			return nil, nil, credentialRefusal{status: http.StatusBadRequest, Message: "Confirm replacing only names you are storing."}
 		}
 	}
+	store, existing, err := s.heldNames(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	var unconfirmed []string
+	for _, name := range names {
+		if slices.Contains(existing, name) && !slices.Contains(replace, name) {
+			unconfirmed = append(unconfirmed, name)
+		}
+	}
+	if len(unconfirmed) > 0 {
+		return nil, nil, unconfirmedReplacing(request, unconfirmed)
+	}
+	return store, existing, nil
+}
+
+// unconfirmedReplacing refuses storing names the scope already holds, naming
+// them for the card to ask about.
+func unconfirmedReplacing(request CredentialRequest, names []string) credentialRefusal {
+	return credentialRefusal{status: http.StatusConflict, Message: strings.Join(names, ", ") + " already holds a value for " + request.Project + "; confirm replacing it.", Existing: names}
+}
+
+// heldNames reads which of a request's names its scope holds from the
+// store's listing, records them on the request for its card, and returns the
+// store and those names.
+func (s *Service) heldNames(request CredentialRequest) (auth.Store, []string, error) {
 	store, err := s.Options.Credentials()
 	if err != nil {
 		return nil, nil, credentialRefusal{status: http.StatusServiceUnavailable, Message: "The credential store cannot be opened: " + bounded(err.Error(), 300)}
@@ -627,15 +676,6 @@ func (s *Service) confirmReplacing(request CredentialRequest, names, replace []s
 			return nil, nil, err
 		}
 		s.notify()
-	}
-	var unconfirmed []string
-	for _, name := range names {
-		if slices.Contains(existing, name) && !slices.Contains(replace, name) {
-			unconfirmed = append(unconfirmed, name)
-		}
-	}
-	if len(unconfirmed) > 0 {
-		return nil, nil, credentialRefusal{status: http.StatusConflict, Message: strings.Join(unconfirmed, ", ") + " already holds a value for " + request.Project + "; confirm replacing it.", Existing: unconfirmed}
 	}
 	return store, existing, nil
 }
@@ -678,7 +718,8 @@ func (h *HTTP) openCredentialTerminal(w http.ResponseWriter, r *http.Request) {
 }
 
 // credentialTerminal makes the run item that opens a request's terminal, for
-// every name it does not have yet, and queues it to run at once.
+// every name it does not have yet that the scope does not hold, and each held
+// one replace confirms, and queues it to run at once.
 func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error) {
 	if s.Options.Credentials == nil || s.Options.Runs == nil {
 		return Run{}, credentialRefusal{status: http.StatusServiceUnavailable, Message: "This board cannot open a terminal; copy the command instead."}
@@ -689,14 +730,27 @@ func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error)
 	if err != nil {
 		return Run{}, err
 	}
-	names := slices.DeleteFunc(slices.Clone(request.Names), func(name string) bool { return slices.Contains(request.Saved, name) })
-	if _, _, err := s.confirmReplacing(request, names, input.Replace); err != nil {
+	_, existing, err := s.heldNames(request)
+	if err != nil {
 		return Run{}, err
 	}
-	if slices.ContainsFunc(s.Store.Snapshot().Runs, func(r Run) bool {
-		return r.CredentialRequest == request.ID && (r.State == "ready" || r.State == "running")
-	}) {
-		return Run{}, credentialRefusal{status: http.StatusConflict, Message: "A terminal for this request is already open; finish it there."}
+	for _, name := range input.Replace {
+		if !slices.Contains(existing, name) || slices.Contains(request.Saved, name) {
+			return Run{}, credentialRefusal{status: http.StatusBadRequest, Message: "Confirm replacing only stored names this request still needs."}
+		}
+	}
+	var names, unconfirmed []string
+	for _, name := range request.Names {
+		switch {
+		case slices.Contains(request.Saved, name):
+		case slices.Contains(existing, name) && !slices.Contains(input.Replace, name):
+			unconfirmed = append(unconfirmed, name)
+		default:
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return Run{}, unconfirmedReplacing(request, unconfirmed)
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -728,11 +782,10 @@ func (s *Service) credentialTerminal(input credentialTerminalInput) (Run, error)
 // credentialTerminalEnded checks the rows a request's terminal stored: each
 // name it ran for that the scope holds now and did not hold before, and,
 // when the terminal finished cleanly, every name it ran for that the scope
-// holds. The request closes once every name is stored, and the CFO hears the
-// names; cfo auth store refreshed the project's goblins itself.
+// holds. The request closes when the terminal finished cleanly or once every
+// name is stored, and the CFO hears the names; cfo auth store refreshed the
+// project's goblins itself. The caller holds credentialSaves.
 func (s *Service) credentialTerminalEnded(r Run, code *int) {
-	s.credentialSaves.Lock()
-	defer s.credentialSaves.Unlock()
 	request, found := s.Store.credential(r.CredentialRequest)
 	if !found || request.State != "open" || s.Options.Credentials == nil {
 		return
@@ -765,7 +818,7 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 				c.Replaced = append(c.Replaced, name)
 			}
 		}
-		if !slices.ContainsFunc(c.Names, func(name string) bool { return !slices.Contains(c.Saved, name) }) {
+		if finished || !slices.ContainsFunc(c.Names, func(name string) bool { return !slices.Contains(c.Saved, name) }) {
 			c.State, c.ClosedAt = "saved", &now
 		}
 	})
@@ -784,8 +837,8 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 
 // afterCredentialSave runs the refresh cfo auth store runs after it writes,
 // so the project's running goblins re-source their auth.ps1, and tells the
-// CFO which names were stored for which project, and who was told.
-func (s *Service) afterCredentialSave(request CredentialRequest) {
+// CFO which names the save stored for which project, and who was told.
+func (s *Service) afterCredentialSave(request CredentialRequest, saved []string) {
 	defer s.credentialWork.Done()
 	var told []string
 	var refreshErr error
@@ -797,7 +850,7 @@ func (s *Service) afterCredentialSave(request CredentialRequest) {
 			s.publish(err)
 		}
 	}
-	detail := strings.Join(request.Saved, ", ") + " stored for " + request.Project + " from the board (" + request.ID + ")"
+	detail := strings.Join(saved, ", ") + " stored for " + request.Project + " from the board (" + request.ID + ")"
 	switch {
 	case len(told) > 0:
 		detail += "; told " + strings.Join(told, ", ") + " to re-source auth.ps1"
@@ -829,11 +882,13 @@ func (s *Service) credentialNotice(request CredentialRequest, detail string) {
 }
 
 // expireCredentials closes each request nobody saved within its lifetime and
-// tells the CFO, so it can ask again if the values are still needed.
+// tells the CFO the names still unsaved, so it can ask again if they are still
+// needed. A request whose terminal is open expires once the terminal ends.
 func (s *Service) expireCredentials(now time.Time) error {
 	expired, err := s.Store.expireCredentials(now)
 	for _, request := range expired {
-		s.credentialNotice(request, strings.Join(request.Names, ", ")+" for "+request.Project+": the credential request "+request.ID+" expired unsaved after 24 hours; file it again if the values are still needed")
+		unsaved := slices.DeleteFunc(slices.Clone(request.Names), func(name string) bool { return slices.Contains(request.Saved, name) })
+		s.credentialNotice(request, strings.Join(unsaved, ", ")+" for "+request.Project+": the credential request "+request.ID+" expired unsaved after 24 hours; file it again if the values are still needed")
 	}
 	return err
 }
@@ -843,7 +898,7 @@ func (s *Store) expireCredentials(now time.Time) ([]CredentialRequest, error) {
 	defer s.mu.Unlock()
 	var expired []CredentialRequest
 	for i := range s.db.Credentials {
-		if r := &s.db.Credentials[i]; r.State == "open" && !now.Before(r.ExpiresAt) {
+		if r := &s.db.Credentials[i]; r.State == "open" && !now.Before(r.ExpiresAt) && !credentialTerminalOpen(s.db.Runs, r.ID) {
 			closed := now.UTC()
 			r.State, r.Reason, r.ClosedAt = "expired", "Nobody saved it within 24 hours.", &closed
 			expired = append(expired, r.clone())
