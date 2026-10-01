@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // userEnvFileName is the file in a stripped session's LOCALAPPDATA that
@@ -50,7 +52,7 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		}
 	}
 	system := os.Getenv("SystemRoot")
-	cmd = exec.Command(name, args...)
+	cmd = execx.Command(name, args...)
 	cmd.Dir = temp
 	cmd.Env = []string{
 		"SystemRoot=" + system,
