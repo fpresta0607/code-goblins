@@ -42,7 +42,7 @@ func clearStopRequest(stateDir string) {
 // naming any other pid is left over from a supervisor that already ended,
 // since only one runs at a time, so it is removed.
 func stopRequested(stateDir string) bool {
-	data, err := os.ReadFile(stopRequestPath(stateDir))
+	data, err := fsx.ReadFile(stopRequestPath(stateDir))
 	if err != nil {
 		return false
 	}

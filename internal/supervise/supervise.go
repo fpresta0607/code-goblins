@@ -333,8 +333,7 @@ func ChargeBudget(stateDir, session string) (int, error) {
 }
 
 // removeWithRetry deletes path, retrying up to 10 times at 50ms on a
-// transient Windows sharing violation (antivirus/indexer scans) - the same
-// bounded-retry shape fsx.AtomicWriteFile uses for its rename. A missing
+// transient Windows sharing violation (antivirus/indexer scans). A missing
 // file is success: there is nothing left to remove.
 func removeWithRetry(path string) error {
 	var lastErr error

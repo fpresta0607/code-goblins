@@ -158,7 +158,7 @@ func (m *Migration) planMemory() error {
 			m.NotImported = append(m.NotImported, name+": not a file")
 			continue
 		}
-		source, err := os.ReadFile(filepath.Join(m.MemoryFrom, name))
+		source, err := fsx.ReadFile(filepath.Join(m.MemoryFrom, name))
 		if err != nil {
 			return err
 		}
@@ -255,7 +255,7 @@ func (m *Migration) dropped() []string {
 			to = moved
 		}
 		if content, ok := written[to]; ok {
-			old, err := os.ReadFile(filepath.Join(m.Home.Data, filepath.FromSlash(rel)))
+			old, err := fsx.ReadFile(filepath.Join(m.Home.Data, filepath.FromSlash(rel)))
 			if err != nil || !keepsEveryLine(old, content) {
 				dropped = append(dropped, rel)
 			}
@@ -587,7 +587,7 @@ func copyFile(source, target string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", err
 	}
-	in, err := os.Open(source)
+	in, err := fsx.Open(source)
 	if err != nil {
 		return "", err
 	}
@@ -608,7 +608,7 @@ func copyFile(source, target string) (string, error) {
 }
 
 func hashFile(p string) (string, error) {
-	file, err := os.Open(p)
+	file, err := fsx.Open(p)
 	if err != nil {
 		return "", err
 	}
@@ -626,7 +626,7 @@ func hashBytes(data []byte) string {
 }
 
 func readOptional(p string) ([]byte, error) {
-	data, err := os.ReadFile(p)
+	data, err := fsx.ReadFile(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

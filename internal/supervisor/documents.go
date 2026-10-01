@@ -102,7 +102,7 @@ func stageDocument(h home.Home, taskID, file, dir string) (ReviewDocument, error
 		if err != nil {
 			return ReviewDocument{}, err
 		}
-	} else if source, err = os.Open(abs); err != nil {
+	} else if source, err = fsx.Open(abs); err != nil {
 		return ReviewDocument{}, err
 	}
 	defer source.Close()
@@ -164,7 +164,7 @@ func (h *HTTP) reviewDocument(w http.ResponseWriter, r *http.Request, id string)
 		apiError(w, 404, "Unknown document")
 		return
 	}
-	f, err := os.Open(filepath.Join(reviewImageDir(h.Service.Store.Home.State, *item), documentFile))
+	f, err := fsx.Open(filepath.Join(reviewImageDir(h.Service.Store.Home.State, *item), documentFile))
 	if err != nil {
 		apiError(w, 403, "The document is no longer available")
 		return

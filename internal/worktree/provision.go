@@ -403,7 +403,7 @@ type mcpResult struct {
 // no filtered config at all, and that is exactly when a cwd-reading harness
 // sees the most withheld servers.
 func (s Service) materializeMCP(ctx context.Context, git RunnerGit, project, worktreePath, taskTmp string, hasVariable func(string) bool) (mcpResult, error) {
-	data, err := os.ReadFile(filepath.Join(project, ".mcp.json"))
+	data, err := fsx.ReadFile(filepath.Join(project, ".mcp.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return mcpResult{}, nil
 	}

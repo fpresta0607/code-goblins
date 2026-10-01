@@ -172,7 +172,7 @@ func isGitDir(dir string) bool {
 // linkedGitPaths reads the git and common directories a .git file in dir
 // leads to.
 func linkedGitPaths(dir, dotGit string) (gitDir, commonDir string, err error) {
-	content, err := os.ReadFile(dotGit)
+	content, err := fsx.ReadFile(dotGit)
 	if err != nil {
 		return "", "", err
 	}
@@ -184,7 +184,7 @@ func linkedGitPaths(dir, dotGit string) (gitDir, commonDir string, err error) {
 	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
 		return "", "", fmt.Errorf("home: %s names %s, which is not a directory", dotGit, gitDir)
 	}
-	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	common, err := fsx.ReadFile(filepath.Join(gitDir, "commondir"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return gitDir, gitDir, nil
 	}

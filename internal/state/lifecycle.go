@@ -77,7 +77,7 @@ func ReadLifecycle(directory, id string) (Lifecycle, error) {
 	if err := ValidTaskID(id); err != nil {
 		return Lifecycle{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "lifecycle", id+".json"))
+	data, err := fsx.ReadFile(filepath.Join(directory, "lifecycle", id+".json"))
 	if err != nil {
 		return Lifecycle{}, err
 	}
