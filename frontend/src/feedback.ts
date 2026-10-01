@@ -50,6 +50,7 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
     case "succeeded": return { icon: "check", label: "Finished" + exit, trouble: false };
     case "failed": return { icon: "warning", label: "Failed" + exit, trouble: true };
     case "expired": return { icon: "close", label: "Expired", trouble: false };
+    case "withdrawn": return { icon: "close", label: "Withdrawn by the CFO", trouble: false };
     default: return { icon: "clock", label: "Waiting", trouble: false };
   }
 }
