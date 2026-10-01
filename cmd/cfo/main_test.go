@@ -115,6 +115,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == authStoreConsole {
+		os.Exit(runAuth(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{}))
+	}
 	// The native CFO test starts this binary as cfo host, and as the
 	// claude.exe its terminal runs.
 	if len(os.Args) > 1 && os.Args[1] == "host" {

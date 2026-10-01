@@ -114,9 +114,8 @@ func sameCredentialRequest(a, b CredentialRequest) bool {
 	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
 }
 
-// validCredentialRequest refuses anything but names, a reason and a page to
-// get them from. A name, a reason or a link shaped like a credential value is
-// refused, and no refusal repeats what it refused.
+// validCredentialRequest refuses a request without its ID and asker, and
+// whatever CredentialRequestProblem refuses.
 func validCredentialRequest(r CredentialRequest) error {
 	switch {
 	case !credentialID.MatchString(r.ID):
@@ -127,6 +126,15 @@ func validCredentialRequest(r CredentialRequest) error {
 		return errors.New("a credential request is asked by the CFO or a goblin")
 	case r.By == "goblin" && r.Task == "":
 		return errors.New("a goblin's credential request names its task")
+	}
+	return CredentialRequestProblem(r)
+}
+
+// CredentialRequestProblem refuses anything but names, a reason and a page to
+// get them from. A name, a reason or a link shaped like a credential value is
+// refused, and no refusal repeats what it refused.
+func CredentialRequestProblem(r CredentialRequest) error {
+	switch {
 	case r.Task != "" && state.ValidTaskID(r.Task) != nil:
 		return errors.New("a credential request's task is not a task ID")
 	case !auth.ValidProjectName(r.Project):
