@@ -312,3 +312,18 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
 });
+
+test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "install-main-66714dea", identity: "cfo-1", title: "Install main", shell: "powershell", command: "cfo install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot);
+  const settled = settledItems(snapshot);
+
+  // Assert
+  assert.deepEqual(waiting, []);
+  assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
+});

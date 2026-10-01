@@ -458,6 +458,7 @@ cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
 cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
+cfo run-request --withdraw <id> --reason "<why>"
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
