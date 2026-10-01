@@ -467,7 +467,8 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 // When a verified copy is the way back, the copy started is proved the
 // previous build first: a copy whose content changed never runs, the copy
 // still intact serves, and with none intact nothing runs and the board is
-// reported down.
+// reported down. Either way the update stays unfinished, so --recover can
+// still finish it once a good copy is back.
 func TestRollbackNeverRunsACopyWhoseContentChanged(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -489,6 +490,9 @@ func TestRollbackNeverRunsACopyWhoseContentChanged(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(u.state, "test-tampered-ran")); !os.IsNotExist(err) {
 				t.Fatalf("a copy whose content changed ran (%v):\n%s", err, output)
+			}
+			if journal, err := update.ReadJournal(u.state); err != nil || journal.Phase.Finished() {
+				t.Fatalf("journal phase %q, %v; want an unfinished update that --recover can still finish", journal.Phase, err)
 			}
 			if test.code == updateDegraded {
 				u.awaitBoard()
