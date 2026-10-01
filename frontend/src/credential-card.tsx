@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
 import { credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials";
+import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
 import "./credential-card.css";
 
@@ -31,9 +32,9 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // where its value goes, a hidden field for each value still needed, and the
 // cfo auth store lines with Copy and Run to type them in a terminal on this PC
 // instead. Values are typed only on the board on this PC; a board opened from
-// another machine shows the commands. A value stays in its field, never in
-// the page's markup, until Save sends it once in the body of the save
-// request; the board answers with names, and every field empties after a
+// another machine shows the commands. A value is kept by the card, never in
+// its field or the page's markup, until Save sends it once in the body of the
+// save request; the board answers with names, and every field empties after a
 // submit. A stored value is replaced only once he confirms it, from the card
 // or for its terminal alike.
 export function CredentialCard({ request, snapshot, connected, pager }: { request: CredentialRequest; snapshot: Snapshot; connected: boolean; pager?: ReactNode }) {
@@ -136,8 +137,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
               : !open ? <span className="muted">Not stored</span>
               : !local ? <span className="credential-pill"><Icon name={held(name) ? "refresh" : "lock"} />{held(name) ? "Stored before: saving replaces it" : "Type it on your PC"}</span>
               : <>
-                <input key={round} className="credential-input" type="password" autoComplete="new-password" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={"Value for " + name}
-                  onChange={(event) => { const value = event.currentTarget.value; setValues((prior) => ({ ...prior, [name]: value })); setError(""); }} />
+                <CredentialField key={round} label={"Value for " + name} onValue={(value) => { setValues((prior) => ({ ...prior, [name]: value })); setError(""); }} />
                 {held(name) && <small className="credential-note"><Icon name="refresh" />Stored before: saving replaces it</small>}
                 {valueWarnings(hint, values[name] || "").map((warning) => <small key={warning} className="credential-note warning-text"><Icon name="warning" />{warning}</small>)}
               </>}

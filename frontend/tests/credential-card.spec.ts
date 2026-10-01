@@ -9,6 +9,9 @@ const STRIPE_GENERATION = "f".repeat(32);
 // A value made at run time, so no literal in the repository looks like a key.
 const canary = (prefix = "") => prefix + "canary" + crypto.randomUUID().replaceAll("-", "");
 
+// What a value field shows for a value: one dot for each character.
+const dots = (value: string) => "•".repeat(value.length);
+
 interface Sent { path: string; token: string | null; body: unknown }
 
 // answer records each board request the card sends and answers it with the
@@ -45,7 +48,7 @@ test("a pasted value goes only to the save endpoint with the board's token, and 
   await page.evaluate((text) => navigator.clipboard.writeText(text), value);
   await field.click();
   await page.keyboard.press("Control+V");
-  await expect(field).toHaveValue(value);
+  await expect(field).toHaveValue(dots(value));
   const markupWhileTyped = await page.content();
   await card.getByRole("button", { name: "Save" }).click();
 
@@ -54,9 +57,97 @@ test("a pasted value goes only to the save endpoint with the board's token, and 
   await expect.poll(() => sent.length).toBe(1);
   expect(sent).toEqual([{ path: "/api/credentials/save", token: "fixture-token", body: { id: STRIPE, generation: STRIPE_GENERATION, values: { STRIPE_SECRET_KEY: value }, replace: [] } }]);
   await expect(field).toHaveValue("");
-  for (const attribute of [["type", "password"], ["autocomplete", "new-password"], ["spellcheck", "false"]]) await expect(field).toHaveAttribute(attribute[0], attribute[1]);
   expect(await page.content()).not.toContain(value);
   expect(logged.join("\n")).not.toContain(value);
+});
+
+test("a value field never holds the value: it shows one dot for each character, and is no password field", async ({ page }) => {
+  // Arrange
+  const value = canary();
+  await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+
+  // Act
+  await field.click();
+  await page.keyboard.insertText(value);
+
+  // Assert
+  await expect(field).toHaveValue(dots(value));
+  for (const [attribute, expected] of [["type", "text"], ["autocomplete", "off"], ["spellcheck", "false"]]) await expect(field).toHaveAttribute(attribute, expected);
+  for (const attribute of ["name", "id"]) await expect(field).not.toHaveAttribute(attribute);
+  await expect(card.getByRole("button", { name: "Save" })).toBeEnabled();
+});
+
+test("typing, deleting, cutting and replacing a selection edit the hidden value as they would any field", async ({ page }) => {
+  // Arrange
+  const sent = await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+
+  // Act
+  await field.click();
+  await page.keyboard.type("abcdef");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Delete");
+  await page.keyboard.type("Z");
+  await page.keyboard.press("Shift+End");
+  await page.keyboard.type("9xy");
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Control+X");
+  await page.keyboard.press("Control+Z");
+  const shown = await field.inputValue();
+  await card.getByRole("button", { name: "Save" }).click();
+
+  // Assert
+  expect(shown).toBe(dots("Z9x"));
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].body).toMatchObject({ values: { STRIPE_SECRET_KEY: "Z9x" } });
+});
+
+test("copying out of a value field copies dots, never the value", async ({ page, context }) => {
+  // Arrange
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const value = canary();
+  await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+  await field.click();
+  await page.keyboard.insertText(value);
+
+  // Act
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Control+C");
+
+  // Assert
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(dots(value));
+});
+
+test("text that reaches a field itself, from a fill or a composition, is taken out of it at once", async ({ page }) => {
+  // Arrange
+  const value = canary();
+  const sent = await answer(page);
+  const card = await openCard(page);
+  const field = card.getByLabel("Value for STRIPE_SECRET_KEY");
+  const devtools = await page.context().newCDPSession(page);
+
+  // Act
+  await field.fill(value);
+  const afterFill = await field.inputValue();
+  await field.press("End");
+  await devtools.send("Input.imeSetComposition", { text: "e", selectionStart: 1, selectionEnd: 1 });
+  await devtools.send("Input.insertText", { text: "é" });
+  const afterComposition = await field.inputValue();
+  await card.getByRole("button", { name: "Save" }).click();
+
+  // Assert
+  expect(afterFill).toBe(dots(value));
+  expect(afterComposition).toBe(dots(value + "é"));
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].body).toMatchObject({ values: { STRIPE_SECRET_KEY: value + "é" } });
 });
 
 test("a name the scope already holds is replaced only once he confirms, and the pasted value waits in its field meanwhile", async ({ page }) => {
@@ -74,7 +165,7 @@ test("a name the scope already holds is replaced only once he confirms, and the 
   await expect(question).toContainText("STRIPE_WEBHOOK_SECRET already has a value for precisiondocs");
   await question.getByRole("button", { name: "Cancel" }).click();
   const afterCancel = sent.length;
-  await expect(field).toHaveValue(value);
+  await expect(field).toHaveValue(dots(value));
   await card.getByRole("button", { name: "Save" }).click();
   await page.getByRole("dialog", { name: "Replace a stored credential?" }).getByRole("button", { name: "Replace and save" }).click();
 
