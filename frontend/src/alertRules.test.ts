@@ -45,6 +45,7 @@ test("routine updates and what was already there alert nothing", () => {
     ["a goblin reporting work", working, snapshot({ tasks: [task("a", "review", { report: "working" })], questions: [question("q1")] })],
     ["a question already waiting", working, working],
     ["a question answered", working, snapshot({ tasks: [task("a", "working")], questions: [question("q1", { status: "answered" })] })],
+    ["a goblin blocked on a question with no choices, which is prose for the CFO and never reaches the Command Center", snapshot({ tasks: [task("a", "working")] }), snapshot({ tasks: [task("a", "blocked", { report: "blocked", reason: "Waiting on the CFO: Which port should I use?", activity: "blocked: Which port should I use?" })] })],
     ["a goblin still blocked", snapshot({ tasks: [task("a", "blocked")] }), snapshot({ tasks: [task("a", "blocked", { reason: "Still waiting" })] })],
     ["a run card finishing its command", snapshot({ runs: [run("c1", "running")] }), snapshot({ runs: [run("c1", "succeeded")] })],
   ];
@@ -119,7 +120,7 @@ test("an event alerts once however often a snapshot or a reconnect brings it bac
   const waiting = snapshot({ reviews: [wait("waiting-a-3")] });
   const refiled = snapshot({ reviews: [wait("waiting-a-3", "withdrawn"), wait("waiting-a-5")] });
   const nextPR = snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/8" })] });
-  let seen: SeenAlert[] = [];
+  let seen: readonly SeenAlert[] = [];
   const shown = (from: Snapshot, to: Snapshot) => {
     const sighting = unseen(boardAlerts(from, to), seen, MINUTE);
     seen = sighting.seen;
@@ -142,7 +143,7 @@ test("a browser remembers the newest alerts it showed, a bounded few, and one sn
   const { fresh, seen } = unseen([...many, alert("k0"), alert("k-new", "says k1")], [old], MINUTE);
   assert.equal(fresh.length, SEEN_LIMIT + 5);
   assert.equal(seen.length, SEEN_LIMIT);
-  assert.deepEqual(seen.at(-1), { key: "k" + (SEEN_LIMIT + 4), says: "says k" + (SEEN_LIMIT + 4), at: MINUTE });
+  assert.deepEqual(seen.at(-1), { key: "k-new", says: "says k1", at: MINUTE });
   assert.deepEqual(unseen([alert("k-old"), alert("k3")], [old], MINUTE).fresh.map((one) => one.key), ["k3"]);
 });
 
@@ -159,12 +160,13 @@ test("the same words within five minutes are one event, and a real new event lat
     ["its gate asking for a second decision", 10, working, blocked, ["task:a:a-1:blocked:" + GATE_BLOCK]],
     ["a wait", 20, working, snapshot({ reviews: [wait("waiting-a-3")] }), ["review:waiting-a-3"]],
     ["the wait filed again under a new id", 22, working, snapshot({ reviews: [wait("waiting-a-5")] }), []],
-    ["the wait filed again later", 30, working, snapshot({ reviews: [wait("waiting-a-7")] }), ["review:waiting-a-7"]],
+    ["the wait folded under its new id, back after a restart", 32, restarting, snapshot({ reviews: [wait("waiting-a-5")] }), []],
+    ["the wait filed again later", 40, working, snapshot({ reviews: [wait("waiting-a-7")] }), ["review:waiting-a-7"]],
     ["an item already shown, back after a restart", 60, restarting, snapshot({ reviews: [wait("waiting-a-3")] }), []],
     ["a question", 70, working, snapshot({ questions: [ask("notify-a-8", "The port.")] }), ["question:notify-a-8"]],
     ["another question with the same first line", 80, working, snapshot({ questions: [ask("notify-a-9", "The colour.")] }), ["question:notify-a-9"]],
   ];
-  let seen: SeenAlert[] = [];
+  let seen: readonly SeenAlert[] = [];
   for (const [name, minute, from, to, want] of steps) {
     const sighting = unseen(boardAlerts(from, to), seen, minute * MINUTE);
     seen = sighting.seen;

@@ -25,7 +25,7 @@ function readSeen(): SeenAlert[] {
     return Array.isArray(saved) ? saved.filter(isSeenAlert) : [];
   } catch { return []; }
 }
-function rememberSeen(seen: SeenAlert[]) {
+function rememberSeen(seen: readonly SeenAlert[]) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch { /* this page still shows each alert once */ }
 }
 
@@ -38,7 +38,7 @@ function rememberSeen(seen: SeenAlert[]) {
 export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (target: AlertTarget) => void }) {
   const previous = useRef<Snapshot | null>(null);
   const [stored] = useState(readSeen);
-  const seen = useRef(stored);
+  const seen = useRef<readonly SeenAlert[]>(stored);
   const notes = useRef(new Map<string, Notification>());
   const open = useRef(onOpen);
   useEffect(() => { open.current = onOpen; });
@@ -46,13 +46,16 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   const [asking, setAsking] = useState(false);
   useEffect(() => {
     const now = Date.now();
-    const sighting = unseen(boardAlerts(previous.current, snapshot), seen.current, now);
+    const alerts = boardAlerts(previous.current, snapshot);
+    const sighting = unseen(alerts, seen.current, now);
     previous.current = snapshot;
+    if (sighting.seen !== seen.current) {
+      seen.current = sighting.seen;
+      // Another tab of the board remembers its own alerts in the same list.
+      rememberSeen(unseen(alerts, readSeen(), now).seen);
+    }
     const { fresh } = sighting;
     if (!fresh.length) return;
-    seen.current = sighting.seen;
-    // Another tab of the board remembers its own alerts in the same list.
-    rememberSeen(unseen(fresh, readSeen(), now).seen);
     setToasts((prior) => arrive(prior, fresh));
     if (asksPermission(permission(), asked())) setAsking(true);
     if (!notifies(permission(), document.hidden, document.hasFocus())) return;

@@ -611,8 +611,10 @@ The board sees each item in `snapshot.reviews` with an image count, never a path
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
 The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin blocked on its own question, which its task reads as Waiting on the CFO, does not alert, since the question it raises does.
 Each alert stands for one event and shows once in a browser, however often a snapshot, a supervisor restart or a reload brings it back.
+A goblin blocked on a question with no choices does not alert either: that question is prose for the CFO, who is woken for it, and the goblin's card still reads Waiting on the CFO.
 A Command Center item alerts once by its own id.
 The same words from the same goblin within five minutes are one event, so a wait or a question filed again under a new id, or a goblin's news replayed by a supervisor restart or a flicker back to work, does not alert again.
+A wait or a question folded this way is remembered under its own id too, so it does not alert when a later snapshot brings it back.
 A goblin's news is its generation, its state and the news itself, its pull request or what it reported, so its next pull request alerts at once, and the same news, or a wait filed again, more than five minutes later alerts again.
 The browser remembers the last 100 alerts it showed.
 Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action; it has no name tab, since its line already says who speaks.

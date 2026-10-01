@@ -59,8 +59,10 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 // evidence or failed by its own report, or done with its pull request.
 // Anything else, such as working, in review or waiting on another task, is
 // routine and says nothing. A goblin blocked on its own question, which its
-// task reads as Waiting on the CFO, says nothing either: the question alerts
-// by itself when it reaches the Command Center.
+// task reads as Waiting on the CFO, says nothing either: a question with
+// choices alerts by itself when it reaches the Command Center, and one with
+// no choices is prose for the CFO, who is woken for it, so nothing waits on
+// the Overlord.
 function taskState(task: Task): "blocked" | "failed" | "done" | "" {
   if (task.phase === "blocked") return task.reason.startsWith("Waiting on the CFO") ? "" : "blocked";
   if (task.phase === "failed" || task.report === "failed") return "failed";
@@ -124,17 +126,21 @@ const SAME_EVENT_MS = 5 * 60 * 1000;
 // item is a copy of one shown under its id, whenever that was, and any alert
 // is a copy of one that said the same less than five minutes before: a
 // snapshot, a reconnect or a reload brings no alert back, and the same news
-// later is a new event.
-export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: number): { fresh: BoardAlert[]; seen: SeenAlert[] } {
+// later is a new event. An item that is a copy by its words is remembered
+// under its own id too, at the time of the one it copies, so it never alerts
+// later. The list comes back as it was given when nothing was added to it.
+export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: number): { fresh: BoardAlert[]; seen: readonly SeenAlert[] } {
   const shown = [...seen];
   const fresh: BoardAlert[] = [];
   for (const alert of alerts) {
     const isItem = alert.key !== alert.says;
-    if (shown.some((one) => (isItem && one.key === alert.key) || (one.says === alert.says && now - one.at < SAME_EVENT_MS))) continue;
-    shown.push({ key: alert.key, says: alert.says, at: now });
-    fresh.push(alert);
+    if (isItem && shown.some((one) => one.key === alert.key)) continue;
+    const said = shown.find((one) => one.says === alert.says && now - one.at < SAME_EVENT_MS);
+    if (said && !isItem) continue;
+    shown.push({ key: alert.key, says: alert.says, at: said ? said.at : now });
+    if (!said) fresh.push(alert);
   }
-  return { fresh, seen: shown.slice(-SEEN_LIMIT) };
+  return { fresh, seen: shown.length === seen.length ? seen : shown.slice(-SEEN_LIMIT) };
 }
 
 // The most toasts shown at once; the oldest leaves first.
