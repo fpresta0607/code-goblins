@@ -49,13 +49,14 @@ type handoverRequest struct {
 	Hostname string    `json:"hostname"`
 }
 
-// handoverAck names the watcher yielding the lock and the serve it yields
-// it to, each by pid and start time.
+// handoverAck names the watcher yielding the lock, by pid, start time and
+// host, and the serve it yields it to, by pid and start time.
 type handoverAck struct {
-	WatcherPID   int       `json:"watcher_pid"`
-	WatcherStart time.Time `json:"watcher_start"`
-	ServePID     int       `json:"serve_pid"`
-	ServeStart   time.Time `json:"serve_start"`
+	WatcherPID      int       `json:"watcher_pid"`
+	WatcherStart    time.Time `json:"watcher_start"`
+	WatcherHostname string    `json:"watcher_hostname"`
+	ServePID        int       `json:"serve_pid"`
+	ServeStart      time.Time `json:"serve_start"`
 }
 
 func handoverPath(stateDir string) string {
@@ -89,7 +90,7 @@ func RequestHandover(stateDir string) (func(), error) {
 		if request, ok := readHandover(stateDir); ok && request.PID == os.Getpid() {
 			_ = os.Remove(handoverPath(stateDir))
 		}
-		if ack, ok := readHandoverAck(stateDir); ok && ack.ServePID == os.Getpid() {
+		if ack, ok := readHandoverAck(stateDir); ok && ack.ServePID == os.Getpid() && ack.ServeStart.Equal(start) {
 			_ = os.Remove(handoverAckPath(stateDir))
 		}
 	}, nil
@@ -104,7 +105,7 @@ func HandoverAcknowledged(stateDir string, holder lock.Info) bool {
 		return false
 	}
 	start, ok := proc.StartTime(os.Getpid())
-	return ok && ack.WatcherPID == holder.PID && ack.WatcherStart.Equal(holder.Start) && ack.ServePID == os.Getpid() && ack.ServeStart.Equal(start)
+	return ok && ack.WatcherPID == holder.PID && ack.WatcherStart.Equal(holder.Start) && ack.WatcherHostname == holder.Hostname && ack.ServePID == os.Getpid() && ack.ServeStart.Equal(start)
 }
 
 func readHandoverAck(stateDir string) (handoverAck, bool) {
@@ -149,16 +150,21 @@ func pendingHandover(stateDir string) (handoverRequest, bool) {
 	return request, ok && request.PID != os.Getpid() && liveRequester(request)
 }
 
-// yieldOnRequest watches for a live serve's request while the watcher holds
-// the lock, until ctx is done. On the first one it answers the serve and
-// cancels the watcher's cycle, so a slow scan, sweep or filing pass gives the
-// lock up at once rather than when it ends.
-func yieldOnRequest(ctx context.Context, cancel context.CancelFunc, stateDir string) {
+// yieldOnRequest answers each live serve's request until released closes,
+// once the watcher has let the lock go, and cancels the watcher's cycle, so a
+// slow scan, sweep or filing pass gives the lock up at once rather than when
+// it ends. A request from a serve the answer does not name, one started at
+// the same moment or after another gave up, or a request whose answer is
+// gone, is answered again: a serve that finds no answer naming it ends the
+// watcher as one from before the handover.
+func yieldOnRequest(released <-chan struct{}, cancel context.CancelFunc, stateDir string) {
+	start, hasStart := proc.StartTime(os.Getpid())
+	hostname, hostErr := os.Hostname()
 	ticker := time.NewTicker(handoverPoll)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-released:
 			return
 		case <-ticker.C:
 		}
@@ -166,13 +172,14 @@ func yieldOnRequest(ctx context.Context, cancel context.CancelFunc, stateDir str
 		if !ok {
 			continue
 		}
-		if start, ok := proc.StartTime(os.Getpid()); ok {
-			if data, err := json.Marshal(handoverAck{WatcherPID: os.Getpid(), WatcherStart: start.UTC(), ServePID: request.PID, ServeStart: request.Start}); err == nil {
+		ack, answered := readHandoverAck(stateDir)
+		answered = answered && ack.WatcherPID == os.Getpid() && ack.ServePID == request.PID && ack.ServeStart.Equal(request.Start)
+		if !answered && hasStart && hostErr == nil {
+			if data, err := json.Marshal(handoverAck{WatcherPID: os.Getpid(), WatcherStart: start, WatcherHostname: hostname, ServePID: request.PID, ServeStart: request.Start}); err == nil {
 				_ = fsx.AtomicWriteFile(handoverAckPath(stateDir), data)
 			}
 		}
 		cancel()
-		return
 	}
 }
 

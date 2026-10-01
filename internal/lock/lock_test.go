@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -591,5 +593,71 @@ func TestAcquireExclusiveNamedContendsAcrossWindowsCaseVariant(t *testing.T) {
 	}
 	if err := ReleaseExclusiveNamed(dir, name); err != nil {
 		t.Fatalf("ReleaseExclusiveNamed cleanup: %v", err)
+	}
+}
+
+// deadHoldersRecord writes dir/name naming a process that has ended.
+func deadHoldersRecord(t *testing.T, dir, name string) string {
+	t.Helper()
+	cmd := exec.Command("cmd", "/c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	hostname, _ := os.Hostname()
+	path := filepath.Join(dir, name)
+	stale := &Info{PID: cmd.ProcessState.Pid(), Start: time.Now().Add(-time.Hour), Hostname: hostname, Session: "watch", Acquired: time.Now().Add(-time.Hour)}
+	if err := writeInfo(path, stale); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// holdOpen opens path the way every reader of a lock record does, without
+// delete sharing, and returns the function that lets it go.
+func holdOpen(t *testing.T, path string) func() {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	release := func() { once.Do(func() { _ = f.Close() }) }
+	t.Cleanup(release)
+	return release
+}
+
+// After serve ends a watcher from before the handover, a Stop hook, cfo
+// doctor or the board can be reading the dead watcher's record just as serve
+// removes it. The removal waits for the reader to let go rather than failing
+// serve's start.
+func TestAcquireWaitsOutAReaderHoldingADeadHoldersRecord(t *testing.T) {
+	dir := t.TempDir()
+	path := deadHoldersRecord(t, dir, ".watch.lock")
+	time.AfterFunc(200*time.Millisecond, holdOpen(t, path))
+
+	info, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch")
+
+	if err != nil {
+		t.Fatalf("AcquireNamedOwner over a dead holder's record a reader held for a moment: %v", err)
+	}
+	if info.PID != os.Getpid() {
+		t.Errorf("PID = %d, want %d", info.PID, os.Getpid())
+	}
+}
+
+// A reader that never lets the dead holder's record go is waited on only a
+// bounded while: the acquire then fails with the sharing violation itself.
+func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) {
+	dir := t.TempDir()
+	holdOpen(t, deadHoldersRecord(t, dir, ".watch.lock"))
+	began := time.Now()
+
+	_, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch")
+
+	if !errors.Is(err, syscall.Errno(32)) {
+		t.Fatalf("AcquireNamedOwner = %v, want the sharing violation", err)
+	}
+	if waited := time.Since(began); waited > 5*time.Second {
+		t.Errorf("the acquire waited %s, want it bounded", waited)
 	}
 }

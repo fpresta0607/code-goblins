@@ -3,13 +3,16 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -208,6 +211,93 @@ func TestServeWaitsForAWatcherThatAnsweredRatherThanEndingIt(t *testing.T) {
 	}
 }
 
+// Two serves can ask one after the other: an install's restart and a goblins
+// launch. The first is answered and gives up; the second asks while the
+// watcher, yielding, is still in an inspection it cannot cut short. The
+// watcher answers the second too, so it is never ended for being slow, and
+// the second serve takes the lock once the watcher lets it go.
+func TestAWatcherYieldingToOneServeAnswersTheNextServeToo(t *testing.T) {
+	setHandoverWait(t, 2*time.Second)
+	_, h := testStore(t)
+	hook := startStandIn(t, h.State, "slow-watcher", "cfo.exe", "hook", "stop-autoarm")
+	first := exec.Command("cmd", "/c", "ping -n 60 127.0.0.1 >NUL")
+	if err := first.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Process.Kill(); _, _ = first.Process.Wait() })
+	firstStart, ok := proc.StartTime(first.Process.Pid)
+	if !ok {
+		t.Fatal("read the first serve's start time")
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := json.Marshal(map[string]any{"pid": first.Process.Pid, "start": firstStart, "hostname": hostname})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, watch.HandoverName), request, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ack := filepath.Join(h.State, watch.HandoverAckName)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if data, err := os.ReadFile(ack); err == nil && strings.Contains(string(data), fmt.Sprintf(`"serve_pid":%d`, first.Process.Pid)) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the watcher never answered the first serve")
+		}
+	}
+	_ = first.Process.Kill()
+	_, _ = first.Process.Wait()
+	for _, name := range []string{watch.HandoverName, watch.HandoverAckName} {
+		if err := os.Remove(filepath.Join(h.State, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s, err := Start(context.Background(), h, Options{})
+
+	if err != nil {
+		t.Fatalf("the second serve refused to start over a watcher yielding to it: %v", err)
+	}
+	defer s.Close()
+	if code := hook.exitsWithin(t, 10*time.Second); code != 0 {
+		t.Errorf("the watcher exited %d, want it left to finish its inspection and yield, not ended", code)
+	}
+	if !lock.HeldByNamed(h.State, watchLock, os.Getpid()) {
+		t.Error("the second serve runs without holding the watcher lock")
+	}
+}
+
+// heldOpenByReaders keeps opening the watcher lock the way every reader of it
+// does, without delete sharing, holding it a while each time, as a Stop hook,
+// cfo doctor or the board checking who holds the lock, until the test ends.
+func heldOpenByReaders(t *testing.T, stateDir string) {
+	t.Helper()
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			if f, err := os.Open(filepath.Join(stateDir, watchLock)); err == nil {
+				time.Sleep(100 * time.Millisecond)
+				_ = f.Close()
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(stop)
+		<-stopped
+	})
+}
+
 // The Stop hook that held the lock on 2026-10-01 ran a binary from before
 // the handover and never reads the request. Once the wait runs out, serve
 // ends that watcher alone, proved by its lock record, its start time and its
@@ -217,6 +307,7 @@ func TestServeEndsAWatcherThatNeverAnswersTheHandover(t *testing.T) {
 	setHandoverWait(t, 2*time.Second)
 	_, h := testStore(t)
 	cfoHost := startStandIn(t, h.State, "idle", "cfo.exe", "host", "--id", "cfo")
+	heldOpenByReaders(t, h.State)
 	for round := 1; round <= 2; round++ {
 		hook := startStandIn(t, h.State, "legacy", "goblins.exe", "hook", "stop-autoarm")
 

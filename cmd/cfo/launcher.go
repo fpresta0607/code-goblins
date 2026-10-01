@@ -177,8 +177,7 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 		// board, and says why it started none when no board comes.
 		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
 			if startErr != nil {
-				fmt.Fprintf(stderr, "goblins: the supervisor was not started, because another process holds %s (%v), and no other supervisor started either\n", serveLogPath(h.State), startErr)
-				return "", false, false
+				fmt.Fprintf(stderr, "goblins: the supervisor was not started, because another process held %s (%v)\n", serveLogPath(h.State), startErr)
 			}
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
 			return "", false, false

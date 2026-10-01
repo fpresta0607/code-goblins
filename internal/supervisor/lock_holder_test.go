@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,7 +9,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -17,7 +20,9 @@ import (
 // "watcher" runs a real watcher, which answers a serve's handover; "legacy"
 // holds the lock as a watcher from before the handover did, never reading the
 // request; "acknowledging" answers the request as a watcher winding a slow
-// cycle down does and lets the lock go acknowledgedHold later; "idle" holds
+// cycle down does and lets the lock go acknowledgedHold later; "slow-watcher"
+// runs a real watcher whose monitor scan cannot be cut short, each inspection
+// taking unheededInspection whatever its context says; "idle" holds
 // nothing, a bystander such as a terminal's host.
 const (
 	lockHolderVariable     = "CFO_TEST_LOCK_HOLDER_STATE"
@@ -30,6 +35,14 @@ func holdWatcherLock(stateDir, mode string) int {
 	case "watcher":
 		cfg := watch.ConfigFromEnv(home.Home{Root: filepath.Dir(stateDir), State: stateDir})
 		cfg.Monitor, cfg.Reap, cfg.FileEvery = nil, nil, 0
+		if _, err := watch.Run(cfg); err != nil {
+			return 1
+		}
+		return 0
+	case "slow-watcher":
+		cfg := watch.ConfigFromEnv(home.Home{Root: filepath.Dir(stateDir), State: stateDir})
+		cfg.Reap, cfg.FileEvery = nil, 0
+		cfg.Monitor = &monitor.Service{StateDir: stateDir, Probe: unheedingProbe{}, Now: time.Now, StaleEscalateAfter: time.Minute, BusyTurnMax: time.Hour, PauseResurfaceAfter: time.Hour, Heartbeat: time.Minute, HeartbeatMax: time.Hour}
 		if _, err := watch.Run(cfg); err != nil {
 			return 1
 		}
@@ -74,9 +87,26 @@ func acknowledgeFirstRequest(stateDir string) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	start, _ := proc.StartTime(os.Getpid())
-	data, err := json.Marshal(map[string]any{"watcher_pid": os.Getpid(), "watcher_start": start, "serve_pid": request.PID, "serve_start": request.Start})
+	hostname, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(map[string]any{"watcher_pid": os.Getpid(), "watcher_start": start, "watcher_hostname": hostname, "serve_pid": request.PID, "serve_start": request.Start})
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(stateDir, watch.HandoverAckName), data, 0o600)
+}
+
+// unheededInspection is how long each of a slow watcher's inspections takes.
+const unheededInspection = 10 * time.Second
+
+// unheedingProbe stands for an inspection that cannot be interrupted, such as
+// a screen read already under way: it ends when it ends, then reports the
+// context's state.
+type unheedingProbe struct{}
+
+func (unheedingProbe) Inspect(ctx context.Context, _ state.TaskMeta) (monitor.EndpointSample, error) {
+	time.Sleep(unheededInspection)
+	return monitor.EndpointSample{}, ctx.Err()
 }

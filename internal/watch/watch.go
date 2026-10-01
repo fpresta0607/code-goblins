@@ -344,26 +344,30 @@ func Run(cfg Config) (string, error) {
 		}
 		return "", fmt.Errorf("watch: acquire singleton: %w", err)
 	}
-	// LIFO: this defer is registered first and so runs SECOND (after
-	// Cleanup below), releasing the singleton only once Cleanup (Task 9's
-	// filesystem watch teardown) has already run.
+	// A serve asking for the lock cancels the cycle in progress, whatever
+	// it is waiting on, and the watcher yields once it winds down. ctx is
+	// cancelled only for that, so a done ctx means a serve took over. Every
+	// serve that asks is answered until the lock is let go, so this defer is
+	// registered first and runs last.
+	ctx, cancel := context.WithCancel(context.Background())
+	released := make(chan struct{})
+	answering := make(chan struct{})
+	go func() {
+		defer close(answering)
+		yieldOnRequest(released, cancel, cfg.Home.State)
+	}()
+	defer func() {
+		close(released)
+		<-answering
+		cancel()
+	}()
+	// LIFO: this defer runs after Cleanup below, releasing the singleton
+	// only once Cleanup (Task 9's filesystem watch teardown) has already
+	// run.
 	defer lock.ReleaseNamed(cfg.Home.State, watchLockName)
 	if cfg.Cleanup != nil {
 		defer cfg.Cleanup()
 	}
-	// A serve asking for the lock cancels the cycle in progress, whatever
-	// it is waiting on, and the watcher yields once it winds down. ctx is
-	// cancelled only for that, so a done ctx means a serve took over.
-	ctx, cancel := context.WithCancel(context.Background())
-	watching := make(chan struct{})
-	go func() {
-		defer close(watching)
-		yieldOnRequest(ctx, cancel, cfg.Home.State)
-	}()
-	defer func() {
-		cancel()
-		<-watching
-	}()
 
 	var lastFiled time.Time
 	for {

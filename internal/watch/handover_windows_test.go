@@ -217,16 +217,18 @@ func TestAWatcherInASlowCycleYieldsAtOnceAndAnswersTheServe(t *testing.T) {
 	}
 	var ack struct {
 		WatcherPID   int       `json:"watcher_pid"`
-		WatcherStart time.Time `json:"watcher_start"`
-		ServePID     int       `json:"serve_pid"`
-		ServeStart   time.Time `json:"serve_start"`
+		WatcherStart    time.Time `json:"watcher_start"`
+		WatcherHostname string    `json:"watcher_hostname"`
+		ServePID        int       `json:"serve_pid"`
+		ServeStart      time.Time `json:"serve_start"`
 	}
 	if err := json.Unmarshal(data, &ack); err != nil {
 		t.Fatal(err)
 	}
 	watcherStart, _ := proc.StartTime(os.Getpid())
 	serveStart, _ := proc.StartTime(serve)
-	if ack.WatcherPID != os.Getpid() || !ack.WatcherStart.Equal(watcherStart) || ack.ServePID != serve || !ack.ServeStart.Equal(serveStart) {
+	hostname, _ := os.Hostname()
+	if ack.WatcherPID != os.Getpid() || !ack.WatcherStart.Equal(watcherStart) || ack.WatcherHostname != hostname || ack.ServePID != serve || !ack.ServeStart.Equal(serveStart) {
 		t.Errorf("the answer %+v does not name this watcher (pid %d, %s) and the serve (pid %d, %s)", ack, os.Getpid(), watcherStart, serve, serveStart)
 	}
 }
