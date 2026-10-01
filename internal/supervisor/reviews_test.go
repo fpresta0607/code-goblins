@@ -487,7 +487,7 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 		{"an answer delivered", answer(true), false, false},
 		{"an item the CFO's answer cleared", func(r *Review) { r.State, r.Reason = "cleared", "The CFO answered task-1's question." }, false, false},
 		{"a page answered for the CFO to relay", func(r *Review) {
-			r.State, r.Reason = "withdrawn", "The Overlord answered on the page; the CFO relays it."
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason = "answered", "overlord", "page", "You answered on its page; the CFO relays it to the goblin."
 		}, false, false},
 		{"an earlier wait's delivered answer", answer(true), true, true},
 	} {

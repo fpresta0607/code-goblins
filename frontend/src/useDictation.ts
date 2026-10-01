@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Dictation, dictationKey, speechRecognition } from "./dictation";
+import { Dictation, dictationKey, openMicrophone, speechRecognition } from "./dictation";
 
 // A note about dictation stays this long over the terminal.
 const NOTE_MS = 6000;
@@ -7,12 +7,19 @@ const NOTE_MS = 6000;
 // Push-to-talk dictation for one terminal. Its key handler hands every key to
 // key first: false means the terminal must not see the key, true that it may,
 // and null that the key is not dictation's. What was heard is typed with type.
-export function useDictation(type: (text: string) => void) {
+// deferTo answers, at each press, whether another recorder owns the shortcut
+// (SIQspeak, when it runs), so one press never starts two recorders. level
+// reads the microphone while listening, for the voice bubble's waveform.
+export function useDictation(type: (text: string) => void, deferTo?: () => Promise<boolean>) {
   const [listening, setListening] = useState(false);
   const [note, setNote] = useState("");
   const typeText = useRef(type);
-  useEffect(() => { typeText.current = type; });
+  const defer = useRef(deferTo);
+  useEffect(() => { typeText.current = type; defer.current = deferTo; });
   const dictation = useRef<Dictation | null>(null);
+  // presses counts presses and releases, so a check that answers after the
+  // keys were let go starts nothing.
+  const presses = useRef(0);
   useEffect(() => () => { dictation.current?.dispose(); dictation.current = null; }, []);
   useEffect(() => {
     if (!note) return;
@@ -38,11 +45,22 @@ export function useDictation(type: (text: string) => void) {
     if (!meaning) return null;
     if (meaning.swallow) event.preventDefault();
     if (meaning.action === "start") {
-      dictation.current ??= new Dictation({ heard: (text) => typeText.current(text), listening: setListening, problem: setNote }, speechRecognition, navigator.language || "en-US");
-      dictation.current.start();
+      const press = ++presses.current;
+      const begin = () => {
+        if (press !== presses.current) return;
+        dictation.current ??= new Dictation({ heard: (text) => typeText.current(text), listening: setListening, problem: setNote }, speechRecognition, navigator.language || "en-US", openMicrophone);
+        dictation.current.start();
+      };
+      const check = defer.current;
+      if (!check) begin();
+      else check().then((deferred) => { if (!deferred) begin(); }, begin);
     }
-    if (meaning.action === "stop") dictation.current?.stop();
+    if (meaning.action === "stop") {
+      presses.current++;
+      dictation.current?.stop();
+    }
     return !meaning.swallow;
   }, []);
-  return { listening, note, key };
+  const level = useCallback(() => dictation.current?.level() ?? 0, []);
+  return { listening, note, key, level };
 }
