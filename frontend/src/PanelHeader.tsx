@@ -7,6 +7,7 @@ import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { waitingItems, type Item } from "./commandQueue";
+import { credentialAsk } from "./credentials";
 import { ShowMore } from "./ShowMore";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
@@ -28,7 +29,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;
   // What this goblin waits on the Overlord for: a question or a review item.
   // Runs are the CFO's own and never wait on a goblin's panel.
-  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.review.task) === task.id) : undefined;
+  const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
     if (!task || opening) return;
     setOpening(true); setOutcome("");
@@ -50,7 +51,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? waiting.question.text : waiting.review.title)} data-tip="Answer in the Command Center" onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? waiting.question.text : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.review.title)} data-tip="Answer in the Command Center" onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
     </div>}
     {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
