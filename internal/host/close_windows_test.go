@@ -204,6 +204,12 @@ func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
 // would never go and reported a host that had ended as one that did not. The
 // host ended is what Close waits for, so it takes the host's end as its end
 // and removes the record the host could not.
+//
+// The reader lets go when Running says the host has ended, which is the
+// moment Close starts its own removal, tried for removeWait. Let go by any
+// later sign of the host's end, the reader can outlast that removal: one let
+// go 2.1 seconds late left the record behind with Close returning nil, which
+// is how this test failed in CI on 2026-10-01.
 func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 	stateDir, record := launch(t)
 	reader, err := os.Open(recordPath(stateDir, record.ID))
@@ -211,17 +217,22 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 	released := make(chan struct{})
+	var heldErr error
 	go func() {
 		defer close(released)
-		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(20 * time.Second); Running(record) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
+		_, heldErr = ReadRecord(stateDir, record.ID)
 		_ = reader.Close()
 	}()
 
 	err = Close(stateDir, record, time.Second)
 	<-released
 
+	if heldErr != nil {
+		t.Fatalf("the premise failed: the record the reader held was not there as its host ended: %v", heldErr)
+	}
 	if err != nil {
 		t.Fatalf("Close: %v", err)
 	}
