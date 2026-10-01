@@ -358,6 +358,58 @@ func TestExpiredCredentialRequestTakesNoValueAndTellsTheCFO(t *testing.T) {
 	}
 }
 
+// Expiry waits for a save in flight: a request the save records as saved just
+// past its expiry stays saved, and the CFO hears nothing of it expiring.
+func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
+	// Arrange
+	b := newCredentialBoard(t, "STRIPE_SECRET_KEY")
+	b.service.Store.mu.Lock()
+	b.service.Store.db.Credentials[0].ExpiresAt = time.Now().Add(-time.Minute)
+	b.service.Store.mu.Unlock()
+	b.service.credentialSaves.Lock()
+	expired := make(chan error, 1)
+
+	// Act
+	go func() { expired <- b.service.expireCredentials(time.Now()) }()
+	var finishedDuringSave bool
+	select {
+	case <-expired:
+		finishedDuringSave = true
+	case <-time.After(200 * time.Millisecond):
+	}
+	now := time.Now().UTC()
+	_, recordErr := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) {
+		r.State, r.Saved, r.ClosedAt = "saved", []string{"STRIPE_SECRET_KEY"}, &now
+	})
+	b.service.credentialSaves.Unlock()
+	var expireErr error
+	if !finishedDuringSave {
+		select {
+		case expireErr = <-expired:
+		case <-time.After(5 * time.Second):
+			t.Fatal("expiry never finished once the save released the request")
+		}
+	}
+
+	// Assert
+	if finishedDuringSave {
+		t.Fatal("expiry acted on the request while a save held it")
+	}
+	if recordErr != nil || expireErr != nil {
+		t.Fatal(recordErr, expireErr)
+	}
+	if request := b.stored(); request.State != "saved" {
+		t.Fatalf("request after the save and expiry = %+v, want it saved", request)
+	}
+	pending, err := wake.Pending(b.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("wakes = %+v, want no expired-unsaved notice for a saved request", pending)
+	}
+}
+
 // A name that already holds a value in the scope is replaced only when the
 // save says so, which the card asks the Overlord first.
 func TestCredentialSaveReplacesAStoredValueOnlyWhenConfirmed(t *testing.T) {

@@ -885,6 +885,8 @@ func (s *Service) credentialNotice(request CredentialRequest, detail string) {
 // tells the CFO the names still unsaved, so it can ask again if they are still
 // needed. A request whose terminal is open expires once the terminal ends.
 func (s *Service) expireCredentials(now time.Time) error {
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
 	expired, err := s.Store.expireCredentials(now)
 	for _, request := range expired {
 		unsaved := slices.DeleteFunc(slices.Clone(request.Names), func(name string) bool { return slices.Contains(request.Saved, name) })
