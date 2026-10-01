@@ -3,7 +3,7 @@ import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
 import { TaskCard } from "./TaskCard";
-import { nextChip, queueBlock } from "./start";
+import { memoryBlock, nextChip, queueBlock } from "./start";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
@@ -23,7 +23,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
     {memory && <MemoryMeter memory={memory} />}
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
-        next={task.id === nextTask?.id ? { text: nextChip(memory), waiting: !!memory && memory.available < memory.next } : undefined}
+        next={task.id === nextTask?.id ? { text: nextChip(memory), waiting: !!memoryBlock(memory) } : undefined}
         start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} /></RenderBoundary>
   </>;
 }

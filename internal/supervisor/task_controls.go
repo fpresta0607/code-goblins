@@ -101,9 +101,13 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		// An interrupted launch may already be using its memory. The shared
 		// CLI proves it is running, or enforces the floor before a new launch.
 		if !isInterruptedResume {
-			available, _, err := s.Options.Dispatch.Memory()
-			if err != nil || available < memoryNext {
+			memory, err := s.Options.Dispatch.Memory()
+			if err != nil {
 				apiError(w, 409, "Resume needs 5 GB free to keep the 4 GB floor")
+				return
+			}
+			if short := memory.shortfall(); short != "" {
+				apiError(w, 409, short+"; Resume needs 5 GB to keep the 4 GB floor")
 				return
 			}
 		}

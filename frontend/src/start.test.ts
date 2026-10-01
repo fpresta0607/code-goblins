@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, meterScale, meterState, nextChip, refusalStands, startBlock, startOutcome } from "./start.ts";
+import { freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, poolWarning, refusalStands, startBlock, startOutcome, tighter } from "./start.ts";
 import { parseSnapshot, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
-const memory = (available: number): Memory => ({ available: available * GB, total: 32 * GB, floor: 4 * GB, next: 5 * GB });
+// memory is a machine with available GB of memory and, unless given, ample
+// commit and healthy kernel pools.
+const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, floor: 4 * GB, next: 5 * GB, holders: [] });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
 test("the meter says when the CFO starts the next task, and never that one starts by itself", () => {
@@ -43,6 +45,54 @@ test("the next eligible task waits for 5 GB when memory is short", () => {
   assert.equal(nextChip(memory(5)), "Next up");
   assert.equal(nextChip(memory(4.2)), "Next, at 5 GB free");
   assert.equal(nextChip(null), "Next up");
+});
+
+test("the meter shows commit instead of memory only while commit is the tighter", () => {
+  assert.deepEqual(tighter(memory(7.3, 20)), { isCommit: false, free: 7.3 * GB, total: 32 * GB });
+  assert.deepEqual(tighter(memory(3.4, 2.5)), { isCommit: true, free: 2.5 * GB, total: 48 * GB });
+  assert.deepEqual(tighter(memory(5, 5)), { isCommit: false, free: 5 * GB, total: 32 * GB }, "a tie shows memory, as the meter always has");
+  assert.deepEqual(meterState(memory(16, 3.5)), { tone: "under", text: "Under the 4 GB floor: nothing starts until commit frees." });
+  assert.equal(meterState(memory(16, 4.5)).tone, "waiting");
+  assert.deepEqual(meterScale(memory(16, 4.5)), { fill: 45, floor: 40, next: 50 });
+  assert.deepEqual(meterScale({ ...memory(16, 2), commit_limit: 5 * GB }), { fill: 40, floor: 80, next: 100 }, "a commit limit under the bar's span spans its own");
+});
+
+test("Start, Resume and the next task name commit when it is the one short, and clear once both reach 5 GB", () => {
+  assert.equal(startBlock(task(), memory(4.9, 40), false), "Needs 5 GB free to keep the 4 GB floor");
+  assert.equal(startBlock(task(), memory(16, 4.9), false), "Needs 5 GB of commit free to keep the 4 GB floor");
+  assert.equal(startBlock(task(), memory(5, 5), false), "");
+  assert.equal(memoryBlock(memory(16, 2.5)), "5 GB of commit free to keep the 4 GB floor");
+  assert.equal(memoryBlock(memory(4.9, 2.5)), "5 GB of commit free to keep the 4 GB floor", "both short names the tighter");
+  assert.equal(memoryBlock(memory(5, 5)), "");
+  assert.equal(memoryBlock(null), "");
+  assert.equal(nextChip(memory(16, 4.2)), "Next, at 5 GB free");
+  assert.equal(nextChip(memory(5, 5)), "Next up");
+});
+
+test("the meter names the apps holding the most commit only while commit is the tighter", () => {
+  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
+  assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
+  assert.equal(holdersLine({ ...memory(3.4, 20), holders }), "", "memory is the tighter");
+  assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
+});
+
+test("a paged pool past 4 GB warns that a driver is leaking and a reboot frees it", () => {
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: a driver is leaking memory; a reboot frees it.");
+  assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
+});
+
+test("the snapshot's memory carries commit, the kernel pools and the apps holding the most commit", () => {
+  // Arrange
+  const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, floor: 7, next: 8 };
+
+  // Act
+  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] } }).memory;
+  const withoutHolders = parseSnapshot({ healthy: true, memory: wire }).memory;
+
+  // Assert
+  assert.deepEqual(withHolders, { ...wire, holders: [{ name: "ChatGPT", commit: 9 }] });
+  assert.deepEqual(withoutHolders, { ...wire, holders: [] });
 });
 
 test("an accepted Start opens its goblin once its session is up, stops on a failure of this start, and otherwise waits", () => {

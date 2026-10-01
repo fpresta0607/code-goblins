@@ -46,8 +46,9 @@ $out = foreach ($r in $rows.Values) {
 }
 ConvertTo-Json -InputObject @($out) -Compress -Depth 3`
 
-// machineScript reads memory, the disk holding the CFO home, and the WSL
-// virtual machine's footprint, in one query.
+// machineScript reads memory, commit, the disk holding the CFO home, and the
+// WSL virtual machine's footprint, in one query. Win32_OperatingSystem gives
+// the commit figures in kilobytes.
 //
 // Available memory is read from the performance counter rather than from
 // Win32_OperatingSystem.FreePhysicalMemory, which counts only the free and
@@ -68,6 +69,8 @@ $wsl = Get-Process -Name vmmem,vmmemWSL -ErrorAction SilentlyContinue | Measure-
 [pscustomobject]@{
   memory_total = [int64]$os.TotalVisibleMemorySize * 1024
   memory_available = [int64]$memory.AvailableBytes
+  commit_available = [int64]$os.FreeVirtualMemory * 1024
+  commit_limit = [int64]$os.TotalVirtualMemorySize * 1024
   disk_name = [string]$disk.DeviceID
   disk_total = [int64]$disk.Size
   disk_free = [int64]$disk.FreeSpace
@@ -125,7 +128,7 @@ func (s System) Listeners(ctx context.Context) ([]Listener, error) {
 	return listeners, nil
 }
 
-// Machine reads memory, disk and the WSL footprint. disk is the drive the
+// Machine reads memory, commit, disk and the WSL footprint. disk is the drive the
 // report accounts for, as a DeviceID such as "C:".
 func (s System) Machine(ctx context.Context, disk string) (Machine, error) {
 	raw, err := s.run(ctx, fmt.Sprintf(machineScript, disk))
@@ -135,6 +138,8 @@ func (s System) Machine(ctx context.Context, disk string) (Machine, error) {
 	var row struct {
 		MemoryTotal     int64  `json:"memory_total"`
 		MemoryAvailable int64  `json:"memory_available"`
+		CommitAvailable int64  `json:"commit_available"`
+		CommitLimit     int64  `json:"commit_limit"`
 		DiskName        string `json:"disk_name"`
 		DiskTotal       int64  `json:"disk_total"`
 		DiskFree        int64  `json:"disk_free"`
@@ -146,6 +151,8 @@ func (s System) Machine(ctx context.Context, disk string) (Machine, error) {
 	return Machine{
 		MemoryTotal:     row.MemoryTotal,
 		MemoryAvailable: row.MemoryAvailable,
+		CommitAvailable: row.CommitAvailable,
+		CommitLimit:     row.CommitLimit,
 		DiskName:        row.DiskName,
 		DiskTotal:       row.DiskTotal,
 		DiskFree:        row.DiskFree,
