@@ -85,6 +85,9 @@ func (s *Service) watchPage(ctx context.Context, r Review) {
 		if err == nil && (poll.Status == "waiting" || poll.Status == "browser_disconnected") {
 			failures = 0
 			if poll.Status == "browser_disconnected" {
+				if err := s.Store.windowClosed(r.ID, time.Now().UTC()); err != nil {
+					s.publish(err)
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -146,6 +149,9 @@ func (s *Service) handPageToCFO(ctx context.Context, r Review, poll axi.PagePoll
 			detail += "; he ended the review"
 		}
 		closed = Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: answered}
+		if err := s.Store.answerQuestionsOnPage(r, strings.Join(poll.Prompts, "\n")); err != nil {
+			s.publish(err)
+		}
 	case poll.Status == "ended" && poll.EndedBy == "agent":
 		detail = "an agent, not the Overlord, ended the review of " + r.LavishPage + " before he answered on it"
 		closed.Reason = "An agent ended the review on its page; the CFO was told."

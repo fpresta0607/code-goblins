@@ -57,6 +57,13 @@ type Question struct {
 	AnsweredOption string     `json:"answered_option,omitempty"`
 	AnsweredBy     string     `json:"answered_by,omitempty"`
 	AnsweredAt     *time.Time `json:"answered_at,omitempty"`
+	// AnsweredIn says where an answer given outside the question's own card
+	// came from, such as page for the Overlord's answer on the review page
+	// that carries it.
+	AnsweredIn string `json:"answered_in,omitempty"`
+	// Page is, on the board only, the open review item whose page carries
+	// this question, so the Command Center shows the two as one.
+	Page string `json:"page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -596,6 +603,7 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
+	s.closePagesOfQuestion(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 

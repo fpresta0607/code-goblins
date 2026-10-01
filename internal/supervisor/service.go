@@ -802,6 +802,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		out.Reviews[i] = r
 	}
+	// A goblin's question asked while its review page is open is that page's
+	// item, so the Command Center shows one card: each names the other, the
+	// page its newest pending question.
+	for i := range out.Reviews {
+		r := &out.Reviews[i]
+		for j := range out.Questions {
+			if q := &out.Questions[j]; carriesQuestion(*r, *q) {
+				q.Page, r.Question = r.ID, q.ID
+			}
+		}
+	}
 	// The board sees what runs and how it went, never the process or digest.
 	out.Runs = make([]Run, len(d.Runs))
 	for i, r := range d.Runs {

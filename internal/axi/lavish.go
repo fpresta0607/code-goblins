@@ -3,6 +3,7 @@ package axi
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,9 @@ type PagePoll struct {
 	// EndedBy says who ended an ended session: user for the Overlord on the
 	// page, agent for an agent that ran lavish-axi end.
 	EndedBy string
+	// Prompts is what the Overlord wrote on the page, one entry per prompt,
+	// when lavish-axi printed its prompts as a table.
+	Prompts []string
 	// Output is the poll's whole output, which the CFO reads.
 	Output string
 }
@@ -62,7 +66,66 @@ func (l Lavish) Poll(ctx context.Context, file string, timeout time.Duration) (P
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Output: output}, nil
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: promptTexts(output), Output: output}, nil
+}
+
+// promptTexts reads the prompt column of the top-level TOON `prompts` table,
+// one entry per row, unquoting a quoted value. Prompts printed as a list, or
+// a table without that column, read as none.
+func promptTexts(output string) []string {
+	var texts []string
+	column := -1
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		if column < 0 {
+			header, ok := strings.CutPrefix(line, "prompts[")
+			_, fields, found := strings.Cut(header, "]{")
+			if ok && found && strings.HasSuffix(fields, "}:") {
+				column = slices.Index(strings.Split(strings.TrimSuffix(fields, "}:"), ","), "prompt")
+				if column < 0 {
+					return nil
+				}
+			}
+			continue
+		}
+		row, ok := strings.CutPrefix(line, "  ")
+		if !ok {
+			break
+		}
+		if values := tableRow(row); column < len(values) {
+			texts = append(texts, values[column])
+		}
+	}
+	return texts
+}
+
+// tableRow splits one row of a comma-delimited TOON table, unquoting each
+// quoted value.
+func tableRow(row string) []string {
+	var values []string
+	for row != "" || len(values) == 0 {
+		var value string
+		if strings.HasPrefix(row, `"`) {
+			end := 1
+			for end < len(row) && row[end] != '"' {
+				if row[end] == '\\' {
+					end++
+				}
+				end++
+			}
+			if end >= len(row) {
+				return values
+			}
+			unquoted, err := strconv.Unquote(row[:end+1])
+			if err != nil {
+				return values
+			}
+			value, row = unquoted, strings.TrimPrefix(row[end+1:], ",")
+		} else {
+			value, row, _ = strings.Cut(row, ",")
+		}
+		values = append(values, value)
+	}
+	return values
 }
 
 // sessionField reads one scalar field of the top-level TOON `session:`

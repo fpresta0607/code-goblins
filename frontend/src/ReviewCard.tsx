@@ -6,6 +6,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
+import { messageElements } from "./messageText";
 import type { Draft } from "./QuestionCard";
 
 export const reviewImages = (review: Review) => Array.from({ length: review.image_count }, (_, n) => "/api/reviews/" + encodeURIComponent(review.id) + "/images/" + n);
@@ -33,15 +34,21 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const status = waitsOnOverlord(review);
   const answersHere = pending && !review.watched && !status;
   const target = status ? waitTarget(review, snapshot) : null;
+  // The goblin's question this page carries, which the card shows as its own.
+  const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
+  const closedAt = review.window_closed_at ? new Date(review.window_closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    <h3 id={"review-" + review.id} tabIndex={-1}>{status ? waitReason(review) : review.title}</h3>
-    {target && <p className="wait-target">{target.says}</p>}
-    {review.lavish && !status && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
+    {asked ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked.text)}</div>
+      : <h3 id={"review-" + review.id} tabIndex={-1}>{status ? waitReason(review) : review.title}</h3>}
+    {target && !review.watched && <p className="wait-target">{target.says}</p>}
+    {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + review.title}>
       <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{review.title}</strong><span>Review page</span></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">Answer on the page itself; this card finishes when you send or end the review there.</p>}
+    {review.lavish && pending && review.watched && <p className="review-status">{closedAt
+      ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
+      : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
