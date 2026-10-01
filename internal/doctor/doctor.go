@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
@@ -92,7 +93,7 @@ func Run() []Check {
 			checks = append(checks, check)
 			continue
 		}
-		out, err := exec.Command(path, "--version").Output()
+		out, err := execx.Command(path, "--version").Output()
 		if err != nil {
 			check.Err = tool.name + " --version failed"
 			checks = append(checks, check)
@@ -303,7 +304,7 @@ func ProbeHarnesses(ctx context.Context) []HarnessProbe {
 func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(probeCtx, path, "--version").Output()
+	out, err := execx.CommandContext(probeCtx, path, "--version").Output()
 	if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
 		return HarnessProbe{Name: name, Detail: name + " --version timed out"}
 	}

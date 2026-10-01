@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -81,7 +80,7 @@ func runGateTest(dir string, stdout, stderr io.Writer) int {
 		append([]string{"vet"}, packages...),
 		append([]string{"test", "-count=1", "-p", "2", "-timeout", "45m"}, packages...),
 	} {
-		command := exec.Command("go", args...)
+		command := execx.Command("go", args...)
 		command.Dir, command.Env, command.Stdout, command.Stderr = dir, env, stdout, stderr
 		if err := command.Run(); err != nil {
 			fmt.Fprintf(stderr, "cfo gate test: go %s: %v\n", args[0], err)
