@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -30,7 +29,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	if observation.Health == HealthStale && observation.Reason == GoblinIdle {
 		return observation
 	}
-	atPrompt := sample.Status == herdr.AgentDone || sample.Status == herdr.AgentIdle || sample.InteractiveReady && sample.Status != herdr.AgentWorking && sample.Status != herdr.AgentBlocked
+	atPrompt := sample.Status == StatusDone || sample.Status == StatusIdle || sample.InteractiveReady && sample.Status != StatusWorking && sample.Status != StatusBlocked
 	_, running := paneRunning(sample)
 	quiet := observation.Health == HealthIdle || observation.Health == HealthBusy
 	if !atPrompt || running || !quiet || observation.Reason != None || s.heldByVerb(meta.ID, observation) || led.unanswered(meta.ID) {

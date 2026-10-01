@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -77,7 +77,7 @@ func TestScanReAsksAnUnansweredDecisionInsteadOfGoingQuiet(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	park(t, service, stateDir, "g1", "merge or hold?")
@@ -110,8 +110,8 @@ func TestScanNeverReAsksAGoblinThatIsWorking(t *testing.T) {
 		status string
 		record string
 	}{
-		{herdr.AgentWorking, "blocked: unrelated older question"},
-		{herdr.AgentIdle, "done: PR https://example.test/repo/pull/3"},
+		{StatusWorking, "blocked: unrelated older question"},
+		{StatusIdle, "done: PR https://example.test/repo/pull/3"},
 	} {
 		t.Run(test.status, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -155,7 +155,7 @@ func TestScanHoldsTheNoChangeStreakWhileADecisionIsUnanswered(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	park(t, service, stateDir, "g1", "merge or hold?")
@@ -197,7 +197,7 @@ func TestScanStopsReAskingOnceTheDecisionIsAcked(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	park(t, service, stateDir, "g1", "merge or hold?")
@@ -227,7 +227,7 @@ func TestScanReAsksAnUnansweredFailedNotify(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	notifyFrom(t, service, stateDir, "g1", "failed: ci step can never pass; abort or fix?")
@@ -271,8 +271,8 @@ func TestScanKeepsTheReAskClockAcrossAnIndeterminateReading(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	done := sampleForStatus(meta, herdr.AgentDone, "same")
-	blip := sampleForStatus(meta, herdr.AgentUnknown, "same")
+	done := sampleForStatus(meta, StatusDone, "same")
+	blip := sampleForStatus(meta, StatusUnknown, "same")
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": done}}
 	service := decisionService(stateDir, probe, &now)
 
@@ -308,7 +308,7 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	notifyFrom(t, service, stateDir, "g1", "done: PR https://example.test/repo/pull/7")
@@ -318,7 +318,7 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 
 	// The pane's own counter advances, which releases the gate the terminal
 	// verb was holding, and herdr reports the turn ended again.
-	released := sampleForStatus(meta, herdr.AgentDone, "same")
+	released := sampleForStatus(meta, StatusDone, "same")
 	released.StateChangeSeq++
 	probe.samples["g1"] = released
 
@@ -347,7 +347,7 @@ func TestScanReAsksAfterAnAckedDoneLeavesTheGoblinWaitingAgain(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	notifyFrom(t, service, stateDir, "g1", "done: PR https://example.test/repo/pull/7")
@@ -364,12 +364,12 @@ func TestScanReAsksAfterAnAckedDoneLeavesTheGoblinWaitingAgain(t *testing.T) {
 	// The CFO steers the acked goblin back to work; its turn then ends at the
 	// prompt with a question, and it files no new notify. The `done:` line it
 	// wrote earlier is still the latest verb in its status file.
-	working := sampleForStatus(meta, herdr.AgentWorking, "moved")
+	working := sampleForStatus(meta, StatusWorking, "moved")
 	working.StateChangeSeq++
 	probe.samples["g1"] = working
 	cycle(t, service, &now, 1)
 
-	waiting := sampleForStatus(meta, herdr.AgentDone, "moved")
+	waiting := sampleForStatus(meta, StatusDone, "moved")
 	waiting.StateChangeSeq = working.StateChangeSeq + 1
 	probe.samples["g1"] = waiting
 
@@ -400,7 +400,7 @@ func TestScanReAsksAGoblinWaitingBehindTheWatchersDecisionSignal(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	if _, err := service.Scan(context.Background()); err != nil {
@@ -458,7 +458,7 @@ func TestScanKeepsReAskingWhenCountersAdvancePastTheStatusVerbGate(t *testing.T)
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	sample := sampleFor(meta, herdr.BusyIdle, "same")
+	sample := sampleFor(meta, crewstate.BusyIdle, "same")
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
 	service := decisionService(stateDir, probe, &now)
 
@@ -507,7 +507,7 @@ func TestScanReAsksAGoblinWaitingAtItsPromptWithNoNotify(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	// The ended turn becomes the awaiting-answer stall and the watcher
@@ -550,7 +550,7 @@ func TestScanStopsReAskingTheWaitingPromptOnceItIsAcked(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	cycle(t, service, &now, 1)
@@ -586,7 +586,7 @@ func TestScanStopsReAskingAQuestionAnsweredOnTheBoard(t *testing.T) {
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := decisionService(stateDir, probe, &now)
 
 	park(t, service, stateDir, "g1", "merge or hold? options: merge | hold")

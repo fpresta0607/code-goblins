@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -240,16 +240,9 @@ type erroringProbe struct{}
 
 func (erroringProbe) Inspect(_ context.Context, meta state.TaskMeta) (monitor.EndpointSample, error) {
 	return monitor.EndpointSample{
-		Verdict: monitor.ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
+		Verdict:  monitor.ProbePresent,
 		TabLabel: "gb-" + meta.ID,
-		Agent:    herdr.AgentAlive,
-		Busy:     herdr.BusyWorking,
+		Busy:     crewstate.BusyWorking,
 		Capture:  []byte("API error: 403 quota exceeded for this organization\n"),
 	}, nil
 }
@@ -622,22 +615,14 @@ func TestRunWritesTypedHeartbeat(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
+func TestConfigFromEnvInstallsTheNativeProber(t *testing.T) {
 	dir := t.TempDir()
 	cfg := ConfigFromEnv(home.Home{State: dir})
 	if cfg.Monitor == nil {
-		t.Fatal("ConfigFromEnv Monitor = nil, want the structural Herdr monitor for both watch entry paths")
+		t.Fatal("ConfigFromEnv Monitor = nil, want the monitor for both watch entry paths")
 	}
-	backends, ok := cfg.Monitor.Probe.(monitor.BackendProber)
-	if !ok {
-		t.Fatalf("ConfigFromEnv Probe = %T, want monitor.BackendProber", cfg.Monitor.Probe)
-	}
-	prober, ok := backends.Herdr.(*monitor.HerdrProber)
-	if !ok {
-		t.Fatalf("ConfigFromEnv Herdr prober = %T, want *monitor.HerdrProber", backends.Herdr)
-	}
-	if native, ok := backends.Native.(monitor.NativeProber); !ok || native.StateDir != dir {
-		t.Errorf("ConfigFromEnv native prober = %#v, want a monitor.NativeProber reading this home's hosts", backends.Native)
+	if native, ok := cfg.Monitor.Probe.(monitor.NativeProber); !ok || native.StateDir != dir {
+		t.Errorf("ConfigFromEnv Probe = %#v, want a monitor.NativeProber reading this home's hosts", cfg.Monitor.Probe)
 	}
 	if progress, ok := cfg.Monitor.Progress.(monitor.HostProgress); !ok || progress.StateDir != dir {
 		t.Errorf("ConfigFromEnv Progress = %#v, want monitor.HostProgress reading this home's hosts", cfg.Monitor.Progress)
@@ -645,28 +630,11 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 	if cfg.Monitor.StateDir != dir {
 		t.Errorf("ConfigFromEnv Monitor StateDir = %q, want %q", cfg.Monitor.StateDir, dir)
 	}
-	if prober.Client == nil || prober.Client.EffectiveSession() != "default" {
-		t.Errorf("prober session = %+v, want the default Herdr session", prober.Client)
-	}
 	if cfg.Monitor.Heartbeat != cfg.Heartbeat || cfg.Monitor.HeartbeatMax != cfg.HeartbeatMax {
 		t.Errorf("monitor cadence = %v/%v, want the watcher's %v/%v", cfg.Monitor.Heartbeat, cfg.Monitor.HeartbeatMax, cfg.Heartbeat, cfg.HeartbeatMax)
 	}
 	if _, ok := cfg.Monitor.Polls.(monitor.ProcessPolls); !ok {
 		t.Errorf("ConfigFromEnv Polls = %T, want monitor.ProcessPolls so a goblin's private page poll reaches the CFO", cfg.Monitor.Polls)
-	}
-}
-
-func TestConfigFromEnvProberFollowsSpawnSessionSource(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HERDR_SESSION", "fleet-watch")
-	cfg := ConfigFromEnv(home.Home{State: dir})
-	backends, _ := cfg.Monitor.Probe.(monitor.BackendProber)
-	prober, ok := backends.Herdr.(*monitor.HerdrProber)
-	if !ok {
-		t.Fatalf("ConfigFromEnv Herdr prober = %T, want *monitor.HerdrProber", backends.Herdr)
-	}
-	if prober.Client.EffectiveSession() != "fleet-watch" {
-		t.Errorf("prober session = %q, want HERDR_SESSION so monitoring cannot drift to an implicit session", prober.Client.EffectiveSession())
 	}
 }
 

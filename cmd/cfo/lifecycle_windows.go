@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -108,27 +108,25 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
 			return err
 		},
-		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
-			if meta.Backend == "native" {
-				record, err := host.ReadRecord(h.State, meta.ID)
-				if errors.Is(err, os.ErrNotExist) {
-					return false, nil
-				}
-				if err != nil || !host.Running(record) {
-					return false, err
-				}
-				client, err := host.Dial(record)
-				if err != nil {
-					return false, err
-				}
-				if err := client.Close(); err != nil {
-					return false, err
-				}
-				return host.Running(record), nil
+		IsRunning: func(_ context.Context, meta state.TaskMeta) (bool, error) {
+			if meta.Backend != "native" {
+				return false, fmt.Errorf("task %s was recorded in Herdr by an older build, whose pane this build cannot read", meta.ID)
 			}
-			client := &herdr.Client{Commands: commands, Session: meta.HerdrSession}
-			status, err := client.AgentStatus(ctx, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID})
-			return status == herdr.AgentAlive, err
+			record, err := host.ReadRecord(h.State, meta.ID)
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			if err != nil || !host.Running(record) {
+				return false, err
+			}
+			client, err := host.Dial(record)
+			if err != nil {
+				return false, err
+			}
+			if err := client.Close(); err != nil {
+				return false, err
+			}
+			return host.Running(record), nil
 		},
 		Archive: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) (lifecycle.Preservation, error) {
 			preserved, err := lifecycle.PreserveWork(ctx, commands, meta)

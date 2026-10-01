@@ -9,19 +9,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 type fakeEndpoint struct {
 	exists     bool
-	busy       herdr.BusyState
+	busy       Busy
 	readErr    error
 	structural bool
 	structErr  error
 }
 
-func (f fakeEndpoint) Read(context.Context, state.TaskMeta) (bool, herdr.BusyState, error) {
+func (f fakeEndpoint) Read(context.Context, state.TaskMeta) (bool, Busy, error) {
 	return f.exists, f.busy, f.readErr
 }
 
@@ -70,7 +69,7 @@ func TestResolveStatePrecedenceAndStructuralIdleGate(t *testing.T) {
 		if err := state.AppendStatus(dir, "g1", "done: old success"); err != nil {
 			t.Fatal(err)
 		}
-		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyUnknown, structural: true})
+		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: BusyUnknown, structural: true})
 		if err != nil || got.State != Unknown || got.Source != SourceNone {
 			t.Fatalf("Resolve = %+v, %v; want unknown without status fallback", got, err)
 		}
@@ -85,7 +84,7 @@ func TestResolveStatePrecedenceAndStructuralIdleGate(t *testing.T) {
 		if err := state.AppendStatus(dir, "g1", "failed: old failure"); err != nil {
 			t.Fatal(err)
 		}
-		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyWorking, structural: true})
+		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: BusyWorking, structural: true})
 		if err != nil || got.State != Working || got.Source != SourceEndpoint {
 			t.Fatalf("Resolve = %+v, %v; want live working endpoint", got, err)
 		}
@@ -100,7 +99,7 @@ func TestResolveStatePrecedenceAndStructuralIdleGate(t *testing.T) {
 		if err := state.AppendStatus(dir, "g1", "done: old success"); err != nil {
 			t.Fatal(err)
 		}
-		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyIdle})
+		got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: BusyIdle})
 		if err != nil || got.State != Unknown || got.Source != SourceNone {
 			t.Fatalf("Resolve = %+v, %v; want structural mismatch unknown", got, err)
 		}
@@ -133,7 +132,7 @@ func TestResolveMapsStatusOnlyAfterExactStructuralIdle(t *testing.T) {
 			if err := state.AppendStatus(dir, "g1", test.line); err != nil {
 				t.Fatal(err)
 			}
-			got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyIdle, structural: true})
+			got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: BusyIdle, structural: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -233,7 +232,7 @@ func TestLatestReportSkipsCFOAuditLines(t *testing.T) {
 			}
 
 			verb, ok := LatestVerb(lines)
-			got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: herdr.BusyIdle, structural: true})
+			got, err := Resolve(ctx, dir, "g1", fakeEndpoint{exists: true, busy: BusyIdle, structural: true})
 
 			if !ok || verb != "needs-decision" {
 				t.Errorf("LatestVerb = %q, %v; want the goblin's needs-decision", verb, ok)

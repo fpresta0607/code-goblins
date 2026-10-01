@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -77,7 +77,7 @@ func pollScanService(t *testing.T, now *time.Time, polls PollProber, live ...str
 	for _, id := range live {
 		meta := metaFor(id)
 		writeTask(t, stateDir, meta)
-		probe.samples[id] = sampleFor(meta, herdr.BusyWorking, "working")
+		probe.samples[id] = sampleFor(meta, crewstate.BusyWorking, "working")
 	}
 	service := testService(stateDir, probe, now)
 	service.Polls = polls
@@ -259,7 +259,7 @@ func TestAPollFlagAndAStallOfTheSameGoblinBothReachTheCFO(t *testing.T) {
 		t.Fatalf("event = %+v, want the stall still pending after the poll flag was published", stall)
 	}
 	publish(t, service, stall)
-	service.Probe.(*fakeProber).samples["g1"] = sampleFor(metaFor("g1"), herdr.BusyWorking, "working")
+	service.Probe.(*fakeProber).samples["g1"] = sampleFor(metaFor("g1"), crewstate.BusyWorking, "working")
 	if again := scanOnce(t, service); again != nil {
 		t.Fatalf("event = %+v, want nothing left", again)
 	}

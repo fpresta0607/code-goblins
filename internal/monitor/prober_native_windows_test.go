@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// nativeMeta is the record of a native task, which names no Herdr terminal.
+// nativeMeta is the record of a native task that runs harness.
 func nativeMeta(id, harness string) state.TaskMeta {
 	return state.TaskMeta{ID: id, Worktree: `C:\work\` + id, Harness: harness, Backend: "native"}
 }
@@ -57,15 +57,15 @@ func TestANativeProberReadsTheHarnessFromItsScreen(t *testing.T) {
 		name, harness string
 		screen        []string
 		status        string
-		busy          herdr.BusyState
+		busy          crewstate.Busy
 		ready         bool
 	}{
-		{"a claude turn in progress", "claude", []string{"✽ Reticulating… (12s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, herdr.AgentWorking, herdr.BusyWorking, false},
-		{"a claude composer waiting", "claude", []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, herdr.AgentDone, herdr.BusyIdle, true},
-		{"a claude trust dialog", "claude", []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}, herdr.AgentBlocked, herdr.BusyIdle, false},
-		{"a codex turn in progress", "codex", []string{"• Working (5s • esc to interrupt)", "› ", "100% context left"}, herdr.AgentWorking, herdr.BusyWorking, false},
-		{"a codex turn that ended saying Working", "codex", []string{"• Working tree is clean and all tests pass.", "› ", "100% context left"}, herdr.AgentDone, herdr.BusyIdle, true},
-		{"a screen with no marker", "claude", []string{"Loading..."}, herdr.AgentUnknown, herdr.BusyUnknown, false},
+		{"a claude turn in progress", "claude", []string{"✽ Reticulating… (12s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, StatusWorking, crewstate.BusyWorking, false},
+		{"a claude composer waiting", "claude", []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, StatusDone, crewstate.BusyIdle, true},
+		{"a claude trust dialog", "claude", []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}, StatusBlocked, crewstate.BusyIdle, false},
+		{"a codex turn in progress", "codex", []string{"• Working (5s • esc to interrupt)", "› ", "100% context left"}, StatusWorking, crewstate.BusyWorking, false},
+		{"a codex turn that ended saying Working", "codex", []string{"• Working tree is clean and all tests pass.", "› ", "100% context left"}, StatusDone, crewstate.BusyIdle, true},
+		{"a screen with no marker", "claude", []string{"Loading..."}, StatusUnknown, crewstate.BusyUnknown, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -77,7 +77,7 @@ func TestANativeProberReadsTheHarnessFromItsScreen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if sample.Verdict != ProbePresent || sample.Agent != herdr.AgentAlive || sample.TabLabel != "gb-g1" || sample.Harness != test.harness {
+			if sample.Verdict != ProbePresent || sample.TabLabel != "gb-g1" || sample.Harness != test.harness {
 				t.Errorf("sample = %+v, want a present live harness in terminal gb-g1", sample)
 			}
 			if sample.Status != test.status || sample.Busy != test.busy || sample.InteractiveReady != test.ready {
@@ -114,7 +114,7 @@ func TestANativeProberReadsAgainWhenOneScreenReadFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sample.Verdict != ProbePresent || sample.Busy != herdr.BusyWorking {
+	if sample.Verdict != ProbePresent || sample.Busy != crewstate.BusyWorking {
 		t.Errorf("sample = %+v after %d reads, want the working goblin read on the second", sample, reads)
 	}
 }
@@ -178,7 +178,7 @@ func TestScanSupervisesANativeGoblinOnceItsLaunchIsOver(t *testing.T) {
 			if test.hasHost {
 				recordNativeHost(t, stateDir, "g1")
 			}
-			probe := BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: screenOf(test.screen...)}}
+			probe := NativeProber{StateDir: stateDir, ReadScreen: screenOf(test.screen...)}
 
 			result, err := testService(stateDir, probe, &now).Scan(context.Background())
 
@@ -200,8 +200,8 @@ func TestScanSupervisesANativeGoblinOnceItsLaunchIsOver(t *testing.T) {
 }
 
 // The launch budget quiets only a goblin never seen alive: one seen working
-// whose turn then ends or whose host then dies wakes at once, as a Herdr
-// goblin does, rather than reading as launching until the budget runs out.
+// whose turn then ends or whose host then dies wakes at once, rather than
+// reading as launching until the budget runs out.
 func TestScanWakesANativeGoblinSeenWorkingWithinItsLaunchBudget(t *testing.T) {
 	working := []string{"✽ Reticulating… (12s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}
 	composer := []string{"> ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}
@@ -224,7 +224,7 @@ func TestScanWakesANativeGoblinSeenWorkingWithinItsLaunchBudget(t *testing.T) {
 			recordNativeHost(t, stateDir, "g1")
 			screen := working
 			readScreen := func(host.Record) ([]string, error) { return screen, nil }
-			service := testService(stateDir, BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: readScreen}}, &now)
+			service := testService(stateDir, NativeProber{StateDir: stateDir, ReadScreen: readScreen}, &now)
 			now = now.Add(time.Minute)
 			if seen, err := service.Scan(context.Background()); err != nil || seen.Observations[0].Health == HealthLaunching {
 				t.Fatalf("working scan = %+v, %v; want the goblin seen alive", seen, err)
@@ -250,30 +250,26 @@ func TestScanWakesANativeGoblinSeenWorkingWithinItsLaunchBudget(t *testing.T) {
 	}
 }
 
-// Each task is inspected by the prober of the backend it runs in, and one
-// scan starts the Herdr prober's cycle once.
-func TestABackendProberSendsEachTaskToItsBackend(t *testing.T) {
-	herdrProbe, nativeProbe := &cycleProber{}, &fakeProber{}
-	probe := BackendProber{Herdr: herdrProbe, Native: nativeProbe}
+// A task an older build recorded in Herdr has no terminal this build can
+// read: the prober says so, with how to retire the record, and never reads
+// it as a missing native terminal that cfo switch could restart.
+func TestANativeProberSaysATaskRecordedInHerdrCannotBeRead(t *testing.T) {
+	meta := state.TaskMeta{ID: "h1", Worktree: `C:\work\h1`, Harness: "claude", Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-h1", HerdrPaneID: "pane-h1"}
 
-	probe.BeginScan(context.Background())
-	_, _ = probe.Inspect(context.Background(), metaFor("h1"))
-	_, _ = probe.Inspect(context.Background(), nativeMeta("n1", "claude"))
+	sample, err := NativeProber{StateDir: t.TempDir()}.Inspect(context.Background(), meta)
 
-	if herdrProbe.cycles != 1 || strings.Join(herdrProbe.calls, ",") != "h1" || strings.Join(nativeProbe.calls, ",") != "n1" {
-		t.Errorf("herdr cycles %d calls %q, native calls %q; want one cycle, h1 to Herdr and n1 native", herdrProbe.cycles, herdrProbe.calls, nativeProbe.calls)
+	if err != nil || sample.Verdict != ProbeUnknown {
+		t.Fatalf("sample = %+v, %v; want an unknown endpoint", sample, err)
+	}
+	for _, want := range []string{"task h1 was recorded in Herdr by an older build", "cfo cleanup h1 --force-archive"} {
+		if !strings.Contains(sample.Detail, want) {
+			t.Errorf("detail = %q, want %q", sample.Detail, want)
+		}
 	}
 }
 
-type cycleProber struct {
-	fakeProber
-	cycles int
-}
-
-func (c *cycleProber) BeginScan(context.Context) { c.cycles++ }
-
-// A native goblin's own processes are those its terminal's program started,
-// not its host's: a native task has no pane for Herdr to name its harness.
+// A goblin's own processes are those its terminal's program started, not its
+// host's.
 func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 	stateDir := t.TempDir()
 	meta := nativeMeta("g1", "claude")
@@ -281,7 +277,7 @@ func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 
 	_, missing := prober.InspectProgress(context.Background(), meta, EndpointSample{Harness: "claude"})
 	record := recordNativeHost(t, stateDir, "g1")
-	harnessPID, err := prober.harnessPID(context.Background(), meta, EndpointSample{Harness: "claude"})
+	harnessPID, err := prober.harnessPID(meta)
 
 	if missing == nil {
 		t.Error("a native task with no host gave progress evidence")

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -59,11 +58,11 @@ func TestAGoblinIdleAtItsPromptWakesOnceAfterThreeMinutes(t *testing.T) {
 	service, probe, _, _ := idleService(t, &now)
 	pane := "● Tests pass. Next I will open the pull request."
 
-	early := scanIdle(t, service, probe, herdr.AgentDone, pane, &now, 3)
+	early := scanIdle(t, service, probe, StatusDone, pane, &now, 3)
 	if len(early) != 0 {
 		t.Fatalf("woke within three minutes: %+v", early)
 	}
-	wakes := scanIdle(t, service, probe, herdr.AgentDone, pane, &now, 17)
+	wakes := scanIdle(t, service, probe, StatusDone, pane, &now, 17)
 	if len(wakes) != 1 {
 		t.Fatalf("an idle goblin raised %d wakes over the next 17 minutes, past the busy budget, want exactly one: %+v", len(wakes), wakes)
 	}
@@ -85,20 +84,20 @@ func TestAScanReadsAnIdleGoblinsProgressOnce(t *testing.T) {
 	service, probe, progress, _ := idleService(t, &now)
 
 	for scan := 1; scan <= 12; scan++ {
-		scanPane(t, service, probe, herdr.AgentDone, "❯", &now, 15*time.Second)
+		scanPane(t, service, probe, StatusDone, "❯", &now, 15*time.Second)
 		if progress.calls != scan {
 			t.Fatalf("after %d scans progress was read %d times, want once a scan", scan, progress.calls)
 		}
 	}
 }
 
-// Between turns reads the same: an idle Herdr agent at its prompt wakes as
+// Between turns reads the same: an idle harness at its prompt wakes as
 // goblin_idle before the ten-minute stall would.
 func TestAnIdleAgentBetweenTurnsWakesAsGoblinIdleFirst(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := idleService(t, &now)
 
-	wakes := scanIdle(t, service, probe, herdr.AgentIdle, "❯", &now, 12)
+	wakes := scanIdle(t, service, probe, StatusIdle, "❯", &now, 12)
 	if len(wakes) != 1 || !strings.HasPrefix(wakes[0].Detail, string(GoblinIdle)+":") {
 		t.Fatalf("wakes = %+v, want one goblin_idle wake", wakes)
 	}
@@ -134,7 +133,7 @@ func TestAGoblinThatIsNotIdleWithWorkLeftNeverWakesAsGoblinIdle(t *testing.T) {
 			service, probe, progress, _ := idleService(t, &now)
 			pane := arrange(t, service, progress)
 
-			for _, event := range scanIdle(t, service, probe, herdr.AgentDone, pane, &now, 10) {
+			for _, event := range scanIdle(t, service, probe, StatusDone, pane, &now, 10) {
 				if strings.HasPrefix(event.Detail, string(GoblinIdle)+":") {
 					t.Fatalf("a goblin that is not idle with work left woke as idle: %+v", event)
 				}
@@ -149,12 +148,12 @@ func TestANotifyRestartsTheIdleClock(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := idleService(t, &now)
 
-	scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 2)
+	scanIdle(t, service, probe, StatusDone, "❯", &now, 2)
 	appendStatus(t, service.StateDir, "g1", "working: opening the pull request")
-	if wakes := scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 2); len(wakes) != 0 {
+	if wakes := scanIdle(t, service, probe, StatusDone, "❯", &now, 2); len(wakes) != 0 {
 		t.Fatalf("woke %+v two minutes after the goblin reported", wakes)
 	}
-	if wakes := scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 3); len(wakes) != 1 {
+	if wakes := scanIdle(t, service, probe, StatusDone, "❯", &now, 3); len(wakes) != 1 {
 		t.Fatalf("wakes = %+v, want one once three minutes passed since the report", wakes)
 	}
 }
@@ -167,15 +166,15 @@ func TestASecondIdleEpisodeWaitsForTheGap(t *testing.T) {
 	service, probe, _, _ := idleService(t, &now)
 	service.BusyTurnMax = time.Hour
 
-	first := scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 4)
+	first := scanIdle(t, service, probe, StatusDone, "❯", &now, 4)
 	if len(first) != 1 {
 		t.Fatalf("first episode wakes = %+v, want one", first)
 	}
 	wokeAt := now
-	scanIdle(t, service, probe, herdr.AgentWorking, "✽ Reticulating… (3s · esc to interrupt)", &now, 1)
+	scanIdle(t, service, probe, StatusWorking, "✽ Reticulating… (3s · esc to interrupt)", &now, 1)
 	var second []Event
 	for range 20 {
-		if wakes := scanIdle(t, service, probe, herdr.AgentDone, "❯", &now, 1); len(wakes) > 0 {
+		if wakes := scanIdle(t, service, probe, StatusDone, "❯", &now, 1); len(wakes) > 0 {
 			second = wakes
 			break
 		}
@@ -194,7 +193,7 @@ func TestAnUnackedIdleWakeIsReAsked(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := idleService(t, &now)
 
-	wakes := scanIdleAcking(t, service, probe, herdr.AgentDone, "❯", &now, 15, false)
+	wakes := scanIdleAcking(t, service, probe, StatusDone, "❯", &now, 15, false)
 	if len(wakes) != 2 || !strings.HasPrefix(wakes[0].Detail, string(GoblinIdle)+":") || !strings.HasPrefix(wakes[1].Detail, string(AwaitingDecision)+":") {
 		t.Fatalf("wakes = %+v, want the idle wake then one re-ask", wakes)
 	}
@@ -214,7 +213,7 @@ func TestAnEndedTurnWakeCarriesTheEndOfItsScreen(t *testing.T) {
 	service, probe, _, _ := progressService(t, &now)
 
 	rule := strings.Repeat("─", 40)
-	r := scanPane(t, service, probe, herdr.AgentDone, "● Tests pass; opening the pull request next.\n"+rule+"\n>\n"+rule, &now, time.Minute)
+	r := scanPane(t, service, probe, StatusDone, "● Tests pass; opening the pull request next.\n"+rule+"\n>\n"+rule, &now, time.Minute)
 
 	if r.Event == nil || !strings.HasPrefix(r.Event.Detail, string(AwaitingAnswer)+":") || !strings.Contains(r.Event.Detail, "its screen ends: ● Tests pass; opening the pull request next. | > | ● Tests pass") {
 		t.Fatalf("event = %+v, want an awaiting_answer wake carrying the end of the screen without its rules", r.Event)

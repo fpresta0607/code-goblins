@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 )
 
 const (
@@ -43,9 +41,9 @@ func TestARunningToolOnThePaneHoldsBackBusyTurnOverAge(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
+	scanPane(t, service, probe, StatusWorking, runningToolPane, &now, 0)
 	for range 15 {
-		if r := scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, time.Minute); r.Event != nil {
+		if r := scanPane(t, service, probe, StatusWorking, runningToolPane, &now, time.Minute); r.Event != nil {
 			t.Fatalf("a goblin whose pane shows a running tool woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
@@ -64,11 +62,11 @@ func TestARunningToolWithNothingMovingWakesBusyTurnOverAgeAfterTwiceTheBudget(t 
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
-	if early := scanIdle(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 19); len(early) != 0 {
+	scanPane(t, service, probe, StatusWorking, runningToolPane, &now, 0)
+	if early := scanIdle(t, service, probe, StatusWorking, runningToolPane, &now, 19); len(early) != 0 {
 		t.Fatalf("woke inside twice the busy budget: %+v", early)
 	}
-	wakes := scanIdle(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 10)
+	wakes := scanIdle(t, service, probe, StatusWorking, runningToolPane, &now, 10)
 	if len(wakes) != 1 {
 		t.Fatalf("a turn with nothing moving past twice the budget raised %d wakes, want exactly one: %+v", len(wakes), wakes)
 	}
@@ -86,10 +84,10 @@ func TestARunningToolDoesNotHoldBackAWedgedGateStep(t *testing.T) {
 	service, probe, _, _ := progressService(t, &now)
 	service.Gate = &fakeGate{sample: GateSample{Active: true, Step: "ci", ActiveFor: 2 * time.Hour}}
 
-	scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, 0)
+	scanPane(t, service, probe, StatusWorking, runningToolPane, &now, 0)
 	var woke *Event
 	for range 12 {
-		if r := scanPane(t, service, probe, herdr.AgentWorking, runningToolPane, &now, time.Minute); r.Event != nil {
+		if r := scanPane(t, service, probe, StatusWorking, runningToolPane, &now, time.Minute); r.Event != nil {
 			woke = r.Event
 			break
 		}
@@ -110,7 +108,7 @@ func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswerWhileItMoves(t *testing
 	progress.cpuStep = 20 * time.Second
 
 	for range 15 {
-		r := scanPane(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, time.Minute)
+		r := scanPane(t, service, probe, StatusDone, backgroundShellPane, &now, time.Minute)
 		if r.Event != nil {
 			t.Fatalf("a goblin waiting on its background shell woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
@@ -123,7 +121,7 @@ func TestABackgroundShellOnThePaneHoldsBackAwaitingAnswerWhileItMoves(t *testing
 	}
 
 	progress.sample.Jobs, progress.cpuStep = nil, 0
-	r := scanPane(t, service, probe, herdr.AgentDone, "❯", &now, time.Minute)
+	r := scanPane(t, service, probe, StatusDone, "❯", &now, time.Minute)
 	if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
 		t.Fatalf("shell gone with the turn still over = %+v, want an awaiting-answer wake", r)
 	}
@@ -138,10 +136,10 @@ func TestABackgroundShellWithNothingMovingWakesAwaitingAnswerAfterTheBudget(t *t
 	service, probe, progress, _ := progressService(t, &now)
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"node.exe (pid 44)"}, JobCPU: time.Second}
 
-	if early := scanIdle(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, 10); len(early) != 0 {
+	if early := scanIdle(t, service, probe, StatusDone, backgroundShellPane, &now, 10); len(early) != 0 {
 		t.Fatalf("woke inside the busy budget: %+v", early)
 	}
-	wakes := scanIdle(t, service, probe, herdr.AgentDone, backgroundShellPane, &now, 10)
+	wakes := scanIdle(t, service, probe, StatusDone, backgroundShellPane, &now, 10)
 	if len(wakes) != 1 {
 		t.Fatalf("a background shell with nothing moving raised %d wakes, want exactly one: %+v", len(wakes), wakes)
 	}
@@ -162,13 +160,13 @@ func TestARunningToolOnThePaneHoldsBackUnchangedIdleForTheBudget(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	if early := scanIdle(t, service, probe, herdr.AgentIdle, runningToolPane, &now, 10); len(early) != 0 {
+	if early := scanIdle(t, service, probe, StatusIdle, runningToolPane, &now, 10); len(early) != 0 {
 		t.Fatalf("an idle reading of a pane that shows a running tool woke inside the busy budget: %+v", early)
 	}
 	if counted := readTally(t, service).Reasons[UnchangedIdle]; counted == nil || counted.Suppressed != 1 {
 		t.Fatalf("tally = %+v, want one suppressed unchanged_idle", counted)
 	}
-	wakes := scanIdle(t, service, probe, herdr.AgentIdle, runningToolPane, &now, 5)
+	wakes := scanIdle(t, service, probe, StatusIdle, runningToolPane, &now, 5)
 	if len(wakes) != 1 {
 		t.Fatalf("a running tool with nothing moving raised %d wakes, want exactly one: %+v", len(wakes), wakes)
 	}
@@ -202,7 +200,7 @@ func TestAFailedScreenReadIsReadAgainBeforeAnEndpointUnknownWake(t *testing.T) {
 		}
 		return result
 	}
-	working := sampleForStatus(meta, herdr.AgentWorking, "pane")
+	working := sampleForStatus(meta, StatusWorking, "pane")
 
 	scan(working)
 	for round := range 3 {
@@ -238,7 +236,7 @@ func TestTheTallyCountsRaisedWakesBesideSuppressedOnes(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, probe, _, _ := progressService(t, &now)
 
-	r := scanPane(t, service, probe, herdr.AgentDone, "❯", &now, time.Minute)
+	r := scanPane(t, service, probe, StatusDone, "❯", &now, time.Minute)
 	if r.Event == nil {
 		t.Fatal("a turn that ended with nothing running did not wake")
 	}

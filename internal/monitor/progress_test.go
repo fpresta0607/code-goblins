@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -193,8 +192,8 @@ func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.
 		status string
 		reason Reason
 	}{
-		{"working", herdr.AgentWorking, BusyTurnOverAge},
-		{"turn ended", herdr.AgentDone, AwaitingAnswer},
+		{"working", StatusWorking, BusyTurnOverAge},
+		{"turn ended", StatusDone, AwaitingAnswer},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			start := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
@@ -244,8 +243,8 @@ func TestReadingsASecondApartDoNotTurnABlipIntoProgress(t *testing.T) {
 		status string
 		reason Reason
 	}{
-		{"working", herdr.AgentWorking, BusyTurnOverAge},
-		{"turn ended", herdr.AgentDone, AwaitingAnswer},
+		{"working", StatusWorking, BusyTurnOverAge},
+		{"turn ended", StatusDone, AwaitingAnswer},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			start := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
@@ -299,7 +298,7 @@ func TestLateBurstOfProcessorUseCountsAsProgress(t *testing.T) {
 		if now.Equal(time.Date(2026, 9, 25, 18, 45, 0, 0, time.UTC)) {
 			progress.sample.JobCPU += time.Minute
 		}
-		if r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute); r.Event != nil {
+		if r := scanStatus(t, service, probe, meta, StatusDone, &now, time.Minute); r.Event != nil {
 			t.Fatalf("a goblin whose own job used a full processor at 18:46 woke at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
@@ -352,7 +351,7 @@ func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 			progress.cpuStep = job.cpuStep
 
 			for range job.scans {
-				r := scanPane(t, service, probe, herdr.AgentDone, job.pane, &now, time.Minute)
+				r := scanPane(t, service, probe, StatusDone, job.pane, &now, time.Minute)
 				if r.Event != nil {
 					t.Fatalf("a goblin waiting on its own background job woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
 				}
@@ -362,7 +361,7 @@ func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
 			}
 
 			progress.sample.Jobs, progress.cpuStep = nil, 0
-			r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute)
+			r := scanStatus(t, service, probe, meta, StatusDone, &now, time.Minute)
 			if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
 				t.Fatalf("job ended with the turn still over = %+v, want an awaiting-answer wake", r)
 			}
@@ -383,7 +382,7 @@ func TestTurnEndedWithAnIdleBackgroundProcessWakesAsIdle(t *testing.T) {
 
 	var woke *Event
 	for range 15 {
-		if r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute); r.Event != nil {
+		if r := scanStatus(t, service, probe, meta, StatusDone, &now, time.Minute); r.Event != nil {
 			woke = r.Event
 			break
 		}
@@ -409,7 +408,7 @@ func TestBlockedGoblinWithAMovingJobOfItsOwnWakesAtOnce(t *testing.T) {
 	service, probe, progress, meta := progressService(t, &now)
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"go.exe (pid 46)"}, JobCPU: time.Minute}
 
-	r := scanStatus(t, service, probe, meta, herdr.AgentBlocked, &now, time.Minute)
+	r := scanStatus(t, service, probe, meta, StatusBlocked, &now, time.Minute)
 	if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
 		t.Fatalf("a blocked goblin with its own job running = %+v, want an awaiting-answer wake at once", r)
 	}
@@ -424,7 +423,7 @@ func TestIdleGoblinWaitingOnItsOwnMovingJobDoesNotStall(t *testing.T) {
 
 	for range 30 {
 		progress.sample.JobCPU += 20 * time.Second
-		if r := scanStatus(t, service, probe, meta, herdr.AgentIdle, &now, time.Minute); r.Event != nil {
+		if r := scanStatus(t, service, probe, meta, StatusIdle, &now, time.Minute); r.Event != nil {
 			t.Fatalf("an idle goblin whose own job is using the processor stalled at %s: %+v", now.Format(time.Kitchen), r.Event)
 		}
 	}
@@ -439,7 +438,7 @@ func TestIdleGoblinWithAnIdleProcessOfItsOwnWakesNamingIt(t *testing.T) {
 
 	var woke *Event
 	for range 20 {
-		if r := scanStatus(t, service, probe, meta, herdr.AgentIdle, &now, time.Minute); r.Event != nil {
+		if r := scanStatus(t, service, probe, meta, StatusIdle, &now, time.Minute); r.Event != nil {
 			woke = r.Event
 			break
 		}
@@ -469,7 +468,7 @@ func TestUnreadableProgressEvidenceStillWakes(t *testing.T) {
 
 	done, doneProbe, doneProgress, doneMeta := progressService(t, &now)
 	doneProgress.err = progress.err
-	if r := scanStatus(t, done, doneProbe, doneMeta, herdr.AgentDone, &now, time.Minute); r.Event == nil || !strings.Contains(r.Event.Detail, "progress evidence unreadable") {
+	if r := scanStatus(t, done, doneProbe, doneMeta, StatusDone, &now, time.Minute); r.Event == nil || !strings.Contains(r.Event.Detail, "progress evidence unreadable") {
 		t.Fatalf("an ended turn with unreadable evidence = %+v, want a wake that says so", r.Event)
 	}
 }
@@ -572,9 +571,9 @@ func TestADifferentBusyWakeIsRaisedAtOnce(t *testing.T) {
 	}
 }
 
-// Herdr's process-info failing leaves the transcript readable, and the prober
-// hands back what it read beside the error.
-func TestHostProgressKeepsTheTranscriptWhenProcessInfoFails(t *testing.T) {
+// A terminal whose host record cannot be read leaves the transcript readable,
+// and the prober hands back what it read beside the error.
+func TestHostProgressKeepsTheTranscriptWhenTheHarnessCannotBeFound(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	transcript := filepath.Join(home, ".claude", "projects", "C--dev-app", "session-1.jsonl")
@@ -588,14 +587,14 @@ func TestHostProgressKeepsTheTranscriptWhenProcessInfoFails(t *testing.T) {
 	if err := os.Chtimes(transcript, written, written); err != nil {
 		t.Fatal(err)
 	}
-	prober := HostProgress{Panes: failingPanes{errors.New("context deadline exceeded")}, Home: home}
+	prober := HostProgress{StateDir: t.TempDir(), Home: home}
 
 	// Act
-	progress, err := prober.InspectProgress(context.Background(), state.TaskMeta{}, EndpointSample{Harness: "claude", Session: "session-1"})
+	progress, err := prober.InspectProgress(context.Background(), state.TaskMeta{ID: "g1", Backend: "native"}, EndpointSample{Harness: "claude", Session: "session-1"})
 
 	// Assert
 	if err == nil || !progress.TranscriptAt.Equal(written) {
-		t.Fatalf("InspectProgress = %v, %v; want the transcript written at %v beside the process-info error", progress.TranscriptAt, err, written)
+		t.Fatalf("InspectProgress = %v, %v; want the transcript written at %v beside the error for the terminal with no host", progress.TranscriptAt, err, written)
 	}
 }
 
@@ -646,10 +645,10 @@ func TestTranscriptProgressIsReadFromItsLastEntry(t *testing.T) {
 			if err := os.Chtimes(transcript, frozen, frozen); err != nil {
 				t.Fatal(err)
 			}
-			prober := HostProgress{Panes: failingPanes{errors.New("no pane")}, Home: home}
+			prober := HostProgress{StateDir: t.TempDir(), Home: home}
 
 			// Act
-			progress, _ := prober.InspectProgress(context.Background(), state.TaskMeta{}, EndpointSample{Harness: test.harness, Session: session})
+			progress, _ := prober.InspectProgress(context.Background(), state.TaskMeta{ID: "g1", Backend: "native"}, EndpointSample{Harness: test.harness, Session: session})
 
 			// Assert
 			if !progress.TranscriptAt.Equal(last) {
@@ -657,12 +656,6 @@ func TestTranscriptProgressIsReadFromItsLastEntry(t *testing.T) {
 			}
 		})
 	}
-}
-
-type failingPanes struct{ err error }
-
-func (f failingPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProcessInfo, error) {
-	return herdr.PaneProcessInfo{}, f.err
 }
 
 func TestHarnessJobsCountsOnlyWorkStartedAfterLaunch(t *testing.T) {

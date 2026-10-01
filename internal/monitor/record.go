@@ -1,5 +1,6 @@
-// Package monitor persists inspection-only Herdr health observations and
-// converts them into durable wake events without taking lifecycle actions.
+// Package monitor persists inspection-only health observations of goblins'
+// terminals and converts them into durable wake events without taking
+// lifecycle actions.
 package monitor
 
 import (
@@ -12,8 +13,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -28,19 +29,18 @@ const (
 	ProbeUnknown ProbeVerdict = "unknown"
 )
 
-// EndpointSample is the one read-only response consumed by the monitor. Busy
-// is separate from Agent because liveness and activity are different facts.
-// Status, InteractiveReady, StateChangeSeq, and Revision come straight from
-// `herdr agent list` and are the primary supervision signal.
+// EndpointSample is the one read-only response consumed by the monitor: what
+// a task's terminal shows. Status and InteractiveReady are the primary
+// supervision signal.
 type EndpointSample struct {
-	Verdict  ProbeVerdict
-	Endpoint herdr.Endpoint
+	Verdict ProbeVerdict
+	// TabLabel names the terminal read, gb-<id> for task id's own.
 	TabLabel string
-	Agent    herdr.AgentStatus
-	Busy     herdr.BusyState
+	Busy     crewstate.Busy
 	Capture  []byte
 	Detail   string
-	// Status is the native agent_status: working, idle, or done.
+	// Status is what the harness's screen shows of its turn: one of the
+	// Status constants.
 	Status string
 	// InteractiveReady is true when the agent is at its prompt awaiting input.
 	InteractiveReady bool
@@ -48,9 +48,8 @@ type EndpointSample struct {
 	// claude and pi advance state_change_seq; claude also advances revision.
 	StateChangeSeq int64
 	Revision       int64
-	// CountersUnavailable is true when the liveness counters could not be read
-	// from `herdr agent list` and were omitted from the snapshot fallback, so
-	// a zero counter is not a real regression.
+	// CountersUnavailable is true when the prober reads no liveness counters,
+	// so a zero counter is not a real regression.
 	CountersUnavailable bool
 	// Harness and Session name the agent kind and its own session id, which
 	// together locate the transcript the harness writes as it works.
@@ -61,6 +60,19 @@ type EndpointSample struct {
 	// scan before it wakes anybody.
 	ReadFailed bool
 }
+
+// What a harness's screen shows of its turn. StatusWorking is a turn in
+// progress; StatusDone is a turn that ended, with the harness waiting on
+// input; StatusIdle is a harness between turns; StatusBlocked is one parked
+// on a dialog that waits on a person; StatusUnknown is a live harness whose
+// activity cannot be told for the moment.
+const (
+	StatusWorking = "working"
+	StatusIdle    = "idle"
+	StatusDone    = "done"
+	StatusBlocked = "blocked"
+	StatusUnknown = "unknown"
+)
 
 type Health string
 
@@ -280,8 +292,8 @@ func WriteHeartbeat(stateDir string, heartbeat Heartbeat) error {
 }
 
 // TouchHeartbeat advances watcher liveness without classifying any endpoint.
-// It exists for the signals-only watch path before a structural Herdr prober
-// is wired, preserving the typed heartbeat as the one watcher-health record.
+// It exists for the signals-only watch path, where no prober is wired,
+// preserving the typed heartbeat as the one watcher-health record.
 func TouchHeartbeat(stateDir string, now time.Time) error {
 	heartbeat, err := ReadHeartbeat(stateDir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -34,7 +34,7 @@ func TestANativeGoblinIdleAtItsComposerWakesWithoutHooks(t *testing.T) {
 				t.Fatal(err)
 			}
 			recordNativeHost(t, stateDir, "g1")
-			service := testService(stateDir, BackendProber{Herdr: &fakeProber{}, Native: NativeProber{StateDir: stateDir, ReadScreen: screenOf(screen...)}}, &now)
+			service := testService(stateDir, NativeProber{StateDir: stateDir, ReadScreen: screenOf(screen...)}, &now)
 			service.StallAfter, service.BusyTurnMax = 10*time.Minute, 10*time.Minute
 			service.Progress = &fakeProgress{sample: ProgressSample{Jobs: []string{"node.exe (pid 52)"}, JobCPU: time.Second}}
 

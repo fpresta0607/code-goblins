@@ -12,11 +12,9 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const snapshotSchema = "fleet-snapshot.v1"
@@ -28,49 +26,31 @@ type EndpointReader interface {
 	crewstate.Endpoint
 }
 
-// NewTerminalEndpoint reads each task's endpoint evidence where the task
-// runs: a native task's own terminal, read the way the monitor reads it, and
-// any other task's Herdr pane through backend.
-func NewTerminalEndpoint(stateDir string, backend terminal.Backend) EndpointReader {
-	return terminalEndpoint{herdr: backend, native: monitor.NativeProber{StateDir: stateDir}}
+// NewTerminalEndpoint reads each task's endpoint evidence from its own native
+// terminal, the way the monitor reads it. A task an older build recorded in
+// Herdr has no terminal this build can read, so it reads as not there.
+func NewTerminalEndpoint(stateDir string) EndpointReader {
+	return terminalEndpoint{native: monitor.NativeProber{StateDir: stateDir}}
 }
 
 type terminalEndpoint struct {
-	herdr  terminal.Backend
 	native monitor.NativeProber
 }
 
-func (e terminalEndpoint) Read(ctx context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
-	if meta.Backend == "native" {
-		sample, err := e.native.Inspect(ctx, meta)
-		if err != nil || sample.Verdict != monitor.ProbePresent {
-			return false, herdr.BusyUnknown, err
-		}
-		return true, sample.Busy, nil
+func (e terminalEndpoint) Read(ctx context.Context, meta state.TaskMeta) (bool, crewstate.Busy, error) {
+	sample, err := e.native.Inspect(ctx, meta)
+	if err != nil || sample.Verdict != monitor.ProbePresent {
+		return false, crewstate.BusyUnknown, err
 	}
-	if e.herdr == nil {
-		return false, herdr.BusyUnknown, errors.New("fleet: terminal backend is required")
-	}
-	target := herdrTarget(meta)
-	status, err := e.herdr.AgentStatus(ctx, target)
-	if err != nil || status != herdr.AgentAlive {
-		return false, herdr.BusyUnknown, err
-	}
-	busy, err := e.herdr.BusyState(ctx, target)
-	return true, busy, err
+	return true, sample.Busy, nil
 }
 
 // Validate proves an idle native terminal is the task's own. It is reached
 // only after Read found the task's own host answering: a host that recorded
 // itself under the task's id, on a pipe whose name is unique to the one
-// launch. No Herdr answer proves a pane's workspace, tab and label, so a
-// Herdr task's idle pane never falls back to its status log.
+// launch.
 func (e terminalEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
 	return meta.Backend == "native", nil
-}
-
-func herdrTarget(meta state.TaskMeta) herdr.Target {
-	return herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
 }
 
 // Snapshot is the typed, read-only fleet view shared by JSON and Markdown
@@ -283,7 +263,7 @@ func endpointVerdict(verdict monitor.ProbeVerdict) *bool {
 func endpointSummary(meta state.TaskMeta, exists *bool) EndpointSummary {
 	target := ""
 	if meta.HerdrSession != "" && meta.HerdrPaneID != "" {
-		target = herdrTarget(meta).String()
+		target = meta.HerdrSession + ":" + meta.HerdrPaneID
 	}
 	return EndpointSummary{
 		Target:      target,

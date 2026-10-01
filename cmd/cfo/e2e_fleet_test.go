@@ -230,7 +230,7 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	fixture.runner = &fleetE2ERunner{
 		fixture: fixture,
 		tabs:    make(map[string]fleetE2ETab),
-		busy:    make(map[string]herdr.BusyState),
+		busy:    make(map[string]crewstate.Busy),
 		missing: make(map[string]bool),
 	}
 	fixture.git = &fleetE2EGit{fixture: fixture}
@@ -350,7 +350,7 @@ func (f *fleetE2EFixture) ScanActive(id string) {
 func (f *fleetE2EFixture) ScanBusyProtected(id string) {
 	f.t.Helper()
 	f.now = f.now.Add(time.Minute)
-	f.runner.busy[id] = herdr.BusyWorking
+	f.runner.busy[id] = crewstate.BusyWorking
 	result := f.scan()
 	observation := observationFor(f.t, result.Observations, id)
 	if observation.Health != monitor.HealthBusy || observation.StaleSince != nil || result.Event != nil {
@@ -363,7 +363,7 @@ func (f *fleetE2EFixture) ScanBusyProtected(id string) {
 
 func (f *fleetE2EFixture) ScanStaleEscalation(id string) {
 	f.t.Helper()
-	f.runner.busy[id] = herdr.BusyIdle
+	f.runner.busy[id] = crewstate.BusyIdle
 	f.now = f.now.Add(time.Second)
 	idle := f.scan()
 	idleObservation := observationFor(f.t, idle.Observations, id)
@@ -576,7 +576,7 @@ type fleetE2ERunner struct {
 	fixture   *fleetE2EFixture
 	workspace bool
 	tabs      map[string]fleetE2ETab
-	busy      map[string]herdr.BusyState
+	busy      map[string]crewstate.Busy
 	missing   map[string]bool
 	requests  []execx.Request
 }
@@ -732,22 +732,15 @@ func (p *fleetE2EProber) Inspect(_ context.Context, meta state.TaskMeta) (monito
 	}
 	busy := p.fixture.runner.busy[meta.ID]
 	if busy == "" {
-		busy = herdr.BusyIdle
+		busy = crewstate.BusyIdle
 	}
-	status := herdr.AgentIdle
-	if busy == herdr.BusyWorking {
-		status = herdr.AgentWorking
+	status := monitor.StatusIdle
+	if busy == crewstate.BusyWorking {
+		status = monitor.StatusWorking
 	}
 	return monitor.EndpointSample{
-		Verdict: monitor.ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
+		Verdict:        monitor.ProbePresent,
 		TabLabel:       "gb-" + meta.ID,
-		Agent:          herdr.AgentAlive,
 		Busy:           busy,
 		Status:         status,
 		StateChangeSeq: stateChangeSeq,
@@ -759,16 +752,16 @@ type fleetE2EEndpoint struct {
 	fixture *fleetE2EFixture
 }
 
-func (e fleetE2EEndpoint) Read(_ context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
+func (e fleetE2EEndpoint) Read(_ context.Context, meta state.TaskMeta) (bool, crewstate.Busy, error) {
 	id := strings.TrimPrefix(meta.HerdrPaneID, "pane:")
 	_, known := e.fixture.runner.tabs["gb-"+id]
 	if !known || e.fixture.runner.missing[meta.HerdrPaneID] {
-		return false, herdr.BusyUnknown, nil
+		return false, crewstate.BusyUnknown, nil
 	}
 	if busy := e.fixture.runner.busy[id]; busy != "" {
 		return true, busy, nil
 	}
-	return true, herdr.BusyIdle, nil
+	return true, crewstate.BusyIdle, nil
 }
 
 func (e fleetE2EEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {

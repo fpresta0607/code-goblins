@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -54,34 +53,13 @@ func TestPausedFleetTaskHasNoStaleAlarmAndStoppedHistoryIsExplicit(t *testing.T)
 
 type snapshotEndpoint struct {
 	exists     map[string]bool
-	busy       map[string]herdr.BusyState
+	busy       map[string]crewstate.Busy
 	structural map[string]bool
 	calls      []string
 }
 
-func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
-	runner := &fakeRunner{replies: []runnerReply{
-		jsonReply(`{"result":{"pane":{"pane_id":"pane-7"}}}`),
-		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
-		jsonReply(`{"result":{"agent":{"agent_status":"working"}}}`),
-	}}
-	var sleeps []time.Duration
-	endpoint := NewTerminalEndpoint(t.TempDir(), newHerdrClient(runner, &sleeps))
-	meta := state.TaskMeta{ID: "g7", Backend: "herdr", HerdrSession: "fleet", HerdrPaneID: "pane-7"}
-
-	exists, busy, err := endpoint.Read(context.Background(), meta)
-	if err != nil || !exists || busy != herdr.BusyWorking {
-		t.Fatalf("Read = %t, %q, %v; want true, busy, nil", exists, busy, err)
-	}
-	assertRequests(t, runner.requests, [][]string{
-		{"pane", "get", "pane-7", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--session", "fleet"},
-		{"agent", "get", "pane-7", "--session", "fleet"},
-	})
-}
-
-func (e *snapshotEndpoint) Read(_ context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
-	target := herdrTarget(meta).String()
+func (e *snapshotEndpoint) Read(_ context.Context, meta state.TaskMeta) (bool, crewstate.Busy, error) {
+	target := meta.HerdrSession + ":" + meta.HerdrPaneID
 	e.calls = append(e.calls, "read:"+target)
 	return e.exists[target], e.busy[target], nil
 }
@@ -255,9 +233,9 @@ func TestBuildSnapshotSortsRowsAndProjectsTypedTaskState(t *testing.T) {
 			"fleet:pane-alpha": true,
 			"fleet:pane-zulu":  true,
 		},
-		busy: map[string]herdr.BusyState{
-			"fleet:pane-alpha": herdr.BusyWorking,
-			"fleet:pane-zulu":  herdr.BusyIdle,
+		busy: map[string]crewstate.Busy{
+			"fleet:pane-alpha": crewstate.BusyWorking,
+			"fleet:pane-zulu":  crewstate.BusyIdle,
 		},
 		structural: map[string]bool{"zulu": true},
 	}
@@ -340,7 +318,7 @@ func TestBuildSnapshotUsesCurrentEndpointEvidenceWhenMonitorIsAbsent(t *testing.
 	meta := writeSnapshotMeta(t, h, "g1", worktree, "")
 	endpoint := &snapshotEndpoint{
 		exists: map[string]bool{meta.HerdrSession + ":" + meta.HerdrPaneID: true},
-		busy:   map[string]herdr.BusyState{meta.HerdrSession + ":" + meta.HerdrPaneID: herdr.BusyWorking},
+		busy:   map[string]crewstate.Busy{meta.HerdrSession + ":" + meta.HerdrPaneID: crewstate.BusyWorking},
 	}
 
 	snapshot, err := BuildSnapshot(context.Background(), h, endpoint)

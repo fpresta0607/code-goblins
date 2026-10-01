@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -82,7 +81,7 @@ func TestParseGateStatusReadsAStepBeingFixedInTheCurrentFormat(t *testing.T) {
 
 func scanWorking(t *testing.T, service Service, probe *fakeProber, meta state.TaskMeta, now *time.Time, step time.Duration) ScanResult {
 	t.Helper()
-	probe.samples[meta.ID] = sampleForStatus(meta, herdr.AgentWorking, "Working...")
+	probe.samples[meta.ID] = sampleForStatus(meta, StatusWorking, "Working...")
 	*now = now.Add(step)
 	result, err := service.Scan(context.Background())
 	if err != nil {
@@ -160,7 +159,7 @@ func TestBusyClockResetsWhenAgentLeavesWorking(t *testing.T) {
 	service.Gate = &fakeGate{sample: GateSample{Active: false}}
 
 	scanWorking(t, service, probe, meta, &now, 0)
-	probe.samples["g1"] = sampleForStatus(meta, herdr.AgentIdle, "idle")
+	probe.samples["g1"] = sampleForStatus(meta, StatusIdle, "idle")
 	now = now.Add(8 * time.Minute)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)

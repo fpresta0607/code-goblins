@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -65,26 +64,7 @@ func TaskResources(ctx context.Context, stateDir string, meta state.TaskMeta, ga
 			resources.Hosts = append(resources.Hosts, Identity{PID: record.HostPID, Started: started})
 		}
 	} else if meta.Backend == "herdr" {
-		client := &herdr.Client{Commands: gate.Commands, Session: meta.HerdrSession}
-		target := herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}
-		info, err := client.PaneProcessInfo(ctx, target)
-		if err != nil {
-			status, statusErr := client.AgentStatus(ctx, target)
-			if statusErr != nil || status != herdr.AgentMissing {
-				return resources, fmt.Errorf("identify legacy task pane: %w", errors.Join(err, statusErr))
-			}
-		}
-		started, exists := proc.StartTime(info.ShellPID)
-		if exists {
-			current, err := client.PaneProcessInfo(ctx, target)
-			if err != nil || current.ShellPID != info.ShellPID {
-				return resources, errors.New("legacy task pane changed while identifying its resources")
-			}
-			if currentStart, exists := proc.StartTime(info.ShellPID); !exists || !currentStart.Equal(started) {
-				return resources, errors.New("legacy task shell changed while identifying its resources")
-			}
-			resources.Hosts = append(resources.Hosts, Identity{PID: info.ShellPID, Started: started})
-		}
+		return resources, fmt.Errorf("task %s was recorded in Herdr by an older build, whose pane this build cannot identify; once that pane is closed, retire the record with cfo cleanup %s --force-archive", meta.ID, meta.ID)
 	}
 	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
 		return resources, nil

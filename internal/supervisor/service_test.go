@@ -3,7 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -32,8 +32,7 @@ func TestReconcileActiveSessionAfterAbruptHarnessLoss(t *testing.T) {
 		}
 	}
 	probe := &runtimeProbe{sample: monitor.EndpointSample{
-		Verdict: monitor.ProbePresent, Agent: herdr.AgentAlive, Status: herdr.AgentWorking, Busy: herdr.BusyWorking,
-		Endpoint: herdr.Endpoint{Target: herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, WorkspaceID: meta.HerdrWorkspaceID, TabID: meta.HerdrTabID, PaneID: meta.HerdrPaneID},
+		Verdict: monitor.ProbePresent, Status: monitor.StatusWorking, Busy: crewstate.BusyWorking,
 		TabLabel: "gb-" + meta.ID, Capture: []byte("fixture is working"),
 	}}
 	m := monitor.Service{StateDir: h.State, Probe: probe}

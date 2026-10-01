@@ -40,7 +40,7 @@ const (
 )
 
 // Config carries watch.Run's tunables and its injection seams. Monitor is the
-// structural Herdr monitor ConfigFromEnv installs for production; tests may
+// monitor ConfigFromEnv installs for production; tests may
 // leave it nil, in which case the signals-only path still advances monitor's
 // typed heartbeat through the one watcher-health record. WaitEvent and
 // Cleanup default to nil, meaning pure timer mode with nothing to release,
@@ -135,32 +135,17 @@ func ConfigFromEnv(h home.Home) Config {
 	if policy, err := routing.Load(h.Data); err == nil {
 		cfg.Routing = policy
 	}
-	// The production monitor prober is the read-only structural Herdr prober,
-	// resolved against the same session source spawn uses (HERDR_SESSION,
-	// default "default") so monitoring cannot drift to a different implicit
-	// session. Both watch entry paths (manual cfo watch and the Task 11
-	// stop-autoarm hook) build their Config here, so this one installation
-	// covers both.
-	session := os.Getenv("HERDR_SESSION")
-	if session == "" {
-		session = "default"
-	}
-	// A home that cannot be read only costs the transcript half of the
-	// progress evidence; the process half still reads.
+	// Both watch entry paths (manual cfo watch and the Task 11 stop-autoarm
+	// hook) build their Config here, so this one installation covers both.
+	// The monitor reads each task's own native terminal. A home that cannot
+	// be read only costs the transcript half of the progress evidence; the
+	// process half still reads.
 	userHome, _ := os.UserHomeDir()
-	// Every Herdr read the monitor and the sweep make goes over the session's
-	// socket, found once through Herdr's status, rather than starting a
-	// herdr process each time.
-	sockets := herdr.NewSocketCache()
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
-		Probe: monitor.BackendProber{
-			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
-			Native: monitor.NativeProber{StateDir: h.State},
-		},
-		Gate: &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
+		Probe:    monitor.NativeProber{StateDir: h.State},
+		Gate:     &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
 		Progress: monitor.HostProgress{
-			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
 			StateDir: h.State,
 			Home:     userHome,
 		},
@@ -168,9 +153,12 @@ func ConfigFromEnv(h home.Home) Config {
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 	}
-	// The sweep shares the monitor's Herdr client construction and its
-	// session, so orphan detection can never look at a different session than
-	// supervision does.
+	// The orphan sweep reads Herdr in the session HERDR_SESSION names, the
+	// default session without it.
+	session := os.Getenv("HERDR_SESSION")
+	if session == "" {
+		session = "default"
+	}
 	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
 	cfg.Reap = &reap.Service{
@@ -178,7 +166,7 @@ func ConfigFromEnv(h home.Home) Config {
 		Inventory: reap.Collector{
 			Home:      h,
 			Session:   session,
-			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
+			Panes:     &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: herdr.NewSocketCache()},
 			Processes: reap.CIMProcesses{Commands: execx.OSRunner{}},
 			Commands:  execx.OSRunner{},
 

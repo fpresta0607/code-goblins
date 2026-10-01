@@ -13,7 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -21,13 +20,6 @@ import (
 
 type Prober interface {
 	Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error)
-}
-
-// CycleProber is the optional Prober extension for batch evidence: Scan marks
-// one cycle boundary before inspecting any task so a structural prober can
-// supply every task from one coherent snapshot.
-type CycleProber interface {
-	BeginScan(ctx context.Context)
 }
 
 // Service scans read-only endpoint samples and persists classification state.
@@ -110,9 +102,6 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		}
 		entries = nil
 	}
-	if cycler, ok := s.Probe.(CycleProber); ok {
-		cycler.BeginScan(ctx)
-	}
 	led, err := readLedger(s.StateDir)
 	if err != nil {
 		return ScanResult{}, err
@@ -142,7 +131,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 				if lifecycle.Phase == "resuming" {
 					health = HealthLaunching
 				}
-				observation := Observation{Schema: Schema, TaskID: id, Endpoint: endpointString(meta), EndpointVerdict: ProbeUnknown, LastObserved: now, Health: health, Reason: LifecycleOperation}
+				observation := Observation{Schema: Schema, TaskID: id, Endpoint: Endpoint(meta), EndpointVerdict: ProbeUnknown, LastObserved: now, Health: health, Reason: LifecycleOperation}
 				if err := WriteObservation(s.StateDir, observation); err != nil {
 					return ScanResult{}, err
 				}
@@ -170,7 +159,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			observation := Observation{
 				Schema:          Schema,
 				TaskID:          id,
-				Endpoint:        endpointString(meta),
+				Endpoint:        Endpoint(meta),
 				EndpointVerdict: ProbeUnknown,
 				LastObserved:    now,
 				Health:          HealthUnknown,
@@ -281,7 +270,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
-	observation.Endpoint = endpointString(meta)
+	observation.Endpoint = Endpoint(meta)
 	observation.LastObserved = now
 
 	if s.Probe == nil {
@@ -296,7 +285,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// submitted. Within the launch budget anything short of a turn in progress
 	// is still launching, unless the provider is refusing the harness or the
 	// goblin has already been seen alive.
-	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
+	if meta.Backend == "native" && sample.Status != StatusWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
 		if _, _, refused := routing.Detect(string(sample.Capture)); !refused {
 			return launchingObservation(observation, now), sample
 		}
@@ -324,14 +313,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if detail == "" {
 			detail = "endpoint identity did not validate"
 		}
-		// A freshly created task publishes its metadata before the harness can
-		// register, so a present pane with no agent yet is still launching,
-		// not harness death. Stay quiet only within the launch budget: a task
-		// whose agent registers and dies before it is ever observed alive must
-		// not stay "launching" forever, so past the budget it wakes as death.
-		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
-			return launchingObservation(observation, now), sample
-		}
 		return unknownObservation(observation, EndpointUnknown, detail, now), sample
 	}
 
@@ -353,14 +334,14 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 
 	// Any status other than working ends the busy stretch: the next working
 	// reading starts a fresh clock rather than inheriting an old one.
-	if sample.Status != herdr.AgentWorking {
+	if sample.Status != StatusWorking {
 		observation.BusySince = nil
 	}
 
-	// agent_status is the primary supervision signal (working | idle | done),
-	// read straight from `herdr agent list` for both claude and pi panes.
+	// The harness's status is the primary supervision signal, read from its
+	// own screen.
 	switch sample.Status {
-	case herdr.AgentWorking:
+	case StatusWorking:
 		// Never wake: the goblin is working. A working observation supersedes
 		// whichever parked/terminal verb last held the pane quiet, so a later
 		// done/idle reading the same stale verb is not held quiet again.
@@ -390,7 +371,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			}
 		}
 		return workingObservation(observation, sample, now), sample
-	case herdr.AgentDone, herdr.AgentBlocked:
+	case StatusDone, StatusBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
@@ -398,7 +379,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return gated, sample
 		}
 		detail := "agent turn ended; waiting on input"
-		if sample.Status == herdr.AgentDone {
+		if sample.Status == StatusDone {
 			// A turn that ended with a background shell or a tool its pane
 			// still shows running resumes by itself when that work reports
 			// back, so nobody owes it an answer while that work moves.
@@ -435,11 +416,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			detail += "; its screen ends: " + tail
 		}
 		return awaitingInputObservation(observation, detail, now), sample
-	case herdr.AgentIdle:
+	case StatusIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
 		return s.idleClassification(ctx, meta, observation, sample, now, tally), sample
-	case herdr.AgentUnknown:
+	case StatusUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
@@ -1066,7 +1047,7 @@ func invalidRecordObservation(meta state.TaskMeta, prior Observation, now time.T
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
-	observation.Endpoint = endpointString(meta)
+	observation.Endpoint = Endpoint(meta)
 	observation.EndpointVerdict = ProbeUnknown
 	observation.LastObserved = now
 	observation.Health = HealthUnknown
@@ -1083,17 +1064,10 @@ func invalidRecordObservation(meta state.TaskMeta, prior Observation, now time.T
 	return observation
 }
 
+// validSample reports whether a present sample is of the task's own terminal
+// and shows something.
 func validSample(meta state.TaskMeta, sample EndpointSample) bool {
-	if sample.Endpoint.Target.Session != meta.HerdrSession || sample.Endpoint.Target.Pane != meta.HerdrPaneID {
-		return false
-	}
-	if sample.Endpoint.WorkspaceID != meta.HerdrWorkspaceID || sample.Endpoint.TabID != meta.HerdrTabID || sample.Endpoint.PaneID != meta.HerdrPaneID {
-		return false
-	}
-	if sample.TabLabel != "gb-"+meta.ID || sample.Agent != herdr.AgentAlive {
-		return false
-	}
-	return len(sample.Capture) > 0
+	return sample.TabLabel == "gb-"+meta.ID && len(sample.Capture) > 0
 }
 
 // latestStatusVerb returns the most recent status verb recorded for the task
@@ -1369,8 +1343,13 @@ func timePointer(value time.Time) *time.Time {
 	return &copy
 }
 
-func endpointString(meta state.TaskMeta) string {
-	return herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}.String()
+// Endpoint is the endpoint an observation of meta's task is recorded under. It
+// is the session and pane an older build recorded for a task in Herdr, joined
+// by a colon, which leaves ":" for every native task: observations already on
+// disk carry that value, and one recorded under another endpoint is not this
+// task's, so it stays as it is.
+func Endpoint(meta state.TaskMeta) string {
+	return meta.HerdrSession + ":" + meta.HerdrPaneID
 }
 
 func (s Service) now() time.Time {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -33,21 +33,13 @@ func capture(text string) []byte {
 }
 
 func metaFor(id string) state.TaskMeta {
-	return state.TaskMeta{
-		ID:               id,
-		Worktree:         `C:\work\` + id,
-		Backend:          "herdr",
-		HerdrSession:     "fleet",
-		HerdrWorkspaceID: "ws",
-		HerdrTabID:       "tab-" + id,
-		HerdrPaneID:      "pane-" + id,
-	}
+	return state.TaskMeta{ID: id, Worktree: `C:\work\` + id, Backend: "native", Window: "native"}
 }
 
-func sampleFor(meta state.TaskMeta, busy herdr.BusyState, text string) EndpointSample {
-	status := herdr.AgentIdle
-	if busy == herdr.BusyWorking {
-		status = herdr.AgentWorking
+func sampleFor(meta state.TaskMeta, busy crewstate.Busy, text string) EndpointSample {
+	status := StatusIdle
+	if busy == crewstate.BusyWorking {
+		status = StatusWorking
 	}
 	sample := sampleBase(meta, text)
 	sample.Busy = busy
@@ -55,13 +47,13 @@ func sampleFor(meta state.TaskMeta, busy herdr.BusyState, text string) EndpointS
 	return sample
 }
 
-// sampleForStatus builds a sample with an explicit native agent_status, for
-// the agent_status-primary classification tests.
+// sampleForStatus builds a sample with an explicit status, for the
+// status-primary classification tests.
 func sampleForStatus(meta state.TaskMeta, status, text string) EndpointSample {
 	sample := sampleBase(meta, text)
-	sample.Busy = herdr.BusyIdle
-	if status == herdr.AgentWorking {
-		sample.Busy = herdr.BusyWorking
+	sample.Busy = crewstate.BusyIdle
+	if status == StatusWorking {
+		sample.Busy = crewstate.BusyWorking
 	}
 	sample.Status = status
 	return sample
@@ -69,22 +61,22 @@ func sampleForStatus(meta state.TaskMeta, status, text string) EndpointSample {
 
 func sampleBase(meta state.TaskMeta, text string) EndpointSample {
 	return EndpointSample{
-		Verdict: ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
+		Verdict:  ProbePresent,
 		TabLabel: "gb-" + meta.ID,
-		Agent:    herdr.AgentAlive,
 		Capture:  capture(text),
 	}
 }
 
+// recordedLongAgo is before every clock these tests run on, so a task written
+// by writeTask is past its launch budget unless the test dates its record.
+var recordedLongAgo = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func writeTask(t *testing.T, stateDir string, meta state.TaskMeta) {
 	t.Helper()
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(stateDir, meta.ID+".meta"), recordedLongAgo, recordedLongAgo); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -110,7 +102,7 @@ func TestScanFindsCaseInsensitiveMetadataExtension(t *testing.T) {
 	meta := metaFor("Foo")
 	writeTask(t, stateDir, meta)
 	renameMetadataExtension(t, stateDir, meta.ID, "META")
-	probe := &fakeProber{samples: map[string]EndpointSample{"Foo": sampleFor(meta, herdr.BusyWorking, "first")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"Foo": sampleFor(meta, crewstate.BusyWorking, "first")}}
 
 	result, err := testService(stateDir, probe, &now).Scan(context.Background())
 	if err != nil {
@@ -141,7 +133,7 @@ func TestScanIdleGraceThenStallsOnce(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "first")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "first")}}
 	service := testService(stateDir, probe, &now)
 
 	// Idle with no liveness movement is not a stall yet: the goblin is
@@ -185,7 +177,7 @@ func TestScanIgnoresUnavailableCountersInsteadOfResettingIdle(t *testing.T) {
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	sample := sampleForStatus(meta, herdr.AgentIdle, "steady")
+	sample := sampleForStatus(meta, StatusIdle, "steady")
 	sample.StateChangeSeq = 2670
 	sample.Revision = 13807
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
@@ -234,7 +226,7 @@ func TestScanStatusWritesKeepAQuietGoblinFromStalling(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := testService(stateDir, probe, &now)
 
 	if _, err := service.Scan(context.Background()); err != nil {
@@ -269,7 +261,7 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
 		t.Fatal(err)
 	}
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyWorking, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyWorking, "same")}}
 	service := testService(stateDir, probe, &now)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -290,7 +282,7 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 	now = time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta = metaFor("g2")
 	writeTask(t, stateDir, meta)
-	probe = &fakeProber{samples: map[string]EndpointSample{"g2": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe = &fakeProber{samples: map[string]EndpointSample{"g2": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service = testService(stateDir, probe, &now)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -338,7 +330,7 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := testService(stateDir, probe, &now)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -614,7 +606,7 @@ func TestScanRestartsTaskStallCadenceWithoutReset(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := testService(stateDir, probe, &now)
 
 	active, err := service.Scan(context.Background())
@@ -662,7 +654,7 @@ func TestHeartbeatDoesNotResurfaceAStaleObservation(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := testService(stateDir, probe, &now)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
@@ -750,7 +742,7 @@ func TestScanDoesNotPublishWhenObservationPersistenceFails(t *testing.T) {
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 	service := testService(stateDir, probe, &now)
 
 	monitorDir := filepath.Join(stateDir, "monitor")
@@ -781,7 +773,7 @@ func TestScanReportsAHarnessBeingRefusedByItsProvider(t *testing.T) {
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleFor(meta, herdr.BusyWorking, "Error: 429 rate limit reached for model kimi-k2"),
+		"g1": sampleFor(meta, crewstate.BusyWorking, "Error: 429 rate limit reached for model kimi-k2"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -818,7 +810,7 @@ func TestScanRaisesOneEventPerErroringEpisode(t *testing.T) {
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleFor(meta, herdr.BusyWorking, "API error: 403 quota exceeded for this organization"),
+		"g1": sampleFor(meta, crewstate.BusyWorking, "API error: 403 quota exceeded for this organization"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -854,14 +846,14 @@ func TestScanLetsAPaneRecoverOnceTheProviderStopsRefusing(t *testing.T) {
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleFor(meta, herdr.BusyWorking, "Error: 429 rate limit reached"),
+		"g1": sampleFor(meta, crewstate.BusyWorking, "Error: 429 rate limit reached"),
 	}}
 	service := testService(stateDir, probe, &now)
 
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, "running tests, 42 passed")
+	probe.samples["g1"] = sampleFor(meta, crewstate.BusyWorking, "running tests, 42 passed")
 	now = now.Add(time.Minute)
 
 	result, err := service.Scan(context.Background())
@@ -881,7 +873,7 @@ func TestScanWakesWhenAgentTurnEnds(t *testing.T) {
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "turn ended")}}
 	service := testService(stateDir, probe, &now)
 
 	result, err := service.Scan(context.Background())
@@ -907,7 +899,9 @@ func TestScanWakesWhenAgentTurnEnds(t *testing.T) {
 	}
 }
 
-func TestScanTreatsFreshTaskWithNoAgentAsLaunching(t *testing.T) {
+// A fresh task whose terminal shows nothing yet is launching, and quiet, only
+// within its launch budget: past it, the blank terminal wakes the CFO.
+func TestScanWakesWhenLaunchGraceExpiresWithoutAScreen(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
@@ -916,66 +910,10 @@ func TestScanTreatsFreshTaskWithNoAgentAsLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
-		Verdict: ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
+		Verdict:  ProbePresent,
 		TabLabel: "gb-g1",
-		Agent:    herdr.AgentDead,
-		Busy:     herdr.BusyUnknown,
-		Detail:   "pane pane-g1 has no registered agent",
-	}}}
-	service := testService(stateDir, probe, &now)
-
-	result, err := service.Scan(context.Background())
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-	if result.Event != nil {
-		t.Fatalf("a still-launching task woke the CFO: %+v", result.Event)
-	}
-	if len(result.Observations) != 1 {
-		t.Fatalf("observations = %+v, want one", result.Observations)
-	}
-	obs := result.Observations[0]
-	if obs.Health != HealthLaunching || obs.EndpointVerdict != ProbePresent || obs.Reason != None {
-		t.Fatalf("observation = %+v, want launching with a present endpoint", obs)
-	}
-
-	probe.samples["g1"] = sampleFor(meta, herdr.BusyIdle, "first")
-	now = now.Add(time.Second)
-	alive, err := service.Scan(context.Background())
-	if err != nil {
-		t.Fatalf("Scan after the agent registers: %v", err)
-	}
-	if alive.Event != nil || alive.Observations[0].Health != HealthIdle {
-		t.Fatalf("alive scan = %+v, want an idle baseline without an event", alive)
-	}
-}
-
-func TestScanWakesWhenLaunchGraceExpiresWithoutAgent(t *testing.T) {
-	stateDir := t.TempDir()
-	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
-	meta := metaFor("g1")
-	writeTask(t, stateDir, meta)
-	if err := os.Chtimes(filepath.Join(stateDir, "g1.meta"), now, now); err != nil {
-		t.Fatal(err)
-	}
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
-		Verdict: ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
-		TabLabel: "gb-g1",
-		Agent:    herdr.AgentDead,
-		Busy:     herdr.BusyUnknown,
-		Detail:   "pane pane-g1 has no registered agent",
+		Busy:     crewstate.BusyUnknown,
+		Detail:   "native terminal g1 shows nothing yet",
 	}}}
 	service := testService(stateDir, probe, &now)
 
@@ -1004,7 +942,7 @@ func TestScanDoesNotStallAParkedDecisionGoblin(t *testing.T) {
 			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 			meta := metaFor("g1")
 			writeTask(t, stateDir, meta)
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 			service := testService(stateDir, probe, &now)
 
 			if _, err := service.Scan(context.Background()); err != nil {
@@ -1037,7 +975,7 @@ func TestScanDoesNotStallATerminalOutcomeGoblin(t *testing.T) {
 			now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 			meta := metaFor("g1")
 			writeTask(t, stateDir, meta)
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, crewstate.BusyIdle, "same")}}
 			service := testService(stateDir, probe, &now)
 
 			if _, err := service.Scan(context.Background()); err != nil {
@@ -1072,17 +1010,10 @@ func TestScanKeepsLaunchingQuietAcrossCyclesWithinGrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {
-		Verdict: ProbePresent,
-		Endpoint: herdr.Endpoint{
-			Target:      herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID},
-			WorkspaceID: meta.HerdrWorkspaceID,
-			TabID:       meta.HerdrTabID,
-			PaneID:      meta.HerdrPaneID,
-		},
+		Verdict:  ProbePresent,
 		TabLabel: "gb-g1",
-		Agent:    herdr.AgentDead,
-		Busy:     herdr.BusyUnknown,
-		Detail:   "pane pane-g1 has no registered agent",
+		Busy:     crewstate.BusyUnknown,
+		Detail:   "native terminal g1 shows nothing yet",
 	}}}
 	service := testService(stateDir, probe, &now)
 
@@ -1126,7 +1057,7 @@ func TestScanHoldsQuietADoneAgentWithTerminalVerb(t *testing.T) {
 			if err := state.AppendStatus(stateDir, "g1", test.statusLine); err != nil {
 				t.Fatal(err)
 			}
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "turn ended")}}
 			service := testService(stateDir, probe, &now)
 
 			for i := 0; i < 3; i++ {
@@ -1156,7 +1087,7 @@ func TestScanHoldsQuietADoneAgentWithFreshParkedVerb(t *testing.T) {
 			if err := state.AppendStatus(stateDir, "g1", statusLine); err != nil {
 				t.Fatal(err)
 			}
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "turn ended")}}
 			service := testService(stateDir, probe, &now)
 
 			for i := 0; i < 3; i++ {
@@ -1191,7 +1122,7 @@ func TestScanNeverWakesForAGoblinWaitingWithItsTurnEnded(t *testing.T) {
 			if err := state.AppendStatus(stateDir, "g1", statusLine); err != nil {
 				t.Fatal(err)
 			}
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "turn ended")}}
 			service := testService(stateDir, probe, &now)
 
 			events := cycle(t, service, &now, 60)
@@ -1225,7 +1156,7 @@ func TestScanWakesDoneAgentWithStaleParkedVerbAfterCountersAdvance(t *testing.T)
 	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
 		t.Fatal(err)
 	}
-	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample := sampleForStatus(meta, StatusDone, "turn ended")
 	sample.StateChangeSeq = 10
 	sample.Revision = 3
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
@@ -1259,7 +1190,7 @@ func TestScanHoldsQuietParkedVerbWhenOnlyRevisionAdvances(t *testing.T) {
 	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
 		t.Fatal(err)
 	}
-	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample := sampleForStatus(meta, StatusDone, "turn ended")
 	sample.StateChangeSeq = 10
 	sample.Revision = 3
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
@@ -1293,7 +1224,7 @@ func TestScanWakesDoneAgentWithStaleTerminalVerbAfterCountersAdvance(t *testing.
 	if err := state.AppendStatus(stateDir, "g1", "done: PR https://example.com/repo/pull/7"); err != nil {
 		t.Fatal(err)
 	}
-	sample := sampleForStatus(meta, herdr.AgentDone, "turn ended")
+	sample := sampleForStatus(meta, StatusDone, "turn ended")
 	sample.StateChangeSeq = 20
 	sample.Revision = 5
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
@@ -1324,7 +1255,7 @@ func TestScanWakesWhenBlockedAgentStatusHasNoVerb(t *testing.T) {
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentBlocked, "blocked")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusBlocked, "blocked")}}
 	service := testService(stateDir, probe, &now)
 
 	result, err := service.Scan(context.Background())
@@ -1347,7 +1278,7 @@ func TestScanHoldsQuietABlockedAgentWithParkedVerb(t *testing.T) {
 	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
 		t.Fatal(err)
 	}
-	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentBlocked, "blocked")}}
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusBlocked, "blocked")}}
 	service := testService(stateDir, probe, &now)
 
 	result, err := service.Scan(context.Background())
@@ -1368,7 +1299,7 @@ func TestScanWakesDoneAgentAfterResumeSupersedesStaleParkedVerb(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleForStatus(meta, herdr.AgentBlocked, "blocked"),
+		"g1": sampleForStatus(meta, StatusBlocked, "blocked"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -1380,13 +1311,13 @@ func TestScanWakesDoneAgentAfterResumeSupersedesStaleParkedVerb(t *testing.T) {
 		t.Fatalf("blocked+parked scan = %+v, want parked without event", blocked)
 	}
 
-	probe.samples["g1"] = sampleForStatus(meta, herdr.AgentWorking, "resumed")
+	probe.samples["g1"] = sampleForStatus(meta, StatusWorking, "resumed")
 	now = now.Add(time.Minute)
 	if _, err := service.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
-	probe.samples["g1"] = sampleForStatus(meta, herdr.AgentDone, "finished without notify")
+	probe.samples["g1"] = sampleForStatus(meta, StatusDone, "finished without notify")
 	now = now.Add(time.Minute)
 	done, err := service.Scan(context.Background())
 	if err != nil {
@@ -1406,7 +1337,7 @@ func TestScanDoesNotConsumeFreshVerbSeenWhileWorking(t *testing.T) {
 		t.Fatal(err)
 	}
 	probe := &fakeProber{samples: map[string]EndpointSample{
-		"g1": sampleForStatus(meta, herdr.AgentWorking, "still working"),
+		"g1": sampleForStatus(meta, StatusWorking, "still working"),
 	}}
 	service := testService(stateDir, probe, &now)
 
@@ -1414,7 +1345,7 @@ func TestScanDoesNotConsumeFreshVerbSeenWhileWorking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	probe.samples["g1"] = sampleForStatus(meta, herdr.AgentBlocked, "blocked")
+	probe.samples["g1"] = sampleForStatus(meta, StatusBlocked, "blocked")
 	now = now.Add(time.Minute)
 	blocked, err := service.Scan(context.Background())
 	if err != nil {
@@ -1433,7 +1364,7 @@ func TestScanHoldsQuietDoneAgentAfterWorkingSawParkedVerb(t *testing.T) {
 	if err := state.AppendStatus(stateDir, "g1", "blocked: waiting for approval"); err != nil {
 		t.Fatal(err)
 	}
-	working := sampleForStatus(meta, herdr.AgentWorking, "resumed")
+	working := sampleForStatus(meta, StatusWorking, "resumed")
 	working.StateChangeSeq = 10
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": working}}
 	service := testService(stateDir, probe, &now)
@@ -1442,7 +1373,7 @@ func TestScanHoldsQuietDoneAgentAfterWorkingSawParkedVerb(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	done := sampleForStatus(meta, herdr.AgentDone, "finished without notify")
+	done := sampleForStatus(meta, StatusDone, "finished without notify")
 	done.StateChangeSeq = 11
 	probe.samples["g1"] = done
 	now = now.Add(time.Minute)
@@ -1463,7 +1394,7 @@ func TestScanHoldsQuietDoneAgentAfterWorkingSawTerminalVerb(t *testing.T) {
 	if err := state.AppendStatus(stateDir, "g1", "done: PR https://example.com/repo/pull/7"); err != nil {
 		t.Fatal(err)
 	}
-	working := sampleForStatus(meta, herdr.AgentWorking, "resumed")
+	working := sampleForStatus(meta, StatusWorking, "resumed")
 	working.StateChangeSeq = 20
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": working}}
 	service := testService(stateDir, probe, &now)
@@ -1472,7 +1403,7 @@ func TestScanHoldsQuietDoneAgentAfterWorkingSawTerminalVerb(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	done := sampleForStatus(meta, herdr.AgentDone, "finished without notify")
+	done := sampleForStatus(meta, StatusDone, "finished without notify")
 	done.StateChangeSeq = 21
 	probe.samples["g1"] = done
 	now = now.Add(time.Minute)
@@ -1490,7 +1421,7 @@ func TestScanHoldsQuietAnIndeterminateUnknownAgent(t *testing.T) {
 	now := time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	sample := sampleForStatus(meta, herdr.AgentUnknown, "registered but indeterminate")
+	sample := sampleForStatus(meta, StatusUnknown, "registered but indeterminate")
 	sample.StateChangeSeq = 7
 	sample.Revision = 3
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sample}}
@@ -1522,7 +1453,7 @@ func TestScanRaisesAFaultLineOnceAcrossPaneFlips(t *testing.T) {
 	service := testService(stateDir, probe, &now)
 	scan := func(capture string) *Event {
 		t.Helper()
-		probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, capture)
+		probe.samples["g1"] = sampleFor(meta, crewstate.BusyWorking, capture)
 		now = now.Add(3 * time.Minute)
 		result, err := service.Scan(context.Background())
 		if err != nil {
@@ -1601,7 +1532,7 @@ func TestScanKeepsAWaitingGoblinParkedAfterACFOAuditLine(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, herdr.AgentDone, "turn ended")}}
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleForStatus(meta, StatusDone, "turn ended")}}
 			service := testService(stateDir, probe, &now)
 
 			events := cycle(t, service, &now, 60)

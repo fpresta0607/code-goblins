@@ -101,7 +101,7 @@ func goblinOf(chain []proc.Entry) (string, bool) {
 
 // startedByCFO reports whether the nearest program above a poll, past the
 // shells and node shims that run it, is cfo. Only that one decides: a
-// launcher further up, above Herdr, is above every goblin too.
+// launcher further up, above the terminal's host, is above every goblin too.
 func startedByCFO(chain []proc.Entry) bool {
 	for _, entry := range chain[1:] {
 		switch executableName(entry.ExeBase) {

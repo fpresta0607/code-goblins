@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -55,7 +55,7 @@ func TestFailedOrAbandonedLifecycleStillMonitorsALiveHarness(t *testing.T) {
 			if err := state.WriteLifecycle(directory, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: phase}); err != nil {
 				t.Fatal(err)
 			}
-			probe := &fakeProber{samples: map[string]EndpointSample{meta.ID: {Verdict: ProbePresent, Agent: herdr.AgentAlive, Busy: herdr.BusyWorking, Status: "working", Capture: capture("Working on the retained task")}}}
+			probe := &fakeProber{samples: map[string]EndpointSample{meta.ID: {Verdict: ProbePresent, Busy: crewstate.BusyWorking, Status: "working", Capture: capture("Working on the retained task")}}}
 			_, err := (Service{StateDir: directory, Probe: probe}).Scan(context.Background())
 			if err != nil || len(probe.calls) != 1 {
 				t.Fatalf("live harness was not inspected: %v %v", probe.calls, err)

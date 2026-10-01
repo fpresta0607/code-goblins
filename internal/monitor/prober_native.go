@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -34,10 +34,14 @@ type NativeProber struct {
 }
 
 // Inspect samples the task's native terminal. The sample names the terminal
-// as its tab, gb-<id>, the way a Herdr task's tab is named.
+// as gb-<id>. A task an older build recorded in Herdr has no terminal this
+// build can read, so it is unknown, with how to retire it.
 func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointSample, error) {
 	unknown := func(detail string) EndpointSample {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: detail}
+	}
+	if meta.Backend != "native" {
+		return unknown(fmt.Sprintf("task %s was recorded in Herdr by an older build, whose pane this build cannot read; once that pane is closed, retire the record with cfo cleanup %s --force-archive", meta.ID, meta.ID)), nil
 	}
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
@@ -83,7 +87,6 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	sample := EndpointSample{
 		Verdict:             ProbePresent,
 		TabLabel:            "gb-" + meta.ID,
-		Agent:               herdr.AgentAlive,
 		Capture:             []byte(strings.Join(screen, "\n")),
 		Harness:             meta.Harness,
 		CountersUnavailable: true,
@@ -91,13 +94,13 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	_, dialog := screens.Dialog(screen)
 	switch {
 	case screens.IsWorking(screen):
-		sample.Status, sample.Busy = herdr.AgentWorking, herdr.BusyWorking
+		sample.Status, sample.Busy = StatusWorking, crewstate.BusyWorking
 	case dialog:
-		sample.Status, sample.Busy = herdr.AgentBlocked, herdr.BusyIdle
+		sample.Status, sample.Busy = StatusBlocked, crewstate.BusyIdle
 	case screens.IsReady(screen):
-		sample.Status, sample.Busy, sample.InteractiveReady = herdr.AgentDone, herdr.BusyIdle, true
+		sample.Status, sample.Busy, sample.InteractiveReady = StatusDone, crewstate.BusyIdle, true
 	default:
-		sample.Status, sample.Busy = herdr.AgentUnknown, herdr.BusyUnknown
+		sample.Status, sample.Busy = StatusUnknown, crewstate.BusyUnknown
 	}
 	return sample, nil
 }
@@ -108,27 +111,4 @@ func dialHost(record host.Record) error {
 		return err
 	}
 	return client.Close()
-}
-
-// BackendProber inspects each task with the prober of the terminal backend
-// it runs in.
-type BackendProber struct {
-	Herdr  Prober
-	Native Prober
-}
-
-// BeginScan starts the Herdr prober's cycle, which reads one snapshot of the
-// whole session for every Herdr task.
-func (p BackendProber) BeginScan(ctx context.Context) {
-	if cycle, ok := p.Herdr.(CycleProber); ok {
-		cycle.BeginScan(ctx)
-	}
-}
-
-// Inspect samples meta's terminal through its backend's prober.
-func (p BackendProber) Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error) {
-	if meta.Backend == "native" {
-		return p.Native.Inspect(ctx, meta)
-	}
-	return p.Herdr.Inspect(ctx, meta)
 }

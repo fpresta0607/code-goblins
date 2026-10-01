@@ -3,7 +3,6 @@ package supervisor
 import (
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -20,14 +19,11 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 		return RuntimeEvidence{State: record.Phase, Reason: record.Reason, At: record.Updated}
 	}
-	// The monitor reads a native task from its own terminal, never Herdr.
-	source := "Herdr"
-	if meta.Backend == "native" {
-		source = "Native terminal"
-	}
+	// The monitor reads a task from its own native terminal.
+	const source = "Native terminal"
 	evidence := RuntimeEvidence{State: "unknown", Reason: "Current " + source + " liveness evidence is unavailable"}
 	observation, err := monitor.ReadObservation(s.Store.Home.State, meta.ID)
-	if err != nil || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
+	if err != nil || observation.Endpoint != monitor.Endpoint(meta) || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
 		return evidence
 	}
 	evidence.At = observation.LastObserved

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -47,8 +46,17 @@ type Current struct {
 // the task's metadata records: exists proves that terminal is addressable,
 // not that it is the exact task endpoint, and busy is its activity.
 type Endpoint interface {
-	Read(ctx context.Context, meta state.TaskMeta) (exists bool, busy herdr.BusyState, err error)
+	Read(ctx context.Context, meta state.TaskMeta) (exists bool, busy Busy, err error)
 }
+
+// Busy is whether a task's harness is in a turn, as its terminal shows it.
+type Busy string
+
+const (
+	BusyWorking Busy = "busy"
+	BusyIdle    Busy = "idle"
+	BusyUnknown Busy = "unknown"
+)
 
 // StructuralValidator is an intentionally narrow optional extension for
 // endpoints that can prove every metadata identity component. Status-log
@@ -84,13 +92,13 @@ func Resolve(ctx context.Context, stateDir, id string, endpoint Endpoint) (Curre
 		return Current{State: Unknown, Source: SourceMetadata}, nil
 	}
 	exists, busy, err := endpoint.Read(ctx, meta)
-	if err != nil || !exists || busy == herdr.BusyUnknown {
+	if err != nil || !exists || busy == BusyUnknown {
 		return Current{State: Unknown, Source: SourceNone}, nil
 	}
-	if busy == herdr.BusyWorking {
+	if busy == BusyWorking {
 		return Current{State: Working, Source: SourceEndpoint}, nil
 	}
-	if busy != herdr.BusyIdle {
+	if busy != BusyIdle {
 		return Current{State: Unknown, Source: SourceNone}, nil
 	}
 	validator, ok := endpoint.(StructuralValidator)

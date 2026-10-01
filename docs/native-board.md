@@ -77,7 +77,7 @@ One slow reconciliation pass runs each minute; there is no browser-driven task p
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.
 
-Fresh, matching Herdr monitor evidence distinguishes a working harness from an unavailable or stale one.
+Fresh, matching monitor evidence distinguishes a working harness from an unavailable or stale one.
 An abrupt process crash does not change the recorded native event into an invented end event.
 The board shows runtime unavailability separately and continues evaluating independent task/gate evidence.
 Silence, a vanished process, a Stop, and a prior `notify --done` are never substitutes for delivery evidence.
@@ -162,7 +162,7 @@ A merged or closed answer is kept; an open one, or an ask that failed, which the
 The asks of one refresh share a 5-second budget, so a slow GitHub never holds up the supervisor; a pull request not asked before it runs out reads Finished and is asked on the next refresh, and an ask it cuts off counts as failed.
 The card wears GitHub's icons and colors: the purple merge icon for Merged, the red closed pull request icon for Closed, and the pull request icon otherwise.
 A live task's pull request link wears the merge icon too once its gate shows the merge, in phase merged and after its landed content is verified.
-A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane or, for a native task, what the monitor reads from its terminal, and it is evaluated once a minute like any other.
+A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what the monitor reads from its terminal, and it is evaluated once a minute like any other.
 Each card shows its short title, then a muted line with the task's repo and status, the status's dot between them, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
 The title shows up to three lines and the repo and the status wrap onto further lines; a title cut at three lines ends in an ellipsis and shows in full in the board's tip on hover or keyboard focus.
 Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
@@ -400,7 +400,7 @@ Keys pass through raw, the terminal follows the console's size, taken back with 
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
 `cfo peek gb-<id>`, the form fleet-view suggests, reads a native task's terminal as `cfo peek <id>` does.
-`cfo fleet-view` reads a native task's current state from its own terminal, as the monitor does, never from Herdr: a turn on its screen is working, and an idle terminal whose host recorded itself under the task's id is the task's own, so the row shows the task's latest report; with no running host the row is unknown.
+`cfo fleet-view` reads a task's current state from its own native terminal, as the monitor does: a turn on its screen is working, and an idle terminal whose host recorded itself under the task's id is the task's own, so the row shows the task's latest report; with no running host the row is unknown, as is the row of a task an older build recorded in Herdr.
 A Herdr task's idle pane still shows unknown, since no Herdr answer proves the pane is the task's.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
@@ -431,8 +431,9 @@ Every restarted goblin, resumed or handed off, is also told that a question it a
 That resume in place skips the dirty-worktree refusal, since uncommitted edits are the goblin's own work in progress and nothing is stopped or handed off; a switch that changes the harness, model or effort is still refused on a dirty worktree unless `--force-dirty`.
 A task an older build recorded in Herdr is refused by `cfo switch` by name, before anything is stopped or written.
 A `/` or `$` command gets the completion popup's longer wait before Enter and is reported submitted once but unconfirmed rather than awaited, because `/exit` ends the harness and `/model` opens a picker; check it with `cfo peek` rather than sending it again.
-The monitor supervises a native goblin as it does a Herdr one: its host's record says whether its terminal runs, and the harness's own screen, read the way the spawn reads it, says whether a turn is in progress, a dialog waits on a person or the composer waits for input.
-Its progress evidence is the processes its terminal's program started; its transcript is not located yet, since no Herdr session names it, so only those processes count as progress before a stale wake.
+The monitor supervises a goblin through its native terminal: its host's record says whether its terminal runs, and the harness's own screen, read the way the spawn reads it, says whether a turn is in progress, a dialog waits on a person or the composer waits for input.
+It asks nothing of Herdr: a task an older build recorded in Herdr reads as unknown, and its wake says to retire the record with `cfo cleanup <id> --force-archive` once its pane is closed.
+Its progress evidence is the processes its terminal's program started; its transcript is not located yet, since nothing names its harness's session, so only those processes count as progress before a stale wake.
 The board's runtime line for a native task names its terminal instead of Herdr.
 `cfo cleanup` returns a native task whose terminal has ended, or whose harness waits at its ready composer with no working marker, in which case it closes the terminal, which ends the harness (decision 2339); any other screen, a screen or host record that cannot be read, and a harness whose screens cfo cannot read are refused with or without `--force-archive`.
 It asks nothing of Herdr for a native task, so a machine without Herdr retires its native goblins; only a Herdr task needs Herdr.

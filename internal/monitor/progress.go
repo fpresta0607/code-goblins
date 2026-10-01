@@ -15,15 +15,14 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // ProgressSample is what a goblin's own work looks like from outside its
-// pane. agent_status says whether the harness is in a turn; this says whether
-// anything underneath it is moving.
+// terminal. Its screen says whether the harness is in a turn; this says
+// whether anything underneath it is moving.
 type ProgressSample struct {
 	// TranscriptAt is when the harness last wrote its session transcript,
 	// zero when no transcript was found.
@@ -45,15 +44,9 @@ type ProgressProber interface {
 	InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error)
 }
 
-// PaneProcesses reads a pane's operating-system identity.
-type PaneProcesses interface {
-	PaneProcessInfo(ctx context.Context, target herdr.Target) (herdr.PaneProcessInfo, error)
-}
-
 // HostProgress reads progress evidence on this machine: the harness's
 // transcript under the user's home, and the processes under the harness.
 type HostProgress struct {
-	Panes PaneProcesses
 	// StateDir is where native terminals' hosts record the program each
 	// runs, the harness of a native task.
 	StateDir string
@@ -68,13 +61,11 @@ type HostProgress struct {
 const harnessLaunch = 2 * time.Minute
 
 // InspectProgress reads the transcript and the harness's own processes. The
-// harness of a native task is the program its terminal runs; otherwise it is
-// whatever Herdr reports in the pane's foreground, and a pane back at its
-// shell has no harness and so no processes of its own.
-func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
+// harness is the program the task's native terminal runs.
+func (h HostProgress) InspectProgress(_ context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
-	harnessPID, err := h.harnessPID(ctx, meta, sample)
-	if err != nil || harnessPID == 0 {
+	harnessPID, err := h.harnessPID(meta)
+	if err != nil {
 		return progress, err
 	}
 	processes, err := proc.Processes()
@@ -85,24 +76,14 @@ func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, 
 	return progress, nil
 }
 
-// harnessPID returns the process id of the task's harness, and 0 for a pane
-// back at its shell.
-func (h HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
-	if meta.Backend == "native" {
-		record, err := host.ReadRecord(h.StateDir, meta.ID)
-		if err != nil {
-			return 0, err
-		}
-		return record.ChildPID, nil
-	}
-	info, err := h.Panes.PaneProcessInfo(ctx, sample.Endpoint.Target)
+// harnessPID returns the process id of the task's harness: the program its
+// native terminal runs, as its host recorded it.
+func (h HostProgress) harnessPID(meta state.TaskMeta) (int, error) {
+	record, err := host.ReadRecord(h.StateDir, meta.ID)
 	if err != nil {
 		return 0, err
 	}
-	if info.ForegroundProcessGroupID == info.ShellPID {
-		return 0, nil
-	}
-	return info.ForegroundProcessGroupID, nil
+	return record.ChildPID, nil
 }
 
 // launchShims are the programs a harness is commonly started through. One

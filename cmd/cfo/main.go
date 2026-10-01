@@ -237,7 +237,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		peek: peekTerminal,
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
-			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State, &herdr.Client{Commands: execx.OSRunner{}}))
+			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State))
 		},
 		localRuntime: func(ctx context.Context, h home.Home) (runtime.Inventory, error) {
 			commands := execx.OSRunner{}
