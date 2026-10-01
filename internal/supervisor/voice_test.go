@@ -82,6 +82,45 @@ func TestVoiceHistoryReportsReadFailuresWithoutPrivateDetails(t *testing.T) {
 	}
 }
 
+func TestVoiceHistoryRefusesARequestBodyUnread(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "no body", want: 200},
+		{name: "empty object", body: "{}", want: 400},
+		{name: "value field", body: `{"value":"canary"}`, want: 400},
+		{name: "plain text", body: "x", want: 400},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewHTTP(&Service{Instance: "current"}, "board.local", nil)
+			calls := 0
+			handler.readVoice = func() (siqspeak.Snapshot, error) {
+				calls++
+				return siqspeak.Snapshot{State: "running"}, nil
+			}
+			request := httptest.NewRequest("POST", "http://board.local/api/voice", strings.NewReader(test.body))
+			request.Header.Set("Origin", "http://board.local")
+			request.Header.Set("X-CFO-Token", "current")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
+			}
+			if isRead := calls == 1; isRead != (test.want == 200) {
+				t.Fatalf("history read %d times for status %d", calls, response.Code)
+			}
+			if strings.Contains(response.Body.String(), "canary") {
+				t.Fatal("answer repeated the request body")
+			}
+		})
+	}
+}
+
 func TestVoiceSnapshotUsesOnlyTheConfiguredInstallation(t *testing.T) {
 	t.Setenv("CFO_SIQSPEAK_DIR", t.TempDir())
 	readVoice := voiceReader(func() (string, error) { return filepath.Join(t.TempDir(), "unreadable"), nil })
