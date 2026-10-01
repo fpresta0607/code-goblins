@@ -204,9 +204,11 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		// cg-credential-requests on 2026-10-01: both kinds, in one count.
 		"claude a shell and a monitor": {[]string{"✻ Churned for 3m 13s · done 12:10 AM · 1 shell, 1 monitor still running", "  ⏵⏵ bypass permissions on · 1 shell, 1 monitor · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell, 1 monitor · ← 1 agent · ↓ to manage"},
 		"claude monitors then shells":  {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 monitors, 3 shells"}, "⏵⏵ bypass permissions on · 2 monitors, 3 shells"},
-		"codex status row":             {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
-		"codex status row, wrapped":    {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
-		"pi rule":                      {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
+		// cg-cfo-wakes on 2026-10-01 (goblin_idle 3654), captured idle.
+		"claude two shells and a monitor": {[]string{"✻ Baked for 1m 6s · done 12:50 AM · 2 shells, 1 monitor still running", ">\u00a0", "  ⏵⏵ bypass permissions on · 2 shells, 1 monitor · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 2 shells, 1 monitor · ← 1 agent · ↓ to manage"},
+		"codex status row":                {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
+		"codex status row, wrapped":       {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
+		"pi rule":                         {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
 	} {
 		running, ok := RunningWork(test.screen)
 		if !ok || running != test.running {
