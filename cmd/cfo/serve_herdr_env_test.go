@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
 // environmentReportVariable makes this test binary, started as a stand-in
@@ -111,6 +112,40 @@ func TestAServeStartedInAHerdrPaneOpensTerminalsWithoutThePane(t *testing.T) {
 	}
 	if !strings.Contains(environment, `HERDR_CONFIG_PATH=C:\herdr\herdr.toml`) {
 		t.Errorf("the terminal's herdr lost HERDR_CONFIG_PATH; environment:\n%s", environment)
+	}
+}
+
+// cfo serve started from the CFO's native terminal forgets that terminal's id
+// and proof value, so no terminal the board opens, nor any process in it,
+// carries the proof that a process runs in the CFO's terminal.
+func TestAServeStartedInANativeTerminalOpensTerminalsWithoutItsProof(t *testing.T) {
+	// Arrange
+	t.Setenv(host.IDVariable, "cfo")
+	t.Setenv(host.ProofVariable, "terminal-proof")
+	t.Setenv("HERDR_SESSION", "fleet")
+	report := standInHerdr(t)
+
+	// Act: serve starts as from the CFO's terminal and stops at an address it
+	// refuses, then the board opens a terminal.
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"serve", "--listen", "example.invalid:1"}, &stdout, &stderr); exit != 2 {
+		t.Fatalf("serve exit = %d (stderr %q), want the address refused", exit, stderr.String())
+	}
+	stream, err := herdr.OpenTerminal(context.Background(), "fleet", "terminal-1", false, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stream.Close() })
+	environment := waitForReport(t, report)
+
+	// Assert
+	if !strings.Contains(environment, "HERDR_SESSION=fleet") {
+		t.Fatalf("the report is not the terminal's environment:\n%s", environment)
+	}
+	for _, entry := range strings.Split(environment, "\n") {
+		if name, _, _ := strings.Cut(entry, "="); strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
+			t.Errorf("the terminal's herdr started with %s", entry)
+		}
 	}
 }
 

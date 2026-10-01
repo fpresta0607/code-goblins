@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // Close ends only the host it was handed: a terminal of the same id that
@@ -22,6 +24,134 @@ func TestCloseEndsOnlyTheHostItWasHanded(t *testing.T) {
 
 	if otherErr != nil || !stillRunning {
 		t.Errorf("Close of another host's record = %v, and the terminal's host running = %v; want it left alone", otherErr, stillRunning)
+	}
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !exited(record.HostPID) {
+		t.Errorf("host pid %d is still running after its terminal closed", record.HostPID)
+	}
+	if _, err := ReadRecord(stateDir, record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the record is still there: %v", err)
+	}
+}
+
+// setCloseTerminal stands send in for Close's close request for one test.
+func setCloseTerminal(t *testing.T, send func(*Client) error) {
+	t.Helper()
+	previous := closeTerminal
+	closeTerminal = send
+	t.Cleanup(func() { closeTerminal = previous })
+}
+
+// A host told /exit closes its end of the pipe as it ends, so a Close that
+// reaches it in that moment has its request refused with "The pipe is being
+// closed." (2026-10-01, the gate's spawn cleanup). The host ending is the
+// close Close asked for: it reports nothing wrong and the record goes.
+func TestCloseTakesAHostEndingAsItsRequestIsRefusedAsEnded(t *testing.T) {
+	stateDir, record := launch(t)
+	var refused error
+	setCloseTerminal(t, func(client *Client) error {
+		if err := client.CloseTerminal(); err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
+		refused = client.CloseTerminal()
+		return refused
+	})
+
+	err := Close(stateDir, record, time.Second)
+
+	if !pipeClosing(refused) {
+		t.Fatalf("the premise failed: a request to the ended host was refused with %v, not a closing pipe", refused)
+	}
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !exited(record.HostPID) {
+		t.Errorf("host pid %d is still running after its terminal closed", record.HostPID)
+	}
+	if _, err := ReadRecord(stateDir, record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the record is still there: %v", err)
+	}
+}
+
+// A refused request proves nothing by itself: a host whose pipe refused it
+// and that keeps running is still reported, once the wait for its end runs
+// out, even with its record gone, since a host removes its record while it
+// winds down and only its end proves the close; any other failure is
+// reported at once.
+func TestCloseReportsARefusedRequestWhoseHostKeepsRunning(t *testing.T) {
+	closing := &os.PathError{Op: "write", Path: `\\.\pipe\code-goblins-host-test`, Err: windows.ERROR_NO_DATA}
+	for _, test := range []struct {
+		name            string
+		refusal         error
+		isRecordRemoved bool
+		isWait          bool
+	}{
+		{"a closing pipe", closing, false, true},
+		{"a closing pipe with the record gone", closing, true, true},
+		{"any other failure", errors.New("host: the close request was not understood"), false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir, record := launch(t)
+			t.Cleanup(func() { end(record.HostPID) })
+			previousWait := closeEndWait
+			closeEndWait = time.Second
+			t.Cleanup(func() { closeEndWait = previousWait })
+			setCloseTerminal(t, func(*Client) error {
+				if test.isRecordRemoved {
+					if err := os.Remove(recordPath(stateDir, record.ID)); err != nil {
+						t.Error(err)
+					}
+				}
+				return test.refusal
+			})
+			began := time.Now()
+
+			err := Close(stateDir, record, time.Second)
+			took := time.Since(began)
+
+			if !errors.Is(err, test.refusal) {
+				t.Fatalf("Close = %v, want the refusal %v", err, test.refusal)
+			}
+			if test.isWait && took < closeEndWait {
+				t.Errorf("Close reported after %s, before the host's %s to end", took, closeEndWait)
+			}
+			if !test.isWait && took >= closeEndWait {
+				t.Errorf("Close reported after %s, want at once", took)
+			}
+			if !running(record.HostPID) {
+				t.Errorf("host pid %d ended, but nothing asked it to", record.HostPID)
+			}
+		})
+	}
+}
+
+// A host can refuse the request while it is still running and end a moment
+// later: Close waits for that end within its bound and reports nothing
+// wrong.
+func TestCloseWaitsForAHostThatEndsAfterRefusingItsRequest(t *testing.T) {
+	stateDir, record := launch(t)
+	isAliveAtRefusal := false
+	setCloseTerminal(t, func(*Client) error {
+		isAliveAtRefusal = running(record.HostPID)
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			if closer, err := Dial(record); err == nil {
+				_ = closer.CloseTerminal()
+				_ = closer.Close()
+			}
+		}()
+		return &os.PathError{Op: "write", Path: record.Pipe, Err: windows.ERROR_NO_DATA}
+	})
+
+	err := Close(stateDir, record, time.Second)
+
+	if !isAliveAtRefusal {
+		t.Fatal("the premise failed: the host had ended before its request was refused")
 	}
 	if err != nil {
 		t.Fatalf("Close: %v", err)
@@ -74,6 +204,12 @@ func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
 // would never go and reported a host that had ended as one that did not. The
 // host ended is what Close waits for, so it takes the host's end as its end
 // and removes the record the host could not.
+//
+// The reader lets go when Running says the host has ended, which is the
+// moment Close starts its own removal, tried for removeWait. Let go by any
+// later sign of the host's end, the reader can outlast that removal: one let
+// go 2.1 seconds late left the record behind with Close returning nil, which
+// is how this test failed in CI on 2026-10-01.
 func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 	stateDir, record := launch(t)
 	reader, err := os.Open(recordPath(stateDir, record.ID))
@@ -81,17 +217,22 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 	released := make(chan struct{})
+	var heldErr error
 	go func() {
 		defer close(released)
-		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(20 * time.Second); Running(record) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
+		_, heldErr = ReadRecord(stateDir, record.ID)
 		_ = reader.Close()
 	}()
 
 	err = Close(stateDir, record, time.Second)
 	<-released
 
+	if heldErr != nil {
+		t.Fatalf("the premise failed: the record the reader held was not there as its host ended: %v", heldErr)
+	}
 	if err != nil {
 		t.Fatalf("Close: %v", err)
 	}

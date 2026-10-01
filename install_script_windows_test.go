@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/installtest"
 )
 
 // standInVariable makes a copy of this test binary stand in for a cfo.exe
@@ -24,23 +26,6 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
-}
-
-// windowsPowerShell is Windows PowerShell 5.1, present on every Windows and
-// the one install.cmd always starts.
-func windowsPowerShell() string {
-	return filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-}
-
-// oneLineShells are the PowerShells the one-line install must work in:
-// Windows PowerShell 5.1, always present, and PowerShell 7 where installed.
-func oneLineShells(t *testing.T) []string {
-	t.Helper()
-	shells := []string{windowsPowerShell()}
-	if pwsh, err := exec.LookPath("pwsh.exe"); err == nil {
-		shells = append(shells, pwsh)
-	}
-	return shells
 }
 
 // runOneLineInstall runs install.ps1 the way the one-line command does, as
@@ -79,46 +64,12 @@ func runPowerShellWith(t *testing.T, shell, base string, tools []string, args ..
 }
 
 // runPowerShellWithStubs runs shell with args against the release served at
-// base, in the stripped environment strippedCommand gives it.
+// base, in the stripped environment installtest.StrippedCommand gives it.
 func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]string, args ...string) (output, local, temp string, err error) {
 	t.Helper()
-	cmd, local, temp := strippedCommand(t, base, stubs, shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
+	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	return string(out), local, temp, err
-}
-
-// strippedCommand is name with args against the release served at base. It
-// gets folders of its own for every per-user location and a PATH with only
-// Windows and the stand-ins stubs names on it, each a .cmd with the given
-// text, so nothing it could reach installs onto this machine.
-func strippedCommand(t *testing.T, base string, stubs map[string]string, name string, args ...string) (cmd *exec.Cmd, local, temp string) {
-	t.Helper()
-	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
-	for tool, script := range stubs {
-		if err := os.WriteFile(filepath.Join(bin, tool+".cmd"), []byte(script), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	system := os.Getenv("SystemRoot")
-	cmd = exec.Command(name, args...)
-	cmd.Dir = temp
-	cmd.Env = []string{
-		"SystemRoot=" + system,
-		"windir=" + system,
-		"SystemDrive=" + os.Getenv("SystemDrive"),
-		"ComSpec=" + os.Getenv("ComSpec"),
-		"PATHEXT=" + os.Getenv("PATHEXT"),
-		"ProgramFiles=" + os.Getenv("ProgramFiles"),
-		"ProgramData=" + os.Getenv("ProgramData"),
-		"PATH=" + bin + ";" + filepath.Join(system, "System32") + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0"),
-		"USERPROFILE=" + profile,
-		"APPDATA=" + filepath.Join(profile, "Roaming"),
-		"LOCALAPPDATA=" + local,
-		"TEMP=" + temp,
-		"TMP=" + temp,
-		"CODE_GOBLINS_RELEASE_BASE=" + base,
-	}
-	return cmd, local, temp
 }
 
 // assertNothingInstalled checks that no CFO home was set up and that the
@@ -132,23 +83,6 @@ func assertNothingInstalled(t *testing.T, local, temp string) {
 	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
 		t.Errorf("the download folder %v was left behind", left)
 	}
-}
-
-// serveRelease serves a release holding binary and sums, or nothing at all.
-func serveRelease(t *testing.T, binary []byte, sums string) string {
-	t.Helper()
-	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case binary != nil && r.URL.Path == "/cfo.exe":
-			_, _ = w.Write(binary)
-		case binary != nil && r.URL.Path == "/SHA256SUMS":
-			_, _ = w.Write([]byte(sums))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(release.Close)
-	return release.URL
 }
 
 // runPin runs tools/pin-installer.ps1 in shell, as release.yml does, and
@@ -174,7 +108,7 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 	for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
 		t.Run(repository, func(t *testing.T) {
 			// Arrange
-			script, output, err := runPin(t, windowsPowerShell(), repository, "v1.2.3", "Code Goblins Test Publisher")
+			script, output, err := runPin(t, installtest.WindowsPowerShell(), repository, "v1.2.3", "Code Goblins Test Publisher")
 			if err != nil {
 				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
 			}
@@ -183,7 +117,7 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 			offline := "function Invoke-WebRequest([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) { Write-Host ('GET ' + $Uri); throw 'offline' }; "
 
 			// Act
-			output, local, temp, err := runStrippedPowerShell(t, windowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
+			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
 
 			// Assert
 			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/cfo.exe"
@@ -207,7 +141,7 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			script, output, err := runPin(t, windowsPowerShell(), test.repository, test.tag, test.publisher)
+			script, output, err := runPin(t, installtest.WindowsPowerShell(), test.repository, test.tag, test.publisher)
 
 			// Assert
 			if err == nil {
@@ -225,14 +159,14 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 // well it matches its sum.
 func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 	binary := []byte("a build nobody signed")
-	for _, shell := range oneLineShells(t) {
+	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			// Arrange
 			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
 			if err != nil {
 				t.Fatalf("pin-installer.ps1 = %v:\n%s", err, output)
 			}
-			base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+			base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 
 			// Act
 			output, local, temp, err := runStrippedPowerShell(t, shell, base, "-Command", "Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
@@ -261,13 +195,13 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 		want   string
 		shells []string
 	}{
-		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's SHA256SUMS", []string{windowsPowerShell()}},
-		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's SHA256SUMS", []string{windowsPowerShell()}},
-		"no release at all":        {nil, "", "the release could not be downloaded", oneLineShells(t)},
+		"another build's checksum": {binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256([]byte("the build the release published"))), "does not match the release's SHA256SUMS", []string{installtest.WindowsPowerShell()}},
+		"no checksum for cfo.exe":  {binary, fmt.Sprintf("%x  other.exe\n", sha256.Sum256(binary)), "does not match the release's SHA256SUMS", []string{installtest.WindowsPowerShell()}},
+		"no release at all":        {nil, "", "the release could not be downloaded", installtest.OneLineShells(t)},
 	} {
 		for _, shell := range test.shells {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
-				output, local, temp, err := runOneLineInstall(t, shell, serveRelease(t, test.binary, test.sums))
+				output, local, temp, err := runOneLineInstall(t, shell, installtest.ServeRelease(t, test.binary, test.sums))
 
 				if err == nil || !strings.Contains(output, test.want) {
 					t.Fatalf("install = %v, want it refused with %q:\n%s", err, test.want, output)
@@ -293,7 +227,7 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 		"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
 	} {
 		t.Run(name, func(t *testing.T) {
-			output, local, temp, err := runOneLineInstall(t, windowsPowerShell(), serveRelease(t, binary, sums))
+			output, local, temp, err := runOneLineInstall(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, binary, sums))
 
 			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
 				t.Fatalf("install = %v, want the download verified and run:\n%s", err, output)
@@ -312,13 +246,13 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 // The one-line install runs in the caller's own session and leaves it exactly
 // as it was, even when it is refused.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
-	for _, shell := range oneLineShells(t) {
+	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			caller := "$InstallDir = 'mine'; $Dev = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
 				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
 				"Write-Output \"InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
 
-			output, _, _, err := runStrippedPowerShell(t, shell, serveRelease(t, nil, ""), "-Command", caller)
+			output, _, _, err := runStrippedPowerShell(t, shell, installtest.ServeRelease(t, nil, ""), "-Command", caller)
 
 			if err != nil || !strings.Contains(output, "refused: Code Goblins was not installed") {
 				t.Fatalf("install = %v, want it refused and caught by the caller:\n%s", err, output)
@@ -346,13 +280,12 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := serveRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
+	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
 		"https://herdr.dev/install.ps1",
-		"https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1",
 	}
-	for _, shell := range oneLineShells(t) {
+	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
 			record := filepath.Join(t.TempDir(), "record.txt")
 			stubs := map[string]string{
@@ -366,7 +299,7 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 				"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
 				"  Set-Content -LiteralPath $OutFile -Value \"# installer from $Uri\"\n" +
 				"}\n"
-			cmd, _, temp := strippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+			cmd, _, temp := installtest.StrippedCommand(t, base, stubs, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
 			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
@@ -458,7 +391,7 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 			defer release.Close()
 			folder := test.folder(t)
 
-			output, _, _, err := runStrippedPowerShell(t, windowsPowerShell(), release.URL, append([]string{"-File", filepath.Join(folder, "install.ps1")}, test.args...)...)
+			output, _, _, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), release.URL, append([]string{"-File", filepath.Join(folder, "install.ps1")}, test.args...)...)
 
 			if err == nil || !strings.Contains(output, test.want) {
 				t.Fatalf("install = %v, want it refused with %q:\n%s", err, test.want, output)
@@ -481,7 +414,7 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 	checkout := fakeCheckout(t)
 
-	output, _, _, err := runStrippedPowerShell(t, windowsPowerShell(), serveRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+	output, _, _, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 
 	if err == nil || !strings.Contains(output, "winget install -e --id GoLang.Go") || !strings.Contains(output, "needs Go") {
 		t.Fatalf("install = %v, want it stopped for Go with its install:\n%s", err, output)
@@ -507,13 +440,13 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	powershell := filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 
 	// The premise: this policy refuses install.ps1 run directly.
-	direct, _, _ := strippedCommand(t, serveRelease(t, nil, ""), stubs, powershell, "-NoProfile", "-NonInteractive", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+	direct, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, powershell, "-NoProfile", "-NonInteractive", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 	direct.Env = append(direct.Env, "PSExecutionPolicyPreference=Restricted")
 	if out, err := direct.CombinedOutput(); err == nil || strings.Contains(string(out), "needs Go") {
 		t.Fatalf("install.ps1 run directly = %v, want the Restricted policy to refuse it:\n%s", err, out)
 	}
 
-	wrapped, _, _ := strippedCommand(t, serveRelease(t, nil, ""), stubs, filepath.Join(system, "System32", "cmd.exe"), "/d", "/c", filepath.Join(checkout, "install.cmd"), "-Dev")
+	wrapped, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, filepath.Join(system, "System32", "cmd.exe"), "/d", "/c", filepath.Join(checkout, "install.cmd"), "-Dev")
 	wrapped.Env = append(wrapped.Env, "PSExecutionPolicyPreference=Restricted")
 	out, err := wrapped.CombinedOutput()
 
@@ -556,7 +489,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	system := os.Getenv("SystemRoot")
 	inherited := "PSModulePath=" + modules + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "Modules")
 	run := func(name string, args ...string) (string, error) {
-		cmd, _, _ := strippedCommand(t, serveRelease(t, nil, ""), nil, name, args...)
+		cmd, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), nil, name, args...)
 		cmd.Env = append(cmd.Env, inherited)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
@@ -621,7 +554,7 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		output, _, _, _ := runPowerShellWithStubs(t, windowsPowerShell(), serveRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+		output, _, _, _ := runPowerShellWithStubs(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 
 		if !strings.Contains(output, "Built cfo.exe and goblins.exe") {
 			t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
@@ -664,7 +597,7 @@ func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
 			}))
 			defer release.Close()
 
-			output, local, temp, err := runPowerShellWith(t, windowsPowerShell(), release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			output, local, temp, err := runPowerShellWith(t, installtest.WindowsPowerShell(), release.URL, tools, "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
 
 			if err == nil || !strings.Contains(output, "https://apps.microsoft.com/detail/9NBLGGH4NNS1") || !strings.Contains(output, "winget is missing, and the install needs it for "+want+".") {
 				t.Fatalf("install = %v, want it stopped for winget with the App Installer fix:\n%s", err, output)
