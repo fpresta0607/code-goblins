@@ -412,7 +412,7 @@ func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, id, option, note
 	if q.AnswerID != "" && q.Status != "failed" {
 		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was recorded", q.ID, q.Status)
 	}
-	if q.Status == "succeeded" {
+	if q.Status == "succeeded" && !answeredByAck(q) {
 		return "", fmt.Errorf("%s is already answered: %s", q.ID, q.Answer)
 	}
 	choices, _ := questionChoices(q.Options)
@@ -604,10 +604,19 @@ func (s *Store) recordCFOAnswer(a cfoAnswer) error {
 // still waits in its inbox, or the Overlord's board answer is on its way.
 var errAnswerWaits = errors.New("its question cannot take an answer yet")
 
+// answeredByAck reports whether q closed because the CFO acked its notify,
+// which the CFO does once it answered the goblin, such as with cfo send: the
+// board knows the CFO answered it but not which choice, which the CFO may
+// still record.
+func answeredByAck(q Question) bool {
+	return q.Status == "succeeded" && q.AnsweredBy == "cfo" && q.Answer == ""
+}
+
 // applyCFOAnswer closes a question with the CFO's answer: which choice closed
 // it, that the CFO gave it, and when. A question still pending takes it, and
-// so does one superseded because the CFO drained its notify first or one
-// whose board answer was refused because the CFO had just answered.
+// so does one closed by the CFO's ack before its choice was recorded, one
+// superseded, or one whose board answer was refused because the CFO had just
+// answered.
 func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
 	if i < 0 {
@@ -617,11 +626,11 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		}
 		return errors.New("its question is gone")
 	}
-	switch status := s.db.Questions[i].Status; {
-	case status == "queued":
+	switch q := s.db.Questions[i]; {
+	case q.Status == "queued":
 		return errAnswerWaits
-	case !slices.Contains([]string{"pending", "superseded", "failed"}, status):
-		return errors.New("its question already closed as " + status)
+	case !slices.Contains([]string{"pending", "superseded", "failed"}, q.Status) && !answeredByAck(q):
+		return errors.New("its question already closed as " + q.Status)
 	}
 	q, at := &s.db.Questions[i], a.At
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
@@ -937,7 +946,10 @@ func (s *Store) supersedeQuestions() error {
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
 		case pendingErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
-			q.Status, q.Message = "superseded", "The CFO already handled this question."
+			// The CFO acks a goblin's question once it answered it, so it
+			// closes as answered by the CFO, with the check of any answer.
+			at := time.Now().UTC()
+			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt = "succeeded", "Answered by the CFO.", "cfo", &at
 			changed = true
 		}
 	}

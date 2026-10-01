@@ -123,7 +123,7 @@ test("only an answer that reached its asker counts as answered", () => {
     ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Delivery unconfirmed", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
-    ["a question the CFO retired with --ack-blocking", { status: "superseded", message: "The CFO already handled this question." }, "superseded", "The CFO already handled this question.", "close"],
+    ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
   ];
   for (const [name, fields, outcome, label, icon] of cases) {
