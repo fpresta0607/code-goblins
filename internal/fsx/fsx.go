@@ -46,6 +46,13 @@ func AtomicWriteFile(path string, data []byte) error {
 	return nil
 }
 
+// Remove is os.Remove for a fleet file another process may be holding: a
+// removal that meets another process's brief hold on the file waits it out
+// within transientBudget. A missing file is an error, as with os.Remove.
+func Remove(path string) error {
+	return retryTransient(func() error { return os.Remove(path) })
+}
+
 // transientBudget is how long a state file operation waits out another
 // process holding the file before it reports the failure.
 var transientBudget = 5 * time.Second
