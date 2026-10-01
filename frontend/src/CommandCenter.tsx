@@ -25,6 +25,15 @@ const ALL_DONE_MS = 1600;
 
 export interface CommandFocus { key: string; at: number }
 
+// Whether the Overlord is typing somewhere on the board: in a text field, a
+// comment box or a terminal. The Command Center never opens itself then; what
+// is new waits under the badge with its alert (decision 3596).
+const typing = () => {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && (active.isContentEditable || active instanceof HTMLTextAreaElement
+    || active instanceof HTMLInputElement && !["button", "checkbox", "radio", "submit", "reset", "range", "color", "file"].includes(active.type));
+};
+
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
   return event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom);
@@ -84,7 +93,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const fresh = waiting.filter((item) => item.kind === "question" && !announced.has(item.key));
   if (fresh.length) {
     setAnnounced(new Set([...announced, ...fresh.map((item) => item.key)]));
-    if (!open) { setOpen(true); show(fresh[0].key); }
+    if (!open && !typing()) { setOpen(true); show(fresh[0].key); }
   }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
@@ -115,8 +124,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   if (failing.length) {
     setSent(new Set([...sent].filter((key) => !failing.includes(key))));
     setKept((prior) => new Set([...prior, ...failing]));
-    setOpen(true);
-    show(failing[0]);
+    if (open || !typing()) { setOpen(true); show(failing[0]); }
   }
   // The card on screen stays in the stack while it is shown, so an item
   // answered or cleared elsewhere turns into its settled card instead of vanishing.

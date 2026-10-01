@@ -351,7 +351,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
   <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
 </p>
 
-When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
+When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal, unless you are typing on the board (a text field, a comment box or a terminal): then it waits under the badge with its alert and never takes your typing.
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
