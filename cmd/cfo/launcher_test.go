@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -451,6 +452,32 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 	} {
 		if got := statusLine(c.snapshot); got != c.want {
 			t.Errorf("%s: statusLine = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// The status line counts what the Command Center's badge counts, from the
+// board's own snapshot.
+func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
+	for name, c := range map[string]struct {
+		snapshot string
+		want     int
+	}{
+		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
+		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
+	} {
+		// Arrange
+		var snapshot launcherSnapshot
+		if err := json.Unmarshal([]byte(c.snapshot), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		got := statusLine(snapshot)
+
+		// Assert
+		if want := fmt.Sprintf("CFO supervising · 0 goblins working · %d waiting on you", c.want); got != want {
+			t.Errorf("%s: statusLine = %q, want %q", name, got, want)
 		}
 	}
 }

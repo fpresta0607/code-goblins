@@ -712,6 +712,7 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
+				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -719,6 +720,9 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
+				}
+				if answered {
+					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}

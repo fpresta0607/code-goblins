@@ -1,6 +1,7 @@
 package fsx
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -108,5 +109,36 @@ func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Errorf("the directory holds %d entries, want only the file (no temp file left)", len(entries))
+	}
+}
+
+// A removal waits out another process holding the file, as a replace does.
+func TestRemoveWaitsOutAReaderThatHoldsTheFile(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), ".supervise-notified")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		reader.Close()
+		close(released)
+	}()
+
+	// Act
+	err = Remove(path)
+	<-released
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Remove while a reader held the file for 1.5 s: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the file is still there after Remove: %v", err)
 	}
 }
