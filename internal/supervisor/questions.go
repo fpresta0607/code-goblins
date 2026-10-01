@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -248,6 +249,11 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 // the supervisor only over its pipe, so ingest refuses any file found here.
 const answersInbox = "answers-inbox"
 
+// questionArrival is how long a goblin's question may take to reach the board
+// after its notify is recorded, which comes first; one still absent after it
+// never reached the board.
+var questionArrival = 30 * time.Second
+
 // cfoAnswer is one answer the CFO gave with cfo answer.
 type cfoAnswer struct {
 	QuestionID string    `json:"question_id"`
@@ -307,7 +313,15 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, fmt.Errorf("%s is not the question of notify %d, which is %s", ref, seq, id)
 	}
 	q, err := readQuestion(c.State, id)
-	if err != nil {
+	onBoard := err == nil
+	if errors.Is(err, fs.ErrNotExist) && time.Since(record.Time) >= questionArrival {
+		// Its notify could not show it on the board, such as one the board's
+		// proof refused, so it never will: the choice goes straight to the
+		// goblin that asked.
+		if q, err = askerOf(c.State, record); err != nil {
+			return "", false, err
+		}
+	} else if err != nil {
 		return "", false, fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
 	}
 	if q.AnswerID != "" && q.Status != "failed" {
@@ -323,13 +337,31 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
-	if err := c.recordAnswer(identity, q, id, chosen, answer); err != nil {
-		unrecorded = append(unrecorded, err)
+	if onBoard {
+		if err := c.recordAnswer(identity, q, id, chosen, answer); err != nil {
+			unrecorded = append(unrecorded, err)
+		}
 	}
 	if err := errors.Join(unrecorded...); err != nil {
 		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
 	}
 	return chosen, queued, nil
+}
+
+// askerOf is the goblin that raised notify record, for a question that never
+// reached the board: its task's current generation, when that generation
+// started before the notify was recorded. A goblin that restarted since does
+// not get an answer to a question it never asked.
+func askerOf(stateDir string, record wake.Record) (Question, error) {
+	meta, err := state.ReadTaskMeta(stateDir, record.Key)
+	if err != nil {
+		return Question{}, fmt.Errorf("%s has no live record, so notify %d reaches nobody: %w", record.Key, record.Seq, err)
+	}
+	started, err := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
+	if err != nil || !strings.HasPrefix(meta.SpawnGen, "s") || time.Unix(0, started).After(record.Time) {
+		return Question{}, fmt.Errorf("%s restarted or ended since it asked notify %d; nothing was sent", record.Key, record.Seq)
+	}
+	return Question{Task: meta.ID, Identity: goblinIdentity(meta)}, nil
 }
 
 // RecordGoblinAnswer closes a goblin's question on the board with the choice
@@ -480,7 +512,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		if info.Size() > maxStateBytes {
 			return Question{}, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return Question{}, err
 		}
@@ -495,7 +527,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		return Question{}, err
 	}
 	sum := sha256.Sum256([]byte(id))
-	data, err := os.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
 	if err != nil {
 		return Question{}, err
 	}
@@ -692,7 +724,7 @@ func publish(stateDir string, q Question) error {
 		if info.Size() > maxStateBytes {
 			return errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return err
 		}
@@ -721,7 +753,7 @@ func publish(stateDir string, q Question) error {
 	}
 	sum := sha256.Sum256([]byte(id))
 	path := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := fsx.ReadFile(path); err == nil {
 		var prior Question
 		if json.Unmarshal(data, &prior) != nil || !sameQuestion(prior, q) {
 			return errors.New("question ID already used")
@@ -820,7 +852,7 @@ func (s *Store) ingestQuestions() error {
 		if info.Size() > 12<<10 {
 			invalid = errors.New("question exceeds its size limit")
 		} else {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}

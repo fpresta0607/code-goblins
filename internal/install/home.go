@@ -142,7 +142,7 @@ func (s Service) writeContract() ([]string, int, error) {
 // readManifest reads the contract files a previous install listed in its
 // marker, and whether there was a marker at all.
 func readManifest(path string) ([]string, bool, error) {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -228,7 +228,7 @@ func (s Service) seedPolicy(report *reporter) error {
 // so it moves aside under a name of its own and goes once nothing runs it,
 // on this install or a later one.
 func (s Service) copyBinary(report *reporter) error {
-	data, err := os.ReadFile(s.Binary)
+	data, err := fsx.ReadFile(s.Binary)
 	if err != nil {
 		return fmt.Errorf("install: read the running binary %s: %w", s.Binary, err)
 	}
@@ -237,7 +237,7 @@ func (s Service) copyBinary(report *reporter) error {
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
 		target := filepath.Join(s.Root, name)
 		aside := ""
-		if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, data) {
+		if current, err := fsx.ReadFile(target); err == nil && !bytes.Equal(current, data) {
 			aside = target + "." + rand.Text() + ".old"
 			if err := os.Rename(target, aside); err != nil {
 				return fmt.Errorf("install: move %s aside: %w", target, err)
@@ -288,7 +288,7 @@ var atomicWriteFile = fsx.AtomicWriteFile
 // writeIfDifferent writes data to path unless path already holds exactly
 // that, and reports whether it wrote.
 func writeIfDifferent(path string, data []byte) (bool, error) {
-	current, err := os.ReadFile(path)
+	current, err := fsx.ReadFile(path)
 	if err == nil && bytes.Equal(current, data) {
 		return false, nil
 	}

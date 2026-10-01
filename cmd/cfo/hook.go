@@ -426,7 +426,7 @@ func awaitQueuedWake(state string, grace time.Duration, deadline time.Time) (str
 }
 
 func readRewoken(state string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(state, rewokenFile))
+	data, err := fsx.ReadFile(filepath.Join(state, rewokenFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}

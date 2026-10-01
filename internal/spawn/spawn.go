@@ -756,7 +756,7 @@ func validateDeliveryContract(req Request) error {
 	if req.Kind != "ship" {
 		return nil
 	}
-	data, err := os.ReadFile(req.BriefPath)
+	data, err := fsx.ReadFile(req.BriefPath)
 	if err != nil {
 		return fmt.Errorf("spawn: read brief delivery contract: %w", err)
 	}

@@ -837,7 +837,7 @@ func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
 // recentStatus returns the tail of the task's status log, which is the only
 // record of the previous goblin's own reporting.
 func (s Service) recentStatus(id string) string {
-	data, err := os.ReadFile(filepath.Join(s.StateDir, id+".status"))
+	data, err := fsx.ReadFile(filepath.Join(s.StateDir, id+".status"))
 	if err != nil {
 		return ""
 	}

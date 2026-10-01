@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 const historyBytes = 1 << 20
@@ -27,7 +29,7 @@ type History struct {
 
 func readHistory(filename string) (History, error) {
 	history := History{Entries: []Entry{}}
-	file, err := os.Open(filename)
+	file, err := fsx.Open(filename)
 	if errors.Is(err, os.ErrNotExist) {
 		return history, nil
 	}

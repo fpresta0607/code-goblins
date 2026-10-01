@@ -128,7 +128,7 @@ func Install(c InstallConfig) (string, error) {
 }
 
 func writeOwned(path, content string) error {
-	prior, err := os.ReadFile(path)
+	prior, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -220,7 +220,7 @@ func helperCommand(configDir string) (helper, command string) {
 // readHooks reads a harness settings file: its bytes as found, the document,
 // and its hooks by event. A missing file is an empty document.
 func readHooks(path string) ([]byte, map[string]json.RawMessage, map[string][]json.RawMessage, error) {
-	original, err := os.ReadFile(path)
+	original, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil, err
 	}
@@ -285,7 +285,7 @@ func withoutCommand(groups []json.RawMessage, command string) ([]json.RawMessage
 // removeOwned deletes path when it is a file Install wrote, and reports
 // whether it did; a file with other content is left in place.
 func removeOwned(path string) (bool, error) {
-	content, err := os.ReadFile(path)
+	content, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

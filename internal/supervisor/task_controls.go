@@ -199,7 +199,7 @@ func (h *HTTP) adjustTask(w http.ResponseWriter, r *http.Request) {
 		Input  taskAdjustment   `json:"input"`
 		Result adjustmentResult `json:"result"`
 	}
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err == nil {
 		if err := json.Unmarshal(data, &receipt); err != nil {
 			apiError(w, 500, "The adjustment receipt could not be read")

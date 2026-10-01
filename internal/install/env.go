@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // UserEnvFileVariable names a JSON file that stands in for the user-scope
@@ -21,7 +23,7 @@ type fileEnvStore struct {
 }
 
 func (s fileEnvStore) read() (map[string]string, error) {
-	data, err := os.ReadFile(s.path)
+	data, err := fsx.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]string{}, nil
 	}
