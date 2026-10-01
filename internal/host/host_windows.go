@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -170,8 +171,9 @@ func terminalEnvironment(id, proof string) []string {
 	return append(env, IDVariable+"="+id, ProofVariable+"="+proof)
 }
 
-// announce opens the host's pipe and records where to find it, with the
-// digest of the proof value its terminal carries.
+// announce opens the host's pipe and records where to find it, with when the
+// terminal's program started and the digest of the proof value its terminal
+// carries.
 func announce(stateDir, id string, childPID int, proof string) (Record, *listener, error) {
 	name, err := pipeName()
 	if err != nil {
@@ -185,7 +187,13 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 	if _, err := rand.Read(secret[:]); err != nil {
 		return Record{}, nil, err
 	}
-	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, Started: time.Now().UTC(), ProofSum: proofSum(proof)}
+	// The pseudo console holds the program's handle, so its pid names it
+	// until the host lets go, even once it has exited.
+	childStart, ok := proc.StartTime(childPID)
+	if !ok {
+		return Record{}, nil, fmt.Errorf("host: the terminal's program pid %d has no start time", childPID)
+	}
+	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: proofSum(proof)}
 	if err := writeRecord(stateDir, record); err != nil {
 		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
 	}

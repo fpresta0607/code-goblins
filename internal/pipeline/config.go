@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -237,7 +238,7 @@ type ApplyResult struct {
 }
 
 func (c Config) Drift() ([]string, error) {
-	before, err := os.ReadFile(c.Path)
+	before, err := fsx.ReadFile(c.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +255,7 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 		return result, err
 	}
 	defer func() { err = errors.Join(err, release()) }()
-	before, err := os.ReadFile(c.Path)
+	before, err := fsx.ReadFile(c.Path)
 	if err != nil {
 		return result, err
 	}
@@ -298,7 +299,7 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 		return result, err
 	}
 	// Detect an operator edit that raced the backup; never overwrite that edit.
-	latest, err := os.ReadFile(c.Path)
+	latest, err := fsx.ReadFile(c.Path)
 	if err != nil {
 		return result, err
 	}

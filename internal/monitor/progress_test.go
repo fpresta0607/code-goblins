@@ -19,10 +19,14 @@ type fakeProgress struct {
 	sample ProgressSample
 	err    error
 	calls  int
+	// cpuStep is the processor time the goblin's own processes use between
+	// one reading and the next.
+	cpuStep time.Duration
 }
 
 func (f *fakeProgress) InspectProgress(context.Context, state.TaskMeta, EndpointSample) (ProgressSample, error) {
 	f.calls++
+	f.sample.JobCPU += f.cpuStep
 	return f.sample, f.err
 }
 
@@ -198,6 +202,7 @@ func TestChurningPollLoopStillWakesAfterTheBudgetAndOneStallInterval(t *testing.
 			service, probe, progress, meta := progressService(t, &now)
 			service.BusyTurnMax = time.Hour
 			service.StallAfter = 10 * time.Minute
+			service.IdleAfter = 24 * time.Hour
 			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 47)"}, JobCPU: 200 * time.Millisecond}
 
 			scanStatus(t, service, probe, meta, tc.status, &now, 0)
@@ -248,6 +253,7 @@ func TestReadingsASecondApartDoNotTurnABlipIntoProgress(t *testing.T) {
 			service, probe, progress, meta := progressService(t, &now)
 			service.BusyTurnMax = time.Hour
 			service.StallAfter = 10 * time.Minute
+			service.IdleAfter = 24 * time.Hour
 			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 49)"}, JobCPU: time.Second}
 
 			scanStatus(t, service, probe, meta, tc.status, &now, 0)
@@ -286,6 +292,7 @@ func TestLateBurstOfProcessorUseCountsAsProgress(t *testing.T) {
 	service, probe, progress, meta := progressService(t, &now)
 	service.BusyTurnMax = time.Hour
 	service.StallAfter = 10 * time.Minute
+	service.IdleAfter = 24 * time.Hour
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"go.exe (pid 48)"}, JobCPU: time.Second}
 
 	for range 70 {
@@ -326,33 +333,50 @@ func TestGateFlippingUnderAWorkingGoblinDoesNotRewake(t *testing.T) {
 
 // The second noise class: a goblin that ended its turn with a background job
 // or a monitor still running is waiting on its own work, not on anybody's
-// answer. It wakes when that work is gone and the goblin still has not moved.
+// answer, whether its pane counts the job (a shell in Claude Code's footer),
+// which holds it for the busy budget, or the job is using the processor. It
+// wakes when that work is gone and the goblin still has not moved.
 func TestTurnEndedWithABackgroundJobStaysQuietUntilTheJobEnds(t *testing.T) {
-	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
-	service, probe, progress, meta := progressService(t, &now)
-	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 41)"}}
+	for name, job := range map[string]struct {
+		pane    string
+		cpuStep time.Duration
+		scans   int
+	}{
+		"its pane counts the job":    {pane: backgroundShellPane, scans: 9},
+		"the job uses the processor": {pane: "pane", cpuStep: 20 * time.Second, scans: 15},
+	} {
+		t.Run(name, func(t *testing.T) {
+			now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
+			service, probe, progress, meta := progressService(t, &now)
+			progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"bash.exe (pid 41)"}}
+			progress.cpuStep = job.cpuStep
 
-	for range 5 {
-		r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute)
-		if r.Event != nil {
-			t.Fatalf("a goblin waiting on its own background job woke the CFO: %+v", r.Event)
-		}
-		if r.Observations[0].Health != HealthBusy {
-			t.Fatalf("health = %s, want busy while its own job runs", r.Observations[0].Health)
-		}
-	}
+			for range job.scans {
+				r := scanPane(t, service, probe, herdr.AgentDone, job.pane, &now, time.Minute)
+				if r.Event != nil {
+					t.Fatalf("a goblin waiting on its own background job woke the CFO at %s: %+v", now.Format(time.Kitchen), r.Event)
+				}
+				if r.Observations[0].Health != HealthBusy {
+					t.Fatalf("health = %s, want busy while its own job runs", r.Observations[0].Health)
+				}
+			}
 
-	progress.sample.Jobs = nil
-	r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute)
-	if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
-		t.Fatalf("job ended with the turn still over = %+v, want an awaiting-answer wake", r)
+			progress.sample.Jobs, progress.cpuStep = nil, 0
+			r := scanStatus(t, service, probe, meta, herdr.AgentDone, &now, time.Minute)
+			if r.Event == nil || r.Observations[0].Reason != AwaitingAnswer {
+				t.Fatalf("job ended with the turn still over = %+v, want an awaiting-answer wake", r)
+			}
+		})
 	}
 }
 
 // A background process that never reports back - a dev server left running,
-// a sampler asleep - holds the goblin quiet for the busy budget and no longer:
-// then the wake names what is still running.
-func TestTurnEndedWithAnIdleBackgroundProcessWakesAfterTheBudget(t *testing.T) {
+// a sampler asleep, a Codex helper that outlives its command - no longer holds
+// the goblin quiet for the busy budget: nothing on its pane shows it running
+// and it uses no processor, so the goblin sits idle at its prompt and wakes as
+// goblin_idle three minutes in, naming what is still running. On 2026-09-30 a
+// Codex goblin waited about an hour that way.
+func TestTurnEndedWithAnIdleBackgroundProcessWakesAsIdle(t *testing.T) {
 	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
 	service, probe, progress, meta := progressService(t, &now)
 	progress.sample = ProgressSample{TranscriptAt: now, Jobs: []string{"node.exe (pid 42)"}, JobCPU: time.Second}
@@ -365,12 +389,12 @@ func TestTurnEndedWithAnIdleBackgroundProcessWakesAfterTheBudget(t *testing.T) {
 		}
 	}
 	if woke == nil {
-		t.Fatal("a goblin whose only process sat idle past the budget never woke")
+		t.Fatal("a goblin whose only process sat idle never woke")
 	}
-	if !now.After(time.Date(2026, 9, 25, 18, 9, 0, 0, time.UTC)) {
-		t.Fatalf("woke at %s, inside the busy budget", now.Format(time.Kitchen))
+	if now.After(time.Date(2026, 9, 25, 18, 5, 0, 0, time.UTC)) {
+		t.Fatalf("woke at %s, want within five minutes", now.Format(time.Kitchen))
 	}
-	for _, want := range []string{string(AwaitingAnswer), "no progress evidence (transcript write or processor use by its own processes) for", "node.exe (pid 42)"} {
+	for _, want := range []string{string(GoblinIdle) + ":", "node.exe (pid 42)"} {
 		if !strings.Contains(woke.Detail, want) {
 			t.Errorf("wake detail %q lacks %q", woke.Detail, want)
 		}
@@ -406,8 +430,8 @@ func TestIdleGoblinWaitingOnItsOwnMovingJobDoesNotStall(t *testing.T) {
 	}
 }
 
-// The idle reading of a goblin whose own process sat idle past the budget
-// wakes unchanged_idle naming that process, as the ended turn does.
+// The idle reading of a goblin whose own process sits idle wakes as
+// goblin_idle naming that process, as the ended turn does.
 func TestIdleGoblinWithAnIdleProcessOfItsOwnWakesNamingIt(t *testing.T) {
 	now := time.Date(2026, 9, 25, 18, 0, 0, 0, time.UTC)
 	service, probe, progress, meta := progressService(t, &now)
@@ -421,12 +445,9 @@ func TestIdleGoblinWithAnIdleProcessOfItsOwnWakesNamingIt(t *testing.T) {
 		}
 	}
 	if woke == nil {
-		t.Fatal("an idle goblin whose only process sat idle past the budget never woke")
+		t.Fatal("an idle goblin whose only process sat idle never woke")
 	}
-	if !now.After(time.Date(2026, 9, 25, 18, 10, 0, 0, time.UTC)) {
-		t.Fatalf("woke at %s, inside the busy budget", now.Format(time.Kitchen))
-	}
-	for _, want := range []string{string(UnchangedIdle), "no liveness signal", "node.exe (pid 45)"} {
+	for _, want := range []string{string(GoblinIdle) + ":", "node.exe (pid 45)"} {
 		if !strings.Contains(woke.Detail, want) {
 			t.Errorf("wake detail %q lacks %q", woke.Detail, want)
 		}

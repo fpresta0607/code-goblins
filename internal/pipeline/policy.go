@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -54,7 +53,7 @@ type Selection struct {
 }
 
 func decode(path string, target interface{}) error {
-	f, err := os.Open(path)
+	f, err := fsx.Open(path)
 	if err != nil {
 		return err
 	}

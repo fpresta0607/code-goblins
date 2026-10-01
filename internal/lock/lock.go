@@ -283,7 +283,7 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 
 // ReadNamed returns the current holder recorded in dir/name.
 func ReadNamed(dir, name string) (*Info, error) {
-	data, err := os.ReadFile(filepath.Join(dir, name))
+	data, err := fsx.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		return nil, err
 	}

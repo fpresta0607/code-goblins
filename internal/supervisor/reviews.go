@@ -382,7 +382,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 		if !strings.HasSuffix(entry.Name(), ".open.json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -395,7 +395,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 		if info.Size() > maxStateBytes {
 			return nil, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return nil, err
 		}
@@ -419,7 +419,7 @@ func reportedReviews(stateDir string) ([]Review, error) {
 // supervisor. The inbox is read first because ingest records an item before it
 // removes the inbox copy, so one of the two reads always sees it.
 func reportedReview(stateDir, id string) (Review, bool, error) {
-	data, err := os.ReadFile(reviewInboxPath(stateDir, id, "open"))
+	data, err := fsx.ReadFile(reviewInboxPath(stateDir, id, "open"))
 	if err == nil {
 		var prior Review
 		if err := json.Unmarshal(data, &prior); err != nil {
@@ -434,7 +434,7 @@ func reportedReview(stateDir, id string) (Review, bool, error) {
 		if info.Size() > maxStateBytes {
 			return Review{}, false, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return Review{}, false, err
 		}
@@ -532,7 +532,7 @@ func (s *Store) ingestReviews() error {
 		if info.Size() > 16<<10 {
 			invalid = errors.New("review exceeds its size limit")
 		} else {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -693,7 +693,7 @@ func appendReviewAudit(stateDir string, r Review) error {
 	if task == "" {
 		task = "-"
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "reviews.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := fsx.OpenAppend(filepath.Join(stateDir, "reviews.audit"), 0600)
 	if err != nil {
 		return err
 	}

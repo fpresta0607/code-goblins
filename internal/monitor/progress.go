@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -241,7 +242,7 @@ const transcriptEntryReach = 4 << 20
 // stamps each entry with a top-level RFC 3339 timestamp; an entry still being
 // written does not parse and is passed over.
 func lastEntryAt(path string) (time.Time, bool) {
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if err != nil {
 		return time.Time{}, false
 	}

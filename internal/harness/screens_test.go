@@ -180,3 +180,42 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 		}
 	}
 }
+
+// A stale wake needs evidence that the goblin is not working, and a pane that
+// shows a tool or a turn running is evidence that it is, whichever harness
+// drew it. The rows below are live captures: Claude Code 2.1 mid-tool and with
+// a background shell its turn left running (2026-09-30), Codex 0.154's status
+// row and pi 0.85.1's rule. A background shell counts only while the footer
+// still counts it: the line that ended the turn keeps saying "1 shell still
+// running" after the shell is gone.
+func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
+	for name, test := range map[string]struct {
+		screen  []string
+		running string
+	}{
+		"claude tool running":       {[]string{"  Bash(npm test)", "  ⎿  Running… (22s · timeout 10m)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⎿  Running… (22s · timeout 10m)"},
+		"claude spinner":            {[]string{"✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "✽ Skedaddling… (42m 36s · ↓ 9.8k tokens)"},
+		"claude interrupt hint":     {[]string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"}, "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"},
+		"claude background shell":   {[]string{"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"}, "⏵⏵ bypass permissions on · 1 shell · ← 1 agent · ↓ to manage"},
+		"claude two shells at end":  {[]string{"❯", "  ⏵⏵ bypass permissions on · 2 shells"}, "⏵⏵ bypass permissions on · 2 shells"},
+		"codex status row":          {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}, "• Working (5s • esc to interrupt)"},
+		"codex status row, wrapped": {[]string{"◦ Working (12s • esc to", "› Ask Codex to do anything"}, "◦ Working (12s • esc to"},
+		"pi rule":                   {[]string{"── ⠸ Working ──", "0.0%/1.0M (auto)"}, "── ⠸ Working ──"},
+	} {
+		running, ok := RunningWork(test.screen)
+		if !ok || running != test.running {
+			t.Errorf("%s: RunningWork = %q, %v; want %q", name, running, ok, test.running)
+		}
+	}
+	for name, screen := range map[string][]string{
+		"claude idle, shell gone": {"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle":             {"● Done. The branch is pushed.", "❯ Try \"fix typecheck errors\"", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"codex idle":              {"• Working tree is clean and all tests pass.", "› Ask Codex to do anything", "  100% context left"},
+		"pi idle":                 {"────", "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"},
+		"a reply naming a shell":  {"● Run it in 1 shell and report back.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+	} {
+		if running, ok := RunningWork(screen); ok {
+			t.Errorf("%s: RunningWork = %q, want nothing running", name, running)
+		}
+	}
+}

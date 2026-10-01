@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 const defaultReturnRetries = 3
@@ -301,7 +302,7 @@ func (g RunnerGit) ensureExcluded(ctx context.Context, dir, pattern string) erro
 	}
 	infoDir := filepath.Join(commonDir, "info")
 	excludePath := filepath.Join(infoDir, "exclude")
-	data, err := os.ReadFile(excludePath)
+	data, err := fsx.ReadFile(excludePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("worktree: read %q: %w", excludePath, err)
 	}
@@ -317,7 +318,7 @@ func (g RunnerGit) ensureExcluded(ctx context.Context, dir, pattern string) erro
 	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 		entry = "\n" + entry
 	}
-	file, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := fsx.OpenAppend(excludePath, 0o644)
 	if err != nil {
 		return fmt.Errorf("worktree: open %q: %w", excludePath, err)
 	}
