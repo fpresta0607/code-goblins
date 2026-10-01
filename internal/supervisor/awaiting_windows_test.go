@@ -293,3 +293,53 @@ func TestAReviewAnswerBehindAGoblinsTurnIsDeliveredOnlyWhenItsHookReports(t *tes
 		t.Errorf("after the goblin's hook reported: delivered=%t action %s, want it delivered", delivered.Delivered, store.Snapshot().Actions[0].Status)
 	}
 }
+
+// A review answer awaited on the CFO's terminal delivers the item only when
+// the CFO is its reporter: a goblin's item handed to the CFO because the
+// goblin restarted or ended never reached the goblin, so it stays undelivered.
+func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.T) {
+	tests := []struct {
+		name      string
+		task      string
+		delivered bool
+	}{
+		{"a goblin's item handed to the CFO", "task-1", false},
+		{"the CFO's own item", "", true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			since := time.Now().UTC().Add(-time.Minute)
+			r := openReview("plan-review-1", test.task)
+			if err := store.acceptReview(r); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Queue(Action{ID: "answer-review-1", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Go with the grid"}); err != nil {
+				t.Fatal(err)
+			}
+			deliver := func(context.Context, Action) (Evaluation, error) {
+				return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Since: since}}, nil
+			}
+			if err := store.ProcessOne(context.Background(), deliver); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tookPrompt(t, store, since.Add(40*time.Second))
+			settled := store.settleDeliveries(since.Add(41*time.Second), idle)
+			snapshot := store.Snapshot()
+
+			// Assert
+			if settled != nil {
+				t.Fatal(settled)
+			}
+			if snapshot.Actions[0].Status != "succeeded" {
+				t.Errorf("after the CFO's hook reported: action %s, want it succeeded", snapshot.Actions[0].Status)
+			}
+			if snapshot.Reviews[0].Delivered != test.delivered {
+				t.Errorf("after the CFO's hook reported: delivered=%t, want %t", snapshot.Reviews[0].Delivered, test.delivered)
+			}
+		})
+	}
+}

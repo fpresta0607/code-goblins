@@ -107,7 +107,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case s.tookPrompt(waiting):
 			a.Status, a.Awaiting, a.Advice = "succeeded", nil, ""
 			a.Message = "Taken by " + who + " in its terminal, as its hook reported."
-			s.deliveredReview(a.ID)
+			s.deliveredReview(a.ID, waiting.Task)
 		case a.Status != "running":
 			// It did not arrive; only a late report changes that.
 			if now.Sub(waiting.Since) < deliveryForget {
@@ -143,10 +143,12 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 }
 
 // deliveredReview marks the review item whose answer action id carried as
-// delivered. The caller holds the store lock.
-func (s *Store) deliveredReview(action string) {
+// delivered, when task, whose terminal took it, is the item's reporter: an
+// answer handed to the CFO for a goblin that restarted or ended never reached
+// the goblin. The caller holds the store lock.
+func (s *Store) deliveredReview(action, task string) {
 	for i := range s.db.Reviews {
-		if s.db.Reviews[i].AnswerID == action {
+		if s.db.Reviews[i].AnswerID == action && s.db.Reviews[i].Task == task {
 			s.db.Reviews[i].Delivered = true
 		}
 	}
