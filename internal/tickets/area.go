@@ -43,7 +43,7 @@ func (a Area) WithPaths(paths ...string) (Area, []string) {
 	merged := slices.Clone(a.Paths)
 	var ignored []string
 	for _, p := range paths {
-		if normalized := normalizePath(p); normalized != "" {
+		if normalized := repositoryPath(p); normalized != "" {
 			merged = append(merged, normalized)
 		} else {
 			ignored = append(ignored, p)
@@ -96,7 +96,7 @@ var (
 func pathMentions(text string) []string {
 	var mentions []string
 	for _, token := range strings.FieldsFunc(text, isMentionSeparator) {
-		if mention := normalizePath(token); mention != "" {
+		if mention := pathMention(token); mention != "" {
 			mentions = append(mentions, mention)
 		}
 	}
@@ -108,10 +108,11 @@ func isMentionSeparator(r rune) bool {
 	return strings.ContainsRune(" \t\r\n`'\"()[]{}<>,;|*", r)
 }
 
-// normalizePath turns one token into a repository path or file name, or ""
-// when it is neither.
-func normalizePath(token string) string {
-	token = strings.TrimRight(strings.TrimSpace(token), ".:!?")
+// repositoryPath turns one token into a relative repository path written with
+// forward slashes, or "" when it is not one: a URL, an absolute, drive-letter
+// or UNC path, or a path with an empty, "." or ".." segment.
+func repositoryPath(token string) string {
+	token = strings.TrimSpace(token)
 	if token == "" || strings.Contains(token, "://") || strings.ContainsAny(token, "@$%~") || driveLetter.MatchString(token) {
 		return ""
 	}
@@ -120,18 +121,26 @@ func normalizePath(token string) string {
 	}
 	token = strings.TrimPrefix(strings.ReplaceAll(token, `\`, "/"), "./")
 	token = strings.TrimSuffix(token, "/")
-	if !strings.Contains(token, "/") {
-		if !pathSegment.MatchString(token) || strings.TrimSuffix(token, path.Ext(token)) == "" || !hasFileExtension(token) {
-			return ""
-		}
-		return token
-	}
 	for _, segment := range strings.Split(token, "/") {
 		if segment == "" || segment == "." || segment == ".." || !pathSegment.MatchString(segment) {
 			return ""
 		}
 	}
 	return token
+}
+
+// pathMention turns one word of prose into a repository path or file name,
+// or "" when it is neither. A word with no slash names a file only when it
+// ends in one of the fileNameExtensions.
+func pathMention(token string) string {
+	mention := repositoryPath(strings.TrimRight(strings.TrimSpace(token), ".:!?"))
+	if mention == "" || strings.Contains(mention, "/") {
+		return mention
+	}
+	if strings.TrimSuffix(mention, path.Ext(mention)) == "" || !hasFileExtension(mention) {
+		return ""
+	}
+	return mention
 }
 
 // hasFileExtension reports whether a path's last segment ends in one of the

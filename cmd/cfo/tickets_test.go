@@ -162,6 +162,23 @@ func TestTicketsReadsAFolderFromTheBriefOnlyWhenTheCheckoutHasIt(t *testing.T) {
 	}
 }
 
+func TestTicketsComparesATopLevelFolderGivenWithFiles(t *testing.T) {
+	// Arrange
+	var readFrom string
+	var stdout, stderr strings.Builder
+
+	// Act
+	code := runTickets([]string{t.TempDir(), "--files", "web"}, &stdout, &stderr, ticketsRuntime(teammateRepository(), nil, &readFrom))
+
+	// Assert
+	if code != 0 || stderr.String() != "" {
+		t.Fatalf("exit = %d, stderr = %q, want no warning", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "- PR #412 by ana-teammate changes web/src/App.tsx\n") {
+		t.Fatalf("output lacks the overlap under web:\n%s", stdout.String())
+	}
+}
+
 func TestTicketsSaysWhyNoPathIsCompared(t *testing.T) {
 	cases := []struct {
 		name    string

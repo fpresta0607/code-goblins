@@ -342,6 +342,40 @@ func TestBuildMatchesIssuesThatNameAnAreaPathOrShareTheBriefsWords(t *testing.T)
 	}
 }
 
+func TestWithPathsKeepsEveryRelativeRepositoryPath(t *testing.T) {
+	// Arrange
+	given := []string{"web", "Dockerfile", ".github", `scripts\Makefile`, `C:\dev\northwind-api\api\x.py`, "https://github.com/fpresta0607/northwind-api/blob/main/api/x.py", "/srv/northwind-api/api/y.py", `\\fileserver\northwind-api\z.py`, "../northwind-web/app.ts", "web/./src"}
+
+	// Act
+	area, ignored := Area{}.WithPaths(given...)
+
+	// Assert
+	if want := []string{".github", "Dockerfile", "scripts/Makefile", "web"}; !slices.Equal(area.Paths, want) {
+		t.Fatalf("area paths = %v, want %v", area.Paths, want)
+	}
+	if want := given[4:]; !slices.Equal(ignored, want) {
+		t.Fatalf("ignored = %v, want %v", ignored, want)
+	}
+}
+
+func TestBuildMatchesTopLevelPathsGivenByHand(t *testing.T) {
+	// Arrange
+	activity := overlordActivity()
+	activity.PullRequests = []PullRequest{{Number: 9, HeadRef: "chore/ci", Files: []string{".github/workflows/ci.yml", "Dockerfile", "web/src/App.tsx", "api/main.py"}}}
+	area, _ := Area{}.WithPaths("web", "Dockerfile", ".github")
+
+	// Act
+	report := Build(activity, testNow, &area)
+
+	// Assert
+	if report.Overlaps == nil || len(report.Overlaps.Files) != 1 {
+		t.Fatalf("overlaps = %+v", report.Overlaps)
+	}
+	if got, want := report.Overlaps.Files[0].Files, []string{".github/workflows/ci.yml", "Dockerfile", "web/src/App.tsx"}; !slices.Equal(got, want) {
+		t.Fatalf("overlapping files = %v, want %v", got, want)
+	}
+}
+
 func TestBuildMatchesGivenFilesWithoutABrief(t *testing.T) {
 	// Arrange
 	activity := overlordActivity()
