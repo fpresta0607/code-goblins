@@ -254,6 +254,117 @@ func TestExpiredRunItemIsRefused(t *testing.T) {
 	}
 }
 
+// The registered CFO withdraws a run item nobody ran, with its reason: the
+// item leaves the Command Center, state/runs.audit records the withdrawal
+// like a run, and Run on it is refused with nothing launched. On 2026-10-01
+// the CFO could only disable install-main-66714dea by renaming the binary it
+// named, because cfo review --clear does not reach a run item.
+func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	_, _, _, connection := primaryFixture(t, store)
+	launcher := &fakeRunLauncher{started: liveStart(t)}
+	s := &Service{Store: store, Options: Options{CFO: connection, Runs: launcher}}
+	runPipe(t, s)
+	if err := PublishRun(h, RunRequest{ID: "install-main-66714dea", Title: "Install main", Shell: "powershell", CommandFile: commandFile(t, "Write-Output install\n")}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := WithdrawRun(h, "install-main-66714dea", "the candidate binary is gone")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("WithdrawRun = %v, want the item withdrawn", err)
+	}
+	r := store.Snapshot().Runs[0]
+	if r.State != "withdrawn" || r.Reason != "the candidate binary is gone" || r.FinishedAt == nil {
+		t.Fatalf("run = %+v, want it withdrawn with the CFO's reason", r)
+	}
+	audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit"))
+	if fields := strings.Fields(string(audit)); err != nil || len(fields) != 9 || fields[1] != r.ID || fields[2] != r.ScriptSum || fields[3] != "withdrawn" || strings.Join(fields[4:], " ") != "the candidate binary is gone" {
+		t.Fatalf("audit = %q %v, want one line with the item, its script digest, withdrawn and the reason", audit, err)
+	}
+	if _, err := store.Queue(Action{ID: "press-withdrawn", Kind: "run", RunID: r.ID, Generation: r.Identity}); err == nil || !strings.Contains(err.Error(), "withdrew") {
+		t.Fatalf("Run on a withdrawn item = %v, want it refused", err)
+	}
+	if launches := launcher.all(); len(launches) != 0 {
+		t.Fatalf("launches = %+v, want nothing launched", launches)
+	}
+}
+
+// Only the registered CFO withdraws a run item, only one of its own that
+// nobody ran yet, and only with a reason; a refused withdrawal changes nothing.
+func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
+	for _, c := range []struct {
+		name              string
+		isRegistered      bool
+		id, reason        string
+		age               time.Duration
+		connectionTask    string
+		credentialRequest string
+		ran               bool
+		refusal           string
+	}{
+		{name: "a process that is not the CFO", id: "install-tool", reason: "not needed", refusal: "not registered"},
+		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
+		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
+		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
+		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
+		{name: "the terminal the Overlord opened for a credential request", isRegistered: true, id: "install-tool", reason: "not needed", credentialRequest: "cred-0123456789abcdef", refusal: "terminal the Overlord opened for a credential request"},
+		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, identity, _, connection := primaryFixture(t, store)
+			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+			var r Run
+			if c.connectionTask == "" && c.credentialRequest == "" {
+				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
+			} else {
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest}
+				if c.connectionTask != "" {
+					r.ConnectionGeneration = "1"
+				}
+				name, script := runScript(r)
+				dir := runDir(store.Home.State, r)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, name), script, 0600); err != nil {
+					t.Fatal(err)
+				}
+				r.ScriptSum = runDigest(script)
+				if err := store.acceptRun(r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.ran {
+				pressRun(t, s, r, "press-install")
+			}
+			if !c.isRegistered {
+				if err := os.Remove(filepath.Join(h.State, "primary.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runPipe(t, s)
+			before := store.Snapshot().Runs[0]
+
+			// Act
+			err := WithdrawRun(h, c.id, c.reason)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), c.refusal) {
+				t.Fatalf("WithdrawRun = %v, want it refused (%q)", err, c.refusal)
+			}
+			if after := store.Snapshot().Runs[0]; after.State != before.State || after.Reason != before.Reason {
+				t.Fatalf("run = %+v after a refused withdrawal, want it unchanged from %+v", after, before)
+			}
+		})
+	}
+}
+
 // When the command finishes, its output and exit code are on the item, an
 // audit line records the digest of exactly the script that ran, and the CFO
 // gets the result as its answer, once.

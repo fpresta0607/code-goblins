@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -39,10 +40,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// and HERDR_BIN_PATH), and herdr refuses to start inside what they name
 	// as another Herdr, so it forgets them first. HERDR_SESSION and
 	// configuration such as HERDR_CONFIG_PATH are not the pane's and are kept.
+	// Started from a native terminal, such as the CFO's own, it would hand
+	// that terminal's id and proof value to every process it starts, and the
+	// proof value proves a process runs in that terminal, so it forgets them
+	// too.
 	for _, entry := range os.Environ() {
-		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
 			if err := os.Unsetenv(name); err != nil {
-				fmt.Fprintf(stderr, "cfo serve: forget the Herdr pane's %s: %v\n", name, err)
+				fmt.Fprintf(stderr, "cfo serve: forget the starting terminal's %s: %v\n", name, err)
 				return 1
 			}
 		}
@@ -62,6 +67,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// A supervisor already serving this home is the one supervisor: a second
+	// serve says where it is rather than failing to take the address or the
+	// lock from it.
+	if record, err := readBoardRecord(h.State); err == nil && boardAlive(context.Background(), record) == nil {
+		fmt.Fprintf(stderr, "cfo serve: the supervisor already serves this home's board at %s; goblins status shows it, goblins stop stops it\n", record.URL)
 		return 1
 	}
 	if *example {

@@ -62,6 +62,8 @@ func (s *Service) acceptCFOItem(ctx context.Context, pid int, connected time.Tim
 		}
 		_, err := s.acceptCredentialRequest(r)
 		return err
+	case req.Kind == "withdraw-run":
+		return s.Store.withdrawRun(req.ID, req.Reason)
 	}
 	return fmt.Errorf("the supervisor takes no %q request of that shape", req.Kind)
 }

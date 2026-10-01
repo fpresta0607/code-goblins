@@ -621,6 +621,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].State == "withdrawn":
+			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
 			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
 		}
@@ -719,6 +721,7 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
+				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -726,6 +729,9 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
+				}
+				if answered {
+					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}

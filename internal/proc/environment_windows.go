@@ -28,6 +28,12 @@ func Environment(pid int) ([]string, error) {
 	if err != nil || address == 0 {
 		return nil, errors.New("process environment unavailable")
 	}
+	return environmentAt(handle, address)
+}
+
+// environmentAt reads the environment block at address in the process
+// behind handle.
+func environmentAt(handle syscall.Handle, address uintptr) ([]string, error) {
 	var units []uint16
 	for offset := uintptr(0); offset < 1<<20; {
 		size := uintptr(4096) - (address+offset)%4096
