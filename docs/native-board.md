@@ -212,6 +212,9 @@ Dragging a card or using Alt plus an arrow key changes only its saved browser po
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and never below 35%, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
 Zooming, or panning a view that actually scrolls, stops the automatic fit until Fit is pressed, which restores it.
 A family of more than three leaf goblins wraps into two rows, the second offset by half a card so its connectors drop through gaps in the first instead of behind a sibling.
+A goblin waiting on another sits in the row under the one it waits on, half a card over, and the dashed line between them runs straight down what the two cards share; a sibling with nothing under it gives up that place and takes the nearest free one, and a chain or a cycle of waits keeps its family places.
+Only a card the Overlord moves is saved, so the canvas keeps arranging every card he has not placed himself.
+A card he placed stays where he put it, and an arranged card whose place it covers takes the nearest free place, along its row first and then the rows below, so the canvas never arranges a card onto another.
 A connector pulses for a few seconds when its goblin reports a new status line or files a wake record; a report that lands while the board is hidden never plays later.
 Arrange resets positions, and storage failures remain visible.
 Narrow screens use a collapsible nested list that names the actual parent when indentation is capped.
@@ -587,7 +590,9 @@ A question the goblin asks while it waits (`--blocked`) replaces no wait: the go
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
-A wait whose answer the Overlord gives on a Lavish page names the page:
+Scrawl is the Overlord's name for the review page he annotates and answers on.
+The `lavish-axi` command serves it, and the command, the `--lavish` flags and the `lavish` state fields keep their names.
+A wait whose answer the Overlord gives on a Scrawl page names the page:
 
 ```powershell
 lavish-axi .lavish/plan.html --no-open
@@ -727,8 +732,8 @@ Its report names no native session, and the board treats it as live while the ta
 `--generation` is optional and refused when it is no longer the task's current generation.
 Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in a Herdr pane or a native terminal as it does for a question.
 A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
-The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
-For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
+The tailnet URL `lavish-axi` returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
+For a Scrawl page, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
 The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.

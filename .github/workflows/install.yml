@@ -104,6 +104,8 @@ jobs:
           # probe is broken on a clean runner.
           $global:LASTEXITCODE = 0
       - name: Check the installed home
+        env:
+          REAL_RELEASE: ${{ inputs.release }}
         run: |
           # A new terminal sees the PATH and CFO_HOME the installers wrote to
           # the registry; a new step does not, and without CFO_HOME goblins
@@ -133,6 +135,16 @@ jobs:
           $doctor | Write-Host
           $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
           if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          # no-mistakes is the release this checkout's install.ps1 pins, where
+          # no-mistakes' own installer puts it; a published release's script
+          # may pin an earlier one. Only stdout holds the version: stderr may
+          # carry an update notice, which Windows PowerShell 5.1 would turn
+          # into a terminating error under this step's Stop preference.
+          $noMistakes = (Get-Command no-mistakes -ErrorAction Stop).Source
+          if ($noMistakes -ne (Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe")) { throw "no-mistakes resolves to $noMistakes, want it in $env:LOCALAPPDATA\no-mistakes" }
+          $pin = [regex]::Match((Get-Content -Raw install.ps1), '\$noMistakesVersion = "([^"]+)"').Groups[1].Value
+          $version = & { $ErrorActionPreference = "Continue"; & no-mistakes --version 2>$null } | Out-String
+          if ($env:REAL_RELEASE -ne "true" -and $version -notmatch "(?m)^no-mistakes version v$([regex]::Escape($pin))(\s|$)") { throw "no-mistakes --version prints '$($version.Trim())', want the pinned v$pin" }
           # The install opened the board, so a supervisor runs, and Code
           # Goblins in the Start menu opens it again.
           & (Join-Path $cfoHome "goblins.exe") status
