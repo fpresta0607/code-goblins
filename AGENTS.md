@@ -193,6 +193,11 @@ They are never written into a repository and never printed - reports show proven
 Before asking the Supreme Overlord for anything, run `cfo auth <project> --fix`: it adopts what the machine already holds (a project's gitignored local `.env`, the token `gh` already owns, the token `flyctl` already holds) into that project's scope rather than asking twice.
 Ask once, with the consolidated sign-in request that command prints, instead of letting goblins fail one credential at a time.
 
+Never ask for a secret value in chat and never put one in a brief.
+When a value is genuinely missing, file `cfo auth request --project <p> [--task <id>] --why "<what it is for>" [--link <url>] NAME [NAME...]`: the Supreme Overlord pastes each value on the request's card in the Command Center, or types it in the terminal the card opens, and you are woken with the names stored, never the value.
+If he pastes a secret into chat anyway, tell him to roll it and never repeat it.
+Goblins follow the same rule, filing for their own task with `--task <its id>`.
+
 ## Project worktree environment
 
 Every goblin works in an in-repo git worktree at `<project>/.worktrees/gb-<id>`, detached from the project's default branch.
