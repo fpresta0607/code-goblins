@@ -289,8 +289,8 @@ func readBoardState(h home.Home) (*Store, error) {
 
 // callerOwns reports whether this process runs under process: one of its
 // ancestors, or, when process is the program of native terminal hostID, a
-// member of the job that terminal's host holds, which proves a caller whose
-// chain of parents stops short, as a Cygwin or MSYS exec leaves it.
+// carrier of that terminal's proof value, which proves a caller whose chain
+// of parents stops short, as a Cygwin or MSYS exec leaves it.
 func callerOwns(stateDir, hostID string, process lock.Info) bool {
 	same := func(entry proc.Entry) bool { return entry.PID == process.PID && entry.Start.Equal(process.Start) }
 	if entries, err := proc.Ancestry(os.Getpid(), 32); err == nil && slices.ContainsFunc(entries, same) {
@@ -303,8 +303,8 @@ func callerOwns(stateDir, hostID string, process lock.Info) bool {
 	if err != nil {
 		return false
 	}
-	_, _, err = terminalJobMember(record, os.Getpid(), same)
-	return err == nil
+	program, err := terminalProgram(record, os.Getenv(host.IDVariable), os.Getenv(host.ProofVariable))
+	return err == nil && same(program)
 }
 
 // The same explicit native caller convention used by spawn. A same-harness

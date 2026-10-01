@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -165,8 +166,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 const orphanOf = "NATIVE_TERMINAL_ORPHAN_OF"
 
 // TestNativeTerminalRelay is not a test but the relay an "orphaned" line runs:
-// it starts the terminal's program on the lines of its input file and exits
-// without waiting, so the program's parent is a process that has exited.
+// it starts the terminal's program on the lines of its input file, outside
+// the terminal's job, and exits without waiting, so the program's parent is a
+// process that has exited, as Git Bash leaves what timeout runs.
 func TestNativeTerminalRelay(t *testing.T) {
 	args := flag.Args()
 	if len(args) != 4 || args[0] != "native-terminal-relay" {
@@ -179,6 +181,9 @@ func TestNativeTerminalRelay(t *testing.T) {
 	program := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", args[2], args[3])
 	program.Stdin = input
 	program.Env = append(os.Environ(), orphanOf+"="+strconv.Itoa(os.Getpid()))
+	// The MSYS runtime starts its programs outside the terminal's job, which
+	// lets a process break away, so the relay's program leaves it too.
+	program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB}
 	if err := program.Start(); err != nil {
 		os.Exit(1)
 	}

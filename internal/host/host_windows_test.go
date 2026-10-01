@@ -3,6 +3,8 @@ package host
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,6 +98,9 @@ func echoChild() {
 			time.Sleep(time.Minute)
 		case line == "host-id":
 			fmt.Println("host-id", os.Getenv(IDVariable))
+		case line == "host-proof":
+			sum := sha256.Sum256([]byte(os.Getenv(ProofVariable)))
+			fmt.Println("host-proof", hex.EncodeToString(sum[:]))
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -334,6 +339,26 @@ func TestTheTerminalKnowsWhichTerminalItIs(t *testing.T) {
 	typeLine(t, v, "host-id")
 
 	v.waitFor(t, "host-id g1")
+}
+
+// The terminal carries a proof value of its own, which its host's record
+// proves by digest alone, even when the host was launched from another
+// host's terminal; nothing else proves it.
+func TestTheTerminalCarriesAProofOnlyItsHostsRecordProves(t *testing.T) {
+	// Arrange
+	t.Setenv(ProofVariable, "outer-proof")
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	typeLine(t, v, "host-proof")
+
+	// Assert
+	v.waitFor(t, "host-proof "+record.ProofSum)
+	if record.Proves("outer-proof") || record.Proves("") || (Record{}).Proves("outer-proof") {
+		t.Errorf("record %+v proves another terminal's value, an empty one, or a record without a proof proves one", record)
+	}
 }
 
 // A viewer types into the terminal the host runs and sees its output.

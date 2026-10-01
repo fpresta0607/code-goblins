@@ -30,6 +30,12 @@ var (
 // in, so it can register as reachable through that host.
 const IDVariable = "CFO_HOST_ID"
 
+// ProofVariable carries a value the host makes for its terminal alone, which
+// every process in the terminal inherits and the host's record keeps only as
+// a digest, so a process can prove it runs in the terminal when its chain of
+// parents stops short of the program.
+const ProofVariable = "CFO_HOST_PROOF"
+
 // Spec is one terminal for a host to run.
 type Spec struct {
 	ID string
@@ -76,11 +82,15 @@ func Run(stateDir string, spec Spec) error {
 			return fmt.Errorf("host: terminal %s already runs in host pid %d", spec.ID, running.HostPID)
 		}
 	}
-	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID), Cols: spec.Cols, Rows: spec.Rows})
+	var proof [32]byte
+	if _, err := rand.Read(proof[:]); err != nil {
+		return err
+	}
+	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows})
 	if err != nil {
 		return err
 	}
-	record, pipe, err := announce(stateDir, spec.ID, console.PID())
+	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]))
 	if err != nil {
 		_ = console.Close()
 		return err
@@ -153,15 +163,16 @@ func Run(stateDir string, spec Spec) error {
 // terminalEnvironment is this host's environment with IDVariable naming
 // terminal id, in place of any value inherited from a terminal the host was
 // launched in, since Windows keeps the first of two entries.
-func terminalEnvironment(id string) []string {
+func terminalEnvironment(id, proof string) []string {
 	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(strings.ToUpper(entry), IDVariable+"=")
+		return strings.HasPrefix(strings.ToUpper(entry), IDVariable+"=") || strings.HasPrefix(strings.ToUpper(entry), ProofVariable+"=")
 	})
-	return append(env, IDVariable+"="+id)
+	return append(env, IDVariable+"="+id, ProofVariable+"="+proof)
 }
 
-// announce opens the host's pipe and records where to find it.
-func announce(stateDir, id string, childPID int) (Record, *listener, error) {
+// announce opens the host's pipe and records where to find it, with the
+// digest of the proof value its terminal carries.
+func announce(stateDir, id string, childPID int, proof string) (Record, *listener, error) {
 	name, err := pipeName()
 	if err != nil {
 		return Record{}, nil, err
@@ -174,7 +185,7 @@ func announce(stateDir, id string, childPID int) (Record, *listener, error) {
 	if _, err := rand.Read(secret[:]); err != nil {
 		return Record{}, nil, err
 	}
-	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, Started: time.Now().UTC()}
+	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, Started: time.Now().UTC(), ProofSum: proofSum(proof)}
 	if err := writeRecord(stateDir, record); err != nil {
 		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
 	}

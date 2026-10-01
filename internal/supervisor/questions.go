@@ -635,12 +635,13 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		return "", nil, err
 	}
 	proven := descendsFrom(entries, p.Process)
-	if !proven && p.Host != "" {
+	if !proven && p.Host != "" && len(entries) > 0 {
 		// A chain of parents that stops short, as a Cygwin or MSYS exec leaves
-		// it, is proven by the job of the CFO's native terminal instead.
+		// it, is proven by the proof value of the CFO's native terminal.
 		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
-			if self, _, err := terminalJobMember(record, pid, func(entry proc.Entry) bool { return entry.PID == p.Process.PID && entry.Start.Equal(p.Process.Start) }); err == nil {
-				entries, proven = []proc.Entry{self}, true
+			if env, err := proc.Environment(pid); err == nil {
+				program, err := terminalProgram(record, environmentValue(env, host.IDVariable), environmentValue(env, host.ProofVariable))
+				proven = err == nil && program.PID == p.Process.PID && program.Start.Equal(p.Process.Start)
 			}
 		}
 	}
