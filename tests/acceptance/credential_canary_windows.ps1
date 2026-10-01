@@ -133,6 +133,10 @@ public static extern bool CredDeleteW(string target, int type, int flags);
 
 try {
     foreach ($dir in @($root, $cfoHome, $state, $data, $logs, $project, (Join-Path $data "projects\$scope"))) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    # The scratch home is a primary home, as one cfo install sets up outside a
+    # checkout is, so cfo cleanup works in it.
+    Write-UTF8 (Join-Path $cfoHome 'AGENTS.md') "# Canary proof home`n"
+    Write-UTF8 (Join-Path $cfoHome '.cfo-home') ''
     $env:CFO_HOME = $cfoHome
     $env:CFO_STATE_OVERRIDE = $state
     Write-UTF8 (Join-Path $data "projects\$scope\auth.json") ('{"project":"' + $scope + '","services":[{"name":"proof","method":"env","env":["' + $name + '"],"optional":true}],"formats":[{"names":["CG_PROOF_*"],"prefixes":["canary"]}]}')
@@ -190,6 +194,8 @@ try {
     Check 'the expiring request was moved into the past' ($edited -ne $json)
     Write-UTF8 $database $edited
     $serve = Start-Board
+    # A board that restarted gives its page a new token.
+    $loopback = @{ Origin = $board; 'X-CFO-Token' = (Snapshot).instance }
     Check 'a save for an expired request is refused (409)' ((Probe '/api/credentials/save' (Save-Body $expiringRequest $expiring $refusalCanary) $loopback) -eq 409)
     Start-Sleep -Seconds 4
     Check 'the expired request closed as expired' ((Request-For $expiring).state -eq 'expired')
@@ -207,7 +213,8 @@ try {
     $deadline = (Get-Date).AddSeconds(90)
     while (-not ((Test-Path $standinTranscript) -and (Get-Content -LiteralPath $standinTranscript -Raw) -match 'matches the expected SHA-256') -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
     $told = if (Test-Path $standinTranscript) { Get-Content -LiteralPath $standinTranscript -Raw } else { '' }
-    Check 'the stand-in goblin received its re-source notice' ($told -match 'told: credentials refreshed: re-source .+auth\.ps1')
+    Check 'the stand-in goblin received its re-source notice' ($told -match 'told: .*credentials refreshed: re-source .+auth\.ps1')
+    if (-not $results['the stand-in goblin received its re-source notice']) { Write-Host ('the stand-in goblin was told: ' + ((($told -split "`n") | Where-Object { $_ -like 'told:*' }) -join ' | ')) }
     Check 'the stand-in goblin re-sourced the exact value' ($told -match "re-sourced auth\.ps1: $name set True, matches the expected SHA-256 True")
     $listing = Checked $cfo @('auth','list','--project',$scope)
     Check 'cfo auth list shows the name in Windows Credential Manager' ($listing -match [regex]::Escape("$scope/$name") -and $listing -match 'Windows Credential Manager')
@@ -237,11 +244,20 @@ try {
     Check "the canary is in the stand-in goblin's auth.ps1 exactly once, owner-only" ($delivered -eq 1 -and (Owner-Only $script))
     Check 'the refused canary never reached the goblin' (-not ((Get-Content -LiteralPath $script -Raw).Contains($refusalCanary)))
 
-    # Cleanup removes the goblin's auth.ps1 with the task.
-    Checked $cfo @('cleanup',$task) | Out-Null
+    # Cleanup removes the goblin's auth.ps1 with the task, once the goblin's
+    # terminal has ended.
+    Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+    $hostProcess.WaitForExit(15000) | Out-Null
+    $cleanup = Native $cfo @('cleanup', $task)
+    Check 'cfo cleanup took the stand-in goblin''s task' ($LASTEXITCODE -eq 0)
+    if ($LASTEXITCODE -ne 0) { Write-Host "cfo cleanup said: $($cleanup.Trim())" }
     $afterCleanup = Hits @($state) $canary
     Write-Host "canary: state/ after cfo cleanup: $($afterCleanup.Count) hit(s)"
     Check 'cfo cleanup removed the auth.ps1, and state/ holds no canary' ($afterCleanup.Count -eq 0 -and -not (Test-Path -LiteralPath $script))
+} catch {
+    # A step that could not run is a failed check, so the summary still says
+    # what held before it.
+    Check ('the proof ran to its end: ' + $_.Exception.Message.Split("`n")[0]) $false
 } finally {
     # Cleanup runs whatever failed above, so nothing in it may stop it.
     $ErrorActionPreference = 'Continue'
