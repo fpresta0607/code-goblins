@@ -1000,9 +1000,11 @@ func writeWatchLock(t *testing.T, stateDir string, holder lock.Info) {
 
 // Before an update or a recovery changes anything it reads the watcher lock
 // as the lock package does: a supervisor that may still run but cannot be
-// verified, as one on another host is, and a record that cannot be read are
-// refused; a supervisor proved to have ended, or whose pid is now another
-// process's, is passed over; a watcher is left to serve's handover.
+// verified, as one on another host is, and a record the system cannot read
+// are refused; a record whose content stays empty or malformed through the
+// lock's grace is a crash orphan serve reclaims, and is passed over, as are a
+// supervisor proved to have ended and a pid now another process's; a watcher
+// is left to serve's handover.
 func TestTheUpdatePreflightRefusesASupervisorItCannotVerify(t *testing.T) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -1017,17 +1019,20 @@ func TestTheUpdatePreflightRefusesASupervisorItCannotVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name      string
-		record    []byte
-		holder    *lock.Info
-		isRefused bool
+		name       string
+		record     []byte
+		holder     *lock.Info
+		isHeldOpen bool
+		isRefused  bool
 	}{
-		{"no lock", nil, nil, false},
-		{"a record that cannot be read", []byte("{not a lock record"), nil, true},
-		{"a supervisor on another host", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started, Hostname: "another-host"}, true},
-		{"a supervisor that ended", nil, &lock.Info{PID: ended.Process.Pid, OwnerPID: ended.Process.Pid, Session: "exclusive-spawn", Start: time.Now().Add(-time.Minute), Hostname: hostname}, false},
-		{"a pid now another process's", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started.Add(-time.Hour), Hostname: hostname}, false},
-		{"a watcher", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "watch", Start: started, Hostname: hostname}, false},
+		{"no lock", nil, nil, false, false},
+		{"malformed content through the grace", []byte("{not a lock record"), nil, false, false},
+		{"an empty record through the grace", []byte{}, nil, false, false},
+		{"a record the system cannot read", []byte("{not a lock record"), nil, true, true},
+		{"a supervisor on another host", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started, Hostname: "another-host"}, false, true},
+		{"a supervisor that ended", nil, &lock.Info{PID: ended.Process.Pid, OwnerPID: ended.Process.Pid, Session: "exclusive-spawn", Start: time.Now().Add(-time.Minute), Hostname: hostname}, false, false},
+		{"a pid now another process's", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started.Add(-time.Hour), Hostname: hostname}, false, false},
+		{"a watcher", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "watch", Start: started, Hostname: hostname}, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -1042,6 +1047,13 @@ func TestTheUpdatePreflightRefusesASupervisorItCannotVerify(t *testing.T) {
 			}
 			if test.holder != nil {
 				writeWatchLock(t, h.State, *test.holder)
+			}
+			if test.isHeldOpen {
+				held, err := holdExclusively(filepath.Join(h.State, ".watch.lock"), 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer syscall.CloseHandle(held)
 			}
 
 			err := unprovedSupervisor(h)
@@ -1070,6 +1082,125 @@ func TestAnUpdateRefusedByAnUnverifiableSupervisorChangesNothing(t *testing.T) {
 
 	if code != 1 {
 		t.Fatalf("update exited %d, want 1:\n%s", code, output)
+	}
+	for _, name := range []string{"journal.json", "candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
+		if _, err := os.Stat(filepath.Join(update.Dir(u.state), name)); !os.IsNotExist(err) {
+			t.Errorf("the refused update wrote %s (%v)", name, err)
+		}
+	}
+	u.aliasesAre(u.previous, "previous")
+}
+
+// A watcher lock record left empty, as an unsynced write leaves it when the
+// machine loses power just after a supervisor takes the lock, is a crash
+// orphan the next supervisor's lock reclaims: it never blocks an update, nor
+// the recovery of an update that ended at swapped.
+func TestAnEmptyWatchLockRecordLeftByAPowerLossIsReclaimed(t *testing.T) {
+	t.Run("install", func(t *testing.T) {
+		u := newUpdateHome(t, "previous", "candidate")
+		candidate, err := os.ReadFile(u.candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(u.state, ".watch.lock"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		code, output := u.run(nil)
+
+		if code != updateInstalled {
+			t.Fatalf("update exited %d, want %d:\n%s", code, updateInstalled, output)
+		}
+		u.aliasesAre(candidate, "candidate")
+		if err := boardAlive(context.Background(), u.awaitBoard()); err != nil {
+			t.Fatalf("the candidate's supervisor does not answer as itself: %v", err)
+		}
+	})
+	t.Run("recover after swapped", func(t *testing.T) {
+		u := newUpdateHome(t, "previous", "candidate")
+		u.serving()
+		code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=swapped"})
+		if code != 9 {
+			t.Fatalf("the update did not end at swapped (exit %d):\n%s", code, output)
+		}
+		journal, err := update.ReadJournal(u.state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.candidate = journal.Copy
+		if err := os.WriteFile(filepath.Join(u.state, ".watch.lock"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		code, output = u.run(nil, "--recover")
+
+		if code != updateRolledBack {
+			t.Fatalf("recover exited %d, want %d:\n%s", code, updateRolledBack, output)
+		}
+		u.previousServes()
+	})
+}
+
+// A record still empty when first read but written within the lock's grace
+// is judged by what it then says: a supervisor on another host is refused.
+func TestThePreflightJudgesARecordWrittenWithinTheGrace(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, ".watch.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("no start time for this process")
+	}
+	record, err := json.Marshal(lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started, Hostname: "another-host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writeErr error
+	written := make(chan struct{})
+	go func() {
+		defer close(written)
+		time.Sleep(60 * time.Millisecond)
+		writeErr = os.WriteFile(filepath.Join(h.State, ".watch.lock"), record, 0o600)
+	}()
+
+	err = unprovedSupervisor(h)
+	<-written
+
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "another-host") {
+		t.Fatalf("the preflight returned %v, want a refusal naming the supervisor on another-host", err)
+	}
+}
+
+// A watcher lock record the system cannot read, held open by another handle
+// that shares nothing, proves nothing about its holder: the update is
+// refused before it writes anything.
+func TestAnUpdateRefusesAWatchLockRecordItCannotRead(t *testing.T) {
+	u := newUpdateHome(t, "previous", "candidate")
+	path := filepath.Join(u.state, ".watch.lock")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held, err := holdExclusively(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.CloseHandle(held)
+
+	code, output := u.run(nil)
+
+	if code != 1 {
+		t.Fatalf("update exited %d, want 1:\n%s", code, output)
+	}
+	if !strings.Contains(output, "cannot be read") {
+		t.Errorf("the refusal does not say the record cannot be read:\n%s", output)
 	}
 	for _, name := range []string{"journal.json", "candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
 		if _, err := os.Stat(filepath.Join(update.Dir(u.state), name)); !os.IsNotExist(err) {

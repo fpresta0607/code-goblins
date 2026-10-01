@@ -522,15 +522,29 @@ func endSupervisor(h home.Home, running serveProcess) error {
 // supervisor proved to have ended or a pid now another process's, or is held
 // by a supervisor proved this home's. It reads the lock as the lock package
 // does: a holder that may still run but cannot be verified, as one on another
-// host or one this user cannot inspect is, counts as running, and a record
-// that cannot be read proves nothing either way.
+// host or one this user cannot inspect is, counts as running; content that
+// stays empty or malformed through the grace lock.acquire gives a holder
+// mid-write (3 reads over 150 ms) is a crash orphan the next supervisor's lock
+// reclaims; and a record the system cannot read proves nothing either way.
 func unprovedSupervisor(h home.Home) error {
-	holder, err := lock.ReadNamed(h.State, ".watch.lock")
+	var holder *lock.Info
+	var err error
+	var unread *os.PathError
+	for reads, first := 1, time.Now(); ; reads++ {
+		holder, err = lock.ReadNamed(h.State, ".watch.lock")
+		if err == nil || errors.As(err, &unread) || reads >= 3 && time.Since(first) >= 150*time.Millisecond {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
+	if unread != nil {
 		return fmt.Errorf("the watcher lock's record cannot be read (%v), so who holds it is not proved", err)
+	}
+	if err != nil {
+		return nil
 	}
 	if holder.Session != "exclusive-spawn" || !holder.Alive() {
 		return nil
