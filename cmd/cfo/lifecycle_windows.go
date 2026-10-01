@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -29,7 +30,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if err != nil {
 		return state.Lifecycle{}, err
 	}
-	if data, err := os.ReadFile(filepath.Join(h.State, ".supervisor.json")); err == nil {
+	if data, err := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json")); err == nil {
 		var database supervisor.Database
 		if err := json.Unmarshal(data, &database); err != nil {
 			return state.Lifecycle{}, err

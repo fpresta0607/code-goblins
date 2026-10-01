@@ -39,7 +39,7 @@ func AtomicWriteFile(path string, data []byte) error {
 // ReadLines returns the file's lines, treating CRLF and LF endings equally.
 // A missing file returns an error satisfying errors.Is(err, os.ErrNotExist).
 func ReadLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+	data, err := ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

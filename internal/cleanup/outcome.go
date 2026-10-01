@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -41,7 +42,7 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 		}
 	}
 	if meta.Kind == "scout" && meta.Brief != "" {
-		brief, err := os.ReadFile(meta.Brief)
+		brief, err := fsx.ReadFile(meta.Brief)
 		report := filepath.Join(filepath.Dir(meta.Brief), "report.md")
 		if info, statErr := os.Stat(report); err == nil && statErr == nil && info.Mode().IsRegular() && info.Size() > 0 && strings.Contains(string(brief), "report.md") {
 			outcome.Phase, outcome.Evidence = "done", "requested report.md delivered"

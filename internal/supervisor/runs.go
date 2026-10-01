@@ -234,7 +234,7 @@ func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.
 }
 
 func readRunCommand(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := fsx.Open(path)
 	if err != nil {
 		return "", err
 	}
@@ -263,7 +263,7 @@ func (s *Store) acceptRun(r Run) error {
 	}
 	// The script on disk must be exactly the command the CFO published.
 	name, script := runScript(r)
-	data, err := os.ReadFile(filepath.Join(runDir(s.Home.State, r), name))
+	data, err := fsx.ReadFile(filepath.Join(runDir(s.Home.State, r), name))
 	if err != nil || r.ScriptSum != runDigest(script) || runDigest(data) != r.ScriptSum {
 		return errors.New("the run item's script file is missing or changed")
 	}
@@ -393,7 +393,7 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 	name, _ := runScript(r)
 	script := filepath.Join(dir, name)
 	var started RunStarted
-	data, err := os.ReadFile(script)
+	data, err := fsx.ReadFile(script)
 	switch {
 	case err != nil || runDigest(data) != r.ScriptSum:
 		err = errors.New("its script file is missing or changed")
@@ -431,7 +431,7 @@ func (s *Service) finishRuns(ctx context.Context) error {
 		dir := runDir(s.Store.Home.State, r)
 		if code, ok := readRunExit(dir); ok {
 			errs = errors.Join(errs, s.completeRun(ctx, r, &code, ""))
-		} else if declined, err := os.ReadFile(filepath.Join(dir, "declined.txt")); err == nil {
+		} else if declined, err := fsx.ReadFile(filepath.Join(dir, "declined.txt")); err == nil {
 			errs = errors.Join(errs, s.completeRun(ctx, r, nil, "Windows did not start it elevated: "+bounded(strings.TrimSpace(string(declined)), 300)))
 		} else if !runProcessAlive(r.PID, *r.Started) {
 			// The run may have written its exit code just before it ended.
@@ -509,7 +509,7 @@ func tail(text string, n int) string {
 
 // readRunExit reads the exit code a run writes when its command finishes.
 func readRunExit(dir string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "exit.txt"))
+	data, err := fsx.ReadFile(filepath.Join(dir, "exit.txt"))
 	if err != nil {
 		return 0, false
 	}
@@ -544,7 +544,7 @@ func (h *HTTP) runOutput(w http.ResponseWriter, r *http.Request) {
 
 // readRunOutput reads the end of what a run printed.
 func readRunOutput(dir string) string {
-	f, err := os.Open(filepath.Join(dir, "output.log"))
+	f, err := fsx.Open(filepath.Join(dir, "output.log"))
 	if err != nil {
 		return ""
 	}

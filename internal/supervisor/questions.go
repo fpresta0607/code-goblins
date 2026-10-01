@@ -480,7 +480,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		if info.Size() > maxStateBytes {
 			return Question{}, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return Question{}, err
 		}
@@ -495,7 +495,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		return Question{}, err
 	}
 	sum := sha256.Sum256([]byte(id))
-	data, err := os.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
 	if err != nil {
 		return Question{}, err
 	}
@@ -692,7 +692,7 @@ func publish(stateDir string, q Question) error {
 		if info.Size() > maxStateBytes {
 			return errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return err
 		}
@@ -721,7 +721,7 @@ func publish(stateDir string, q Question) error {
 	}
 	sum := sha256.Sum256([]byte(id))
 	path := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := fsx.ReadFile(path); err == nil {
 		var prior Question
 		if json.Unmarshal(data, &prior) != nil || !sameQuestion(prior, q) {
 			return errors.New("question ID already used")
@@ -820,7 +820,7 @@ func (s *Store) ingestQuestions() error {
 		if info.Size() > 12<<10 {
 			invalid = errors.New("question exceeds its size limit")
 		} else {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}

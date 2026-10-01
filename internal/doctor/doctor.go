@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
@@ -183,7 +184,7 @@ func checkHookPairing() Check {
 	values := []string{}
 	installed := map[string]bool{}
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
+		data, err := fsx.ReadFile(path)
 		if err != nil {
 			continue
 		}

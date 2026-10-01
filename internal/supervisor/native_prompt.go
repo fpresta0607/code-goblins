@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
@@ -51,7 +52,7 @@ func promptSince(stateDir string, since time.Time, ours func(nativehook.Event) b
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".event.json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
 		if errors.Is(err, fs.ErrNotExist) {
 			// The supervisor took it into its store meanwhile.
 			continue
@@ -64,7 +65,7 @@ func promptSince(stateDir string, since time.Time, ours func(nativehook.Event) b
 			return true, nil
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}

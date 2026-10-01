@@ -50,7 +50,7 @@ func writeBoardRecord(stateDir string, record boardRecord) error {
 // the browser.
 func readBoardRecord(stateDir string) (boardRecord, error) {
 	var record boardRecord
-	data, err := os.ReadFile(boardRecordPath(stateDir))
+	data, err := fsx.ReadFile(boardRecordPath(stateDir))
 	if err != nil {
 		return boardRecord{}, err
 	}
@@ -264,7 +264,7 @@ func statusLine(snapshot launcherSnapshot) string {
 
 // logTail returns the last lines of a log, or says there is none.
 func logTail(path string, lines int) string {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return "(nothing)\n"
 	}

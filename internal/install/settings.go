@@ -39,7 +39,7 @@ type settingsFile struct {
 // but a file that is not a JSON object is, because merging into it would
 // mean guessing at what to preserve.
 func loadSettings(path string) (*settingsFile, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return &settingsFile{path: path, values: map[string]any{}}, nil
 	}

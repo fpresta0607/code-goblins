@@ -96,7 +96,7 @@ func withLock(dir string, fn func() error) error {
 }
 
 func readAckFloor(dir string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(dir, ackFile))
+	data, err := fsx.ReadFile(filepath.Join(dir, ackFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}

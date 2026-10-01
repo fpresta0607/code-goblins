@@ -132,7 +132,7 @@ func Open(h home.Home) (*Store, error) {
 	if info, err := os.Stat(s.path()); err == nil && info.Size() > maxStateBytes {
 		return nil, errors.New("supervisor state exceeds its bound")
 	}
-	data, err := os.ReadFile(s.path())
+	data, err := fsx.ReadFile(s.path())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -749,7 +749,7 @@ func (s *Store) Ingest() error {
 		if info.Size() > nativehook.MaxInputBytes {
 			r.err = errors.New("oversized event")
 		} else {
-			data, readErr := os.ReadFile(r.path)
+			data, readErr := fsx.ReadFile(r.path)
 			if readErr != nil {
 				return readErr
 			}
