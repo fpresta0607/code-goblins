@@ -55,6 +55,8 @@ func (s *Service) acceptCFOItem(ctx context.Context, pid int, connected time.Tim
 		return nil
 	case req.Kind == "answer" && req.Answer != nil:
 		return s.Store.recordCFOAnswer(*req.Answer)
+	case req.Kind == "withdraw-run":
+		return s.Store.withdrawRun(req.ID, req.Reason)
 	}
 	return fmt.Errorf("the supervisor takes no %q request of that shape", req.Kind)
 }

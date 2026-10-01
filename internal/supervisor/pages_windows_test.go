@@ -104,6 +104,56 @@ func TestAQuestionWithAPageIsShownAsThatPagesItem(t *testing.T) {
 	}
 }
 
+// A goblin that already waits on the Overlord with a page and then asks a
+// question keeps its page: the question is a report newer than the wait,
+// which once withdrew it, so the two never showed as one item (found by
+// the live proof, 2026-10-01). The wait stands beside the question, and
+// the question is the page's item.
+func TestAQuestionAskedAfterItsPageWaitIsStillThatPagesItem(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	meta, record, _, connection := goblinFixture(t, store)
+	page := filepath.Join(meta.Worktree, ".lavish", "plan.html")
+	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a store on the page"); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, record.Seq+1, "pick a store on the page", pageLink, page); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	surfaced(t, store, meta, record, connection)
+	if err := state.AppendStatus(store.Home.State, meta.ID, record.Detail); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	retired := store.retireItems()
+	snapshot, err := (&Service{Store: store}).Snapshot()
+
+	// Assert
+	if retired != nil || err != nil {
+		t.Fatal(retired, err)
+	}
+	if len(snapshot.Questions) != 1 || len(snapshot.Reviews) != 1 {
+		t.Fatalf("snapshot = %d questions and %d reviews, want 1 and 1", len(snapshot.Questions), len(snapshot.Reviews))
+	}
+	asked, item := snapshot.Questions[0], snapshot.Reviews[0]
+	if item.State != "open" {
+		t.Fatalf("the page's wait after its goblin asked = %s (%s), want it still open", item.State, item.Reason)
+	}
+	if asked.Page != item.ID || item.Question != asked.ID {
+		t.Errorf("question %s names page %q and page %s names question %q, want each the other", asked.ID, asked.Page, item.ID, item.Question)
+	}
+}
+
 // An answer on the page is the answer to the question it carries: the
 // question closes as answered by the Overlord on the page, and the goblin's
 // notify reads answered, so the CFO's drain retires it.
