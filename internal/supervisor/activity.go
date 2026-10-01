@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -284,12 +285,24 @@ func readBoardState(h home.Home) (*Store, error) {
 	return &Store{Home: h, db: db, committed: db}, nil
 }
 
-func callerOwns(process lock.Info) bool {
-	entries, err := proc.Ancestry(os.Getpid(), 32)
+// callerOwns reports whether this process runs under process: one of its
+// ancestors, or, when process is the program of native terminal hostID, a
+// carrier of that terminal's proof value, which proves a caller whose chain
+// of parents stops short, as a Cygwin or MSYS exec leaves it.
+func callerOwns(stateDir, hostID string, process lock.Info) bool {
+	same := func(entry proc.Entry) bool { return entry.PID == process.PID && entry.Start.Equal(process.Start) }
+	if entries, err := proc.Ancestry(os.Getpid(), 32); err == nil && slices.ContainsFunc(entries, same) {
+		return true
+	}
+	if hostID == "" {
+		return false
+	}
+	record, err := host.ReadRecord(stateDir, hostID)
 	if err != nil {
 		return false
 	}
-	return slices.ContainsFunc(entries, func(entry proc.Entry) bool { return entry.PID == process.PID && entry.Start.Equal(process.Start) })
+	program, err := terminalProgram(record, os.Environ())
+	return err == nil && same(program)
 }
 
 // The same explicit native caller convention used by spawn. A same-harness
@@ -367,7 +380,7 @@ func PrepareSendActivity(h home.Home, target string) func() error {
 	if err == nil {
 		p, _, err := decodePrimary(file)
 		_ = file.Close()
-		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(p.Process) && (&CFOConnection{State: h.State}).verify(p) == nil {
+		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(h.State, p.Host, p.Process) && (&CFOConnection{State: h.State}).verify(p) == nil {
 			source = parent.ID
 		}
 	}

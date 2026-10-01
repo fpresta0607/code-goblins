@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -79,8 +79,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
   const show = (key: string) => {
-    if (finishing && item.key !== key) setSent((prior) => new Set([...prior, item.key]));
-    setCurrent(key); setGallery(null); setAllDone(false);
+    const shown = cardKey(snapshot, key);
+    if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
+    setCurrent(shown); setGallery(null); setAllDone(false);
   };
   const fresh = waiting.filter((item) => item.kind === "question" && !announced.has(item.key));
   if (fresh.length) {
