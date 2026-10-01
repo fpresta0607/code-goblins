@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -122,6 +123,9 @@ type Store struct {
 	committed   Database
 	changed     chan struct{}
 	inboxCursor string
+	// failingSince is when saves started failing, in Unix nanoseconds; zero
+	// while they succeed.
+	failingSince atomic.Int64
 }
 
 func Open(h home.Home) (*Store, error) {
@@ -189,14 +193,15 @@ func (s *Store) save() error {
 	if err == nil && len(data)+1 > maxStateBytes {
 		err = errors.New("supervisor state exceeds its bound")
 	}
+	if err == nil {
+		err = fsx.AtomicWriteFile(s.path(), append(data, '\n'))
+	}
 	if err != nil {
 		s.db = cloneDatabase(s.committed)
+		s.failingSince.CompareAndSwap(0, time.Now().UnixNano())
 		return fmt.Errorf("%w: %v", ErrStorage, err)
 	}
-	if err := fsx.AtomicWriteFile(s.path(), append(data, '\n')); err != nil {
-		s.db = cloneDatabase(s.committed)
-		return fmt.Errorf("%w: %v", ErrStorage, err)
-	}
+	s.failingSince.Store(0)
 	s.committed = cloneDatabase(s.db)
 	select {
 	case s.changed <- struct{}{}:

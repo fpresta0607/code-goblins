@@ -66,7 +66,6 @@ type Service struct {
 	Started              time.Time
 	mu                   sync.Mutex
 	lastError            string
-	storageFailing       time.Time // when saves started failing; zero while they succeed
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
@@ -151,18 +150,12 @@ func (s *Service) Done() <-chan struct{} { return s.done }
 const storageGrace = 30 * time.Second
 
 func (s *Service) publish(err error) {
-	s.mu.Lock()
-	switch {
-	case err == nil:
-		s.storageFailing = time.Time{}
-	case errors.Is(err, ErrStorage):
-		if s.storageFailing.IsZero() {
-			s.storageFailing = time.Now()
-		}
-		if time.Since(s.storageFailing) < storageGrace {
+	if errors.Is(err, ErrStorage) {
+		if since := s.Store.failingSince.Load(); since == 0 || time.Since(time.Unix(0, since)) < storageGrace {
 			err = withoutStorage(err)
 		}
 	}
+	s.mu.Lock()
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
