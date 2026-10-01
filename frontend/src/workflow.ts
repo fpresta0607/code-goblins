@@ -206,11 +206,53 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
   return nodes.map((node) => cyclic.has(node.id) ? { ...node, parent: undefined, relation: "Cyclic parent link" } : node);
 }
 
+// waitingOn maps the card of each goblin waiting on another goblin to the card
+// of the goblin it waits on, as the dashed line between them shows.
+export function waitingOn(snapshot: Snapshot, nodes: WorkflowNode[]): Record<string, string> {
+  const edges: Record<string, string> = {};
+  for (const node of nodes) {
+    const awaited = node.task && ownsTaskSession(node.session, node.task) ? waitingTarget(snapshot, node.task) : undefined;
+    const target = awaited && nodes.find((other) => other.task?.id === awaited.id && ownsTaskSession(other.session, other.task));
+    if (target) edges[node.id] = target.id;
+  }
+  return edges;
+}
+
+// The canvas grid: a card and its gap across, a row down.
+const COLUMN = NODE_WIDTH + 44, ROW = 244;
+
+// Two cards clash when they are nearer than a card and its gap both across
+// and down.
+const clashes = (one: Point, other: Point) => Math.abs(one.x - other.x) < COLUMN && Math.abs(one.y - other.y) < NODE_HEIGHT + 44;
+
+// nearestFree is the place nearest to where a card wants to be that no other
+// card covers: a column either side along its row, then the rows below it,
+// and else past every card in its row.
+function nearestFree(want: Point, taken: Point[]): Point {
+  for (let row = 0; row < 4; row++) for (const step of [0, -1, 1, -2, 2, -3, 3]) {
+    const place = { x: want.x + step * COLUMN, y: want.y + row * ROW };
+    if (place.x >= 0 && !taken.some((other) => clashes(place, other))) return place;
+  }
+  return { x: Math.max(want.x, ...taken.filter((other) => Math.abs(other.y - want.y) < NODE_HEIGHT + 44).map((other) => other.x + COLUMN)), y: want.y };
+}
+
 // Positioning changes presentation only. Cycles retain a visible node but do
-// not become recursively laid-out family relationships.
-export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
+// not become recursively laid-out family relationships. A goblin waiting on
+// another sits in the row under it, half a card over, so the dashed line
+// between them is short and its own connector drops through a gap; a sibling
+// with nothing of its own under it gives up that place and takes the nearest
+// free one. Only a card with no children of its own moves, and only under a
+// card that stays in its family's row, so a chain or a cycle of waits keeps
+// its places.
+export function arrange(nodes: WorkflowNode[], waits: Record<string, string> = {}): Record<string, Point> {
   const positions: Record<string, Point> = {};
   const visited = new Set<string>();
+  const ids = new Set(nodes.map((node) => node.id));
+  const parents = new Set(nodes.flatMap((node) => node.parent ? [node.parent] : []));
+  const waiting = new Map(Object.entries(waits).filter(([id, target]) => id !== target && ids.has(id) && ids.has(target) && !parents.has(id)));
+  const below = [...waiting].filter(([, target]) => !waiting.has(target));
+  const fixed = new Set(below.flat());
+  for (const [id] of below) visited.add(id);
   let leaf = 0;
   const place = (node: WorkflowNode, depth: number): number => {
     visited.add(node.id);
@@ -223,22 +265,47 @@ export function arrange(nodes: WorkflowNode[]): Record<string, Point> {
       children.forEach((child, i) => {
         const row = Math.floor(i / columns);
         visited.add(child.id);
-        positions[child.id] = { x: 40 + (first + i % columns + row / 2) * (NODE_WIDTH + 44), y: 72 + (depth + 1 + row) * 244 };
+        positions[child.id] = { x: 40 + (first + i % columns + row / 2) * COLUMN, y: 72 + (depth + 1 + row) * ROW };
       });
       leaf += columns + 1;
-      const x = 40 + (first + (columns - 1) / 2 + .25) * (NODE_WIDTH + 44);
-      positions[node.id] = { x, y: 72 + depth * 244 };
+      const x = 40 + (first + (columns - 1) / 2 + .25) * COLUMN;
+      positions[node.id] = { x, y: 72 + depth * ROW };
       return x;
     }
     const xs = children.filter((child) => !visited.has(child.id)).map((child) => place(child, depth + 1));
-    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 40 + leaf++ * (NODE_WIDTH + 44);
-    positions[node.id] = { x, y: 72 + depth * 244 };
+    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 40 + leaf++ * COLUMN;
+    positions[node.id] = { x, y: 72 + depth * ROW };
     return x;
   };
   const sessions = nodes.flatMap((node) => node.session ? [node.session] : []);
   const rootIDs = new Set(lineageRoots(sessions).map((session) => "session:" + session.id));
   for (const node of nodes) if (!visited.has(node.id) && (!node.parent || rootIDs.has(node.id))) place(node, 0);
   for (const node of nodes) if (!visited.has(node.id)) place(node, 0);
+  for (const [id, target] of below) {
+    const awaited = positions[target];
+    const under = [awaited.x + COLUMN / 2, awaited.x - COLUMN / 2].filter((x) => x >= 0).map((x) => ({ x, y: awaited.y + ROW }));
+    const covering = (place: Point) => Object.keys(positions).filter((other) => clashes(place, positions[other]));
+    const free = under.find((place) => !covering(place).length);
+    const blocking = covering(under[0]);
+    const sibling = blocking.length === 1 && !fixed.has(blocking[0]) && !parents.has(blocking[0]) ? blocking[0] : "";
+    if (free) positions[id] = free;
+    else if (sibling) {
+      const from = positions[sibling];
+      positions[id] = under[0];
+      delete positions[sibling];
+      positions[sibling] = nearestFree(from, Object.values(positions));
+    } else positions[id] = nearestFree(under[0], Object.values(positions));
+  }
+  return positions;
+}
+
+// settle is where each card shows: where the Overlord placed it by hand, else
+// its arranged place, or the free place nearest to it when a card he placed
+// covers that, so no card ever covers another.
+export function settle(arranged: Record<string, Point>, placed: Record<string, Point>): Record<string, Point> {
+  const positions: Record<string, Point> = {};
+  for (const id of Object.keys(arranged)) if (placed[id]) positions[id] = placed[id];
+  for (const [id, want] of Object.entries(arranged)) if (!placed[id]) positions[id] = nearestFree(want, Object.values(positions));
   return positions;
 }
 
