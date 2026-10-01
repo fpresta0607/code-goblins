@@ -297,15 +297,19 @@ func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
 // only with a reason; a refused withdrawal changes nothing.
 func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 	for _, c := range []struct {
-		name         string
-		isRegistered bool
-		id, reason   string
-		ran          bool
-		refusal      string
+		name           string
+		isRegistered   bool
+		id, reason     string
+		age            time.Duration
+		connectionTask string
+		ran            bool
+		refusal        string
 	}{
 		{name: "a process that is not the CFO", id: "install-tool", reason: "not needed", refusal: "not registered"},
 		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
 		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
+		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
+		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
 		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -313,7 +317,24 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			store, h := testStore(t)
 			_, identity, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
-			r := readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC())
+			var r Run
+			if c.connectionTask == "" {
+				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
+			} else {
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, ConnectionGeneration: "1"}
+				name, script := runScript(r)
+				dir := runDir(store.Home.State, r)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, name), script, 0600); err != nil {
+					t.Fatal(err)
+				}
+				r.ScriptSum = runDigest(script)
+				if err := store.acceptRun(r); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if c.ran {
 				pressRun(t, s, r, "press-install")
 			}

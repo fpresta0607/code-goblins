@@ -307,11 +307,18 @@ func (s *Store) withdrawRun(id, reason string) error {
 		return errors.New("no run item with that ID to withdraw")
 	}
 	r := &s.db.Runs[i]
-	if r.State != "ready" {
+	now := time.Now().UTC()
+	switch {
+	case r.ConnectionTask != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CFO's to withdraw", r.ID, r.ConnectionTask)
+	case r.State != "ready":
 		s.mu.Unlock()
 		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
+	case !now.Before(r.ExpiresAt):
+		s.mu.Unlock()
+		return errors.New("the run item expired, so it cannot be withdrawn")
 	}
-	now := time.Now().UTC()
 	r.State, r.Reason, r.FinishedAt = "withdrawn", reason, &now
 	withdrawn := *r
 	err := s.save()
