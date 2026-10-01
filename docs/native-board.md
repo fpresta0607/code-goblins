@@ -109,6 +109,7 @@ Task admission may replace terminal history; 512 unresolved tasks or 512 recent 
 The inbox admits 4,096 small records, each at most 64 KiB.
 Ingestion sorts its bounded read window by event time before its 256-record consumption batch, retries records awaiting start/metadata evidence, and rotates the window if concurrent writers briefly exceed admission capacity.
 Transient persistence failures retain the inbox record and roll memory back to the last durable state.
+The next cycles retry the save, and the board reports a persistence failure only once saves have kept failing for 30 seconds; other errors still show at once.
 Malformed records leave a bounded diagnostic and do not wedge subsequent valid work.
 An interrupted evaluation is safe to replay; an interrupted external delivery becomes uncertain and is not resent automatically.
 Uncertain actions remain visible for operator inspection and can eventually exhaust action capacity if left unresolved.

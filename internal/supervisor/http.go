@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/siqspeak"
@@ -401,7 +402,7 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusTail(dir, id string) ([]string, error) {
-	f, err := os.Open(filepath.Join(dir, id+".status"))
+	f, err := fsx.Open(filepath.Join(dir, id+".status"))
 	if errors.Is(err, os.ErrNotExist) {
 		return []string{}, nil
 	}

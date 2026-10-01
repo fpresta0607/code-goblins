@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type Outcome struct {
@@ -35,7 +37,7 @@ func AppendOutcome(path string, o Outcome) error {
 	if e != nil {
 		return e
 	}
-	f, e := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	f, e := fsx.OpenAppend(path, 0644)
 	if e != nil {
 		return e
 	}
@@ -44,7 +46,7 @@ func AppendOutcome(path string, o Outcome) error {
 	return e
 }
 func ReadOutcomes(path string) ([]Outcome, error) {
-	f, e := os.Open(path)
+	f, e := fsx.Open(path)
 	if e != nil {
 		return nil, e
 	}

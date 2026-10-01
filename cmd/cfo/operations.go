@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/evidence"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/hygiene"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/routing"
@@ -271,7 +272,7 @@ func runEvidence(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		return 1
 	}
 	p := filepath.Join(m.TaskTmp, "evidence.json")
-	b, e := os.ReadFile(p)
+	b, e := fsx.ReadFile(p)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
