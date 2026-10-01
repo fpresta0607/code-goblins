@@ -38,15 +38,16 @@ type Screens struct {
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
-// shows, by moving the focus, the option whose row starts with Focus, down to
-// the option that starts with Accept, then confirming that option with Enter.
+// shows, by moving the focus, the option whose row starts with one of Focus,
+// down to the option that starts with Accept, then confirming that option with
+// Enter.
 // A dialog without Accept is never answered: it stops the spawn. Summary marks
 // a dialog whose answer leaves untrusted what it lists: the row it matches says
 // how much, and the spawn reports it.
 type Dialog struct {
 	Name    string
 	Markers []string
-	Focus   string
+	Focus   []string
 	Accept  string
 	Summary *regexp.Regexp
 }
@@ -61,7 +62,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				Name:    "the workspace trust dialog",
 				Markers: []string{"Is this a project you created or one you trust?", "Do you trust the files in this folder?"},
 				// It focuses "No, exit" first, so a bare Enter quits Claude.
-				Focus:  "❯",
+				// Claude Code marks the focus with ❯ only in a terminal its
+				// environment names as one that draws Unicode, and with >
+				// elsewhere, as in a native terminal.
+				Focus:  []string{"❯", ">"},
 				Accept: "Yes, I trust this folder",
 			}},
 			// A goblin runs with permission checks bypassed, which the
@@ -76,12 +80,12 @@ func NativeScreens(kind Kind) (Screens, bool) {
 	case Codex:
 		return Screens{
 			Dialogs: []Dialog{
-				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: "›", Accept: "2. Skip"},
-				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: "›", Accept: "1. Yes, continue"},
+				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
+				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: "›", Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
 			},
 			// Captured live on Codex 0.154: the empty composer shows its
 			// placeholder, at start and after a turn (the binary also holds
@@ -106,7 +110,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Trusting for this session only matches --approve and saves
 			// nothing to pi's trust store; a pi that does not offer it still
 			// stops the spawn with the prompt named.
-			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}, Focus: "→", Accept: "Trust (this session only)"}},
+			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}, Focus: []string{"→"}, Accept: "Trust (this session only)"}},
 			// The context meter in the footer's last row, as in "0.0%/1.0M
 			// (auto)", which the session's token counts and cost lead once a
 			// turn has run: "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)".
@@ -224,16 +228,19 @@ func (d Dialog) Chosen(focused string) bool {
 }
 
 // Focused returns the text of the focused option: the one row that starts
-// with the dialog's focus glyph, after it. More or fewer than one such row
-// means the focus cannot be read.
+// with one of the dialog's focus glyphs, after it. More or fewer than one such
+// row means the focus cannot be read.
 func (d Dialog) Focused(screen []string) (string, bool) {
 	var focused []string
 	for _, row := range screen {
-		if option, found := strings.CutPrefix(strings.TrimSpace(row), d.Focus); found {
-			focused = append(focused, strings.TrimSpace(option))
+		for _, glyph := range d.Focus {
+			if option, found := strings.CutPrefix(strings.TrimSpace(row), glyph); found {
+				focused = append(focused, strings.TrimSpace(option))
+				break
+			}
 		}
 	}
-	if d.Focus == "" || len(focused) != 1 {
+	if len(focused) != 1 {
 		return "", false
 	}
 	return focused[0], true

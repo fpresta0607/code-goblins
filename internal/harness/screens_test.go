@@ -7,15 +7,20 @@ import (
 
 // Claude's trust dialog focuses "No, exit" first. Only the focus on "Yes, I
 // trust this folder" is its answer, and the dialog is recognized however its
-// sentence wraps.
+// sentence wraps. Claude Code marks the focus with ❯ in a terminal it knows
+// draws Unicode and with > in any other, as in a native terminal, whose
+// environment names no such terminal: live on 2026-10-01, Claude Code 2.1.287
+// in a native goblin's terminal drew "> No, exit".
 func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 	screens, _ := NativeScreens(Claude)
 	for name, test := range map[string]struct {
 		screen []string
 		answer bool
 	}{
-		"focus on No, exit": {[]string{" Quick safety check: Is this a project you created or one you", "trust? (Like your own code, a", " ❯ No, exit", "   Yes, I trust this folder"}, false},
-		"focus on Yes":      {[]string{" Quick safety check: Is this a project you created or one you trust?", "   No, exit", " ❯ Yes, I trust this folder"}, true},
+		"focus on No, exit":       {[]string{" Quick safety check: Is this a project you created or one you", "trust? (Like your own code, a", " ❯ No, exit", "   Yes, I trust this folder"}, false},
+		"focus on Yes":            {[]string{" Quick safety check: Is this a project you created or one you trust?", "   No, exit", " ❯ Yes, I trust this folder"}, true},
+		"ASCII focus on No, exit": {[]string{" Do you trust the files in this folder?", " Claude Code'll be able to read, edit, and execute files here.", " Security guide", " > No, exit", "   Yes, I trust this folder", " Enter to confirm · Esc to cancel"}, false},
+		"ASCII focus on Yes":      {[]string{" Do you trust the files in this folder?", " Security guide", "   No, exit", " > Yes, I trust this folder", " Enter to confirm · Esc to cancel"}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dialog, found := screens.Dialog(test.screen)
@@ -23,7 +28,10 @@ func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 				t.Fatalf("Dialog(%q) found none, want the trust dialog", test.screen)
 			}
 			focused, ok := dialog.Focused(test.screen)
-			if answer := ok && dialog.Chosen(focused); answer != test.answer {
+			if !ok {
+				t.Fatalf("Focused(%q) cannot read the focus, want the focused option", test.screen)
+			}
+			if answer := dialog.Chosen(focused); answer != test.answer {
 				t.Errorf("focused %q (%v): answer = %v, want %v", focused, ok, answer, test.answer)
 			}
 		})
