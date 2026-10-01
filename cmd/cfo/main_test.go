@@ -128,8 +128,10 @@ func TestMain(m *testing.M) {
 	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a
-	// test home's CFO.
-	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE", "HERDR_PANE_ID", host.IDVariable} {
+	// test home's CFO. NO_MISTAKES_GATE is unset because every hook does
+	// nothing under it, and a gate agent running this suite exports it, so
+	// the hook tests would test nothing; a test of that behaviour sets it.
+	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE", "HERDR_PANE_ID", host.IDVariable, gateAgentVariable} {
 		if err := os.Unsetenv(name); err != nil {
 			panic(err)
 		}
