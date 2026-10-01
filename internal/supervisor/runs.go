@@ -299,7 +299,9 @@ func (s *Store) acceptRun(r Run) error {
 // withdrawRun takes the run item id, which nobody ran yet, off the board for
 // the registered CFO, keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
-// publishing the new command under a new ID.
+// publishing the new command under a new ID. An item the board made for the
+// Overlord, a connection repair or a credential request's terminal, is not
+// the CFO's to withdraw.
 func (s *Store) withdrawRun(id, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > 1900 {
@@ -317,6 +319,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.ConnectionTask != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CFO's to withdraw", r.ID, r.ConnectionTask)
+	case r.CredentialRequest != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
 	case r.State != "ready":
 		s.mu.Unlock()
 		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)

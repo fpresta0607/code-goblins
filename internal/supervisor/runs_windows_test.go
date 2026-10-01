@@ -293,23 +293,25 @@ func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
 	}
 }
 
-// Only the registered CFO withdraws a run item, only one nobody ran yet, and
-// only with a reason; a refused withdrawal changes nothing.
+// Only the registered CFO withdraws a run item, only one of its own that
+// nobody ran yet, and only with a reason; a refused withdrawal changes nothing.
 func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 	for _, c := range []struct {
-		name           string
-		isRegistered   bool
-		id, reason     string
-		age            time.Duration
-		connectionTask string
-		ran            bool
-		refusal        string
+		name              string
+		isRegistered      bool
+		id, reason        string
+		age               time.Duration
+		connectionTask    string
+		credentialRequest string
+		ran               bool
+		refusal           string
 	}{
 		{name: "a process that is not the CFO", id: "install-tool", reason: "not needed", refusal: "not registered"},
 		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
 		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
 		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
 		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
+		{name: "the terminal the Overlord opened for a credential request", isRegistered: true, id: "install-tool", reason: "not needed", credentialRequest: "cred-0123456789abcdef", refusal: "terminal the Overlord opened for a credential request"},
 		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -318,10 +320,13 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			_, identity, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			var r Run
-			if c.connectionTask == "" {
+			if c.connectionTask == "" && c.credentialRequest == "" {
 				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
 			} else {
-				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, ConnectionGeneration: "1"}
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest}
+				if c.connectionTask != "" {
+					r.ConnectionGeneration = "1"
+				}
 				name, script := runScript(r)
 				dir := runDir(store.Home.State, r)
 				if err := os.MkdirAll(dir, 0700); err != nil {
