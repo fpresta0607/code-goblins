@@ -23,6 +23,8 @@ const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
 
+// A focus opens its item; one without a key opens the first item waiting on
+// the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
@@ -89,7 +91,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    if (focus) { setOpen(true); show(focus.key); setInbox(false); }
+    const key = focus?.key || waiting[0]?.key;
+    if (focus && key) { setOpen(true); show(key); setInbox(false); }
+    else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
   // or "You're all done" when nothing else waits.

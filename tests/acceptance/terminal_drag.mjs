@@ -38,7 +38,7 @@ async function open(cfo, title) {
   const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   if (document.querySelector("dialog.question-modal[open]")) { document.querySelector(".question-close")?.click(); await pause(800); }
-  const button = cfo ? document.querySelector(".cfo-pin .open-terminal") : document.querySelector(title ? `[aria-label^="Open the terminal of ${CSS.escape(title)}"]` : '[aria-label^="Open the terminal of "]');
+  const button = cfo ? document.querySelector(".cfo-pin .dialogue-actions [aria-label=\"Open the CFO's terminal\"]") : document.querySelector(title ? `[aria-label^="Open the terminal of ${CSS.escape(title)}"]` : '[aria-label^="Open the terminal of "]');
   if (!button) throw new Error("no terminal button");
   button.click();
   const slot = () => document.querySelector(".deck-slot:not([hidden])");
