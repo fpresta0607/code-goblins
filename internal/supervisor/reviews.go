@@ -81,6 +81,10 @@ type Review struct {
 	// WindowClosedAt is when the review window of the item's page last
 	// disconnected; the review goes on, and the board says the window closed.
 	WindowClosedAt *time.Time `json:"window_closed_at,omitempty"`
+	// RevisingSince is when the Overlord sent a revision from the item's page
+	// without ending its review: the item then waits on its reporter's next
+	// version, which replaces the page in this same item, not on him.
+	RevisingSince *time.Time `json:"revising_since,omitempty"`
 	// Question is, on the board only, the goblin's pending question this
 	// item's page carries, so the Command Center shows the two as one.
 	Question  string    `json:"question,omitempty"`
@@ -669,8 +673,33 @@ func (s *Store) acceptReview(r Review) error {
 			return s.save()
 		}
 		return nil
+	case "version":
+		// A wait's next version of its page replaces the item in place: the
+		// same item, with its new words and links, waiting on the Overlord
+		// again, so the Command Center never opens a second one for it.
+		if i < 0 {
+			if _, err := os.Stat(reviewInboxPath(s.Home.State, r.ID, "open")); err == nil {
+				return ErrDeferred
+			}
+			return errors.New("no review with that ID for its next version")
+		}
+		prior := &s.db.Reviews[i]
+		if prior.Identity != r.Identity || prior.Task != r.Task || prior.LavishPage == "" || prior.LavishPage != r.LavishPage {
+			return errors.New("only a page's reporter can replace it with the next version of that page")
+		}
+		if s.answering(*prior) {
+			return ErrDeferred
+		}
+		next := *prior
+		next.Title, next.Lavish, next.Link = r.Title, r.Lavish, r.Link
+		next.State, next.Reason, next.Answer, next.AnswerID, next.Delivered, next.AnsweredBy, next.AnsweredIn = "open", "", "", "", false, "", ""
+		next.RevisingSince, next.WindowClosedAt, next.CreatedAt, next.UpdatedAt = nil, nil, r.UpdatedAt, r.UpdatedAt
+		if err := validReview(next); err != nil {
+			return err
+		}
+		*prior = next
 	default:
-		return errors.New("a review report is open, withdrawn or cleared")
+		return errors.New("a review report is open, a next version, withdrawn or cleared")
 	}
 	return s.save()
 }
@@ -908,10 +937,45 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireItems relies on.
 // why keeps the goblin's lines, so its card can show a table of values, and
-// link is the web link it gives as where he goes, if any.
+// link is the web link it gives as where he goes, if any. A wait on a page
+// the goblin already has open in an item is the page's next version, which
+// replaces that item rather than opening another.
 func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, why, lavish, page, link string) error {
 	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
+	if page != "" {
+		reviews, err := reportedReviews(h.State)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(reviews, func(r Review) bool {
+			return r.State == "open" && r.Task == taskID && r.LavishPage == page && strings.HasPrefix(r.ID, "waiting-"+taskID+"-")
+		}); i >= 0 {
+			wait.ID = reviews[i].ID
+			return publishVersion(ctx, h, terminals, wait)
+		}
+	}
 	return publishItem(ctx, h, terminals, wait, func(*Review, string) (bool, error) { return false, nil })
+}
+
+// publishVersion records the next version of its reporter's open item r,
+// proven the way publishItem proves a new one.
+func publishVersion(ctx context.Context, h home.Home, terminals terminal.Opener, r Review) error {
+	identity, release, err := reviewReporter(ctx, h, terminals, r.Task)
+	if err != nil {
+		return err
+	}
+	defer release()
+	now := time.Now().UTC()
+	r.Identity, r.State, r.CreatedAt, r.UpdatedAt = identity, "version", now, now
+	if err := validReview(r); err != nil {
+		return err
+	}
+	unlock, err := reviewPublishLock(h.State)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return recordReview(h.State, r)
 }
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the
@@ -945,7 +1009,10 @@ func (s *Store) retireItems() error {
 		case report == "":
 			continue
 		case strings.HasPrefix(r.ID, "waiting-"+r.Task+"-"):
-			if waitStands(r, reportedAt, report) {
+			// A wait whose revision the goblin is making stands while it works
+			// on the next version, which replaces the page in this item.
+			revising := r.RevisingSince != nil && !strings.HasPrefix(report, "done: ") && !strings.HasPrefix(report, "failed: ")
+			if revising || waitStands(r, reportedAt, report) {
 				continue
 			}
 			reason = r.Task + " reported again: " + report
@@ -1016,6 +1083,27 @@ func (s *Store) windowClosed(id string, at time.Time) error {
 	}
 	s.db.Reviews[i].WindowClosedAt = &at
 	return s.save()
+}
+
+// reviseReview marks the open item id as waiting on its reporter's next
+// version, which the Overlord asked for on its page at at.
+func (s *Store) reviseReview(id string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	if i < 0 {
+		return nil
+	}
+	s.db.Reviews[i].RevisingSince = &at
+	return s.save()
+}
+
+// asksOnPage reports whether item r's page carries a goblin's question still
+// waiting, which the Overlord's word on the page answers.
+func (s *Store) asksOnPage(r Review) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Questions, func(q Question) bool { return carriesQuestion(r, q) })
 }
 
 func (s *Store) withdrawReview(id, reason string) error {
