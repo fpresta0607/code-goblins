@@ -53,12 +53,26 @@ func TestWakesReachEveryCFOHarness(t *testing.T) {
 	}
 }
 
+// proofModel is the model a harness runs on in the proof, or "" for its own
+// default. Codex is named one: on 2026-10-01 its configured default,
+// gpt-6.1-sol, was refused for the signed-in ChatGPT account, and the CFO's
+// first turn never ran.
+func proofModel(harness string) string {
+	if harness == "codex" {
+		return "gpt-6-astra"
+	}
+	return ""
+}
+
 type wakeProof struct {
 	binary, project, root, cfo, goblin string
 	port                               int
 	home                               home.Home
 	env                                []string
 	log                                *os.File
+	// cfoTerminal is the CFO's native terminal once it has started, whose
+	// screen a wait that gives up records.
+	cfoTerminal *host.Record
 }
 
 func (p *wakeProof) say(format string, args ...any) {
@@ -99,6 +113,7 @@ func proveWakes(t *testing.T, p wakeProof) {
 	p.await(t, "the board record", time.Minute, func() bool { return exists(filepath.Join(p.home.State, "board.json")) })
 
 	cfo := p.startCFO(t)
+	p.cfoTerminal = &cfo
 	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, cfo.HostPID, cfo.ChildPID)
 	if p.cfo == "claude" {
 		p.await(t, "the Claude Code CFO's Stop hook to arm", 5*time.Minute, func() bool { return exists(filepath.Join(p.home.State, ".claude-autoarm.lock")) })
@@ -111,7 +126,7 @@ func proveWakes(t *testing.T, p wakeProof) {
 	p.say("CFO ready")
 
 	goblin := "idle-" + p.goblin
-	p.cfoCommand(t, "spawn", goblin, "--project", p.project, "--brief", p.brief(t, goblin, "This is a supervision fixture. Run the command git status once, then reply with the single word ready and end your turn. Change no files and run no cfo command."), "--mode", "local-only", "--harness", p.goblin)
+	p.cfoCommand(t, "spawn", goblin, "--project", p.project, "--brief", p.brief(t, goblin, "This is a supervision fixture. Run the command git status once, then reply with the single word ready and end your turn. Change no files and run no cfo command."), "--mode", "local-only", "--harness", p.goblin, "--model", proofModel(p.goblin))
 	idle := p.expectOneWake(t, "the idle goblin", 10*time.Minute, func(r wake.Record) bool {
 		return r.Kind == "stale" && r.Key == goblin && (strings.HasPrefix(r.Detail, "goblin_idle:") || strings.HasPrefix(r.Detail, "awaiting_answer:"))
 	})
@@ -184,7 +199,7 @@ func (p *wakeProof) environment() []string {
 // its host's record. A Claude Code CFO loads this tree's hooks from its own
 // settings and none of the user's, which name the fleet's binary.
 func (p *wakeProof) startCFO(t *testing.T) host.Record {
-	prompt := "You stand in for the CFO of a scratch Code Goblins home in an automated test. Use the shell only as told. First run the command cfo register --harness " + p.cfo + " then reply standing by and end your turn. After that, every time a line starting with cfo watcher wake reaches you, run cfo drain, then run the WAKE_ACK_REQUIRED command it prints exactly as printed, adding --ack-blocking only if it is refused, then reply with one short line naming each drained record by kind and key, and end your turn. Run no other command and change no file."
+	prompt := "You stand in for the CFO of a scratch Code Goblins home in an automated test. Use the shell only as told. First run the command cfo register then reply standing by and end your turn. After that, every time a line starting with cfo watcher wake reaches you, run cfo drain, then run the WAKE_ACK_REQUIRED command it prints exactly as printed, adding --ack-blocking only if it is refused, then reply with one short line naming each drained record by kind and key, and end your turn. Run no other command and change no file."
 	var args []string
 	var err error
 	switch p.cfo {
@@ -205,7 +220,7 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 		args, err = nativeCFOProgram("claude")
 		args = append(args, "--setting-sources", "project,local", "--settings", settings, "--dangerously-skip-permissions", prompt)
 	case "codex":
-		args, err = spawn.NativeProgram("codex", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", prompt)
+		args, err = spawn.NativeProgram("codex", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-m", proofModel("codex"), prompt)
 	case "pi":
 		args, err = spawn.NativeProgram("pi", "--approve", prompt)
 	}
@@ -337,6 +352,10 @@ func (p *wakeProof) await(t *testing.T, what string, within time.Duration, done 
 	for !done() {
 		if time.Now().After(deadline) {
 			p.say("gave up waiting for %s after %s", what, within)
+			if p.cfoTerminal != nil {
+				screen, err := host.ReadScreen(*p.cfoTerminal)
+				p.say("the CFO's screen then (read error %v):\n%s", err, host.ScreenTail(screen, 40))
+			}
 			t.Fatalf("gave up waiting for %s after %s; see %s", what, within, filepath.Join(p.root, "proof.log"))
 		}
 		time.Sleep(2 * time.Second)

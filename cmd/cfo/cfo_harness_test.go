@@ -43,7 +43,7 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path in Herdr", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "cfo register --harness pi") {
+	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
 		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
 	}
 	if strings.Contains(nativeOut, "no wake path") {
