@@ -108,14 +108,31 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		}
 	}
 	// An earlier update that did not finish, or whose journal cannot be
-	// read, is never overwritten: its verified copies are the way back.
+	// read or is not this home's, is never overwritten: its verified copies
+	// are the way back.
 	switch journal, err := update.ReadJournal(h.State); {
-	case err == nil && !journal.Phase.Finished():
-		fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", journal.Phase, recoverCommand(h, &journal))
-		return 1
-	case err != nil && !errors.Is(err, os.ErrNotExist):
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
 		fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be read (%v); nothing was changed\n", err)
 		return 1
+	default:
+		if err := update.Validate(journal, h.Root, h.State); err != nil {
+			fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s (%v); nothing was changed. If this home was moved, move the old journal in %s aside by hand.\n", journal.Root, h.Root, err, update.Dir(h.State))
+			return 1
+		}
+		if !journal.Phase.Finished() {
+			fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", journal.Phase, recoverCommand(h))
+			return 1
+		}
+	}
+	// The update stops only this home's own supervisor, so one it cannot
+	// prove is refused before anything changes, never left serving behind a
+	// rollback that cannot start the previous build.
+	if running, ok := homeSupervisor(h.State); ok {
+		if err := provedHomeSupervisor(h, running); err != nil {
+			fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); an update stops only this home's own supervisor, so nothing was changed\n", running.pid, err)
+			return 1
+		}
 	}
 
 	journal, err := update.Prepare(h.Root, h.State, candidate)
@@ -124,7 +141,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return 1
 	}
 	updateInterrupt("prepared")
-	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h, journal))
+	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h))
 
 	if running, ok := homeSupervisor(h.State); ok {
 		fmt.Fprintf(stdout, "Stopping the supervisor (pid %d).\n", running.pid)
@@ -209,6 +226,7 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 	// previous build, never a candidate answering from its moved-aside file.
 	if running, ok := homeSupervisor(h.State); ok && restoreErr == nil && runsPreviousBuild(running, journal) && serves(h.State, running, false) == nil {
 		_ = recordUpdate(h.State, journal, update.RolledBack, "the previous build's supervisor still serves after: "+cause.Error())
+		update.CleanUp(journal)
 		fmt.Fprintf(stdout, "Rolled back: the previous build's supervisor (pid %d) still serves the board.\n", running.pid)
 		return updateRolledBack
 	}
@@ -227,10 +245,11 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 			if err = awaitSupervisor(h.State, started, false); err == nil {
 				if restoreErr != nil {
 					_ = recordUpdate(h.State, journal, update.Degraded, fmt.Sprintf("the previous build serves from %s (pid %d); the aliases still need repair: %v", program, started.pid, restoreErr))
-					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; repair them in Windows PowerShell:\n  %s\n", program, started.pid, recoverCommand(h, journal))
+					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; repair them in Windows PowerShell:\n  %s\n", program, started.pid, recoverCommand(h))
 					return updateDegraded
 				}
 				_ = recordUpdate(h.State, journal, update.RolledBack, "the previous build serves again after: "+cause.Error())
+				update.CleanUp(journal)
 				fmt.Fprintf(stdout, "Rolled back: the previous build serves the board again (pid %d).\n", started.pid)
 				return updateRolledBack
 			}
@@ -243,16 +262,17 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 		lastErr = err
 	}
 	_ = recordUpdate(h.State, journal, update.RollingBack, "the previous build did not serve: "+lastErr.Error())
-	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run this again in Windows PowerShell, or goblins --board:\n  %s\n", lastErr, recoverCommand(h, journal))
+	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run this again in Windows PowerShell, or goblins --board:\n  %s\n", lastErr, recoverCommand(h))
 	return updateBoardDown
 }
 
 // recoverCommand is the update --recover line to paste into Windows
 // PowerShell: it runs the candidate's kept copy, so it works with cfo.exe and
 // goblins.exe both gone, and names this home and its exact state itself, so
-// it works from any folder whatever state the shell's environment names.
-func recoverCommand(h home.Home, journal *update.Journal) string {
-	return "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; $env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; & " + powerShellQuote(journal.Copy) + " update --recover"
+// it works from any folder whatever state the shell's environment names. It
+// is built from the home alone, never from a path a journal holds.
+func recoverCommand(h home.Home) string {
+	return "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; $env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; & " + powerShellQuote(filepath.Join(update.Dir(h.State), "candidate.exe")) + " update --recover"
 }
 
 // powerShellQuote is text as a PowerShell literal string, which expands
@@ -421,8 +441,8 @@ func endSupervisor(h home.Home, running serveProcess) error {
 	if !processIs(running) {
 		return nil
 	}
-	if identity, err := proc.Identify(running.pid, running.start); err != nil || homeServe(h)(identity) != nil {
-		return fmt.Errorf("pid %d is not proved this home's supervisor, so it was left running", running.pid)
+	if err := provedHomeSupervisor(h, running); err != nil {
+		return fmt.Errorf("pid %d is not proved this home's supervisor (%v), so it was left running", running.pid, err)
 	}
 	if err := supervisor.RequestStop(h.State, running.pid); err != nil {
 		return err
@@ -437,6 +457,16 @@ func endSupervisor(h home.Home, running serveProcess) error {
 		return fmt.Errorf("the supervisor (pid %d) still runs", running.pid)
 	}
 	return nil
+}
+
+// provedHomeSupervisor proves the running process this home's supervisor by
+// the identity it runs with.
+func provedHomeSupervisor(h home.Home, running serveProcess) error {
+	identity, err := proc.Identify(running.pid, running.start)
+	if err != nil {
+		return err
+	}
+	return homeServe(h)(identity)
 }
 
 // serveRole accepts the command line of a supervisor: cfo or goblins, or an
@@ -493,9 +523,10 @@ func startSupervisor(h home.Home, program string) (serveProcess, error) {
 }
 
 // startPreviousSupervisor starts the previous build's supervisor. A build
-// older than the handover cannot take the watcher lock from a watcher, and
-// the CFO's Stop hook can take it in the gap, so the update takes the lock
-// over first and lets go of it only as that supervisor starts.
+// older than the handover cannot take the watcher lock from a watcher, so the
+// update takes the lock over from one first and releases it just before that
+// supervisor starts. The CFO's Stop hook can take it again in that gap; the
+// rollback's updateServeTries cover a start lost to it.
 func startPreviousSupervisor(h home.Home, program string) (serveProcess, error) {
 	if err := supervisor.AcquireWatchLock(h.State); err != nil {
 		return serveProcess{}, fmt.Errorf("free the watcher lock for the previous build: %w", err)

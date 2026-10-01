@@ -319,18 +319,26 @@ func TestARollbackThatCannotRestoreAnAliasStaysRecoverableUntilRepaired(t *testi
 	u.aliasesAre(u.previous, "previous")
 }
 
-// A journal that cannot be read, or that is not this home's, is never taken
-// for permission: update and recover both refuse and change nothing.
+// A journal that cannot be read, or that is not this home's, finished or not,
+// is never taken for permission: update and recover both refuse and change
+// nothing, the backups included. Only an unfinished update of this home is
+// answered with a recovery line, and that line is this home's own.
 func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
-	for name, journal := range map[string]string{
-		"unreadable":      "not json",
-		"another schema":  `{"schema":"cfo-update.v0","phase":"swapped"}`,
-		"another home's":  `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`,
-		"unfinished here": "",
+	for _, test := range []struct {
+		name    string
+		journal string
+		foreign bool
+	}{
+		{"unreadable", "not json", false},
+		{"another schema", `{"schema":"cfo-update.v0","phase":"swapped"}`, false},
+		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, true},
+		{"another home's finished", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"done","candidate_copy":"C:\\elsewhere\\state\\update\\candidate.exe","aliases":[]}`, true},
+		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, false},
+		{"unfinished here", "", false},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			u := newUpdateHome(t, "previous", "candidate")
-			if journal == "" {
+			if test.journal == "" {
 				code, _ := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=prepared"})
 				if code != 9 {
 					t.Fatal("could not leave an unfinished update")
@@ -339,11 +347,21 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
 					t.Fatal(err)
 				}
+				journal := strings.ReplaceAll(test.journal, "ROOT", strings.ReplaceAll(u.root, `\`, `\\`))
 				if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
 					t.Fatal(err)
 				}
+				for _, name := range update.Aliases {
+					if err := os.WriteFile(filepath.Join(update.Dir(u.state), "previous-"+name), []byte("an earlier update's backup of "+name), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
-			before, _ := os.ReadFile(filepath.Join(update.Dir(u.state), "journal.json"))
+			kept := []string{"journal.json", "previous-cfo.exe", "previous-goblins.exe"}
+			before := map[string][]byte{}
+			for _, name := range kept {
+				before[name], _ = os.ReadFile(filepath.Join(update.Dir(u.state), name))
+			}
 
 			code, output := u.run(nil)
 
@@ -351,16 +369,99 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				t.Fatalf("update over a journal it cannot trust exited %d:\n%s", code, output)
 			}
 			u.aliasesAre(u.previous, "previous")
-			after, _ := os.ReadFile(filepath.Join(update.Dir(u.state), "journal.json"))
-			if !bytes.Equal(before, after) {
-				t.Fatal("the journal was overwritten")
+			for _, name := range kept {
+				if after, _ := os.ReadFile(filepath.Join(update.Dir(u.state), name)); !bytes.Equal(before[name], after) {
+					t.Fatalf("%s was overwritten", name)
+				}
 			}
-			if journal != "" {
+			if test.journal == "" {
+				if line := recoverCommand(home.Home{Root: u.root, State: u.state}); !strings.Contains(output, line) {
+					t.Fatalf("the unfinished update did not print this home's recovery line %s:\n%s", line, output)
+				}
+			} else if strings.Contains(output, "--recover") {
+				t.Fatalf("a recovery line was printed for a journal that is not this home's:\n%s", output)
+			}
+			if test.foreign && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root) || !strings.Contains(output, "moved")) {
+				t.Fatalf("the refusal does not name both homes and the way out for a moved home:\n%s", output)
+			}
+			if test.journal != "" {
 				if code, output := u.run(nil, "--recover"); code != 1 {
 					t.Fatalf("recover from a journal it cannot trust exited %d:\n%s", code, output)
 				}
 			}
 		})
+	}
+}
+
+// An update stops only this home's own supervisor. One holding this home's
+// watcher lock that is not proved this home's, here one serving another
+// state, is refused before anything changes, and it keeps serving.
+func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
+	u := newUpdateHome(t, "previous", "candidate")
+	stranger := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	stranger.Dir = u.root
+	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(t.TempDir(), "state"))
+	if err := stranger.Start(); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := proc.StartTime(stranger.Process.Pid)
+	u.started[stranger] = start
+	go func() { _ = stranger.Wait() }()
+	u.awaitBoard()
+
+	code, output := u.run(nil)
+
+	if code != 1 || !strings.Contains(output, "pid "+strconv.Itoa(stranger.Process.Pid)) {
+		t.Fatalf("update exited %d, want a refusal naming pid %d:\n%s", code, stranger.Process.Pid, output)
+	}
+	entries, _ := os.ReadDir(update.Dir(u.state))
+	for _, entry := range entries {
+		if entry.Name() != ".lock" {
+			t.Errorf("the refused update wrote %s", entry.Name())
+		}
+	}
+	u.aliasesAre(u.previous, "previous")
+	if staged, _ := filepath.Glob(filepath.Join(u.root, "*.update-*")); len(staged) != 0 {
+		t.Errorf("the refused update touched the aliases: %v", staged)
+	}
+	if !u.running(stranger) {
+		t.Fatal("the refused update ended a supervisor it could not prove this home's")
+	}
+	u.awaitBoard()
+}
+
+// A rollback removes what it moved aside or staged, and only that: an
+// earlier install's files and the user's stay.
+func TestARollbackRemovesOnlyTheFilesItMovedAside(t *testing.T) {
+	u := newUpdateHome(t, "previous", "crash")
+	kept := map[string][]byte{}
+	for _, name := range []string{"cfo.exe.1.update-old", "goblins.exe.1.update-old", "my-build.exe"} {
+		kept[name] = []byte("not this update's " + name)
+		if err := os.WriteFile(filepath.Join(u.root, name), kept[name], 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.awaitBoard()
+
+	code, output := u.run(nil)
+
+	if code != updateRolledBack {
+		t.Fatalf("update exited %d, want %d:\n%s", code, updateRolledBack, output)
+	}
+	u.previousServes()
+	for name, want := range kept {
+		if got, err := os.ReadFile(filepath.Join(u.root, name)); err != nil || !bytes.Equal(got, want) {
+			t.Errorf("%s, not this update's, was changed or removed (%v)", name, err)
+		}
+	}
+	for _, pattern := range []string{"*.update-old", "*.update-new", "*.update-restore"} {
+		matches, _ := filepath.Glob(filepath.Join(u.root, pattern))
+		for _, match := range matches {
+			if _, ok := kept[filepath.Base(match)]; !ok {
+				t.Errorf("the rollback left %s behind", filepath.Base(match))
+			}
+		}
 	}
 }
 
@@ -469,21 +570,20 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 }
 
 // The recovery line names the home, its exact state and the candidate's kept
-// copy as PowerShell literal strings, so a path with a quote or a space
-// pastes as it is.
+// copy in that state, all from the home alone, as PowerShell literal strings,
+// so a path with a quote or a space pastes as it is.
 func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
 	root := `C:\Users\O'Brien\Code Goblins`
-	copy := root + `\state\update\candidate.exe`
 	for _, test := range []struct {
 		name  string
 		state string
 		want  string
 	}{
 		{"the home's own state", root + `\state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\O''Brien\Code Goblins\state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
-		{"a state elsewhere", `D:\fleet's state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'D:\fleet''s state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
+		{"a state elsewhere", `D:\fleet's state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'D:\fleet''s state'; & 'D:\fleet''s state\update\candidate.exe' update --recover`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := recoverCommand(home.Home{Root: root, State: test.state}, &update.Journal{Copy: copy})
+			got := recoverCommand(home.Home{Root: root, State: test.state})
 
 			if got != test.want {
 				t.Fatalf("recoverCommand = %s\nwant            %s", got, test.want)
