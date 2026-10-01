@@ -41,6 +41,10 @@ type BoardActivity struct {
 	URL         string    `json:"url,omitempty"`
 	At          time.Time `json:"at"`
 	Until       time.Time `json:"until,omitempty"`
+	// Watch is the one line a goblin writes when it asks the Overlord to
+	// watch a presentation, such as a walkthrough it runs for him; only such
+	// a presentation reaches his Command Center.
+	Watch string `json:"watch,omitempty"`
 }
 
 // presentationURLProblem names the rule raw breaks, or returns "" for a URL
@@ -127,6 +131,9 @@ func (s *Store) retainActivity(a BoardActivity) error {
 		}
 		if !a.Until.After(a.At) || a.Until.Sub(a.At) > 30*time.Minute {
 			return errors.New("presentation expiry must be later than its report and within thirty minutes")
+		}
+		if len(a.Watch) > 300 || strings.ContainsAny(a.Watch, "\r\n\x00") {
+			return errors.New("what the Overlord is asked to watch must be one line of at most 300 characters")
 		}
 	default:
 		return errors.New("unsupported board activity")
