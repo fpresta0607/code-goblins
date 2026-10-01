@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -139,11 +141,28 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	goblin := "idle-" + p.goblin
 	// A proof that fails still ends its goblin, whose terminal's host would
 	// otherwise outlive it; the log is still open while deferred calls run.
+	// cfo cleanup refuses a goblin in a turn, as one is when its CFO messaged
+	// it (a pi CFO did, live, on 2026-10-01), so the host this proof started
+	// is then stopped by its pid.
 	defer func() {
 		command := exec.Command(p.binary, "cleanup", goblin)
 		command.Env = p.env
 		output, err := command.CombinedOutput()
 		p.say("cfo cleanup %s (error %v):\n%s", goblin, err, output)
+		record, readErr := host.ReadRecord(p.home.State, goblin)
+		if err == nil || readErr != nil {
+			return
+		}
+		// Only this proof's host for the goblin, never a process that took
+		// its pid after it ended.
+		arguments, argsErr := proc.Arguments(record.HostPID)
+		if argsErr != nil || len(arguments) == 0 || !strings.EqualFold(arguments[0], p.binary) || !slices.Contains(arguments, "host") || !slices.Contains(arguments, goblin) {
+			p.say("leaving pid %d alone: it is not this proof's host for %s (%v)", record.HostPID, goblin, argsErr)
+			return
+		}
+		if process, err := os.FindProcess(record.HostPID); err == nil {
+			p.say("stopping %s's host pid %d: %v", goblin, record.HostPID, process.Kill())
+		}
 	}()
 	p.cfoCommand(t, "spawn", goblin, "--project", p.project, "--brief", p.brief(t, goblin, "This is a supervision fixture. Run the command git status once, then reply with the single word ready and end your turn. Change no files and run no cfo command."), "--mode", "local-only", "--harness", p.goblin, "--model", proofModel(p.goblin))
 	idle := p.expectOneWake(t, "the idle goblin", 10*time.Minute, func(r wake.Record) bool {
