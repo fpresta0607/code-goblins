@@ -26,6 +26,8 @@ type Report struct {
 	Folded []Folded `json:"folded"`
 	// Headroom is what the machine has left to give.
 	Headroom Machine `json:"headroom"`
+	// Dispatch says whether the headroom has room for the next goblin.
+	Dispatch Dispatch `json:"dispatch"`
 	// Limits is the memory each running stack declared, so a dispatch
 	// decision can see whether another one fits.
 	Limits []StackLimit `json:"limits"`
@@ -172,6 +174,7 @@ func Build(home string, inv Inventory) Report {
 		Servers:      buildServers(inv, attribution),
 		Folded:       buildFolded(inv),
 		Headroom:     inv.Machine,
+		Dispatch:     inv.Machine.Dispatch(),
 		Projects:     inv.Projects,
 		Notes:        inv.Notes,
 	}
