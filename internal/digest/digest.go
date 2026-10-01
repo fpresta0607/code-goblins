@@ -45,7 +45,7 @@ const CompleteMarkerFile = ".session-start-complete"
 // recorded for any owner", which is exactly the fall-through-to-Compose
 // case hook routing wants for anything it cannot positively confirm.
 func ReadCompleteMarker(stateDir string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(stateDir, CompleteMarkerFile))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, CompleteMarkerFile))
 	if err != nil {
 		return 0, false
 	}

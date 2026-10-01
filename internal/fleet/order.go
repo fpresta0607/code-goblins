@@ -43,7 +43,7 @@ func ReorderQueued(h home.Home, order []string, added map[string]string, live ma
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, ".backlog.lock")) }()
 	path := filepath.Join(h.Data, "backlog.md")
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("fleet: read backlog: %w", err)
 	}
@@ -184,7 +184,7 @@ func continuesRow(line string) bool {
 // ReadAttention reads the Overlord's order of the goblins in progress, top
 // first; a home that never saved one has none.
 func ReadAttention(h home.Home) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(h.State, attentionFile))
+	data, err := fsx.ReadFile(filepath.Join(h.State, attentionFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

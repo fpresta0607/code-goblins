@@ -3,9 +3,10 @@ package hygiene
 import (
 	"bufio"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type Candidate struct {
@@ -32,7 +33,7 @@ func Tests(root string) ([]Candidate, error) {
 		if !(strings.Contains(n, "test") || strings.Contains(n, "spec")) {
 			return nil
 		}
-		f, e := os.Open(p)
+		f, e := fsx.Open(p)
 		if e != nil {
 			return nil
 		}

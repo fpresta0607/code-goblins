@@ -142,7 +142,19 @@ func (s *Service) Close() {
 
 func (s *Service) Done() <-chan struct{} { return s.done }
 
+// storageGrace is how long a failing store stays off the board. A failed
+// save loses nothing: what it would have saved stays where it came from (an
+// inbox file, an action not yet acknowledged), and the next cycle, at most
+// two seconds away, saves it again. Only a store that keeps failing is the
+// Overlord's business.
+const storageGrace = 30 * time.Second
+
 func (s *Service) publish(err error) {
+	if errors.Is(err, ErrStorage) {
+		if since := s.Store.failingSince.Load(); since == 0 || time.Since(time.Unix(0, since)) < storageGrace {
+			err = withoutStorage(err)
+		}
+	}
 	s.mu.Lock()
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
@@ -151,6 +163,25 @@ func (s *Service) publish(err error) {
 	}
 	s.mu.Unlock()
 	s.notify()
+}
+
+// withoutStorage is err with every storage failure taken out of it, so the
+// other errors a cycle met still reach the board; nil when only storage
+// failed.
+func withoutStorage(err error) error {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		var kept []error
+		for _, part := range joined.Unwrap() {
+			if part = withoutStorage(part); part != nil {
+				kept = append(kept, part)
+			}
+		}
+		return errors.Join(kept...)
+	}
+	if errors.Is(err, ErrStorage) {
+		return nil
+	}
+	return err
 }
 
 // notify sends every board a fresh snapshot, keeping the last error.

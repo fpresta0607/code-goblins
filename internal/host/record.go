@@ -82,7 +82,7 @@ func ReadRecord(stateDir, id string) (Record, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Record{}, err
 	}
-	data, err := os.ReadFile(recordPath(stateDir, id))
+	data, err := fsx.ReadFile(recordPath(stateDir, id))
 	if err != nil {
 		return Record{}, err
 	}
