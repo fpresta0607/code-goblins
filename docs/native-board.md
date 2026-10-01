@@ -363,7 +363,7 @@ The primary CFO writes that registration itself: Claude's SessionStart hook does
 Registering the same process in the same pane again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
 Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` must have one of the caller's own process ancestors in its foreground, and that harness must hold the home's session lock, taking it only when no live session does.
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
-Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
+Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, or the caller to carry the terminal's proof value (see [Goblin questions](#goblin-questions)), and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
 The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it within five seconds, the Herdr sender's confirmation budget.
@@ -494,6 +494,7 @@ The inbox and history list each question on at most two lines, with the marks dr
 No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
+For a CFO in a native terminal, a publisher whose chain of parents stops short of the CFO is proven instead by the terminal's proof value, as for a goblin's question.
 The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
 A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
 Each card sends only its own answer.
@@ -526,7 +527,9 @@ An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's wo
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
 Only a process running under the task's own terminal can surface its notify, by the same proof `cfo register` uses: under the harness in the foreground of its Herdr pane, or under the program of its native terminal, whose host must answer.
-In a native terminal a process whose chain of parents stops short of the program, as Git Bash leaves `timeout 60 cfo notify ...` when it runs timeout, an MSYS program, by replacing its own Windows process, is proven instead by the job the terminal's host keeps every process of the terminal in; the CFO's own registration, its pipe proof and the sender of its sends take the same proof in a native terminal.
+In a native terminal a process whose chain of parents stops short of the program, as Git Bash leaves `timeout 60 cfo notify ...` when it runs timeout, an MSYS program, by replacing its own Windows process, is proven instead by the proof value the terminal's host put in the terminal's environment as `CFO_HOST_PROOF`, beside `CFO_HOST_ID`; the CFO's own registration, its pipe proof and the sender of its sends take the same proof in a native terminal.
+The host records only the value's SHA-256 and when the terminal's program started, so the value proves nothing once Windows gives the program's pid to a later process.
+Every process the terminal starts inherits the value, so it proves nothing in a Herdr pane, to which a Herdr server started from the terminal would hand it, and `cfo serve` forgets the id and the value of the terminal it was started from before it starts anything.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
 The question is bound to the task generation and terminal that asked.
 The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned or moved successor: through Herdr to its pane, or typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
@@ -638,12 +641,13 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 ```
 
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
+For a CFO in a native terminal, a process whose chain stops short of the CFO is proven instead by the terminal's proof value, which the supervisor reads from that process's own environment.
 The sending process must also have started before it connected, so a process that later took its PID proves nothing.
 The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
 The pipe is the supervisor's own: it creates the first instance of its name, waiting up to two seconds for a stopping supervisor to let go, grants the current Windows user alone, and rejects remote clients.
 A supervisor that finds the name still taken serves nothing and lists that among the board's issues, and every command that uses the pipe sends only to the process holding this home's watch lock, so a squatter never receives a request.
-The supervisor thus proves the sending process descends from the process `state/primary.json` names: a request from a process outside the CFO's tree is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
-Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json` or starts a process with a spoofed parent can still pass the check, so it is not a boundary between processes of the same user.
+The supervisor thus proves the sending process runs under the process `state/primary.json` names: a request from a process outside the CFO's tree or terminal is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
+Processes of one Windows user are peers, though, and a same-user process that rewrites `state/primary.json`, starts a process with a spoofed parent, or copies the proof value out of a process in the CFO's terminal can still pass the check, so it is not a boundary between processes of the same user.
 The Overlord reading the exact command before Run, and Windows UAC for an admin item, remain the final check.
 The command file is read once: the supervisor stores its text as `state/runs/<digest>/command.ps1` or `command.sh`, which is what runs, so quoting cannot change it, and the item runs in the CFO home unless `--cwd` names a folder.
 The ID follows the review item rule: republishing it with the same text changes nothing while the item waits, and republishing it with other text, or once the item has run or expired, is refused.

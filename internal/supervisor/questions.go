@@ -640,7 +640,7 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		// it, is proven by the proof value of the CFO's native terminal.
 		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
 			if env, err := proc.Environment(pid); err == nil {
-				program, err := terminalProgram(record, environmentValue(env, host.IDVariable), environmentValue(env, host.ProofVariable))
+				program, err := terminalProgram(record, env)
 				proven = err == nil && program.PID == p.Process.PID && program.Start.Equal(p.Process.Start)
 			}
 		}

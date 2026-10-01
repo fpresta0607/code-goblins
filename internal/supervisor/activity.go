@@ -303,7 +303,7 @@ func callerOwns(stateDir, hostID string, process lock.Info) bool {
 	if err != nil {
 		return false
 	}
-	program, err := terminalProgram(record, os.Getenv(host.IDVariable), os.Getenv(host.ProofVariable))
+	program, err := terminalProgram(record, os.Environ())
 	return err == nil && same(program)
 }
 
