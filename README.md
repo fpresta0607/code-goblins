@@ -163,7 +163,7 @@ With no CFO registered, a CFO already running in native terminal `cfo`, which ma
 `goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
-`goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one.
+`goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one; it asks the supervisor for its pid, so a fleet snapshot that is slow to build never makes a live supervisor look stopped.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
 `goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
@@ -196,7 +196,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
 A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
-`cfo serve` takes over from `cfo watch` as the fleet's single supervisor, so a running watcher must finish first.
+`cfo serve` takes over from `cfo watch` as the fleet's single supervisor: a running watcher, the one the CFO's Stop hook hosts included, hands it the lock at once rather than holding it off ([docs/native-board.md](docs/native-board.md) has the details).
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
@@ -430,6 +430,7 @@ cfo auth <project> [--check|--fix] [--env]
 cfo install [--projects-root <dir>] [--uninstall]
 cfo uninstall
 cfo serve [--listen <loopback-address>]
+<candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
 cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--backend <herdr|native>] [--yolo]
@@ -460,6 +461,13 @@ cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [-
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
+
+```powershell
+$env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\you\AppData\Local\CodeGoblins\state'; & 'C:\Users\you\AppData\Local\CodeGoblins\state\update\candidate.exe' update --recover
+```
 
 ## Your data
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +23,10 @@ func stoppableBoard(t *testing.T, stateDir string, pid int) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, pid)
+			return
+		}
 		_, _ = w.Write([]byte(busySnapshot))
 	}))
 	var once sync.Once
