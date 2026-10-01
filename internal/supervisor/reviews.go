@@ -799,6 +799,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	r := reviews[i]
 	var result Evaluation
 	var err error
+	sent := time.Now().UTC()
 	if r.Task == "" {
 		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
@@ -808,7 +809,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		}
 	}
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = Evaluation{Reason: "Submitted while its reporter was working; it takes the answer when its current turn ends."}, nil
+		result, err = s.behindGoblinsTurn(r.Task, sent, "Submitted while its reporter was working; it takes the answer when its current turn ends."), nil
 	}
 	if err != nil {
 		return result, err
@@ -819,6 +820,10 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		if err := noticeAnswerToCFO(s.Store.Home.State, r, a.Text); err != nil {
 			s.publish(err)
 		}
+	}
+	if result.Awaiting != nil {
+		// Sent, and delivered once its reporter's hook says it took it.
+		return result, nil
 	}
 	return result, s.Store.markReviewDelivered(r.ID, a.ID)
 }
@@ -847,6 +852,9 @@ func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string
 	result, err := s.Options.CFO.Send(ctx, identity, fmt.Sprintf("Answer to %s's review item %s (%s), which came to you because %s restarted or ended: %s", r.Task, r.ID, r.Title, r.Task, answer))
 	if err != nil {
 		return result, err
+	}
+	if result.Awaiting != nil {
+		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which reads it when its current turn ends.", Awaiting: result.Awaiting}, nil
 	}
 	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
 }

@@ -171,14 +171,16 @@ export function answeredLabel(question: Question): string {
     case "superseded": return question.message || "Superseded; the asker was replaced";
     case "cleared": return "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
-    case "uncertain": return "Delivery unconfirmed";
+    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
   }
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
   // A question the CFO answered and retired with --ack-blocking closed
   // without the board learning which choice.
   if (!question.answer) return who + " answered it";
-  return question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer;
+  // A board answer still on its way says so until its reader has it.
+  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
+  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer) + onItsWay;
 }
 
 export function outcomeIcon(outcome: QuestionOutcome): IconName {
@@ -210,7 +212,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (answeredElsewhere(item)) return reason;
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
-    case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";
+    case "uncertain": return "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
     case "handed": return "Sent to the CFO: " + answer;
     case "unrecorded": return "You wrote: " + answer + " (delivery no longer recorded)";
@@ -221,6 +223,8 @@ export function settledLabel(item: Item, actions: Action[]): string {
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
+    // One check while a board answer is on its way, two once it is delivered.
+    if (outcome === "answered" && item.question.status !== "succeeded") return { icon: "check", tone: "queued" };
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
   if (item.kind === "run") return { icon: runMark(item.run).icon, tone: item.run.state };

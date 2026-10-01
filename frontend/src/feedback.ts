@@ -25,7 +25,9 @@ export function alreadyKnown(
 
 // deliveryMark shows an action's delivery as a mark: one check while it is on
 // its way, two once delivered, naming the goblin when the caller knows it.
-// Only trouble spells itself out.
+// A delivery typed for a reader inside a turn is on its way, and says when
+// it will be read. Only trouble spells itself out, and one that never
+// arrived says what to do in the supervisor's own plain words.
 export function deliveryMark(action: Action, goblin = "the goblin"): { icon: IconName; label: string; trouble: boolean } {
   const cfo = action.kind === "review" || action.kind.startsWith("cfo_");
   switch (action.status) {
@@ -36,8 +38,8 @@ export function deliveryMark(action: Action, goblin = "the goblin"): { icon: Ico
       if (action.kind === "review_answer") return { icon: "check", label: "Sent to the goblin or the CFO", trouble: false };
       return { icon: "check-double", label: cfo ? "CFO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
-    case "uncertain": return { icon: "warning", label: "Delivery unconfirmed. Inspect " + (cfo ? "the CFO queue" : "the terminal") + " before sending again.", trouble: true };
-    default: return { icon: "check", label: "Sending", trouble: false };
+    case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CFO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
+    default: return { icon: "check", label: action.sent && action.message ? action.message : "Sending", trouble: false };
   }
 }
 

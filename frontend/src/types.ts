@@ -101,6 +101,11 @@ export interface Action {
   generation: string;
   status: string;
   message: string;
+  // sent: the delivery was typed and submitted, and its reader has yet to
+  // report taking it. advice: what to do about one that never arrived, in
+  // the Overlord's words.
+  sent: boolean;
+  advice: string;
   text: string;
   file: string;
   line: number;
@@ -307,6 +312,8 @@ export function parseAction(value: unknown): Action {
     generation: string(v.generation),
     status: string(v.status),
     message: string(v.message),
+    sent: v.awaiting !== undefined && v.awaiting !== null,
+    advice: string(v.advice),
     text: string(v.text),
     file: string(v.file),
     line: number(v.line),
