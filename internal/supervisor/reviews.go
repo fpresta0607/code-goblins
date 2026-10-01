@@ -73,11 +73,17 @@ type Review struct {
 	// AnsweredBy and AnsweredIn say who answered an item outside the Command
 	// Center and where, such as overlord and page for his answer on the
 	// item's own page, which the CFO has.
-	AnsweredBy string    `json:"answered_by,omitempty"`
-	AnsweredIn string    `json:"answered_in,omitempty"`
-	Reason     string    `json:"reason,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	AnsweredBy string `json:"answered_by,omitempty"`
+	AnsweredIn string `json:"answered_in,omitempty"`
+	// WindowClosedAt is when the review window of the item's page last
+	// disconnected; the review goes on, and the board says the window closed.
+	WindowClosedAt *time.Time `json:"window_closed_at,omitempty"`
+	// Question is, on the board only, the goblin's pending question this
+	// item's page carries, so the Command Center shows the two as one.
+	Question  string    `json:"question,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func validReview(r Review) error {
@@ -944,6 +950,63 @@ func (s *Store) retireItems() error {
 		}
 	}
 	return nil
+}
+
+// carriesQuestion reports whether item r's page carries question q: an open
+// item with a page, and a pending question its goblin asked in the generation
+// that published it.
+func carriesQuestion(r Review, q Question) bool {
+	return r.State == "open" && r.Task != "" && r.LavishPage != "" && q.Status == "pending" && q.Task == r.Task && q.Identity == r.Identity
+}
+
+// answerQuestionsOnPage closes the questions item r's page carries as
+// answered by the Overlord on the page with what he wrote there, and marks
+// their notifies answered, so the CFO's drain retires them.
+func (s *Store) answerQuestionsOnPage(r Review, answer string) error {
+	s.mu.Lock()
+	var seqs []int
+	at := time.Now().UTC()
+	for i := range s.db.Questions {
+		if q := &s.db.Questions[i]; carriesQuestion(r, *q) {
+			q.Status, q.Message, q.AnswerID = "succeeded", "Answered on its page.", ""
+			q.Answer, q.AnswerKind = bounded(answer, 4000), "other"
+			q.AnsweredBy, q.AnsweredIn, q.AnsweredAt = "overlord", "page", &at
+			seqs = append(seqs, q.Seq)
+		}
+	}
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil || len(seqs) == 0 {
+		return err
+	}
+	for _, seq := range seqs {
+		err = errors.Join(err, wake.MarkAnswered(s.Home.State, seq, wake.AnsweredByOverlord, "on its page: "+bounded(answer, 2000)))
+	}
+	return err
+}
+
+// closePagesOfQuestion closes the open items whose page carries question q,
+// now that q has its answer, as answered by whoever answered q through it.
+// The caller holds the store lock.
+func (s *Store) closePagesOfQuestion(q Question, by, reason string) {
+	for i := range s.db.Reviews {
+		r := &s.db.Reviews[i]
+		if r.State == "open" && r.Task != "" && r.LavishPage != "" && r.Task == q.Task && r.Identity == q.Identity {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "question", bounded(reason, 2000), time.Now().UTC()
+		}
+	}
+}
+
+// windowClosed records when the review window of open item id disconnected.
+func (s *Store) windowClosed(id string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.State == "open" })
+	if i < 0 {
+		return nil
+	}
+	s.db.Reviews[i].WindowClosedAt = &at
+	return s.save()
 }
 
 func (s *Store) withdrawReview(id, reason string) error {
