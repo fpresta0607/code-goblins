@@ -8,23 +8,60 @@ export function freeGigabytes(bytes: number): string {
   return (Math.floor(bytes / 2 ** 30 * 10) / 10).toFixed(1);
 }
 
+// A start needs both free memory and free commit (memory plus page file) to
+// reach the marks, so the meter shows whichever is shorter, memory on a tie:
+// how much of it is free, and out of how much.
+export function tighter(memory: Memory): { isCommit: boolean; free: number; total: number } {
+  return memory.commit_available < memory.available
+    ? { isCommit: true, free: memory.commit_available, total: memory.commit_limit }
+    : { isCommit: false, free: memory.available, total: memory.total };
+}
+
 // The memory meter at the head of Tasks: the CFO starts the next queued task
 // once memory reaches the mark, and nothing starts under the floor. The board
 // itself starts nothing on its own.
 export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under"; text: string } {
-  if (memory.available < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until memory frees.` };
-  if (memory.available < memory.next) return { tone: "waiting", text: `The CFO starts the next task at ${gigabytes(memory.next)} GB free.` };
+  const { isCommit, free } = tighter(memory);
+  if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
+  if (free < memory.next) return { tone: "waiting", text: `The CFO starts the next task at ${gigabytes(memory.next)} GB free.` };
   return { tone: "ready", text: "Enough memory: the CFO starts the next task." };
 }
 
 // The memory bar spans twice the mark at which the CFO starts the next task,
-// or the machine's memory if that is less, so the floor and the mark sit well
-// apart and a full bar says the next task starts: the fill and both marks as
-// percents of the bar.
+// or the machine's memory (or commit limit) if that is less, so the floor and
+// the mark sit well apart and a full bar says the next task starts: the fill
+// and both marks as percents of the bar.
 export function meterScale(memory: Memory): { fill: number; floor: number; next: number } {
-  const span = Math.min(memory.total, 2 * memory.next);
+  const { free, total } = tighter(memory);
+  const span = Math.min(total, 2 * memory.next);
   const percent = (bytes: number) => Math.min(100, Math.max(0, bytes / span * 100));
-  return { fill: percent(memory.available), floor: percent(memory.floor), next: percent(memory.next) };
+  return { fill: percent(free), floor: percent(memory.floor), next: percent(memory.next) };
+}
+
+// What a start or a resume needs while memory or commit is under the mark,
+// naming commit when it is the tighter, or empty when both reach it.
+export function memoryBlock(memory: Memory | null): string {
+  if (!memory) return "";
+  const { isCommit, free } = tighter(memory);
+  return free < memory.next ? `${gigabytes(memory.next)} GB ${isCommit ? "of commit " : ""}free to keep the ${gigabytes(memory.floor)} GB floor` : "";
+}
+
+// Gigabytes to one decimal, to the nearest, for how much an app or a pool
+// holds.
+const held = (bytes: number) => (bytes / 2 ** 30).toFixed(1);
+
+// The apps holding the most commit, in one line, while commit is the tighter.
+export function holdersLine(memory: Memory): string {
+  if (!tighter(memory).isCommit || !memory.holders.length) return "";
+  return "Most commit: " + memory.holders.map((holder) => `${holder.name} ${held(holder.commit)} GB`).join(", ");
+}
+
+// The kernel's paged pool is under 2 GB on a healthy machine; past 4 GB a
+// driver is leaking memory, which only a reboot frees.
+const PAGED_POOL_WARNING = 4 * 2 ** 30;
+
+export function poolWarning(memory: Memory): string {
+  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: a driver is leaking memory; a reboot frees it.` : "";
 }
 
 // Why a queued task's Start cannot run now, or empty when it can. The
@@ -32,7 +69,7 @@ export function meterScale(memory: Memory): { fill: number; floor: number; next:
 export function startBlock(task: Task, memory: Memory | null, anotherStarting: boolean): string {
   if (task.starting) return "Starting";
   if (queueBlock(task)) return queueBlock(task);
-  if (memory && memory.available < memory.next) return `Needs ${gigabytes(memory.next)} GB free to keep the ${gigabytes(memory.floor)} GB floor`;
+  if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
   if (anotherStarting) return "Another task is starting";
   return "";
 }
@@ -70,5 +107,5 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
-  return memory && memory.available < memory.next ? `Next, at ${gigabytes(memory.next)} GB free` : "Next up";
+  return memory && memoryBlock(memory) ? `Next, at ${gigabytes(memory.next)} GB free` : "Next up";
 }

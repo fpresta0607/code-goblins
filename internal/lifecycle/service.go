@@ -29,7 +29,7 @@ type Operations struct {
 	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
 	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
 	Archive    func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
-	Memory     func() (uint64, error)
+	Memory     func() (available, commit uint64, err error)
 	Notify     func(state.Lifecycle) error
 }
 
@@ -105,12 +105,19 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 		if !isAlreadyRunning {
-			available, err := service.Operations.Memory()
+			available, commit, err := service.Operations.Memory()
 			if err != nil {
 				return result, fmt.Errorf("read available memory: %w", err)
 			}
+			var short []string
 			if available < 5<<30 {
-				return result, errors.New("Resume needs at least 5 GB of available memory to keep the 4 GB floor")
+				short = append(short, "available memory")
+			}
+			if commit < 5<<30 {
+				short = append(short, "commit (RAM plus page file)")
+			}
+			if len(short) > 0 {
+				return result, errors.New("Resume needs at least 5 GB of " + strings.Join(short, " and of ") + " to keep the 4 GB floor")
 			}
 		}
 	}
