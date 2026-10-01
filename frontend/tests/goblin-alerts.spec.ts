@@ -103,7 +103,7 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
   const button = box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" });
   await button.focus();
   await expect(button).toHaveCSS("outline-style", "solid");
-  await expect(button).toHaveCSS("outline-width", "2px");
+  await expect(button).toHaveCSS("outline-width", "3px");
 });
 
 test("the banner's portrait tooltip shows over the board column under it", async ({ page }) => {
