@@ -29,8 +29,9 @@ const snapshot = parseSnapshot({
 // beside an open panel, which leaves it at least 280 px. With ?queue the queue
 // shows in the CFO's panel instead, stacked under the board as on a phone,
 // where the app's 8 px margin leaves the pane 16 px narrower than the screen.
-// Escape closes the selection and hands focus back to where it was chosen
-// from, as the app's panel does.
+// The board is stacked, so each card spans the board's whole width. Escape
+// closes the selection and hands focus back to where it was chosen from, as
+// the app's panel does.
 const search = new URLSearchParams(location.search);
 const width = Number(search.get("board")) || undefined;
 const presentations = [{ id: "p1", kind: "browser", task_id: "cg-board-kill-with-a-long-goblin-name", generation: "g1", source: "", target: "", state: "active", url: "", at: "", until: "" }];
@@ -43,7 +44,7 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={select} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
+  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} onSelect={select} />
   </section></div></aside>;

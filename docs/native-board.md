@@ -116,8 +116,11 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 ## Board and orchestration
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
-Board groups actual tasks into Tasks, In progress, Paused and Completed.
-The four columns stack one above the other at every width, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+Board groups actual tasks into Tasks, In progress and Completed, side by side as a kanban by default.
+Paused, pausing and resuming tasks sit at the bottom of In progress, under a thin Paused divider with their count, like a page break; the divider and its cards show only while a task is paused, pausing or resuming, and each keeps its Resume and Stop.
+The layout button in the header, left of the Command Center, switches the board between the kanban and a stacked layout, one column under another; its tooltip names the layout it switches to, and the browser remembers the choice in local storage, falling back to the kanban when storage is unavailable.
+A board narrower than 960 px, such as a phone or a narrow window beside the panel, stacks either way, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+When In progress pages, its paused section keeps its room below the list, so paused tasks show without scrolling the board.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
 A list of up to ten cards shows them all, with no pager, and the board scrolls when they run past the screen.
@@ -330,12 +333,20 @@ Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
 A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; a terminal opened from the Board opens maximized and the Task view beside the board, the Orchestration view follows the Task view's choice so its graph stays beside the panel, each view keeping the last choice, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
 
-Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
-It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
+It is drawn like the board's goblin alerts: a microphone in a stepped pixel frame, outlined in Bone while idle, dimmed to the frame's brown edge while SIQspeak is not running, was not found or could not be read, and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed, unless SIQspeak, the Overlord's local dictation app, is running.
+At each press the board asks the supervisor whether SIQspeak runs; if it does, the shortcut is left to SIQspeak and the board starts no recorder, so one press never starts two, and SIQspeak's own pill shows its recording.
+Otherwise the board opens the microphone once and hands that track to the speech recognizer, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing else reads, keeps or sends the audio, and nothing runs while the bubble is idle.
+It listens in the browser's language, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
 A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
 Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
+Clicking the bubble lists the pane's five most recent messages, newest first: SIQspeak's transcriptions, read through `POST /api/voice` while the pane is shown and the page visible (on showing, every 30 seconds, at each press and when its list opens) and never kept, and the board's own dictations for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own.
+Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
+The bubble's tip says whether SIQspeak runs, is not running or was not found, and the list says how to start it; a first visit shows a hint about the shortcut once, until it is dismissed.
+The supervisor finds SIQspeak in one `SIQspeak` or `SIQspeak-main` folder under the projects root, or in `CFO_SIQSPEAK_DIR`, and tells whether it runs from its single-instance mutex without holding or changing it.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
@@ -557,6 +568,7 @@ The notify opens the page without a browser, and refuses, recording nothing, whe
 The page's link goes into the wait's line, so the CFO's wake carries it, and onto the wait's review item.
 `cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so nobody, goblin or CFO, polls a page themselves.
 Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
+How it closes says who closed it: his feedback closes it as answered, by the Overlord (`answered_by: overlord`), on the page (`answered_in: page`), which also ends the goblin's wait because the CFO relays it; his own end of the review on the page closes it as his clear (You ended the review on its page.); and it reads withdrawn only when it closed without his word, such as a window that disconnected, a page that cannot be polled, or an agent that ended the review itself (lavish-axi reports `ended_by: agent`).
 Only the item gets the page polled, so when it cannot be published the notify says nothing watches the page and fails, telling the goblin to ask in text with `--blocked`; the wait's line is already recorded and still reaches the CFO.
 
 The monitor watches for the mistake this rule prevents.
@@ -604,6 +616,7 @@ An alert steps up once as it arrives, or just appears under reduced motion, leav
 While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview that opens the page with Open review.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
+A card open on screen when he answers on the page finishes as one he answered from it does: a check with Answered and You answered on its page, then the next open item, and History lists it with a double check; a Clear or Dismiss the board refused because the answer had already closed it shows no error, and no card shows a refusal once its item has closed.
 Any other item takes a written answer with Send answer or closes with Clear.
 `cfo deliver` hands the Overlord a document the same way: the registered primary CFO delivers any file it can read, a goblin only one from its worktree, task scratch or data directory, at most 64 MiB, and the file is copied beside the item so it outlives the original.
 `--url` names where Open goes instead of the copy, such as a hosted page, under the same rules as a presentation link (https or plain http on this machine or the tailnet, no query, no credential in the path).
