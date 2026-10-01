@@ -776,6 +776,7 @@ A clean finish closes the request as saved, like a save; a window that failed or
 On the board each open request is a card in the Command Center, announced like any new item by an alert and, while the board is out of sight, a Windows notification.
 The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, the env file the request names, shown as `File .env.docker.local · gitignored, checked · local dev`, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
 A field never holds its value: what is pasted or typed is taken from the edit before it reaches the field and kept by the card in the page's memory, and the field is given one dot for each character, so copying out of it copies dots.
+Pasting those dots back into a field is refused: the field stays as it was and a note under it says to copy the value again from where it came from.
 It is a plain text field with no name or id and with autocomplete and spell check off, not a password field, because a browser keeps, or offers to keep, what a field held.
 Edge and Chrome offer to save what a password field held, whatever its autocomplete says: with one, Edge showed **Save your password?** after a save on the card and named the Microsoft account it would go to.
 Edge also keeps what any other text field held, even one drawn as dots with autocomplete off, in its profile's `Web Data`.

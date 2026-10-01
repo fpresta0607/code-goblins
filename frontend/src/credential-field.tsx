@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 
 const DOT = "•";
 
@@ -11,6 +12,7 @@ const DOT = "•";
 export function CredentialField({ label, onValue }: { label: string; onValue: (value: string) => void }) {
   const field = useRef<HTMLInputElement>(null);
   const hand = useRef(onValue);
+  const [refused, setRefused] = useState(false);
   useEffect(() => { hand.current = onValue; });
 
   useEffect(() => {
@@ -24,6 +26,7 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
       input.value = DOT.repeat(next.length);
       input.setSelectionRange(caret, caret);
       hand.current(next);
+      setRefused(false);
     };
     // A field takes no line breaks; one pasted with a value is left out.
     const plain = (text: string) => text.replace(/[\r\n]/g, "");
@@ -36,6 +39,7 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
       if (kind.startsWith("insert")) {
         text = plain(event.data ?? event.dataTransfer?.getData("text/plain") ?? "");
         if (!text) return;
+        if (text.includes(DOT)) return setRefused(true);
       } else if (!kind.startsWith("delete")) return;
       else if (start === end) {
         if (kind === "deleteContentBackward") from = Math.max(0, start - 1);
@@ -74,5 +78,8 @@ export function CredentialField({ label, onValue }: { label: string; onValue: (v
     };
   }, []);
 
-  return <input ref={field} className="credential-input" type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={label} />;
+  return <>
+    <input ref={field} className="credential-input" type="text" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" data-1p-ignore="" data-lpignore="true" aria-label={label} />
+    {refused && <small className="credential-note warning-text"><Icon name="warning" />That paste held only a value field's dots, not a value: copy the value again from where it came from</small>}
+  </>;
 }

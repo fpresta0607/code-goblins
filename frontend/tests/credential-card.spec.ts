@@ -199,6 +199,32 @@ test("a script that leaves dots in a field cannot be read, so the field is empti
   await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
 });
 
+test("dots cut out of one value field and pasted into another are refused, and the field says to copy the value again", async ({ page, context }) => {
+  // Arrange
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const value = canary();
+  const sent = await answer(page);
+  const card = await openCard(page);
+  const first = card.getByLabel("Value for STRIPE_SECRET_KEY");
+  const second = card.getByLabel("Value for STRIPE_WEBHOOK_SECRET");
+  await page.evaluate((text) => navigator.clipboard.writeText(text), value);
+  await first.click();
+  await page.keyboard.press("Control+V");
+
+  // Act
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Control+X");
+  await second.click();
+  await page.keyboard.press("Control+V");
+
+  // Assert
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(dots(value));
+  await expect(second).toHaveValue("");
+  await expect(card.getByText("That paste held only a value field's dots, not a value: copy the value again from where it came from")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(sent).toEqual([]);
+});
+
 test("a name the scope already holds is replaced only once he confirms, and the pasted value waits in its field meanwhile", async ({ page }) => {
   // Arrange
   const value = canary();
