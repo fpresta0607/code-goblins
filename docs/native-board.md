@@ -116,8 +116,11 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 ## Board and orchestration
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
-Board groups actual tasks into Tasks, In progress, Paused and Completed.
-The four columns stack one above the other at every width, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+Board groups actual tasks into Tasks, In progress and Completed, side by side as a kanban by default.
+Paused, pausing and resuming tasks sit at the bottom of In progress, under a thin Paused divider with their count, like a page break; the divider and its cards show only while a task is paused, pausing or resuming, and each keeps its Resume and Stop.
+The layout button in the header, left of the Command Center, switches the board between the kanban and a stacked layout, one column under another; its tooltip names the layout it switches to, and the browser remembers the choice in local storage, falling back to the kanban when storage is unavailable.
+A board narrower than 960 px, such as a phone or a narrow window beside the panel, stacks either way, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+When In progress pages, its paused section keeps its room below the list, so paused tasks show without scrolling the board.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
 A list of up to ten cards shows them all, with no pager, and the board scrolls when they run past the screen.

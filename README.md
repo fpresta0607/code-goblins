@@ -205,7 +205,8 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 The header switches between two views, one at a time, each with a contextual panel on the right.
 
 - **Board** is task review.
-  Real tasks sit in **Tasks**, **In progress**, **Paused** and **Completed**.
+  Real tasks sit in **Tasks**, **In progress** and **Completed**, side by side as a kanban; the layout button in the top bar switches to a stacked layout, one column under another, and your browser remembers the choice.
+  Paused tasks sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
   Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.
