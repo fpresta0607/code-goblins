@@ -58,21 +58,26 @@ func reviewWakes(t *testing.T, stateDir, task string) []wake.Record {
 }
 
 // Whatever becomes of a waited-on page reaches the CFO as one review wake,
-// and the wait closes: an answer is kept whole for the CFO to relay.
+// and the wait closes: an answer is kept whole for the CFO to relay, and the
+// item says the Overlord answered on its page, as an answer on the board
+// does. Only an item closed without his word is withdrawn.
 func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
 	pagePollPause = time.Millisecond
 	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,Ship option B\n"
+	answered := Review{State: "answered", AnsweredBy: "overlord", AnsweredIn: "page", Reason: "You answered on its page; the CFO relays it to the goblin."}
 	for name, test := range map[string]struct {
-		polls []axi.PagePoll
-		err   error
-		want  string
+		polls  []axi.PagePoll
+		err    error
+		want   string
+		closed Review
 	}{
-		"an answer after a quiet poll":   {polls: []axi.PagePoll{{Status: "waiting"}, {Status: "feedback", Output: answer}}, want: "the Overlord answered on the page"},
-		"an answer that ends the review": {polls: []axi.PagePoll{{Status: "feedback", Ended: true, Output: answer}}, want: "he ended the review"},
-		"the review ended":               {polls: []axi.PagePoll{{Status: "ended"}}, want: "ended the review of"},
-		"the window disconnected":        {polls: []axi.PagePoll{{Status: "browser_disconnected"}}, want: "ask him whether to reopen it"},
-		"a page that cannot be polled":   {err: errors.New("No active Lavish Editor session for this file"), want: "cannot poll the page"},
+		"an answer after a quiet poll":   {polls: []axi.PagePoll{{Status: "waiting"}, {Status: "feedback", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
+		"an answer that ends the review": {polls: []axi.PagePoll{{Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "he ended the review", closed: answered},
+		"the Overlord ended the review":  {polls: []axi.PagePoll{{Status: "ended", EndedBy: "user"}}, want: "the Overlord ended the review of", closed: Review{State: "cleared", Reason: "You ended the review on its page."}},
+		"an agent ended the review":      {polls: []axi.PagePoll{{Status: "ended", EndedBy: "agent"}}, want: "an agent, not the Overlord, ended the review of", closed: Review{State: "withdrawn", Reason: "An agent ended the review on its page; the CFO was told."}},
+		"the window disconnected":        {polls: []axi.PagePoll{{Status: "browser_disconnected"}}, want: "ask him whether to reopen it", closed: Review{State: "withdrawn", Reason: "The review window disconnected; the CFO was told."}},
+		"a page that cannot be polled":   {err: errors.New("No active Lavish Editor session for this file"), want: "cannot poll the page", closed: Review{State: "withdrawn", Reason: "The page could not be polled; the CFO was told."}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
@@ -106,8 +111,9 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 					t.Errorf("saved feedback %s = %q, %v; want the poll's whole output", saved, data, err)
 				}
 			}
-			if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-				t.Errorf("the wait = %+v, want it closed once the CFO has it", got)
+			got := store.Snapshot().Reviews[0]
+			if got.State != test.closed.State || got.AnsweredBy != test.closed.AnsweredBy || got.AnsweredIn != test.closed.AnsweredIn || got.Reason != test.closed.Reason {
+				t.Errorf("the wait = %+v, want it closed once the CFO has it as %+v", got, test.closed)
 			}
 		})
 	}
@@ -150,8 +156,8 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the Overlord answered on the page "+page) || !strings.HasSuffix(wakes[0].Detail, ", act on it") {
 		t.Fatalf("review wakes = %+v, want one keyed by the item telling the CFO to act on its page's feedback", wakes)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.Reason != "The Overlord answered on the page; the CFO has it." {
-		t.Errorf("the CFO's item = %+v, want it closed saying the CFO has the feedback, with nobody to relay it to", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredBy != "overlord" || got.AnsweredIn != "page" || got.Reason != "You answered on its page; the CFO has it." {
+		t.Errorf("the CFO's item = %+v, want it answered by the Overlord on its page, saying the CFO has the feedback, with nobody to relay it to", got)
 	}
 }
 
@@ -257,8 +263,8 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	if wakes := reviewWakes(t, h.State, task); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "his feedback is in ") {
 		t.Fatalf("review wakes = %+v, want the answer once the queue takes it", wakes)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Errorf("the wait = %+v, want it closed once the CFO has it", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredIn != "page" {
+		t.Errorf("the wait = %+v, want it answered on its page once the CFO has it", got)
 	}
 }
 
@@ -289,7 +295,7 @@ func TestAPageAnswerThatCannotBeSavedTravelsInTheWake(t *testing.T) {
 	if !strings.Contains(detail, "could not be saved") || !strings.Contains(detail, "(cut to its end) ...") || !strings.HasSuffix(detail, " Ship option B\"\n") || len(detail) > pageFeedbackInline+500 || !utf8.ValidString(detail) {
 		t.Fatalf("wake detail = %q (%d bytes), want the answer's end inline, bounded, and the cut said", detail, len(detail))
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
-		t.Errorf("the wait = %+v, want it closed once the CFO has it", got)
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.AnsweredIn != "page" {
+		t.Errorf("the wait = %+v, want it answered on its page once the CFO has it", got)
 	}
 }
