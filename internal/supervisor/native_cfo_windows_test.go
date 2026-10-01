@@ -375,6 +375,7 @@ func TestATerminalProofProvesOnlyTheProgramItsHostStarted(t *testing.T) {
 func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
+	makeNative(t, h.State, "task-1")
 	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
 		t.Fatal(err)
 	}
