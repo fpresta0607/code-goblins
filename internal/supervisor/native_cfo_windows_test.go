@@ -182,6 +182,48 @@ func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 	}
 }
 
+// Codex and pi install as npm script shims, which a native terminal runs
+// through cmd /c, so cmd is the terminal's program: plain cfo register, as a
+// CFO runs it, names the harness from the name cmd runs, and refuses any name
+// that is not a harness.
+func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
+	for name, want := range map[string]string{
+		"codex":       "registered codex pid %d in native terminal cfo",
+		"pi":          "registered pi pid %d in native terminal cfo",
+		"goblin-tool": "register error: native terminal cfo runs cmd.exe /c goblin-tool, which is not a harness the board delivers to",
+	} {
+		t.Run(name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv("HERDR_PANE_ID", "")
+			program, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			shims := t.TempDir()
+			typed := filepath.Join(t.TempDir(), "typed.txt")
+			shim := fmt.Sprintf("@\"%s\" \"-test.run=^TestNativeTerminalProgram$\" -- native-terminal-program \"%s\" \"%s\"\r\n", program, typed, stateDir)
+			if err := os.WriteFile(filepath.Join(shims, name+".cmd"), []byte(shim), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
+			cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
+			record, err := host.ReadRecord(stateDir, "cfo")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			cfo.typeLine(t, "register by program")
+
+			if strings.Contains(want, "%d") {
+				want = fmt.Sprintf(want, record.ChildPID)
+			}
+			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != want {
+				t.Fatalf("the program recorded %q, want %q", lines, want)
+			}
+		})
+	}
+}
+
 // A delivery to a native CFO is typed into its terminal and submitted once,
 // and reported delivered once the CFO's own prompt hook, naming the terminal
 // it runs in, reports taking it.

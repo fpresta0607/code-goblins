@@ -161,16 +161,26 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 
 // nativeHarness proves this process runs under the program in native
 // terminal id, whose host must answer, and names that program's harness:
-// harness when the caller names it, or else the program's own name.
+// harness when the caller names it, or else the name the program runs.
 func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.Entry, int, error) {
 	ancestry, at, err := nativeProgram(stateDir, id)
 	if err != nil {
 		return primaryRegistration{}, nil, 0, err
 	}
 	if harness == "" {
-		harness = strings.TrimSuffix(strings.ToLower(ancestry[at].ExeBase), ".exe")
+		program := ancestry[at].ExeBase
+		harness = strings.TrimSuffix(strings.ToLower(program), ".exe")
+		// Codex and pi install as npm script shims, which a native terminal
+		// runs as cmd /c <name> (spawn.NativeProgram), so cmd's own command
+		// line names the harness.
+		if harness == "cmd" {
+			if identity, err := proc.Identify(ancestry[at].PID, ancestry[at].Start); err == nil && len(identity.Arguments) >= 3 && strings.EqualFold(identity.Arguments[1], "/c") {
+				program += " /c " + identity.Arguments[2]
+				harness = strings.ToLower(identity.Arguments[2])
+			}
+		}
 		if harness != "claude" && harness != "codex" && harness != "pi" {
-			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, ancestry[at].ExeBase)
+			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, program)
 		}
 	}
 	return primaryRegistration{Host: id, Agent: harness}, ancestry, at, nil
