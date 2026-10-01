@@ -8,7 +8,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-func TestKimiBuildsNativeLaunchWithTrustConfirm(t *testing.T) {
+func TestKimiBuildsNativeLaunch(t *testing.T) {
 	registry := DefaultRegistry()
 	adapter, err := registry.Get(Kimi)
 	if err != nil {
@@ -24,9 +24,7 @@ func TestKimiBuildsNativeLaunchWithTrustConfirm(t *testing.T) {
 			"CFO_ROLE": RoleGoblin,
 			"GOTMPDIR": `C:\gotmp\task`,
 		},
-		PromptFile:     `C:\briefs\task.md`,
-		ConfirmMarkers: []string{"Trust this folder?"},
-		ConfirmKeys:    []string{"up", "enter"},
+		PromptFile: `C:\briefs\task.md`,
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{

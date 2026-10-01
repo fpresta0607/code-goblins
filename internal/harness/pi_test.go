@@ -34,13 +34,10 @@ Options:
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args:           []string{"--tui-mode", "regular"},
-		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
-		PromptFile:     `C:\briefs\task.md`,
-		TypedLaunch:    true,
-		Executable:     "pi",
-		ConfirmMarkers: []string{"Trust project folder?"},
-		ConfirmKeys:    []string{"enter"},
+		Args:       []string{"--tui-mode", "regular"},
+		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
+		PromptFile: `C:\briefs\task.md`,
+		Executable: "pi",
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{
@@ -60,8 +57,7 @@ Options:
 }
 
 // A Pi that can trust a folder's project files for one run is told to, so it
-// never asks, and nothing is saved to its trust store; one that cannot is
-// answered at its prompt as before.
+// never asks, and nothing is saved to its trust store.
 func TestPiTrustsProjectFilesForItsRunWhenItCanSayTo(t *testing.T) {
 	adapter := DefaultRegistry().Adapters[Pi]
 	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
@@ -83,9 +79,6 @@ Options:
 	}
 	if got, want := launch.Args, []string{"--approve", "--tui-mode", "regular"}; !equalStrings(got, want) {
 		t.Errorf("Args = %#v, want %#v", got, want)
-	}
-	if len(launch.ConfirmMarkers) != 0 || len(launch.ConfirmKeys) != 0 {
-		t.Errorf("ConfirmMarkers = %#v, ConfirmKeys = %#v, want none: Pi never asks", launch.ConfirmMarkers, launch.ConfirmKeys)
 	}
 }
 

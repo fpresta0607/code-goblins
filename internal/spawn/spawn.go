@@ -1,6 +1,7 @@
-// Package spawn creates one local Windows-native Herdr task and publishes its
-// durable identity as soon as the pane and worktree exist, before the harness
-// is confirmed working, so a failed launch stays addressable and cleanable.
+// Package spawn creates one local task in a native terminal of its own and
+// publishes its durable identity as soon as its worktree exists, before the
+// harness is confirmed working, so a failed launch stays addressable and
+// cleanable.
 package spawn
 
 import (
@@ -9,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -18,21 +18,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const (
-	spawnLockName      = ".spawn.lock"
-	launchSettle       = 300 * time.Millisecond
-	launchConfirmPoll  = 1500 * time.Millisecond
-	launchConfirmTries = 80
-	instructionTries   = 60
+	spawnLockName = ".spawn.lock"
+	launchSettle  = 300 * time.Millisecond
 	// submitRetries is how many more times a typed brief still in its
 	// composer is submitted after the first Enter.
 	submitRetries = 3
@@ -50,11 +45,7 @@ type Request struct {
 	Harness   harness.Kind
 	Model     string
 	Effort    string
-	Session   string
 	Class     string
-	// Backend is "native" for a task in a native terminal of its own, which
-	// has no Herdr pane at all, and Herdr otherwise.
-	Backend string
 	// Title is the task's short title from its backlog row, kept on the task
 	// so the board names it once the row leaves the queue.
 	Title string
@@ -67,9 +58,8 @@ type Request struct {
 
 // Result contains the exact published task identity and user-facing outcome.
 type Result struct {
-	Meta     state.TaskMeta
-	Endpoint herdr.Endpoint
-	Output   string
+	Meta   state.TaskMeta
+	Output string
 }
 
 // AuthPreflight resolves one project's credentials before a harness starts,
@@ -86,9 +76,6 @@ type AuthPreflight interface {
 // Service owns one local spawn. Its collaborators are injected through
 // their established package seams so operation ordering remains deterministic.
 type Service struct {
-	// Terminals opens the terminal backend in a session: the request's for a
-	// spawn, the task's for a switch.
-	Terminals   terminal.Opener
 	Worktrees   worktree.Service
 	Harness     harness.Registry
 	Auth        AuthPreflight
@@ -98,10 +85,6 @@ type Service struct {
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
 	PolicyPath  string
-	// Leftovers lists the processes a pane's shell is still waiting on
-	// after a switch stops its harness. Nil reads the terminal backend and
-	// the jobs the shell holds.
-	Leftovers func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error)
 	// UserEnvironment is the environment a native task starts from: the
 	// variables Windows gives a new process of this user, never this
 	// process's own. Nil reads them from the user's and the machine's
@@ -166,20 +149,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
-	native := req.Backend == "native"
-	taskTmp := filepath.Join(s.StateDir, "tasktmp", req.ID)
-	lineValues := []string{"project", project, "tasktmp", taskTmp}
-	// A native task runs in a terminal of its own, so nothing about it touches
-	// Herdr: terminals stays nil for it.
-	var terminals terminal.Backend
-	if !native {
-		if s.Terminals == nil {
-			return Result{}, errors.New("spawn: terminal backend is required")
-		}
-		terminals = s.Terminals(req.Session)
-		lineValues = append(lineValues, "herdr session", terminals.EffectiveSession())
+	// A spawn never types into a screen it cannot read.
+	if _, ok := harness.NativeScreens(req.Harness); !ok {
+		return Result{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", req.Harness)
 	}
-	if err := validateLineValues(lineValues...); err != nil {
+	taskTmp := filepath.Join(s.StateDir, "tasktmp", req.ID)
+	if err := validateLineValues("project", project, "tasktmp", taskTmp); err != nil {
 		return Result{}, err
 	}
 
@@ -187,9 +162,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		return Result{}, fmt.Errorf("spawn: create state directory: %w", err)
 	}
 	// The spawn lock covers the whole dispatch, not just worktree acquisition:
-	// task id alias rejection, Herdr server and container start, pane and tab
-	// creation, metadata publication and the harness launch all mutate shared
-	// fleet state under it. Dependency provisioning (about 5s pnpm, about 22s
+	// task id alias rejection, metadata publication and the harness launch all
+	// mutate shared fleet state under it. Dependency provisioning (about 5s pnpm, about 22s
 	// uv against warm caches) therefore runs under it too, so concurrent
 	// dispatches into install-strategy projects serialize behind each other's
 	// installer. That is a chosen property: narrowing the lock to Acquire is a
@@ -231,7 +205,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	// The preflight runs before anything is built, so a goblin that would
-	// start without a credential it needs costs no pane and no worktree.
+	// start without a credential it needs costs no terminal and no worktree.
 	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
 	// a red blocking service stops here; --yolo is the existing override.
 	preflight, err := s.preflightCredentials(ctx, project)
@@ -241,43 +215,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if preflight.Refusal != "" && !req.Yolo {
 		return Result{}, fmt.Errorf("spawn: %s", preflight.Refusal)
 	}
-	// A native goblin starts from the user's environment, never this
-	// process's own.
-	var userEnv []string
-	if native {
-		if userEnv, err = s.userEnvironment(); err != nil {
-			return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
-		}
-	}
-
-	var endpoint herdr.Endpoint
-	if !native {
-		if err := terminals.EnsureServer(ctx); err != nil {
-			return Result{}, fmt.Errorf("spawn: ensure Herdr server: %w", err)
-		}
-		if err := terminals.Preflight(ctx); err != nil {
-			return Result{}, fmt.Errorf("spawn: Herdr compatibility preflight: %w", err)
-		}
-		kinds, err := terminals.AgentKinds(ctx)
-		if err != nil {
-			return Result{}, fmt.Errorf("spawn: list Herdr agent kinds: %w", err)
-		}
-		if !kinds[string(req.Harness)] {
-			return Result{}, fmt.Errorf("spawn: installed Herdr does not support harness kind %q", req.Harness)
-		}
-		container, err := terminals.EnsureContainer(ctx, project)
-		if err != nil {
-			return Result{}, fmt.Errorf("spawn: ensure Herdr container: %w", err)
-		}
-		if err := validateContainer(container); err != nil {
-			return Result{}, err
-		}
-		if endpoint, err = terminals.CreateTask(ctx, container, "gb-"+req.ID, project); err != nil {
-			return Result{}, fmt.Errorf("spawn: create Herdr task tab: %w", err)
-		}
-		if err := validateEndpoint(endpoint); err != nil {
-			return Result{}, err
-		}
+	// A goblin starts from the user's environment, never this process's own.
+	userEnv, err := s.userEnvironment()
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read the user's environment for a native task: %w", err)
 	}
 
 	// Asked before the worktree exists, because "the first worktree in this
@@ -287,12 +228,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: acquire task worktree: %w", err)
 	}
-	result = partialResult(req, project, taskTmp, endpoint, wt.Path)
+	result = partialResult(req, project, taskTmp, wt.Path)
 
-	// Publish metadata as soon as the pane and worktree exist, before the
-	// harness can start: a task whose launch later fails is then addressable
-	// and cleanable through `cfo peek`/`cfo cleanup` instead of an unnameable
-	// orphan whose pane the CFO has to hunt down by hand.
+	// Publish metadata as soon as the worktree exists, before the harness can
+	// start: a task whose launch later fails is then addressable and cleanable
+	// through `cfo peek`/`cfo cleanup` instead of an unnameable orphan the CFO
+	// has to hunt down by hand.
 	result.Meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UTC().UnixNano())
 	if selection != nil {
 		result.Meta.PipelineClass = selection.Class
@@ -304,19 +245,19 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := state.WriteTaskMeta(s.StateDir, result.Meta); err != nil {
 		return Result{}, errors.Join(
 			fmt.Errorf("spawn: publish task metadata: %w", err),
-			s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID),
+			s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID),
 		)
 	}
 
 	// fail records the exact cause and tears the half-built task down cleanly
-	// (close the tab, return the worktree, retire the metadata). It is the one
-	// failure path: nothing here can leave an unaddressable pane behind.
+	// (close its terminal, return the worktree, retire the metadata). It is the
+	// one failure path: nothing here can leave an unaddressable terminal behind.
 	fail := func(result Result, cause error) (Result, error) {
 		line := "failed: " + bounded(state.NormalizeStatusDetail(cause.Error()), 1000)
 		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
-		if err := s.teardownLaunch(ctx, terminals, endpoint, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
+		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
 		return result, cause
@@ -354,20 +295,14 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// runnable as if it were the project - shared config, dependencies
 	// installed against the shared package cache, and the token-authenticated
 	// subset of the project's MCP servers. A server that authenticates by
-	// bearerTokenEnvVar reaches the goblin only when that variable will be set
-	// for it: in a pane, a declared project credential or one the pane
-	// inherits, which cfo's own environment stands in for; in a native
-	// terminal, one the environment its host is built with sets. The
-	// credentials script strips every harness billing key from the pane
-	// whatever its source.
+	// bearerTokenEnvVar reaches the goblin only when the environment its
+	// terminal's host is built with sets that variable. No harness billing key
+	// ever reaches a goblin, whatever its source.
 	hasVariable := func(name string) bool {
 		if auth.IsHarnessBillingKey(name) {
 			return false
 		}
-		if native {
-			return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
-		}
-		return preflight.Env[name] != "" || os.Getenv(name) != ""
+		return hasNativeVariable(s.nativeHostEnvironment(userEnv, harness.Launch{}, preflight.Env), name)
 	}
 	provision, err := s.Worktrees.Provision(ctx, project, wt.Path, taskTmp, preflight.Caches, hasVariable)
 	if err != nil {
@@ -399,26 +334,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	nativeEnvironment(launch.Env, result.Meta)
 	// Every goblin is told to report its outcome through cfo notify, so the
 	// CFO is woken with the actual PR URL, question, or failure reason instead
-	// of the watcher guessing from pane text.
+	// of the watcher guessing from its screen.
 	launch.Instruction = spawnInstruction(req.BriefPath, req.ID)
 	if selection != nil {
 		launch.Instruction += selection.Instruction(req.ID, filepath.Join(taskTmp, "pipeline.json"))
 	}
-	if native {
-		if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
-			return fail(result, err)
-		}
-	} else {
-		if err := s.injectProjectCredentials(preflight, taskTmp, &launch); err != nil {
-			return fail(result, err)
-		}
-		if _, err := s.startHarness(ctx, terminals, endpoint.Target, launchPlan{
-			AgentName: "gb-" + req.ID,
-			Harness:   req.Harness,
-			Launch:    launch,
-		}); err != nil {
-			return fail(result, err)
-		}
+	if nativeHost, err = s.startNativeHarness(ctx, req.ID, req.Harness, launch, userEnv, preflight.Env); err != nil {
+		return fail(result, err)
 	}
 
 	result.Output = successOutput(result.Meta)
@@ -559,131 +481,6 @@ func oneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// injectProjectCredentials puts every usable credential from the preflight
-// into the pane shell the harness inherits. The values go through a
-// restricted file the shell dot-sources, never the typed line: a credential
-// typed into the pane would sit in its scrollback and in every `cfo peek`.
-func (s Service) injectProjectCredentials(preflight auth.Result, taskTmp string, launch *harness.Launch) error {
-	// No early return on an empty preflight: the rendered script also strips
-	// every harness billing key from the pane, and that must happen for a
-	// project with nothing to inject just as much as for one with plenty.
-	env := make(map[string]string, len(preflight.Env))
-	for name, value := range preflight.Env {
-		if reservedLaunchName(launch.Env, name) {
-			// The harness environment is the launch contract; a project
-			// manifest must not be able to redirect GOTMPDIR.
-			continue
-		}
-		env[name] = value
-	}
-	path, _, err := writeAuthScript(taskTmp, env)
-	if err != nil {
-		return fmt.Errorf("spawn: write project credentials: %w", err)
-	}
-	launch.SecretsFile = path
-	return nil
-}
-
-// launchPlan is one harness start into an already-prepared Herdr pane. It is
-// shared by spawn and by an in-place switch, which differ only in how the
-// pane got there and what instruction the harness receives.
-type launchPlan struct {
-	AgentName string
-	Harness   harness.Kind
-	Launch    harness.Launch
-}
-
-// startHarness prepares the pane shell and starts the harness, then delivers
-// the plan's instruction once it is ready. The returned submitted flag is now
-// ignored by both callers: spawn tears the whole launch down through
-// teardownLaunch on any error, and switch recovers the empty pane itself.
-func (s Service) startHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (submitted bool, err error) {
-	launch := plan.Launch
-	if s.StateDir != "" {
-		if launch.Env == nil {
-			launch.Env = map[string]string{}
-		}
-		launch.Env["CFO_STATE_OVERRIDE"] = s.StateDir
-	}
-	if launch.TypedLaunch {
-		screens, ok := harness.NativeScreens(plan.Harness)
-		if !ok {
-			return false, fmt.Errorf("spawn: %s launches typed but has no screen a spawn can read", plan.Harness)
-		}
-		line, err := launch.PowerShellTypedLine()
-		if err != nil {
-			return false, fmt.Errorf("spawn: render typed harness launch: %w", err)
-		}
-		if err := client.SendLiteral(ctx, target, line); err != nil {
-			return false, fmt.Errorf("spawn: send typed harness launch: %w", err)
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return false, fmt.Errorf("spawn: wait before typed launch submit: %w", err)
-		}
-		if err := client.SendKey(ctx, target, "Enter"); err != nil {
-			return false, fmt.Errorf("spawn: submit typed harness launch: %w", err)
-		}
-		if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
-			return true, err
-		}
-		if err := s.sleep(ctx, launchSettle); err != nil {
-			return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
-		}
-		if err := s.awaitPaneComposer(ctx, client, target, plan.Harness, screens, launch); err != nil {
-			return true, err
-		}
-		if _, err := s.reportUndetectedHarness(ctx, client, target, plan); err != nil {
-			return true, err
-		}
-		if err := s.deliverTypedInstruction(ctx, client, target, plan.Harness, screens, launch); err != nil {
-			return true, err
-		}
-		if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
-			return true, err
-		}
-		return true, nil
-	}
-
-	prefix, err := launch.PowerShellPrefix()
-	if err != nil {
-		return false, fmt.Errorf("spawn: render Windows launch prefix: %w", err)
-	}
-	if err := client.SendLiteral(ctx, target, prefix); err != nil {
-		return false, fmt.Errorf("spawn: send launch prefix: %w", err)
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return false, fmt.Errorf("spawn: wait before launch prefix submit: %w", err)
-	}
-	if err := client.SendKey(ctx, target, "Enter"); err != nil {
-		return false, fmt.Errorf("spawn: submit launch prefix: %w", err)
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return false, fmt.Errorf("spawn: wait before agent start: %w", err)
-	}
-	// The harness starts through Herdr's native agent facility under the gb-
-	// task name, so it is a named, registered agent from birth rather than a
-	// shell process Herdr happens to detect.
-	if err := client.AgentStart(ctx, target, plan.AgentName, string(plan.Harness), launch.Args); err != nil {
-		return false, fmt.Errorf("spawn: start native harness agent: %w", err)
-	}
-	if err := s.confirmHarnessDialogs(ctx, client, target, launch); err != nil {
-		return true, err
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return true, fmt.Errorf("spawn: wait before brief prompt: %w", err)
-	}
-	// The first instruction after launch is the least protected moment: the
-	// harness can still be booting long after launchSettle, so delivery is
-	// confirmed against Herdr's own agent state rather than assumed.
-	if err := s.deliverVerifiedInstruction(ctx, client, target, launch.PromptInstruction()); err != nil {
-		return true, err
-	}
-	if err := s.confirmLaunch(ctx, client, target, plan); err != nil {
-		return true, err
-	}
-	return true, nil
-}
-
 func (s Service) project(req Request) (string, error) {
 	project := req.Project
 	if project == "" {
@@ -718,15 +515,6 @@ func validateRequest(req Request) error {
 		}
 	default:
 		return fmt.Errorf("spawn: unsupported task kind %q", req.Kind)
-	}
-	switch req.Backend {
-	case "", "herdr":
-	case "native":
-		if _, ok := harness.NativeScreens(req.Harness); !ok {
-			return fmt.Errorf("spawn: %s cannot run in a native terminal yet", req.Harness)
-		}
-	default:
-		return fmt.Errorf("spawn: unsupported backend %q", req.Backend)
 	}
 	return nil
 }
@@ -778,32 +566,6 @@ func validateDeliveryContract(req Request) error {
 	return nil
 }
 
-func validateEndpoint(endpoint herdr.Endpoint) error {
-	if endpoint.Target.Session == "" || endpoint.Target.Pane == "" || endpoint.WorkspaceID == "" || endpoint.TabID == "" || endpoint.PaneID == "" {
-		return errors.New("spawn: Herdr task creation returned missing workspace_id, tab_id, or root pane_id")
-	}
-	if endpoint.Target.Pane != endpoint.PaneID {
-		return errors.New("spawn: Herdr task creation returned mismatched target and pane IDs")
-	}
-	return validateLineValues(
-		"Herdr endpoint session", endpoint.Target.Session,
-		"Herdr endpoint workspace_id", endpoint.WorkspaceID,
-		"Herdr endpoint tab_id", endpoint.TabID,
-		"Herdr endpoint pane_id", endpoint.PaneID,
-	)
-}
-
-func validateContainer(container herdr.Container) error {
-	if container.Session == "" || container.WorkspaceID == "" {
-		return errors.New("spawn: Herdr container returned missing session or workspace_id")
-	}
-	return validateLineValues(
-		"Herdr container session", container.Session,
-		"Herdr container workspace_id", container.WorkspaceID,
-		"Herdr container seeded tab_id", container.SeededDefaultTab,
-	)
-}
-
 func validateRequestLineValues(req Request) error {
 	return validateLineValues(
 		"request project", req.Project,
@@ -813,7 +575,6 @@ func validateRequestLineValues(req Request) error {
 		"request harness", string(req.Harness),
 		"request model", req.Model,
 		"request effort", req.Effort,
-		"request session", req.Session,
 		"request title", req.Title,
 	)
 }
@@ -840,492 +601,43 @@ func (s Service) worktreeGit() (worktree.Git, error) {
 	return worktree.RunnerGit{Commands: s.Worktrees.Commands, Sleep: s.Worktrees.Sleep}, nil
 }
 
-func partialResult(req Request, project, taskTmp string, endpoint herdr.Endpoint, worktree string) Result {
+// partialResult is the task's identity before its harness starts: its
+// terminal is the native host named by its id.
+func partialResult(req Request, project, taskTmp, worktree string) Result {
 	meta := state.TaskMeta{
-		ID:               req.ID,
-		Window:           endpoint.Target.String(),
-		EndpointTaskID:   req.ID,
-		Worktree:         worktree,
-		Project:          project,
-		Harness:          string(req.Harness),
-		Kind:             req.Kind,
-		TaskTmp:          taskTmp,
-		Brief:            req.BriefPath,
-		Model:            valueOrDefault(req.Model),
-		Effort:           valueOrDefault(req.Effort),
-		Backend:          "herdr",
-		HerdrSession:     endpoint.Target.Session,
-		HerdrWorkspaceID: endpoint.WorkspaceID,
-		HerdrTabID:       endpoint.TabID,
-		HerdrPaneID:      endpoint.PaneID,
-		Title:            req.Title,
-	}
-	if req.Backend == "native" {
-		// Its terminal is the host named by its id, with no Herdr pane.
-		meta.Window, meta.Backend = "native", "native"
+		ID:             req.ID,
+		Window:         "native",
+		EndpointTaskID: req.ID,
+		Worktree:       worktree,
+		Project:        project,
+		Harness:        string(req.Harness),
+		Kind:           req.Kind,
+		TaskTmp:        taskTmp,
+		Brief:          req.BriefPath,
+		Model:          valueOrDefault(req.Model),
+		Effort:         valueOrDefault(req.Effort),
+		Backend:        "native",
+		Title:          req.Title,
 	}
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
 		meta.Yolo = yoloString(req.Yolo)
 	}
-	return Result{Meta: meta, Endpoint: endpoint}
+	return Result{Meta: meta}
 }
 
-// confirmHarnessDialogs clears any harness-declared blocking startup dialog
-// (the workspace trust prompt the adapter declares) by sending the adapter's
-// confirm keys while the marker text stays on screen. Herdr reports the
-// dialog differently per harness (claude blocked, kimi idle), so marker
-// absence in two consecutive captures is the readiness proof for every
-// harness.
-func (s Service) confirmHarnessDialogs(ctx context.Context, client terminal.Backend, target herdr.Target, launch harness.Launch) error {
-	if len(launch.ConfirmMarkers) == 0 {
-		return nil
-	}
-	clean := 0
-	for attempt := 0; attempt < launchConfirmTries; attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
-				return fmt.Errorf("spawn: wait while confirming harness dialogs: %w", err)
-			}
-		}
-		capture, err := client.Capture(ctx, target, 60, false)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: confirm harness startup dialog: %w", err)
-			}
-			clean = 0
-			continue
-		}
-		if containsMarker(capture, launch.ConfirmMarkers) {
-			clean = 0
-			for _, key := range launch.ConfirmKeys {
-				if err := client.SendKey(ctx, target, key); err != nil {
-					return fmt.Errorf("spawn: confirm harness startup dialog: %w", err)
-				}
-				if err := s.sleep(ctx, launchSettle); err != nil {
-					return fmt.Errorf("spawn: wait between harness dialog keys: %w", err)
-				}
-			}
-			continue
-		}
-		clean++
-		if clean >= 2 {
-			return nil
-		}
-	}
-	return fmt.Errorf("spawn: harness startup dialog did not clear within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
-}
-
-// confirmLaunch waits for the launched harness to report working after its
-// brief has been delivered through the native prompt channel or typed into a
-// typed launch's composer. On timeout it re-probes agent liveness: a pane that
-// herdr does not report as empty - alive, or simply unreadable - is adopted
-// rather than declared failed, so a false timeout cannot orphan a live goblin.
-// An idle or blocked agent is a healthy Claude waiting at its prompt.
-//
-// Herdr recognizes a harness by matching pane output against a per-harness
-// detection manifest, so a harness whose manifest has fallen behind its
-// releases is never seen working no matter how healthy it is: the pane holds
-// no agent, this loop burns its whole budget, and the goblin is adopted with
-// no harness, session, or status anywhere in the fleet view. Every poll
-// therefore also asks the question the manifest cannot answer - is the pane
-// running anything other than the shell CFO left it at - and when it is,
-// registers the harness with Herdr itself. Detection is never overridden:
-// CFO reports only a pane Herdr holds no agent for, so a harness with a
-// current manifest keeps its own live working, idle, and blocked transitions.
-func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) error {
-	for attempt := 0; attempt < launchConfirmTries; attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
-				return fmt.Errorf("spawn: wait while confirming harness launch: %w", err)
-			}
-		}
-		state, err := client.WaitForWorking(ctx, target, 0, 1)
-		if err != nil {
-			return fmt.Errorf("spawn: confirm harness launch: %w", err)
-		}
-		if state == herdr.SubmitWorking {
-			return nil
-		}
-		reported, err := s.reportUndetectedHarness(ctx, client, target, plan)
-		if err != nil {
-			return err
-		}
-		if reported {
-			return nil
-		}
-	}
-	// The full working budget elapsed without a working report. Re-probe once:
-	// only a pane herdr can prove is empty is declared failed, so the spawn
-	// reports success instead of writing a failed status beside a healthy pane.
-	if client.PaneProvablyDead(ctx, target) {
-		return fmt.Errorf("spawn: harness launch did not report working within %ds", int(launchConfirmPoll.Seconds()*launchConfirmTries))
-	}
-	return nil
-}
-
-// awaitPaneComposer waits until a typed launch's harness shows its composer
-// in the pane, read with the harness's own screen markers as a native spawn
-// reads its terminal. A shell never shows a composer, so a harness that never
-// started, or left at once, stops the spawn here with the pane's screen
-// instead of having its brief run as shell commands. A dialog a spawn never
-// answers (Codex's hook review) stops the spawn before any key is pressed,
-// unless the launch itself confirms it (the trust prompt of a pi without
-// --approve). A dialog the launch confirms is confirmed again should it
-// show late, paced as confirmHarnessDialogs paces it, and pressed again only
-// once a later screen that has changed still shows it, so a frame not yet
-// redrawn never takes a second key. Any other dialog the harness is known to
-// show stops the spawn, since a brief typed into a dialog is lost or taken as
-// its answer, and the composer counts as shown only once it has shown on every
-// read throughout nativeReadySettle, since a harness can draw a dialog over it
-// a moment later.
-func (s Service) awaitPaneComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
-	var screen, confirmed []string
-	var readErr error
-	ready := 0
-	poll := nativePoll
-	for attempt := 0; attempt < int(nativeStartup/nativePoll); attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, poll); err != nil {
-				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
-			}
-		}
-		poll = nativePoll
-		read, err := readPane(ctx, client, target)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: wait for %s's composer: %w", kind, err)
-			}
-			readErr, ready = err, 0
-			continue
-		}
-		screen, readErr = read, nil
-		dialog, found := screens.Dialog(screen)
-		if found && dialog.Accept == "" && !containsMarker(strings.Join(dialog.Markers, "\n"), launch.ConfirmMarkers) {
-			return fmt.Errorf("spawn: %s shows %s, which a spawn never answers, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
-		}
-		if containsMarker(strings.Join(screen, "\n"), launch.ConfirmMarkers) {
-			if slices.Equal(screen, confirmed) {
-				continue
-			}
-			for _, key := range launch.ConfirmKeys {
-				if err := client.SendKey(ctx, target, key); err != nil {
-					return fmt.Errorf("spawn: confirm %s's startup dialog: %w", kind, err)
-				}
-				if err := s.sleep(ctx, launchSettle); err != nil {
-					return fmt.Errorf("spawn: wait between %s's dialog keys: %w", kind, err)
-				}
-			}
-			confirmed, poll, ready = screen, launchConfirmPoll, 0
-			continue
-		}
-		if found {
-			return fmt.Errorf("spawn: %s shows %s where its composer should be, so its brief was not typed; its screen ends:\n%s", kind, dialog.Name, host.ScreenTail(screen, 8))
-		}
-		if !screens.IsReady(screen) {
-			ready = 0
-		} else if ready++; ready > readySettleReads() {
-			return nil
-		}
-	}
-	if readErr != nil {
-		return fmt.Errorf("spawn: %s's pane could not be read within %s, so its brief was not typed: %w", kind, nativeStartup, readErr)
-	}
-	return fmt.Errorf("spawn: %s never showed its composer within %s, so its brief was not typed; its screen ends:\n%s", kind, nativeStartup, host.ScreenTail(screen, 8))
-}
-
-// deliverTypedInstruction types a typed launch's brief into its harness's
-// composer and proves the harness took it as a native spawn proves it: the
-// harness's native hooks report a prompt taken since the submit, or its pane
-// shows it working. Herdr's own counters move on any redraw, so they prove
-// nothing here.
-//
-// The brief is typed as pane text, never through Herdr's agent prompt, so it
-// needs no agent Herdr has registered: a Codex that Herdr had not registered
-// yet refused one live with agent_not_found. A write Herdr refuses is written
-// again only while the composer shows none of the brief, so it is never typed
-// twice, and Enter is pressed only once the composer shows it.
-//
-// A harness that reads fast typing as a paste can take the Enter that ends it
-// as part of the paste and leave the brief in its composer, so while the brief
-// still shows and no turn has started, Enter is pressed again, further apart
-// each time, up to submitRetries more times. An Enter on an empty composer
-// submits nothing, so the brief is never handed over twice. An Enter Herdr
-// refuses counts as not pressed: the first is pressed again at the next poll
-// and a later one at the next spacing, so a briefly busy Herdr never fails the
-// spawn while its budget lasts.
-func (s Service) deliverTypedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, launch harness.Launch) error {
-	instruction := launch.PromptInstruction()
-	screen, err := s.typeIntoComposer(ctx, client, target, kind, screens, instruction)
-	if err != nil {
-		return err
-	}
-	if err := s.sleep(ctx, launchSettle); err != nil {
-		return fmt.Errorf("spawn: wait before submitting %s's brief: %w", kind, err)
-	}
-	submitted := time.Now()
-	presses, sincePress := 0, 0
-	var enterErr error
-	pressEnter := func() error {
-		if err := client.SendKey(ctx, target, "Enter"); err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: submit %s's brief: %w", kind, err)
-			}
-			enterErr, sincePress = err, 0
-			return nil
-		}
-		enterErr, presses, sincePress = nil, presses+1, 0
-		return nil
-	}
-	for attempt := 0; attempt < int(nativeAccepted/nativePoll); attempt++ {
-		if presses == 0 {
-			if err := pressEnter(); err != nil {
-				return err
-			}
-		}
-		if err := s.sleep(ctx, nativePoll); err != nil {
-			return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
-		}
-		sincePress++
-		if s.PromptSince != nil {
-			if taken, err := s.PromptSince(launch.Env["CFO_TASK_ID"], launch.Env["CFO_SPAWN_GEN"], submitted); err == nil && taken {
-				return nil
-			}
-		}
-		read, err := readPane(ctx, client, target)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: wait for %s to take its brief: %w", kind, err)
-			}
-			continue
-		}
-		screen = read
-		if screens.IsWorking(screen) {
-			return nil
-		}
-		if presses > 0 && presses <= submitRetries && sincePress >= presses*int(time.Second/nativePoll) && screens.Shows(screen, instruction) {
-			if err := pressEnter(); err != nil {
-				return err
-			}
-		}
-	}
-	if presses == 0 {
-		return fmt.Errorf("spawn: could not submit %s's brief within %s: %w", kind, nativeAccepted, enterErr)
-	}
-	if enterErr != nil {
-		return fmt.Errorf("spawn: %s never showed it took its brief within %s and its last Enter was refused: %w; its screen ends:\n%s", kind, nativeAccepted, enterErr, host.ScreenTail(screen, 8))
-	}
-	return fmt.Errorf("spawn: %s never showed it took its brief within %s; its screen ends:\n%s", kind, nativeAccepted, host.ScreenTail(screen, 8))
-}
-
-// typeIntoComposer types text into the harness's composer and returns once
-// the composer shows it. A write Herdr refuses may still have typed, so it is
-// written again only once a read taken after launchSettle succeeds and shows
-// none of the text; a read that fails leaves it unwritten until one succeeds.
-func (s Service) typeIntoComposer(ctx context.Context, client terminal.Backend, target herdr.Target, kind harness.Kind, screens harness.Screens, text string) ([]string, error) {
-	var screen []string
-	var writeErr error
-	typed, write := false, true
-	for attempt := 0; attempt < int(nativeKeyEffect/nativePoll); attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, nativePoll); err != nil {
-				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
-			}
-		}
-		if write {
-			write = false
-			if err := client.SendLiteral(ctx, target, text); err != nil {
-				if herdr.WaitError(ctx, err) {
-					return nil, fmt.Errorf("spawn: type %s's brief: %w", kind, err)
-				}
-				writeErr = err
-				if err := s.sleep(ctx, launchSettle); err != nil {
-					return nil, fmt.Errorf("spawn: wait for %s's composer after a refused write: %w", kind, err)
-				}
-			} else {
-				typed, writeErr = true, nil
-			}
-		}
-		read, err := readPane(ctx, client, target)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return nil, fmt.Errorf("spawn: wait for %s's composer to show its brief: %w", kind, err)
-			}
-			continue
-		}
-		screen = read
-		if screens.Shows(screen, text) {
-			return screen, nil
-		}
-		write = writeErr != nil
-	}
-	if !typed {
-		return nil, fmt.Errorf("spawn: could not type %s's brief within %s: %w", kind, nativeKeyEffect, writeErr)
-	}
-	return nil, fmt.Errorf("spawn: the brief typed into %s's composer never showed there within %s, so it was not submitted; its screen ends:\n%s", kind, nativeKeyEffect, host.ScreenTail(screen, 8))
-}
-
-// readPane reads only the rows the pane shows now, so the screen a harness
-// that ran in the pane before left in its scrollback cannot pass for the one
-// just launched.
-func readPane(ctx context.Context, client terminal.Backend, target herdr.Target) ([]string, error) {
-	capture, err := client.VisibleScreen(ctx, target)
-	if err != nil {
-		return nil, err
-	}
-	return strings.Split(strings.ReplaceAll(capture, "\r\n", "\n"), "\n"), nil
-}
-
-// reportUndetectedHarness registers the launched harness with Herdr when
-// Herdr holds no agent for the pane but the operating system shows the pane
-// running something other than its shell. That pairing is the whole test: no
-// agent means the detection manifest matched nothing, and a foreground
-// process group that is not the shell means the harness is nonetheless up.
-//
-// The report carries what CFO knows from having started the harness - which
-// one it is, and which goblin session it belongs to - and reports the state
-// as unknown, because that is the honest answer. Herdr stops screen-detecting
-// a pane a source has claimed, so a reported state is a stamp rather than a
-// signal: reporting "working" here would leave every goblin of a harness
-// Herdr cannot read permanently busy in the fleet view and in the monitor,
-// which reads its busy verdict straight from this status. Live state for such
-// a harness needs a Herdr detection manifest that matches its current build.
-//
-// Registering it as unknown still fixes the damaging half. A pane with no
-// agent reads as a dead one, and a dead agent is what lets cleanup return the
-// worktree of a goblin that is running perfectly well.
-//
-// A pane Herdr cannot answer for is left alone. Reporting on a maybe would
-// turn this into a launch that always succeeds, which is the one thing the
-// readiness gate exists to prevent.
-func (s Service) reportUndetectedHarness(ctx context.Context, client terminal.Backend, target herdr.Target, plan launchPlan) (bool, error) {
-	status, err := client.AgentStatus(ctx, target)
-	if err != nil || status != herdr.AgentDead {
-		return false, nil
-	}
-	running, err := client.HarnessRunning(ctx, target)
-	if err != nil || !running {
-		return false, nil
-	}
-	if err := client.ReportAgent(ctx, target, string(plan.Harness), "unknown", plan.AgentName, plan.Launch.Dir); err != nil {
-		return false, fmt.Errorf("spawn: register undetected harness with herdr: %w", err)
-	}
-	return true, nil
-}
-
-// deliverVerifiedInstruction submits one instruction to the registered agent
-// and returns only once Herdr's own agent state proves the agent accepted it.
-//
-// It does NOT type into the pane composer and read the text back. That is what
-// this function used to do, and it cannot work: a harness is free to render a
-// submitted prompt however it likes, and Claude Code renders anything it
-// treats as a paste as a collapsed "[Pasted text #N]" placeholder. The pane
-// then never contains the instruction, the comparison never matches, and the
-// retry budget drains against a condition that can never become true - which
-// is exactly why widening the timeout was never a fix.
-//
-// Delivery is still proven, and proven harder than before. A composer
-// read-back only showed that text appeared to be typed; state_change_seq or
-// revision advancing shows the agent accepted the prompt and started a turn.
-// A goblin that never received its brief still cannot be reported as spawned.
-//
-// The prompt is submitted once. A retry re-submits only when the submit
-// itself failed, because `agent prompt` submits on success: re-sending after
-// an accepted prompt would hand the goblin its brief twice.
-//
-// Acceptance is measured against the counters as they stood before the submit,
-// so nothing is submitted until that baseline is a real read. An unreadable
-// one is retried across the same budget and never guessed at as zero: zero is
-// the lowest value the counters can hold, so a guessed baseline would read the
-// first number a booted agent reports as an advance - a live kimi sat at
-// revision 1 before its prompt - and report a swallowed instruction delivered.
-func (s Service) deliverVerifiedInstruction(ctx context.Context, client terminal.Backend, target herdr.Target, instruction string) error {
-	var before herdr.AgentDetail
-	var lastBaselineErr, lastSubmitErr, lastReadErr error
-	baselined := false
-	submitted := false
-	for attempt := 0; attempt < instructionTries; attempt++ {
-		if attempt > 0 {
-			if err := s.sleep(ctx, launchConfirmPoll); err != nil {
-				return fmt.Errorf("spawn: wait before confirming instruction delivery: %w", err)
-			}
-		}
-		if !baselined {
-			detail, err := client.AgentDetail(ctx, target)
-			if err != nil {
-				if herdr.WaitError(ctx, err) {
-					return fmt.Errorf("spawn: read agent state before the instruction: %w", err)
-				}
-				if client.PaneProvablyDead(ctx, target) {
-					return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
-				}
-				lastBaselineErr = err
-				continue
-			}
-			before, baselined = detail, true
-		}
-		if !submitted {
-			if err := client.AgentPrompt(ctx, target, instruction); err != nil {
-				if herdr.WaitError(ctx, err) {
-					return fmt.Errorf("spawn: submit harness instruction: %w", err)
-				}
-				lastSubmitErr = err
-				continue
-			}
-			submitted = true
-		}
-		after, err := client.AgentDetail(ctx, target)
-		if err != nil {
-			if herdr.WaitError(ctx, err) {
-				return fmt.Errorf("spawn: confirm instruction delivery: %w", err)
-			}
-			// A pane herdr can prove holds no agent will never report
-			// accepting anything, so spending the rest of the budget on it
-			// only delays a certain failure and buries its real cause.
-			if client.PaneProvablyDead(ctx, target) {
-				return fmt.Errorf("spawn: the pane holds no agent to deliver the instruction to: %w", err)
-			}
-			lastReadErr = err
-			continue
-		}
-		if herdr.PromptAccepted(before, after) {
-			return nil
-		}
-	}
-
-	budget := int(launchConfirmPoll.Seconds() * instructionTries)
-	if !baselined {
-		return fmt.Errorf("spawn: could not read the agent state within %ds, so acceptance could not be proven and the instruction was not submitted: %w", budget, lastBaselineErr)
-	}
-	if !submitted {
-		if lastSubmitErr != nil {
-			return fmt.Errorf("spawn: could not submit the instruction to the agent within %ds: %w", budget, lastSubmitErr)
-		}
-		return fmt.Errorf("spawn: could not submit the instruction to the agent within %ds", budget)
-	}
-	if lastReadErr != nil {
-		return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds; later agent reads were refused: %w", budget, lastReadErr)
-	}
-	return fmt.Errorf("spawn: the agent never reported accepting the instruction within %ds", budget)
-}
-
-// teardownLaunch closes the task tab, or a native task's terminal, returns the
-// worktree, removes the Go temporary directory and the task temporary
-// directory, and retires the task metadata. It is the clean-failure path:
-// every step is attempted and their failures joined, so one stuck teardown
-// step never leaves the rest undone. A native task has no terminal backend:
-// its teardown closes only nativeHost, the host its spawn launched, and a
-// native terminal that does not close stops the teardown: the task stays
+// teardownLaunch closes the task's terminal, returns the worktree, removes the
+// Go temporary directory and the task temporary directory, and retires the
+// task metadata. It is the clean-failure path: every step after the close is
+// attempted and their failures joined, so one stuck teardown step never leaves
+// the rest undone. It closes only nativeHost, the host its spawn launched, and
+// a terminal that does not close stops the teardown: the task stays
 // addressable, and nothing is removed from under a harness that may still run.
-func (s Service) teardownLaunch(ctx context.Context, client terminal.Backend, endpoint herdr.Endpoint, nativeHost host.Record, project, worktree, id string) error {
-	var errs error
-	if client == nil {
-		if err := host.Close(s.StateDir, nativeHost, nativeCloseWait); err != nil {
-			return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
-		}
-	} else if err := client.CloseTab(ctx, endpoint.Target.Session, endpoint.TabID); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("spawn: close task tab: %w", err))
+func (s Service) teardownLaunch(ctx context.Context, nativeHost host.Record, project, worktree, id string) error {
+	if err := host.Close(s.StateDir, nativeHost, nativeCloseWait); err != nil {
+		return fmt.Errorf("spawn: close native terminal: %w; its worktree, temporary directories and task record are left in place", err)
 	}
+	var errs error
 	if err := s.Worktrees.Return(ctx, project, worktree); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("spawn: return task worktree: %w", err))
 	}
@@ -1372,14 +684,14 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 
 // spawnInstruction is the full first instruction a goblin receives: read the
 // brief, then report outcomes through cfo notify so the CFO is woken with the
-// real payload rather than a pane-derived guess.
+// real payload rather than a guess from its screen.
 func spawnInstruction(briefPath, id string) string {
 	return harness.BriefInstruction(briefPath) + notifyInstruction(id)
 }
 
 // notifyInstruction tells a goblin how to report its outcome through cfo
 // notify, so the CFO is woken with the actual payload instead of the watcher
-// guessing from pane text.
+// guessing from its screen.
 func notifyInstruction(id string) string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -1390,28 +702,6 @@ func notifyInstruction(id string) string {
 		" For a successful browser walkthrough or a Lavish presentation that needs no answer, use Lavish --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }
 
-// containsMarker matches against whitespace-normalized text: pane captures
-// wrap long dialog sentences across lines at the viewport width, so a marker
-// containing spaces never survives verbatim in the raw capture.
-func containsMarker(capture string, markers []string) bool {
-	compact := stripWhitespace(capture)
-	for _, marker := range markers {
-		if strings.Contains(compact, stripWhitespace(marker)) {
-			return true
-		}
-	}
-	return false
-}
-
-func stripWhitespace(text string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) {
-			return -1
-		}
-		return r
-	}, text)
-}
-
 func (s Service) releaseTaskLock(dir, name string) error {
 	if s.ReleaseLock != nil {
 		return s.ReleaseLock(dir, name)
@@ -1420,7 +710,7 @@ func (s Service) releaseTaskLock(dir, name string) error {
 }
 
 // rejectTaskIDAlias prevents Windows task-state collisions before a spawn can
-// create any Herdr or worktree resources. Task IDs remain case-preserving in
+// create any terminal or worktree resources. Task IDs remain case-preserving in
 // metadata, but their retained state artifact paths are not case-distinct on
 // Windows.
 func rejectTaskIDAlias(stateDir, id string) error {

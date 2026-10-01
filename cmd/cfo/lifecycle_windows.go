@@ -105,7 +105,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			if prior.HandoffSaved {
 				handoff = prior.Handoff
 			}
-			_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, Session: meta.HerdrSession, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
+			_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
 			return err
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
