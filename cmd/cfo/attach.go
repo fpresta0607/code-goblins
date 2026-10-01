@@ -5,14 +5,20 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -74,7 +80,9 @@ func runAttach(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 // attachNative shows native terminal id in this console until the terminal
 // ends, which returns its exit code, or the Overlord presses Ctrl-], which
 // leaves it running and returns 0. Keys reach the terminal as this console
-// reads them, and the terminal follows this console's size.
+// reads them, and the terminal follows this console's size: when another
+// viewer, such as the board, gave it another size, the next key typed here
+// takes it back first.
 func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 	record, err := host.ReadRecord(stateDir, id)
 	if err != nil {
@@ -87,7 +95,7 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo attach: a native terminal is shown in a console, and this command has none")
 		return 1
 	}
-	client, err := host.Dial(record)
+	client, err := host.View(record)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo attach: native terminal %s does not answer: %v\n", id, err)
 		return 1
@@ -113,6 +121,10 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 	}
 	cols, rows := size()
 	_ = client.Resize(cols, rows)
+	// isOwner is whether the terminal has this console's size, as far as the
+	// sizes the host told say.
+	var isOwner atomic.Bool
+	isOwner.Store(true)
 
 	type ending struct {
 		reason string
@@ -129,6 +141,10 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 			case event.Exited:
 				ended <- ending{fmt.Sprintf("The native terminal ended with exit code %d.", event.Code), int(event.Code)}
 				return
+			case event.Cols > 0:
+				c, r := size()
+				isOwner.Store(event.Cols == c && event.Rows == r)
+				continue
 			}
 			_, _ = stdout.Write(event.Output)
 		}
@@ -145,6 +161,12 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 			left := false
 			if at := detachAt(typed); at >= 0 {
 				typed, left = typed[:at], true
+			}
+			if len(typed) > 0 && !isOwner.Load() {
+				if c, r := size(); c > 0 {
+					isOwner.Store(true)
+					_ = client.Resize(c, r)
+				}
 			}
 			if len(typed) > 0 && client.Input(typed) != nil {
 				ended <- ending{"The native terminal's host stopped answering.", 1}
@@ -198,16 +220,9 @@ func detachAt(keys []byte) int {
 	return -1
 }
 
-// startNativeCFO starts harness as the CFO in native terminal cfo, in
-// project, in a host of its own that outlives this console.
-func startNativeCFO(stateDir, project, harness string) error {
-	if _, err := lock.AcquireExclusiveNamed(stateDir, ".cfo-launch.lock"); err != nil {
-		return err
-	}
-	defer lock.ReleaseExclusiveNamed(stateDir, ".cfo-launch.lock")
-	if supervisor.CFORuns(stateDir) {
-		return fmt.Errorf("the CFO already runs; open its terminal")
-	}
+// startNativeCFO starts harness as the CFO of home h in native terminal cfo,
+// in project, in a host of its own that outlives this console.
+func startNativeCFO(h home.Home, project, harness string) error {
 	program, err := nativeCFOProgram(harness)
 	if err != nil {
 		return err
@@ -216,17 +231,61 @@ func startNativeCFO(stateDir, project, harness string) error {
 	if err != nil {
 		return err
 	}
-	_, err = host.Launch(stateDir, []string{self, "host"}, nativeCFOEnvironment(os.Environ()), host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
+	userEnv, err := spawn.UserEnvironment()
+	if err != nil {
+		return fmt.Errorf("read the user's environment: %w", err)
+	}
+	// An unresolvable projects root leaves the user's own setting in place.
+	projects, _ := install.MachineProjectsRoot()
+	env := nativeCFOEnvironment(userEnv, os.Environ(), h, projects)
+	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
 	return err
 }
 
+// nativeCFOProgram is the command line a native terminal starts harness with
+// as the CFO, as a native goblin's is: codex and pi install as npm script shims
+// and run through cmd /c. Claude Code must be its native build, claude.exe.
 func nativeCFOProgram(harness string) ([]string, error) {
+	if harness == "claude" {
+		path, err := exec.LookPath(harness)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
+		}
+		if !strings.EqualFold(filepath.Ext(path), ".exe") {
+			return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
+		}
+	}
 	return spawn.NativeProgram(harness)
 }
 
-// nativeCFOEnvironment is env without the Herdr pane a launcher run inside
-// Herdr has, so the CFO registers its native terminal rather than that pane
-// and a herdr it starts is not refused as nested inside that pane.
-func nativeCFOEnvironment(env []string) []string {
-	return herdr.WithoutPane(env)
+// nativeCFOEnvironment is the environment the CFO's native terminal starts
+// with: userEnv, the one Windows gives a new process of this user, never the
+// launcher's own, since whatever ran goblins or the supervisor, such as a
+// Claude Code session in a Herdr pane, marks its processes as its own, and
+// Claude Code started with those marks runs as its child and saves no
+// transcript. The session markers and the harness billing keys are dropped
+// from it all the same. The CFO is placed in home h with this supervisor's
+// projects root, where it has one, and the launcher's Herdr session and
+// configuration without its pane, so the CFO registers its native terminal
+// and a herdr it starts is not refused as nested inside that pane. Names
+// compare without case, as Windows compares them.
+func nativeCFOEnvironment(userEnv, launcherEnv []string, h home.Home, projectsRoot string) []string {
+	pinned := [][2]string{{"CFO_HOME", h.Root}, {"CFO_STATE_OVERRIDE", h.State}}
+	if projectsRoot != "" {
+		pinned = append(pinned, [2]string{install.ProjectsRootVariable, projectsRoot})
+	}
+	env := slices.DeleteFunc(slices.Clone(userEnv), func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		overridden := slices.ContainsFunc(pinned, func(pin [2]string) bool { return strings.EqualFold(pin[0], name) })
+		return name == "" || overridden || spawn.IsSessionMarker(name) || auth.IsHarnessBillingKey(name)
+	})
+	for _, entry := range herdr.WithoutPane(launcherEnv) {
+		if strings.HasPrefix(strings.ToUpper(entry), "HERDR_") {
+			env = append(env, entry)
+		}
+	}
+	for _, pin := range pinned {
+		env = append(env, pin[0]+"="+pin[1])
+	}
+	return env
 }

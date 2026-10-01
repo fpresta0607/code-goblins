@@ -93,6 +93,32 @@ func TestANativeProberReadsTheHarnessFromItsScreen(t *testing.T) {
 	}
 }
 
+// On 2026-09-28 the monitor woke the CFO because a live, working native
+// goblin's screen read failed once ("the screen reader failed (exit status
+// 1)"). One failed read is read again before the terminal is judged
+// unreadable or gone.
+func TestANativeProberReadsAgainWhenOneScreenReadFails(t *testing.T) {
+	stateDir := t.TempDir()
+	recordNativeHost(t, stateDir, "g1")
+	reads := 0
+	read := func(host.Record) ([]string, error) {
+		reads++
+		if reads == 1 {
+			return nil, errors.New("the screen reader failed (exit status 1)")
+		}
+		return []string{"✽ Churning… (29m 30s · esc to interrupt)", "", "⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil
+	}
+
+	sample, err := NativeProber{StateDir: stateDir, ReadScreen: read}.Inspect(context.Background(), nativeMeta("g1", "claude"))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Verdict != ProbePresent || sample.Busy != herdr.BusyWorking {
+		t.Errorf("sample = %+v after %d reads, want the working goblin read on the second", sample, reads)
+	}
+}
+
 // A native terminal with no host, or whose host no longer answers after a
 // failed read, is missing; a harness whose screens the monitor cannot read is
 // unknown rather than guessed.

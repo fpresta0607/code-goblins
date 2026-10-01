@@ -1,11 +1,13 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,39 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestPausedFleetTaskHasNoStaleAlarmAndStoppedHistoryIsExplicit(t *testing.T) {
+	h := snapshotHome(t)
+	meta := writeSnapshotMeta(t, h, "paused-task", t.TempDir(), t.TempDir())
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **paused-task** - Already dispatched\n- **next-task** - Ready to start\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "stopped-task", Phase: "stopped", Title: "Cancelled work", Project: "example", Reason: "No longer needed"}); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := &snapshotEndpoint{}
+	snapshot, err := BuildSnapshot(t.Context(), h, endpoint)
+	if err != nil || len(endpoint.calls) != 0 || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Current.State != crewstate.Paused || snapshot.Tasks[0].Monitor.Health != monitor.HealthPaused || snapshot.Tasks[0].Monitor.Escalation != 0 {
+		t.Fatalf("snapshot=%+v err=%v calls=%v", snapshot, err, endpoint.calls)
+	}
+	if len(snapshot.Backlog.Queued) != 1 || snapshot.Backlog.Queued[0].ID != "next-task" {
+		t.Fatalf("a paused task is still dispatchable: %+v", snapshot.Backlog.Queued)
+	}
+	var output bytes.Buffer
+	if err := RenderMarkdown(&output, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	_, after, ok := strings.Cut(output.String(), "## Paused")
+	if !ok || !strings.Contains(after, "paused-task") || !strings.Contains(after, "Stopped | No longer needed") || strings.Contains(output.String(), "Finished") || strings.Contains(after, "(unknown)") {
+		t.Fatalf("fleet view: %s", output.String())
+	}
+}
 
 type snapshotEndpoint struct {
 	exists     map[string]bool

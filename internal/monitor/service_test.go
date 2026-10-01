@@ -1,7 +1,9 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,6 +326,71 @@ func TestScanProtectsBusyThenStalesAndResurfacesPause(t *testing.T) {
 	}
 	if resurface.Event == nil || resurface.Observations[0].Escalation != 0 {
 		t.Fatalf("pause resurface = %+v, want separate non-escalation event", resurface)
+	}
+}
+
+// A goblin that paused itself and then lost its terminal, as the paused
+// Codex goblins did when Defender quarantined their hosts' binary, tells the
+// CFO on the first scan after the terminal goes and then once per pause
+// resurface interval that it is paused and its terminal is gone, not on every
+// scan after each wake is taken.
+func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
+	meta := metaFor("g1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+	service := testService(stateDir, probe, &now)
+	if _, err := service.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(stateDir, "g1", "paused: Codex usage limit"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	paused, err := service.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Event == nil {
+		t.Fatalf("paused scan = %+v, want the pause surfaced", paused)
+	}
+	if _, err := service.Publish(*paused.Event); err != nil {
+		t.Fatal(err)
+	}
+	probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; cfo switch g1 restarts its harness in place, resuming its session"}
+
+	// Act
+	var wakes []Event
+	var wakeScans []int
+	for scan := 0; scan < 36; scan++ {
+		now = now.Add(5 * time.Minute)
+		result, err := service.Scan(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Event == nil {
+			continue
+		}
+		wakes = append(wakes, *result.Event)
+		wakeScans = append(wakeScans, scan)
+		if _, err := service.Publish(*result.Event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if len(wakes) == 0 || len(wakes) > 3 {
+		t.Fatalf("a paused task with no terminal woke the CFO %d times in 3 hours, want at least once and at most once an hour: %+v", len(wakes), wakes)
+	}
+	if wakeScans[0] != 0 {
+		t.Errorf("first wake came on scan %d (wake scans %v), want scan 0, the first scan after the terminal went", wakeScans[0], wakeScans)
+	}
+	for _, wake := range wakes {
+		if !strings.HasPrefix(wake.Detail, string(EndpointMissing)+": ") || !strings.Contains(wake.Detail, "paused") {
+			t.Errorf("wake detail = %q, want an endpoint_missing wake that says the task is paused", wake.Detail)
+		}
 	}
 }
 
@@ -1552,5 +1619,57 @@ func TestScanKeepsAWaitingGoblinParkedAfterACFOAuditLine(t *testing.T) {
 				t.Fatalf("observation = %+v, want parked", observation)
 			}
 		})
+	}
+}
+
+// cancellingProber cancels the scan's context while it inspects a task, as a
+// serve asking a watcher for the lock does in the middle of its scan.
+type cancellingProber struct{ cancel context.CancelFunc }
+
+func (p cancellingProber) Inspect(ctx context.Context, _ state.TaskMeta) (EndpointSample, error) {
+	p.cancel()
+	<-ctx.Done()
+	return EndpointSample{}, ctx.Err()
+}
+
+// A watcher handing the lock to a serve cancels its scan part way. An
+// inspection cut short says nothing about the goblin, so the scan writes
+// nothing for the tasks it did not finish and raises no event: the serve's
+// next scan would otherwise wake the CFO about healthy goblins.
+func TestAScanCancelledPartWayWritesNothingItDidNotFinish(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	first, second := metaFor("g1"), metaFor("g2")
+	writeTask(t, stateDir, first)
+	writeTask(t, stateDir, second)
+	healthy := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(first, herdr.BusyWorking, "first"), "g2": sampleFor(second, herdr.BusyWorking, "second")}}
+	if _, err := testService(stateDir, healthy, &now).Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{ObservationPath(stateDir, "g1"), ObservationPath(stateDir, "g2"), HeartbeatPath(stateDir)}
+	before := map[string][]byte{}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[path] = data
+	}
+	now = now.Add(time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	result, err := testService(stateDir, cancellingProber{cancel}, &now).Scan(ctx)
+
+	if !errors.Is(err, context.Canceled) || result.Event != nil {
+		t.Fatalf("Scan = %+v, %v; want it stopped by the cancellation with no event", result.Event, err)
+	}
+	for _, path := range paths {
+		if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, before[path]) {
+			t.Errorf("%s changed under a cancelled scan (%v):\nbefore %s\nafter  %s", filepath.Base(path), err, before[path], data)
+		}
+	}
+	if pending, err := wake.Pending(stateDir); err != nil || len(pending) != 0 {
+		t.Errorf("pending wakes = %d (%v), want none from a cancelled scan", len(pending), err)
 	}
 }

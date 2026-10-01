@@ -146,11 +146,15 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		}
 	}
 
+	outcome := s.outcome(ctx, meta, "Worktree returned by cleanup")
 	if err := s.Worktrees.Return(ctx, project, worktreePath); err != nil {
 		return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
 	}
 
-	if err := state.AppendStatus(s.StateDir, id, "done: returned worktree "+worktreePath+" via cfo cleanup"); err != nil {
+	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
+		return Result{}, err
+	}
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": returned worktree "+worktreePath+" via cfo cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record returned worktree: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {
@@ -200,7 +204,11 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 			return Result{}, fmt.Errorf("cleanup: close native terminal: %w", err)
 		}
 	}
-	if err := state.AppendStatus(s.StateDir, id, "done: force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
+	outcome := s.outcome(ctx, meta, "Task archived; worktree kept")
+	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
+		return Result{}, err
+	}
+	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": force-archived via cfo cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
 	}
 	if err := state.RemoveTaskMeta(s.StateDir, id); err != nil {

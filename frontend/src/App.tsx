@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
 import { Lineage, type Selection } from "./Lineage";
-import { Board } from "./Board";
+import { Board, type BoardLayout } from "./Board";
 import { Orchestration } from "./Orchestration";
 import { CommandCenter, type CommandFocus } from "./CommandCenter";
 import { useActivity } from "./useActivity";
@@ -46,9 +46,14 @@ function store(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* the layout still applies to this view */ }
 }
 
+// The board's layout, kept in this browser: kanban unless stacked was chosen.
+const BOARD_LAYOUT_KEY = "cfo-board-layout";
+
 export function App() {
   const { snapshot, connection, error } = useRuntimeStream();
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
+  const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
+  const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
   // Board opens a goblin on its task view, Orchestration on its terminal.
   const [panelView, setPanelView] = useState<PanelView>("task");
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
@@ -83,8 +88,11 @@ export function App() {
     return () => query.removeEventListener("change", changed);
   }, []);
   const node = snapshot?.sessions.find((node) => node.id === selected?.session);
-  const task = snapshot?.tasks.find((task) => task.id === (selected?.task || node?.task_id));
-  const selectedSession = node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
+  const selectedTaskID = selected?.task || node?.task_id;
+  const task = snapshot?.tasks.find((task) => task.id === selectedTaskID)
+    || snapshot?.tasks.find((task) => task.id === "finished:" + selectedTaskID);
+  const selectedSession = task?.archived && (!node || node.role === "goblin") ? undefined
+    : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
   const reviews = useReview(task, snapshot);
   // Once the supervisor serves a newer board, a hidden tab reloads itself at
   // once and a visible one says so and offers a reload, never mid-answer.
@@ -111,8 +119,9 @@ export function App() {
   const select = (next: Selection, source: HTMLElement, panel: PanelView = view === "Board" ? "task" : "terminal") => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
-    const cfo = !next.session && !next.task || snapshot?.sessions.find((session) => session.id === next.session)?.role === "cfo";
-    setSelected(cfo ? null : next);
+    const session = snapshot?.sessions.find((session) => session.id === next.session);
+    const cfo = !next.session && !next.task || session?.role === "cfo";
+    setSelected(cfo ? null : { ...next, task: next.task || session?.task_id });
     setCfoOpen(cfo);
     setPanelView(panel);
     setSelectionEpoch((epoch) => epoch + 1);
@@ -182,9 +191,11 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} disabled={firstRun} onClick={() => { setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
+        {!firstRun && view === "Board" && <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
+          onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
@@ -195,13 +206,13 @@ export function App() {
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
-      {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} />}
+      {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onTerminal={(task, source) => select({ task: task.id }, source, "terminal")} onOpenCfo={(source) => { returnFocus.current = source; switchTo(CFO_KEY); }} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} cardStart={cardStart} />
             : compact ? <Lineage presentations={presentations} effects={effects} snapshot={snapshot} project="" selected={selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} connected={connected} selected={selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}

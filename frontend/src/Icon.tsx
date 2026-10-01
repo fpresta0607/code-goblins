@@ -1,6 +1,7 @@
 // Line icons drawn on one 24px grid, so every glyph centres by construction
-// instead of by a font's metrics. The OpenAI and Pi entries are plain glyphs:
-// no official mark is available for them.
+// instead of by a font's metrics. The Pi entry is a plain glyph, since no
+// official mark is available for it; the OpenAI entry is a plain stand-in for
+// the mark in brandMarks.ts.
 const PATHS = {
   "command-center": "M6.5 3.5h11a2.5 2.5 0 0 1 2.5 2.5v7.5a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4a2.5 2.5 0 0 1-2.5-2.5V6a2.5 2.5 0 0 1 2.5-2.5ZM8.5 12.5l-.75-5 2.75 2L12 6.5l1.5 3 2.75-2-.75 5Z",
   close: "M6 6l12 12M18 6 6 18",
@@ -10,6 +11,7 @@ const PATHS = {
   clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM12 7.5V12l3 2",
   refresh: "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15",
   mic: "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7",
+  paste: "M8.5 5H6.5A1.5 1.5 0 0 0 5 6.5v13A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 17.5 5h-2M9 3.5h6v3H9ZM12 10v7M9 14l3 3 3-3",
   chevron: "m9 6 6 6-6 6",
   external: "M14 4h6v6M20 4l-8 8M10 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4",
   folder: "M3.5 7a2 2 0 0 1 2-2H9l2 2h7.5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z",
@@ -22,6 +24,8 @@ const PATHS = {
   fit: "M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4",
   maximize: "M4 9V4h5M4 4l6 6M20 9V4h-5M20 4l-6 6M4 15v5h5M4 20l6-6M20 15v5h-5M20 20l-6-6",
   restore: "M4 10h6V4M4 4l6 6M20 10h-6V4M20 4l-6 6M4 14h6v6M4 20l6-6M20 14h-6v6M20 20l-6-6",
+  kanban: "M4.5 4.5h4v15h-4ZM10 4.5h4v15h-4ZM15.5 4.5h4v15h-4Z",
+  stacked: "M4.5 4.5h15v4h-15ZM4.5 10h15v4h-15ZM4.5 15.5h15v4h-15Z",
   arrange: "M4.5 4.5h6v6h-6zM13.5 4.5h6v6h-6zM4.5 13.5h6v6h-6zM13.5 13.5h6v6h-6z",
   key: "M14.5 4a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM10.6 13 3.5 20.1M5.5 18.1l2 2M8 15.6l2 2",
   plug: "M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0ZM12 17v4",
@@ -34,6 +38,12 @@ const PATHS = {
   task: "M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5",
   back: "M19 12H5M11 6l-6 6 6 6",
   play: "M8 5.5v13l11-6.5Z",
+  "pause-circle": "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM9.5 9v6M14.5 9v6",
+  "stop-circle": "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM9 9h6v6H9Z",
+  pause: "M8 5v14M16 5v14",
+  trash: "M4 6h16M9 6V3.5h6V6M6 6l1 14h10l1-14M10 10v6M14 10v6",
+  edit: "m4 16-1 5 5-1L20 8l-4-4ZM14 6l4 4",
+  save: "M5 3.5h12l3 3V20H4V3.5ZM8 3.5v6h8v-6M8 20v-7h8v7",
   shield: "M12 3.5 19 6v5.5c0 4.2-2.9 7.9-7 9-4.1-1.1-7-4.8-7-9V6Z",
   copy: "M9 9h10v11H9ZM5 15V4h10",
   next: "M5 12h14M13 6l6 6-6 6",

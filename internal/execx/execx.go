@@ -100,19 +100,35 @@ func (OSRunner) Start(ctx context.Context, req Request) error {
 	return nil
 }
 
+// Command is exec.Command for every process a fleet program starts: the
+// process opens no console window (see hide).
+func Command(name string, arg ...string) *exec.Cmd {
+	cmd := exec.Command(name, arg...)
+	hide(cmd)
+	return cmd
+}
+
+// CommandContext is exec.CommandContext for every process a fleet program
+// starts: the process opens no console window (see hide).
+func CommandContext(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, arg...)
+	hide(cmd)
+	return cmd
+}
+
 func command(ctx context.Context, req Request) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, req.Name, req.Args...)
+	cmd := CommandContext(ctx, req.Name, req.Args...)
 	configure(cmd, req)
 	if req.KillTree && runtime.GOOS == "windows" {
 		cmd.Cancel = func() error {
-			return exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run()
+			return Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run()
 		}
 	}
 	return cmd
 }
 
 func startCommand(req Request) *exec.Cmd {
-	cmd := exec.Command(req.Name, req.Args...)
+	cmd := Command(req.Name, req.Args...)
 	configure(cmd, req)
 	return cmd
 }

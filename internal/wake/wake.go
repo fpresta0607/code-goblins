@@ -60,6 +60,7 @@ type Record struct {
 	Kind   string    `json:"kind"`
 	Key    string    `json:"key"`
 	Detail string    `json:"detail"`
+	Once   string    `json:"once,omitempty"`
 	// Answered is the answer this blocking notify received outside the
 	// queue, and AnsweredBy who gave it: AnsweredByOverlord on the board or
 	// AnsweredByCFO with cfo answer. Pending attaches both from their own
@@ -72,30 +73,37 @@ type Record struct {
 // retired even once the queue file empties.
 const ackFile = ".wake-ack"
 
+// lockBudget is how long a wake-state change waits for a live holder of
+// state/.wake-queue.lock, whose read-modify-write a loaded machine can slow
+// for seconds.
+const lockBudget = 5 * time.Second
+
 // withLock serializes a wake-state read-modify-write behind
-// state/.wake-queue.lock. Contention (a live holder) is retried at 50ms up
-// to 10 times (500ms total) before it is returned to the caller as an
-// error rather than swallowed; a dead holder is stolen by the lock package
+// state/.wake-queue.lock. A live holder is waited out within lockBudget,
+// 10 ms after the first attempt and twice as long after each next one up to
+// half a second, and past it the contention is returned to the caller
+// rather than swallowed; a dead holder is stolen by the lock package
 // itself, so a process killed inside fn cannot wedge the home.
 func withLock(dir string, fn func() error) error {
-	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if _, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake"); err != nil {
-			if errors.Is(err, lock.ErrHeld) {
-				lastErr = err
-				time.Sleep(50 * time.Millisecond)
-				continue
-			}
+	deadline := time.Now().Add(lockBudget)
+	wait := 10 * time.Millisecond
+	for {
+		_, err := lock.AcquireNamedOwner(dir, wakeLockName, os.Getpid(), "wake")
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, lock.ErrHeld) || time.Now().Add(wait).After(deadline) {
 			return err
 		}
-		defer lock.ReleaseNamed(dir, wakeLockName)
-		return fn()
+		time.Sleep(wait)
+		wait = min(2*wait, 500*time.Millisecond)
 	}
-	return lastErr
+	defer lock.ReleaseNamed(dir, wakeLockName)
+	return fn()
 }
 
 func readAckFloor(dir string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(dir, ackFile))
+	data, err := fsx.ReadFile(filepath.Join(dir, ackFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}
@@ -230,6 +238,10 @@ func AckThrough(dir string, seq int) error {
 		for _, rec := range records {
 			if rec.Seq > seq {
 				kept = append(kept, rec)
+			} else if rec.Once != "" {
+				if err := keepOnce(dir, rec); err != nil {
+					return err
+				}
 			}
 		}
 		floor, err := readAckFloor(dir)
@@ -387,23 +399,27 @@ func DecisionSignal(rec Record, id string) bool {
 	return rec.Kind == "signal" && rec.Key == id+".status"
 }
 
-// stallAwaitingAnswer is the detail prefix the monitor writes for a goblin
-// whose agent turn ended at its prompt. It is spelled out here for the same
-// reason BlockingNotify spells out its verbs: the queue stores rendered text,
-// and this package must read that text without importing the monitor.
-const stallAwaitingAnswer = "awaiting_answer:"
+// stallAwaitingAnswer and stallGoblinIdle are the detail prefixes the monitor
+// writes for a goblin whose agent turn ended at its prompt, and for one that
+// then sat there idle. They are spelled out here for the same reason
+// BlockingNotify spells out its verbs: the queue stores rendered text, and
+// this package must read that text without importing the monitor.
+const (
+	stallAwaitingAnswer = "awaiting_answer:"
+	stallGoblinIdle     = "goblin_idle:"
+)
 
 // AwaitingAnswerStall is the third arm: the monitor's own stall record for a
-// goblin whose turn ended waiting on input without filing a notify of its
-// own. Such a goblin asked nothing formally, so the notify and signal arms
-// both miss it - and an answer is owed all the same. That gap is how this
-// class went quiet twice on 2026-09-18.
+// goblin whose turn ended waiting on input, or that sat idle at its prompt,
+// without filing a notify of its own. Such a goblin asked nothing formally,
+// so the notify and signal arms both miss it - and an answer is owed all the
+// same. That gap is how this class went quiet twice on 2026-09-18.
 //
-// Only the awaiting-answer stall counts. The monitor's own re-asks are stall
-// records too, and counting them would make a goblin unanswered forever: the
-// re-ask would be its own evidence, outliving the record it re-asked about.
+// Only those two stalls count. The monitor's own re-asks are stall records
+// too, and counting them would make a goblin unanswered forever: the re-ask
+// would be its own evidence, outliving the record it re-asked about.
 func AwaitingAnswerStall(rec Record, id string) bool {
-	return rec.Kind == "stale" && rec.Key == id && strings.HasPrefix(rec.Detail, stallAwaitingAnswer)
+	return rec.Kind == "stale" && rec.Key == id && (strings.HasPrefix(rec.Detail, stallAwaitingAnswer) || strings.HasPrefix(rec.Detail, stallGoblinIdle))
 }
 
 // Question is a blocked notify's question and the options it offered. A

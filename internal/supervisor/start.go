@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -44,25 +45,52 @@ var (
 // Dispatch is what a queued task's Start reads and runs on this machine:
 // its memory, and cfo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
-	// Memory reads the machine's available and total physical memory, in
-	// bytes.
-	Memory func() (available, total uint64, err error)
+	// Memory reads the machine's physical memory, commit and kernel pools.
+	Memory func() (Memory, error)
+	// CommitHolders names the apps holding the most commit.
+	CommitHolders func() ([]CommitHolder, error)
 	// Spawn runs cfo with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }
 
-// Memory is the machine's available memory beside the fleet's floor, under
-// which nothing starts, and the mark at which the CFO starts the next task.
+// Memory is the machine's available physical memory and available commit,
+// in bytes, beside the fleet's floor, under which nothing starts, and the mark
+// at which the CFO starts the next task: a start needs both to reach them.
+// The kernel's pools ride along, since a paged pool that keeps growing is a
+// driver leaking memory, and so do the apps holding the most commit once
+// commit is the tighter of the two.
 type Memory struct {
-	Available uint64 `json:"available"`
-	Total     uint64 `json:"total"`
-	Floor     uint64 `json:"floor"`
-	Next      uint64 `json:"next"`
+	Available       uint64         `json:"available"`
+	Total           uint64         `json:"total"`
+	CommitAvailable uint64         `json:"commit_available"`
+	CommitLimit     uint64         `json:"commit_limit"`
+	PagedPool       uint64         `json:"paged_pool"`
+	NonpagedPool    uint64         `json:"nonpaged_pool"`
+	Floor           uint64         `json:"floor"`
+	Next            uint64         `json:"next"`
+	Holders         []CommitHolder `json:"holders,omitempty"`
+}
+
+// shortfall says how much of memory, of commit or of both is free when it is
+// under the mark at which a task starts, rounded down so memory just under
+// the mark never reads as the mark itself, and is empty when both reach it.
+func (m Memory) shortfall() string {
+	gigabytes := func(bytes uint64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
+	switch {
+	case m.Available < memoryNext && m.CommitAvailable < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of memory and %.1f GB of commit (RAM plus page file) are free", gigabytes(m.Available), gigabytes(m.CommitAvailable))
+	case m.Available < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of memory is free", gigabytes(m.Available))
+	case m.CommitAvailable < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of commit (RAM plus page file) is free", gigabytes(m.CommitAvailable))
+	}
+	return ""
 }
 
 // startPlan is the cfo spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
+	missingBrief                                     *fleet.QueuedTask
 }
 
 func (p startPlan) args() []string {
@@ -128,19 +156,47 @@ func (s *Service) startTask(id string) error {
 	if s.starting != "" {
 		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
 	}
+	for task, action := range s.changing {
+		if action == "resume" {
+			return StartRefusal{Reason: task + " is resuming; start another once it is up", Passing: true}
+		}
+	}
+	if s.changing[id] != "" {
+		return StartRefusal{Reason: "This task is being changed", Passing: true}
+	}
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
+		return StartRefusal{Reason: "This queued task is being changed; try again", Passing: true}
+	}
+	isStarting := false
+	defer func() {
+		if !isStarting {
+			if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
+				s.publish(err)
+			}
+		}
+	}()
 	plan, err := planStart(s.Store.Home, id)
 	if err != nil {
 		return err
 	}
-	available, _, err := dispatch.Memory()
+	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
-	if available < memoryFloor {
-		// Rounded down, so memory just under the floor never reads as 4.0 GB.
-		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free, under the fleet's 4 GB floor; start it once memory frees", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
+	if short := memory.shortfall(); short != "" {
+		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
+	}
+	if plan.missingBrief != nil {
+		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
+			return err
+		}
+		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CFO can amend it"); err != nil {
+			return err
+		}
 	}
 	s.starting = id
+	isStarting = true
 	delete(s.startErrors, id)
 	go s.runStart(dispatch, plan)
 	return nil
@@ -151,6 +207,11 @@ func (s *Service) startTask(id string) error {
 // Either way the CFO is told through the wake queue, as a notify tells it,
 // before the card stops showing the start.
 func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
+	defer func() {
+		if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, ".queued-"+plan.id+".lock"); err != nil {
+			s.publish(err)
+		}
+	}()
 	output, err := dispatch.Spawn(context.Background(), plan.args())
 	failure := ""
 	if err != nil {
@@ -218,10 +279,13 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	switch {
 	case slices.ContainsFunc(backlog.Parked, listed) || !row.Structured && briefErr != nil:
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
-	case briefErr != nil:
-		return startPlan{}, StartRefusal{Reason: id + " has no brief at data\\" + id + "\\brief.md yet; the CFO writes one before it can start"}
+	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
+		return startPlan{}, briefErr
 	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
+	}
+	if len(row.BlockedByIDs) > 0 {
+		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
 	}
 	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
 	if plan.project == "" {
@@ -255,6 +319,14 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names mode " + plan.mode + ", which cfo spawn does not run"}
 	case plan.model != "" && !spawnValue.MatchString(plan.model), plan.effort != "" && !spawnValue.MatchString(plan.effort):
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
+	}
+	if errors.Is(briefErr, os.ErrNotExist) {
+		queued, err := fleet.ReadQueuedTask(h, id)
+		if err != nil {
+			return startPlan{}, err
+		}
+		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
+		plan.missingBrief = &queued
 	}
 	return plan, nil
 }

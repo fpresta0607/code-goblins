@@ -10,6 +10,9 @@ import { panelViews } from "./cards";
 import { QueuedTasks } from "./QueuedTasks";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
+import { TaskControls } from "./task-controls";
+import { TaskAdjustment } from "./task-adjustment";
+import { LifecycleDetails } from "./lifecycle-details";
 
 export type PanelView = "task" | "terminal";
 
@@ -36,7 +39,12 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
     </div>
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
     <div className="panel-task" hidden={view !== "task"}>
-      {owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} />
+      {task && <div className="panel-content lifecycle-panel">
+        <TaskControls task={task} snapshot={snapshot} start={task.phase === "queued" ? cardStart(task) : undefined} onAdjust={() => document.querySelector<HTMLTextAreaElement>(".task-adjustment textarea")?.focus()} />
+        <LifecycleDetails task={task} />
+        {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
+      </div>}
+      {task?.archived ? null : owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <p className="column-hint">Top starts first, when memory allows.</p>

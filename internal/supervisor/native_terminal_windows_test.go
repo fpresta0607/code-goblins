@@ -3,19 +3,24 @@ package supervisor
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -28,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -38,12 +44,22 @@ const viewQuery = "task=task-1&generation=g1&token=instance"
 // test runs in its terminal: it records each typed line in the file it is
 // given, prints its terminal's size for "size", registers as the CFO of the
 // state directory it is given for "register", recording the outcome, prints
-// more than the host's pipe holds for "spill", recording "spilled" after, and
-// exits for "exit N".
+// more than the host's pipe holds for "spill", recording "spilled" after,
+// runs any of its lines in a process whose parent has exited for "orphaned
+// <line>", and exits for "exit N".
 func TestNativeTerminalProgram(t *testing.T) {
 	args := flag.Args()
 	if len(args) != 3 || args[0] != "native-terminal-program" {
 		t.Skip("runs only in a native terminal test's terminal")
+	}
+	// An orphaned program starts only once the relay that started it has
+	// exited, as what Git Bash's timeout starts outlives the bash it replaced.
+	if relay, err := strconv.Atoi(os.Getenv(orphanOf)); err == nil {
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, alive := proc.StartTime(relay); !alive {
+				break
+			}
+		}
 	}
 	record := func(text string) {
 		file, err := os.OpenFile(args[1], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -98,6 +114,21 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("registered " + described)
+		case strings.HasPrefix(line, "orphaned "), strings.HasPrefix(line, "orphaned-in-herdr "):
+			// Git Bash runs an MSYS program such as timeout by replacing its own
+			// Windows process, so whatever timeout starts has a parent that
+			// already exited: a relay starts this program on the one line and
+			// exits at once. orphaned-in-herdr also gives it a Herdr pane's
+			// variable, as a Herdr server started from this terminal would.
+			where, rest, _ := strings.Cut(line, " ")
+			input := filepath.Join(filepath.Dir(args[1]), "orphaned.txt")
+			if err := os.WriteFile(input, []byte(rest+"\nexit 0\n"), 0o600); err != nil {
+				record("orphan error: " + err.Error())
+				continue
+			}
+			if err := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalRelay$", "--", "native-terminal-relay", input, args[1], args[2], where).Run(); err != nil {
+				record("orphan error: " + err.Error())
+			}
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -129,6 +160,37 @@ func TestNativeTerminalProgram(t *testing.T) {
 				}
 			}
 		}
+	}
+	os.Exit(0)
+}
+
+// orphanOf names, for a program a relay started, the relay it waits out.
+const orphanOf = "NATIVE_TERMINAL_ORPHAN_OF"
+
+// TestNativeTerminalRelay is not a test but the relay an "orphaned" line runs:
+// it starts the terminal's program on the lines of its input file, outside
+// the terminal's job, and exits without waiting, so the program's parent is a
+// process that has exited, as Git Bash leaves what timeout runs.
+func TestNativeTerminalRelay(t *testing.T) {
+	args := flag.Args()
+	if len(args) != 5 || args[0] != "native-terminal-relay" {
+		t.Skip("runs only as a native terminal test's relay")
+	}
+	input, err := os.Open(args[1])
+	if err != nil {
+		os.Exit(1)
+	}
+	program := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", args[2], args[3])
+	program.Stdin = input
+	program.Env = append(os.Environ(), orphanOf+"="+strconv.Itoa(os.Getpid()))
+	if args[4] == "orphaned-in-herdr" {
+		program.Env = append(program.Env, "HERDR_PANE_ID=w9:p9")
+	}
+	// The MSYS runtime starts its programs outside the terminal's job, which
+	// lets a process break away, so the relay's program leaves it too.
+	program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB}
+	if err := program.Start(); err != nil {
+		os.Exit(1)
 	}
 	os.Exit(0)
 }
@@ -532,10 +594,10 @@ func TestANativeTerminalResizesTheTerminal(t *testing.T) {
 	v.waitForSize(t, "100x30")
 }
 
-// A resize from any view reaches every other view of the terminal, so a second
-// window draws the output at the size the terminal now has, and the view that
-// sent it is never told its own size back as if another view had taken it.
-func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
+// A resize from any view reaches every view of the terminal, the one that
+// sent it too, as the size the terminal took, so each view sizes its screen
+// when the terminal did rather than ahead of it.
+func TestANativeTerminalTellsEveryViewItsNewSize(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	hostTask(t, h)
 	first := openNativeView(t, server, viewQuery)
@@ -546,10 +608,154 @@ func TestANativeTerminalTellsEveryOtherViewItsNewSize(t *testing.T) {
 	first.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 
 	second.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
-	first.send(t, websocket.MessageBinary, "size")
-	first.waitFor(t, "size 100x30")
-	if first.shows(`"type":"size"`) {
-		t.Error("the view that sized the terminal was told its own size")
+	first.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
+	first.waitForSize(t, "100x30")
+}
+
+// A resize made straight through the host, as cfo attach in the Open window
+// makes one, reaches the board's views as the size the terminal took, so a
+// view never draws the terminal's output on a grid of another size.
+func TestANativeViewIsToldOfAResizeMadeThroughTheHost(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attached, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer attached.Close()
+
+	if err := attached.Resize(120, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	v.waitFor(t, `{"type":"size","cols":120,"rows":30}`)
+}
+
+// A view is told a size between the output the terminal drew before it and
+// the output after it, even while that earlier output still waits for the
+// view to acknowledge what it has, so it never draws old output on the new
+// grid.
+func TestANativeViewIsToldEachSizeBetweenTheOutputDrawnBeforeAndAfterIt(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalWindow = 16
+	hostTask(t, h)
+	resizing := openNativeView(t, server, viewQuery)
+	resizing.ackAll()
+	resizing.waitFor(t, "program ready")
+	held := openNativeView(t, server, viewQuery)
+	resizing.send(t, websocket.MessageBinary, "size\r")
+	resizing.waitFor(t, "size 80x24")
+
+	resizing.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	resizing.waitForSize(t, "100x30")
+	held.ackAll()
+
+	held.waitFor(t, "size 100x30")
+	held.mu.Lock()
+	screen := held.screen.String()
+	held.mu.Unlock()
+	if pattern := `size 80x24[\s\S]*\{"type":"size","cols":100,"rows":30\}[\s\S]*size 100x30`; !regexp.MustCompile(pattern).MatchString(screen) {
+		t.Errorf("the held view was shown %q, want the new size between the output before and after it", screen)
+	}
+}
+
+// oldHost serves task-1's terminal to views viewers as a host from before
+// hosts told their viewers sizes: a plain hello whatever a viewer asked, the
+// history as its first output, then the output before, and the output after
+// once after closes. It never tells a size.
+func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
+	t.Helper()
+	name := fmt.Sprintf(`\\.\pipe\code-goblins-old-host-%d-%d`, os.Getpid(), time.Now().UnixNano())
+	path, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := func(kind byte, payload string) []byte {
+		return append(binary.BigEndian.AppendUint32([]byte{kind}, uint32(len(payload))), payload...)
+	}
+	ended := t.Context()
+	for range views {
+		pipe, err := windows.CreateNamedPipe(path, windows.PIPE_ACCESS_DUPLEX, windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT, windows.PIPE_UNLIMITED_INSTANCES, 64<<10, 64<<10, 0, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connection := os.NewFile(uintptr(pipe), name)
+		go func() {
+			defer connection.Close()
+			if err := windows.ConnectNamedPipe(pipe, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
+				return
+			}
+			var header [5]byte
+			if _, err := io.ReadFull(connection, header[:]); err != nil {
+				return
+			}
+			if _, err := io.CopyN(io.Discard, connection, int64(binary.BigEndian.Uint32(header[1:]))); err != nil {
+				return
+			}
+			for _, message := range [][]byte{frame('h', fmt.Sprintf(`{"version":%d}`, host.Version)), frame('o', "old history"), frame('o', "before the resize")} {
+				if _, err := connection.Write(message); err != nil {
+					return
+				}
+			}
+			select {
+			case <-after:
+				_, _ = connection.Write(frame('o', "after the resize"))
+			case <-ended.Done():
+				return
+			}
+			<-ended.Done()
+		}()
+	}
+	record, err := json.Marshal(host.Record{ID: "task-1", Pipe: name, Token: "token", Version: host.Version, HostPID: os.Getpid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := filepath.Join(h.Service.Store.Home.State, "hosts")
+	if err := os.MkdirAll(hosts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hosts, "task-1.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A host from before hosts told their viewers sizes tells none, so the board
+// tells every view of it, the one that resized it too, the size the
+// terminal took, after the output read before the resize and before the
+// output after it, even while that earlier output waits on acknowledgement.
+func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	h.terminalWindow = 16
+	after := make(chan struct{})
+	oldHost(t, h, 2, after)
+	watching := openNativeView(t, server, viewQuery)
+	watching.ackAll()
+	held := openNativeView(t, server, viewQuery)
+	watching.waitFor(t, "before the resize")
+	// The held view's window of 16 bytes ends within the output before, so
+	// the board read all of it.
+	held.waitFor(t, "old historybefor")
+
+	held.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+	held.ackAll()
+	held.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
+	close(after)
+
+	want := `{"type":"history","bytes":11}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
+	for name, v := range map[string]*nativeView{"watching": watching, "held": held} {
+		v.waitFor(t, "after the resize")
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if screen != want {
+			t.Errorf("the %s view was shown %q, want %q", name, screen, want)
+		}
 	}
 }
 
@@ -565,7 +771,7 @@ func TestANativeTerminalKeepsItsSizeForAViewTooSmallToUse(t *testing.T) {
 	v.send(t, websocket.MessageBinary, "size\r")
 
 	v.waitFor(t, "size 80x24")
-	if v.shows(`"type":"size"`) {
+	if v.shows(`"cols":1,`) {
 		t.Error("the views were told of a size the terminal never took")
 	}
 }

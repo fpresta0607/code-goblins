@@ -3,6 +3,8 @@ package host
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // The test binary plays every part. As the command in a terminal it answers
@@ -50,8 +54,8 @@ func TestMain(m *testing.M) {
 
 // echoChild answers one typed line at a time: the terminal its host says it
 // runs in, its terminal's size, a grandchild it starts, an exit code, a flood
-// of output before an exit code, a spill of output it keeps running after, its
-// screen as it reads it itself, a screen read attaching to its console, a
+// of output before an exit code, a spill of output it keeps running after,
+// two seconds of streamed lines, its screen as it reads it itself, a screen read attaching to its console, a
 // Ctrl-C, leaving its console, or the line itself.
 func echoChild() {
 	// A Ctrl-C typed to the terminal is reported, not obeyed.
@@ -96,6 +100,9 @@ func echoChild() {
 			time.Sleep(time.Minute)
 		case line == "host-id":
 			fmt.Println("host-id", os.Getenv(IDVariable))
+		case line == "host-proof":
+			sum := sha256.Sum256([]byte(os.Getenv(ProofVariable)))
+			fmt.Println("host-proof", hex.EncodeToString(sum[:]))
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -120,6 +127,13 @@ func echoChild() {
 			}
 			fmt.Println("last words")
 			os.Exit(code)
+		case line == "stream":
+			// Numbered lines for two seconds, as a busy program prints.
+			for i, until := 0, time.Now().Add(2*time.Second); time.Now().Before(until); i++ {
+				fmt.Printf("line %06d %s\n", i, strings.Repeat("s", 60))
+				time.Sleep(time.Millisecond)
+			}
+			fmt.Println("streamed")
 		case line == "spill":
 			for i := 0; i < 2000; i++ {
 				fmt.Println(strings.Repeat("s", 100))
@@ -206,7 +220,8 @@ func exited(pid int) bool {
 	return event == windows.WAIT_OBJECT_0
 }
 
-// viewer is a client and everything its terminal has shown it.
+// viewer is a client and everything its terminal has shown it, with each
+// size it was told marked "[size CxR]" at its place.
 type viewer struct {
 	*Client
 	screen bytes.Buffer
@@ -223,12 +238,36 @@ func connect(t *testing.T, record Record) *viewer {
 	return &viewer{Client: client}
 }
 
+// view connects a viewer that asks for sizes.
+func view(t *testing.T, record Record) *viewer {
+	t.Helper()
+	client, err := View(record)
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return &viewer{Client: client}
+}
+
+// show adds an event to what the viewer was shown.
+func (v *viewer) show(event Event) {
+	if event.Cols > 0 {
+		fmt.Fprintf(&v.screen, "[size %dx%d]", event.Cols, event.Rows)
+	}
+	v.screen.Write(event.Output)
+	if event.Exited {
+		v.exit = &event
+	}
+}
+
 // waitFor reads events until the screen matches pattern, and returns the
-// match.
+// match. It fails after 15 seconds even while no event arrives.
 func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 	t.Helper()
 	expression := regexp.MustCompile(pattern)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+	_ = v.pipe.SetReadDeadline(time.Now().Add(15 * time.Second))
+	defer v.pipe.SetReadDeadline(time.Time{})
+	for {
 		if match := expression.FindStringSubmatch(v.screen.String()); match != nil {
 			return match
 		}
@@ -236,13 +275,13 @@ func (v *viewer) waitFor(t *testing.T, pattern string) []string {
 			break
 		}
 		event, err := v.Next()
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			break
+		}
 		if err != nil {
 			t.Fatalf("Next: %v, while waiting for %q on:\n%q", err, pattern, v.screen.String())
 		}
-		v.screen.Write(event.Output)
-		if event.Exited {
-			v.exit = &event
-		}
+		v.show(event)
 	}
 	t.Fatalf("no %q on the screen:\n%q", pattern, v.screen.String())
 	return nil
@@ -256,10 +295,7 @@ func (v *viewer) waitForExit(t *testing.T) uint32 {
 		if err != nil {
 			t.Fatalf("Next: %v, while waiting for the terminal to end", err)
 		}
-		v.screen.Write(event.Output)
-		if event.Exited {
-			v.exit = &event
-		}
+		v.show(event)
 	}
 	return v.exit.Code
 }
@@ -268,6 +304,29 @@ func typeLine(t *testing.T, v *viewer, line string) {
 	t.Helper()
 	if err := v.Input([]byte(line + "\r")); err != nil {
 		t.Fatalf("Input %q: %v", line, err)
+	}
+}
+
+// askForSize types "size" into the terminal every 200 ms until the returned
+// stop is called. ConPTY applies a resize on its own thread, so the program
+// can still read the old size just after one.
+func askForSize(v *viewer) (stop func()) {
+	stopped, ended := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(ended)
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for v.Input([]byte("size\r")) == nil {
+			select {
+			case <-stopped:
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		close(stopped)
+		<-ended
 	}
 }
 
@@ -282,6 +341,43 @@ func TestTheTerminalKnowsWhichTerminalItIs(t *testing.T) {
 	typeLine(t, v, "host-id")
 
 	v.waitFor(t, "host-id g1")
+}
+
+// The terminal carries a proof value of its own, which its host's record
+// proves by digest alone, even when the host was launched from another
+// host's terminal; nothing else proves it.
+func TestTheTerminalCarriesAProofOnlyItsHostsRecordProves(t *testing.T) {
+	// Arrange
+	t.Setenv(ProofVariable, "outer-proof")
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	typeLine(t, v, "host-proof")
+
+	// Assert
+	v.waitFor(t, "host-proof "+record.ProofSum)
+	if record.Proves("outer-proof") || record.Proves("") || (Record{}).Proves("outer-proof") {
+		t.Errorf("record %+v proves another terminal's value, an empty one, or a record without a proof proves one", record)
+	}
+}
+
+// The record names when the terminal's program was created, which tells the
+// program from a later process that Windows gives its pid.
+func TestTheRecordNamesWhenTheTerminalsProgramStarted(t *testing.T) {
+	// Arrange
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	started, ok := proc.StartTime(record.ChildPID)
+
+	// Assert
+	if !ok || record.ChildStart.IsZero() || !record.ChildStart.Equal(started) {
+		t.Errorf("record names the program's start %v, want %v (found %t)", record.ChildStart, started, ok)
+	}
 }
 
 // A viewer types into the terminal the host runs and sees its output.
@@ -304,7 +400,8 @@ func TestAViewerResizesTheTerminal(t *testing.T) {
 	if err := v.Resize(100, 30); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	typeLine(t, v, "size")
+	stop := askForSize(v)
+	defer stop()
 
 	v.waitFor(t, "size 100x30")
 }
@@ -322,6 +419,236 @@ func TestALateViewerSeesTheTerminalsHistory(t *testing.T) {
 
 	if err != nil || !strings.Contains(string(history.Output), "got before you came") {
 		t.Fatalf("the late viewer's first event = %q, %v; want the history", history.Output, err)
+	}
+}
+
+// Every viewer that asked for sizes is told each resize at its place in the
+// output, whichever viewer made it and the one that made it too, so each
+// draws the output before it at the old size and the output after it at the
+// new one. A viewer that did not ask is sent no size, which its Next would
+// refuse as an unknown frame.
+func TestEveryViewerIsToldEachResizeAtItsPlaceInTheOutput(t *testing.T) {
+	_, record := launch(t)
+	watching := view(t, record)
+	resizing := view(t, record)
+	plain := connect(t, record)
+	watching.waitFor(t, `^\[size 80x25\][\s\S]*ready`)
+	typeLine(t, watching, "size")
+	watching.waitFor(t, `size 80x25\r`)
+
+	if err := resizing.Resize(100, 30); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	stop := askForSize(watching)
+	defer stop()
+
+	for _, v := range []*viewer{watching, resizing} {
+		v.waitFor(t, `size 80x25\r[\s\S]*\[size 100x30\][\s\S]*size 100x30`)
+	}
+	plain.waitFor(t, "size 100x30")
+}
+
+// Resizes made narrow and wide from another client while the terminal
+// prints continuously never stall its output or the host, reach a
+// size-aware viewer in the order they were made, and leave the program
+// reading the last size once they stop. ConPTY takes each resize on a thread
+// of its own and reports no boundary in its output, so output right around a
+// resize can still be drawn for the size before it; the full repaints the
+// program makes at the last size are what a viewer is left showing.
+func TestResizesDuringContinuousOutputArriveInOrder(t *testing.T) {
+	_, record := launch(t)
+	watching := view(t, record)
+	watching.waitFor(t, "ready")
+	resizer, err := Dial(record)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer resizer.Close()
+	typeLine(t, watching, "stream")
+	watching.waitFor(t, "line 000010")
+
+	var sizes []string
+	for i := range 20 {
+		cols, rows := 120+i, 40
+		if i%2 == 1 {
+			cols, rows = 60+i, 20
+		}
+		if err := resizer.Resize(cols, rows); err != nil {
+			t.Fatalf("Resize %dx%d: %v", cols, rows, err)
+		}
+		sizes = append(sizes, fmt.Sprintf("%dx%d", cols, rows))
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	last := sizes[len(sizes)-1]
+	watching.waitFor(t, "streamed")
+	watching.waitFor(t, regexp.QuoteMeta("[size "+last+"]"))
+	// The first size is the one the history starts at.
+	marks := regexp.MustCompile(`\[size (\d+x\d+)\]`).FindAllStringSubmatch(watching.screen.String(), -1)
+	if len(marks) < 2 {
+		t.Fatalf("the viewer was told sizes %v, want the resizes after the first", marks)
+	}
+	marks = marks[1:]
+	next := 0
+	for _, mark := range marks {
+		for next < len(sizes) && sizes[next] != mark[1] {
+			next++
+		}
+		if next == len(sizes) {
+			t.Fatalf("the viewer was told sizes %v, not in the order %v they were made", marks, sizes)
+		}
+	}
+	if len(marks) == 0 || marks[len(marks)-1][1] != last {
+		t.Fatalf("the viewer was told sizes ending %v, want the last resize %s", marks[max(0, len(marks)-1):], last)
+	}
+	stop := askForSize(watching)
+	defer stop()
+	watching.waitFor(t, "size "+last+"\r")
+}
+
+// A viewer that connects later replays the history at the sizes it was
+// written at, each at its place, and is told how much of what it receives
+// is that history.
+func TestALateViewerReplaysTheHistoryAtItsSizes(t *testing.T) {
+	_, record := launch(t)
+	first := connect(t, record)
+	first.waitFor(t, "ready")
+	typeLine(t, first, "before")
+	first.waitFor(t, "got before")
+	if err := first.Resize(100, 30); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	typeLine(t, first, "after")
+	first.waitFor(t, "got after")
+
+	late := view(t, record)
+	replayed := &viewer{}
+	for output := 0; output < late.History(); {
+		event, err := late.Next()
+		if err != nil {
+			t.Fatalf("Next: %v, after %d of %d history bytes", err, output, late.History())
+		}
+		replayed.show(event)
+		output += len(event.Output)
+	}
+
+	if pattern := `^\[size 80x25\][\s\S]*got before[\s\S]*\[size 100x30\][\s\S]*got after`; !regexp.MustCompile(pattern).MatchString(replayed.screen.String()) {
+		t.Errorf("the replay is %q, want it to match %q", replayed.screen.String(), pattern)
+	}
+}
+
+// frame is one frame a scripted host sends.
+type frame struct {
+	kind    byte
+	payload []byte
+}
+
+// scriptedHost serves one connection as a host that answers the handshake
+// with answer, sends frames and closes the connection, and returns the record
+// that names it and the hello the client said.
+func scriptedHost(t *testing.T, answer hello, frames ...frame) (Record, <-chan hello) {
+	t.Helper()
+	name, err := pipeName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipes, err := listen(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { windows.CloseHandle(pipes.waiting) })
+	said := make(chan hello, 1)
+	go func() {
+		defer close(said)
+		connection, err := pipes.accept()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		greeting, err := readHello(connection)
+		if err != nil {
+			return
+		}
+		said <- greeting
+		if writeHello(connection, answer) != nil {
+			return
+		}
+		for _, f := range frames {
+			if writeFrame(connection, f.kind, f.payload) != nil {
+				return
+			}
+		}
+	}()
+	return Record{ID: "old", Pipe: name, Token: "token", Version: Version, HostPID: os.Getpid()}, said
+}
+
+// A host from before sizes were told answers View as it answers any viewer,
+// with its history as its first output, so View counts that output as the
+// history and Next still returns it first, then the live output.
+func TestAViewOfAHostThatTellsNoSizesCountsItsFirstOutputAsTheHistory(t *testing.T) {
+	record, said := scriptedHost(t, hello{Version: Version}, frame{frameOutput, []byte("old history")}, frame{frameOutput, []byte("live")})
+
+	client, err := View(record)
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	defer client.Close()
+
+	if greeting := <-said; !greeting.Sizes {
+		t.Errorf("View said %+v, want it to ask for sizes", greeting)
+	}
+	if client.IsToldSizes() {
+		t.Error("the client expects sizes from a host that tells none")
+	}
+	if client.History() != len("old history") {
+		t.Errorf("History = %d, want the first output's %d bytes", client.History(), len("old history"))
+	}
+	for _, want := range []string{"old history", "live"} {
+		event, err := client.Next()
+		if err != nil || string(event.Output) != want || event.Cols != 0 || event.Exited {
+			t.Fatalf("Next = %+v, %v; want the output %q", event, err, want)
+		}
+	}
+}
+
+// A host from before sizes were told that ends the connection before the
+// history it owes every viewer is refused by View rather than viewed with no
+// history.
+func TestAViewOfAHostThatSendsNoHistoryIsAnError(t *testing.T) {
+	record, _ := scriptedHost(t, hello{Version: Version})
+
+	client, err := View(record)
+
+	if err == nil {
+		_ = client.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "read the history") {
+		t.Fatalf("View error = %v, want the missing history named", err)
+	}
+}
+
+// A size frame whose payload is not a width and a height is refused by Next
+// rather than read as a size.
+func TestAMalformedSizeFrameIsRefused(t *testing.T) {
+	for name, payload := range map[string][]byte{
+		"short": {0, 100, 0},
+		"long":  {0, 100, 0, 30, 0},
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			record, _ := scriptedHost(t, hello{Version: Version, Sizes: true}, frame{frameSize, payload})
+			client, err := View(record)
+			if err != nil {
+				t.Fatalf("View: %v", err)
+			}
+			defer client.Close()
+
+			event, err := client.Next()
+
+			if err == nil || !strings.Contains(err.Error(), "malformed size frame") {
+				t.Fatalf("Next = %+v, %v; want the size frame refused", event, err)
+			}
+		})
 	}
 }
 

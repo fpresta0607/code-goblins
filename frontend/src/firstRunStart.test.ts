@@ -4,26 +4,32 @@ import { showsFirstRun, startState } from "./firstRunStart.ts";
 import type { Setup, SetupAgent } from "./types.ts";
 
 const claude: SetupAgent = { id: "claude", name: "Claude Code", installed: true, signed_in: true, reason: "" };
-const codex: SetupAgent = { id: "codex", name: "Codex", installed: true, signed_in: true, reason: "" };
-const setup = (changes: Partial<Setup> = {}): Setup => ({ home: "C:\\CodeGoblins", default_agent: "codex", problem: "", agents: [claude, codex], cfo_runs: false, ...changes });
+const others: SetupAgent[] = [
+  { id: "codex", name: "Codex", installed: true, signed_in: true, reason: "Goblins can wake only a Claude Code CFO today" },
+  { id: "pi", name: "Pi", installed: false, signed_in: false, reason: "Goblins can wake only a Claude Code CFO today" },
+];
+const setup = (changes: Partial<Setup> = {}): Setup => ({ projects_root: "C:\\dev", checkouts: ["alpha", "beta"], problem: "", agents: [claude, ...others], cfo_runs: false, ...changes });
 
-test("Start chooses the remembered or selected agent without a project", () => {
-  for (const [picked, expected] of [["", "codex"], ["claude", "claude"], ["unknown", "claude"]]) {
-    assert.deepEqual(startState(setup(), picked), { agent: expected, blocked: "" });
-  }
+test("Start takes the picked project, or a folder's only one, and says what it still needs", () => {
+  const cases: [string, Setup, string, { project: string; blocked: string }][] = [
+    ["a picked project", setup(), "beta", { project: "beta", blocked: "" }],
+    ["a folder's only project, picked or not", setup({ checkouts: ["alpha"] }), "", { project: "alpha", blocked: "" }],
+    ["two projects and no pick", setup(), "", { project: "", blocked: "Pick the project the CFO starts in." }],
+    ["a pick the new folder lacks", setup({ checkouts: ["gamma", "delta"] }), "beta", { project: "", blocked: "Pick the project the CFO starts in." }],
+    ["no folder yet", setup({ projects_root: "", checkouts: [] }), "", { project: "", blocked: "Enter the folder that holds your projects." }],
+    ["a folder without projects", setup({ checkouts: [], problem: "No git checkout is in this folder; pick the folder that holds your projects." }), "", { project: "", blocked: "No git checkout is in this folder; pick the folder that holds your projects." }],
+    ["a Claude Code it cannot start", setup({ agents: [{ ...claude, installed: false, reason: "Install Claude Code to start the CFO" }, ...others] }), "alpha", { project: "alpha", blocked: "Install Claude Code to start the CFO" }],
+  ];
+  for (const [name, given, picked, want] of cases) assert.deepEqual(startState(given, picked), want, name);
 });
 
-test("Start refuses missing, signed-out and unverifiable agents", () => {
-  for (const changes of [{ installed: false }, { signed_in: false }, { installed: false, signed_in: false }]) {
-    const result = startState(setup({ agents: [{ ...claude, ...changes, reason: "Sign-in needed" }], default_agent: "claude" }), "");
-    assert.match(result.blocked, /goblins setup/);
-  }
-  assert.match(startState(setup({ agents: [] }), "").blocked, /goblins setup/);
-  assert.equal(startState(setup({ problem: "Unreadable default" }), "").blocked, "Unreadable default");
-});
-
-test("the first-run page has no board-without-CFO choice", () => {
-  assert.equal(showsFirstRun({ cfoRuns: false, choice: "" }), true);
-  assert.equal(showsFirstRun({ cfoRuns: true, choice: "" }), false);
-  assert.equal(showsFirstRun({ cfoRuns: false, choice: "started" }), false);
+test("the board's root shows the first-run page whenever no CFO runs, unless he just started one or chose the board", () => {
+  const cases: [string, Parameters<typeof showsFirstRun>[0], boolean][] = [
+    ["no CFO", { cfoRuns: false, choice: "" }, true],
+    ["a CFO runs", { cfoRuns: true, choice: "" }, false],
+    ["just started, before the board sees it", { cfoRuns: false, choice: "started" }, false],
+    ["the board without a CFO, by his choice", { cfoRuns: false, choice: "board" }, false],
+    ["the board's Start the CFO, even after a start the board never saw run", { cfoRuns: false, choice: "" }, true],
+  ];
+  for (const [name, given, want] of cases) assert.equal(showsFirstRun(given), want, name);
 });

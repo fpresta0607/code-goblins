@@ -16,7 +16,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -41,12 +40,15 @@ type SwitchRequest struct {
 	// Native moves a task that runs in Herdr into a native terminal of its
 	// own, under the same id, in the same worktree and branch, resuming its
 	// harness's session there.
-	Native  bool
-	Session string
+	Native        bool
+	Session       string
+	IsResume      bool
+	ResumeSession string
+	ResumeHandoff string
+	Generation    string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
-	BriefPath     string
-	ResumeSession string
+	BriefPath string
 }
 
 // SwitchResult reports what the switch changed.
@@ -76,6 +78,8 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		"switch model", req.Model,
 		"switch effort", req.Effort,
 		"switch session", req.Session,
+		"resume session", req.ResumeSession,
+		"resume handoff", req.ResumeHandoff,
 	); err != nil {
 		return SwitchResult{}, err
 	}
@@ -97,6 +101,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	meta, err := state.ReadTaskMeta(s.StateDir, req.ID)
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: read task metadata: %w", err)
+	}
+	if req.Generation != "" && req.Generation != meta.SpawnGen {
+		return SwitchResult{}, errors.New("switch: task session changed before resume")
 	}
 	native := meta.Backend == "native"
 	if meta.Backend != "herdr" && !native {
@@ -120,16 +127,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	}
 
 	target := requestedTarget(meta, req)
-	var exactResumeArgs []string
-	if req.ResumeSession != "" {
-		if !target.same(meta) {
-			return SwitchResult{}, errors.New("recovery keeps the recorded harness, model and effort")
-		}
-		exactResumeArgs, err = onboarding.ResumeArgs(meta.Harness, req.ResumeSession)
-		if err != nil {
-			return SwitchResult{}, err
-		}
-	}
 	if target == (switchTarget{}) {
 		return SwitchResult{}, fmt.Errorf("switch: task %s has no harness to switch", req.ID)
 	}
@@ -145,6 +142,11 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 		terminals = s.Terminals(session)
 		paneTarget = herdr.Target{Session: session, Pane: meta.HerdrPaneID}
+		if req.IsResume {
+			if err := terminals.EnsureServer(ctx); err != nil {
+				return SwitchResult{}, err
+			}
+		}
 	}
 
 	if target.same(meta) && !moving {
@@ -159,6 +161,9 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 			alive = status == herdr.AgentAlive
 		}
 		if alive {
+			if req.IsResume {
+				return SwitchResult{Meta: meta, Resumed: true, Output: "task already resumed " + meta.ID}, nil
+			}
 			return SwitchResult{}, fmt.Errorf("switch: task %s already runs harness=%s model=%s effort=%s; nothing to switch", req.ID, meta.Harness, valueOrDefault(meta.Model), valueOrDefault(meta.Effort))
 		}
 	}
@@ -258,13 +263,26 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
 			return SwitchResult{}, err
 		}
+	} else if req.IsResume {
+		container, err := terminals.EnsureContainer(ctx, project)
+		if err != nil {
+			return SwitchResult{}, err
+		}
+		endpoint, err := terminals.CreateTask(ctx, container, "gb-"+meta.ID, worktreePath)
+		if err != nil {
+			return SwitchResult{}, fmt.Errorf("resume task terminal: %w", err)
+		}
+		meta.HerdrSession, meta.HerdrWorkspaceID = endpoint.Target.Session, endpoint.WorkspaceID
+		meta.HerdrTabID, meta.HerdrPaneID = endpoint.TabID, endpoint.PaneID
+		meta.Window = endpoint.Target.String()
+		paneTarget = endpoint.Target
 	} else if err := s.stopHarness(ctx, terminals, paneTarget, current.Control()); err != nil {
 		return SwitchResult{}, err
 	}
 	// The pane's shell waits until every process the harness started has
 	// exited, so one left alive would hold a relaunch in the shell's input, to
 	// start later with no registered agent. Switch refuses over them instead.
-	if !native {
+	if !native && !req.IsResume {
 		if leftovers, err := s.leftoversOf(ctx, terminals, paneTarget); err != nil || len(leftovers) > 0 {
 			rerun := "cfo switch " + req.ID
 			if moving {
@@ -311,14 +329,31 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
 	}
 	launchMeta := meta
+	var resumeRecord state.Lifecycle
+	meta.ResumeOperation = ""
+	if req.IsResume {
+		var err error
+		resumeRecord, err = state.ReadLifecycle(s.StateDir, meta.ID)
+		if err != nil {
+			return SwitchResult{}, err
+		}
+		if resumeRecord.Action != "resume" || resumeRecord.Phase != "resuming" || resumeRecord.Generation != meta.SpawnGen {
+			return SwitchResult{}, errors.New("resume controller changed before launching the harness")
+		}
+		meta.ResumeOperation = resumeRecord.Operation
+	}
 	// Publish the replacement generation before its first native hook can run.
-	// Keep an exact recovery retryable if launch fails before its first hook.
-	meta.ResumeSession = req.ResumeSession
 	if err := s.publishSwitch(&meta, target); err != nil {
 		return SwitchResult{}, err
 	}
+	if req.IsResume {
+		resumeRecord.Generation = meta.SpawnGen
+		if err := state.WriteLifecycle(s.StateDir, resumeRecord); err != nil {
+			return SwitchResult{}, err
+		}
+	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, exactResumeArgs)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, terminals, paneTarget, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, req)
 	var tabNotice string
 	if moving {
 		if closeErr := terminals.CloseTab(ctx, herdrSession, herdrTab); closeErr != nil {
@@ -408,12 +443,11 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-pane recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects and Codex's MCP servers included.
-func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers, exactResumeArgs []string) (handoff string, resumed bool, nativeHost host.Record, err error) {
-	resumeArgs := adapter.Control().ResumeArgs
-	if len(exactResumeArgs) > 0 {
-		resumeArgs = exactResumeArgs
+func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, paneTarget herdr.Target, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
+	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+	if request.IsResume {
+		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
 	}
-	resumed = target.Harness == harness.Kind(meta.Harness) && len(resumeArgs) > 0
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -444,6 +478,13 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		control := adapter.Control()
+		resumeArgs := control.ResumeArgs
+		if request.IsResume {
+			resumeArgs = []string{"--resume", request.ResumeSession}
+			if target.Harness == harness.Codex {
+				resumeArgs = []string{"resume", request.ResumeSession}
+			}
+		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
 		launch.Instruction = resumeInstruction(meta, target)
@@ -460,6 +501,9 @@ func (s Service) relaunchHarness(ctx context.Context, client terminal.Backend, p
 			return "", false, host.Record{}, err
 		}
 		launch.Instruction = handoffInstruction(handoff, briefPath, id)
+	}
+	if request.IsResume && request.ResumeHandoff != "" {
+		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
@@ -793,7 +837,7 @@ func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
 // recentStatus returns the tail of the task's status log, which is the only
 // record of the previous goblin's own reporting.
 func (s Service) recentStatus(id string) string {
-	data, err := os.ReadFile(filepath.Join(s.StateDir, id+".status"))
+	data, err := fsx.ReadFile(filepath.Join(s.StateDir, id+".status"))
 	if err != nil {
 		return ""
 	}

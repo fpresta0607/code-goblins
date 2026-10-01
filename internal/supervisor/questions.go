@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -56,6 +58,13 @@ type Question struct {
 	AnsweredOption string     `json:"answered_option,omitempty"`
 	AnsweredBy     string     `json:"answered_by,omitempty"`
 	AnsweredAt     *time.Time `json:"answered_at,omitempty"`
+	// AnsweredIn says where an answer given outside the question's own card
+	// came from, such as page for the Overlord's answer on the review page
+	// that carries it.
+	AnsweredIn string `json:"answered_in,omitempty"`
+	// Page is, on the board only, the open review item whose page carries
+	// this question, so the Command Center shows the two as one.
+	Page string `json:"page,omitempty"`
 }
 
 func validQuestion(q Question) error {
@@ -248,6 +257,11 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 // the supervisor only over its pipe, so ingest refuses any file found here.
 const answersInbox = "answers-inbox"
 
+// questionArrival is how long a goblin's question may take to reach the board
+// after its notify is recorded, which comes first; one still absent after it
+// never reached the board.
+var questionArrival = 30 * time.Second
+
 // cfoAnswer is one answer the CFO gave with cfo answer.
 type cfoAnswer struct {
 	QuestionID string    `json:"question_id"`
@@ -307,7 +321,15 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, fmt.Errorf("%s is not the question of notify %d, which is %s", ref, seq, id)
 	}
 	q, err := readQuestion(c.State, id)
-	if err != nil {
+	onBoard := err == nil
+	if errors.Is(err, fs.ErrNotExist) && time.Since(record.Time) >= questionArrival {
+		// Its notify could not show it on the board, such as one the board's
+		// proof refused, so it never will: the choice goes straight to the
+		// goblin that asked.
+		if q, err = askerOf(c.State, record); err != nil {
+			return "", false, err
+		}
+	} else if err != nil {
 		return "", false, fmt.Errorf("question %s has not reached the board yet (%v); try again in a moment", id, err)
 	}
 	if q.AnswerID != "" && q.Status != "failed" {
@@ -323,13 +345,31 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
-	if err := c.recordAnswer(identity, q, id, chosen, answer); err != nil {
-		unrecorded = append(unrecorded, err)
+	if onBoard {
+		if err := c.recordAnswer(identity, q, id, chosen, answer); err != nil {
+			unrecorded = append(unrecorded, err)
+		}
 	}
 	if err := errors.Join(unrecorded...); err != nil {
 		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
 	}
 	return chosen, queued, nil
+}
+
+// askerOf is the goblin that raised notify record, for a question that never
+// reached the board: its task's current generation, when that generation
+// started before the notify was recorded. A goblin that restarted since does
+// not get an answer to a question it never asked.
+func askerOf(stateDir string, record wake.Record) (Question, error) {
+	meta, err := state.ReadTaskMeta(stateDir, record.Key)
+	if err != nil {
+		return Question{}, fmt.Errorf("%s has no live record, so notify %d reaches nobody: %w", record.Key, record.Seq, err)
+	}
+	started, err := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
+	if err != nil || !strings.HasPrefix(meta.SpawnGen, "s") || time.Unix(0, started).After(record.Time) {
+		return Question{}, fmt.Errorf("%s restarted or ended since it asked notify %d; nothing was sent", record.Key, record.Seq)
+	}
+	return Question{Task: meta.ID, Identity: goblinIdentity(meta)}, nil
 }
 
 // RecordGoblinAnswer closes a goblin's question on the board with the choice
@@ -380,7 +420,7 @@ func (c *CFOConnection) RecordGoblinAnswer(ctx context.Context, id, option, note
 	if q.AnswerID != "" && q.Status != "failed" {
 		return "", fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was recorded", q.ID, q.Status)
 	}
-	if q.Status == "succeeded" {
+	if q.Status == "succeeded" && !answeredByAck(q) {
 		return "", fmt.Errorf("%s is already answered: %s", q.ID, q.Answer)
 	}
 	choices, _ := questionChoices(q.Options)
@@ -480,7 +520,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		if info.Size() > maxStateBytes {
 			return Question{}, errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return Question{}, err
 		}
@@ -495,7 +535,7 @@ func readQuestion(stateDir, id string) (Question, error) {
 		return Question{}, err
 	}
 	sum := sha256.Sum256([]byte(id))
-	data, err := os.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, "questions-inbox", hex.EncodeToString(sum[:])+".json"))
 	if err != nil {
 		return Question{}, err
 	}
@@ -572,10 +612,19 @@ func (s *Store) recordCFOAnswer(a cfoAnswer) error {
 // still waits in its inbox, or the Overlord's board answer is on its way.
 var errAnswerWaits = errors.New("its question cannot take an answer yet")
 
+// answeredByAck reports whether q closed because the CFO acked its notify,
+// which the CFO does once it answered the goblin, such as with cfo send: the
+// board knows the CFO answered it but not which choice, which the CFO may
+// still record.
+func answeredByAck(q Question) bool {
+	return q.Status == "succeeded" && q.AnsweredBy == "cfo" && q.Answer == ""
+}
+
 // applyCFOAnswer closes a question with the CFO's answer: which choice closed
 // it, that the CFO gave it, and when. A question still pending takes it, and
-// so does one superseded because the CFO drained its notify first or one
-// whose board answer was refused because the CFO had just answered.
+// so does one closed by the CFO's ack before its choice was recorded, one
+// superseded, or one whose board answer was refused because the CFO had just
+// answered.
 func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
 	if i < 0 {
@@ -585,16 +634,17 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		}
 		return errors.New("its question is gone")
 	}
-	switch status := s.db.Questions[i].Status; {
-	case status == "queued":
+	switch q := s.db.Questions[i]; {
+	case q.Status == "queued":
 		return errAnswerWaits
-	case !slices.Contains([]string{"pending", "superseded", "failed"}, status):
-		return errors.New("its question already closed as " + status)
+	case !slices.Contains([]string{"pending", "superseded", "failed"}, q.Status) && !answeredByAck(q):
+		return errors.New("its question already closed as " + q.Status)
 	}
 	q, at := &s.db.Questions[i], a.At
 	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt = a.Option, "cfo", &at
+	s.closePagesOfQuestion(*q, "cfo", "The CFO answered its question: "+a.Answer)
 	return nil
 }
 
@@ -633,7 +683,18 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		release()
 		return "", nil, err
 	}
-	if !descendsFrom(entries, p.Process) || entries[0].Start.After(connected) {
+	proven := descendsFrom(entries, p.Process)
+	if !proven && p.Host != "" && len(entries) > 0 {
+		// A chain of parents that stops short, as a Cygwin or MSYS exec leaves
+		// it, is proven by the proof value of the CFO's native terminal.
+		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
+			if env, err := proc.Environment(pid); err == nil {
+				program, err := terminalProgram(record, env)
+				proven = err == nil && program.PID == p.Process.PID && program.Start.Equal(p.Process.Start)
+			}
+		}
+	}
+	if !proven || entries[0].Start.After(connected) {
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
@@ -692,7 +753,7 @@ func publish(stateDir string, q Question) error {
 		if info.Size() > maxStateBytes {
 			return errors.New("supervisor state exceeds its bound")
 		}
-		data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+		data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
 		if err != nil {
 			return err
 		}
@@ -721,7 +782,7 @@ func publish(stateDir string, q Question) error {
 	}
 	sum := sha256.Sum256([]byte(id))
 	path := filepath.Join(dir, hex.EncodeToString(sum[:])+".json")
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := fsx.ReadFile(path); err == nil {
 		var prior Question
 		if json.Unmarshal(data, &prior) != nil || !sameQuestion(prior, q) {
 			return errors.New("question ID already used")
@@ -820,7 +881,7 @@ func (s *Store) ingestQuestions() error {
 		if info.Size() > 12<<10 {
 			invalid = errors.New("question exceeds its size limit")
 		} else {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -905,7 +966,10 @@ func (s *Store) supersedeQuestions() error {
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
 		case pendingErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
-			q.Status, q.Message = "superseded", "The CFO already handled this question."
+			// The CFO acks a goblin's question once it answered it, so it
+			// closes as answered by the CFO, with the check of any answer.
+			at := time.Now().UTC()
+			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt = "succeeded", "Answered by the CFO.", "cfo", &at
 			changed = true
 		}
 	}

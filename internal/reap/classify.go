@@ -281,6 +281,7 @@ type Task struct {
 	Meta     state.TaskMeta
 	Verb     string
 	Terminal bool
+	IsPaused bool
 	// Hosted says a native task's terminal still runs: Classify sets it from
 	// the inventory's live host records, and it is what a native goblin,
 	// which has no pane, is alive by.
@@ -405,10 +406,12 @@ var harnessSignatures = []string{
 // flag is absent.
 var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 
-// desktopAppMarker is the install path of the Overlord's Claude Desktop
-// application. It is a packaged app, so every one of its processes runs from
-// under WindowsApps\Claude_<version>_<publisher>\app\claude.exe.
-const desktopAppMarker = `\windowsapps\claude_`
+// desktopAppMarkers are the install paths of the Overlord's desktop
+// applications. Each is a packaged app whose own processes run from under
+// WindowsApps: Claude Desktop from Claude_<version>_<publisher>\app\claude.exe,
+// and the Codex app from OpenAI.Codex_<version>_<publisher>\app\ChatGPT.exe,
+// whose codex.exe app server runs from outside the package as its child.
+var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`}
 
 // gateExecutable supervises a no-mistakes review round and launches the
 // reviewer harnesses under it. Those harnesses are as supervised as a goblin
@@ -470,6 +473,9 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 	for _, process := range inv.Processes {
 		byPID[process.PID] = process
 	}
+	owns := func(dir, task string) bool {
+		return runsForTask(dir, task, inv, tasks, unreadable)
+	}
 	var findings []Finding
 	for _, process := range inv.Processes {
 		if supervised[process.PID] {
@@ -483,7 +489,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				// its own could ever be right about.
 				continue
 			}
-			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir)
+			fixture, underFixture := fixtureServer(process, byPID, inv.Session, inv.StateDir, owns)
 			owner := ""
 			if underFixture {
 				dirs := fixture.Dirs
@@ -602,6 +608,9 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	var findings []Finding
 	for _, worktree := range inv.Worktrees {
 		task, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+		if known && task.IsPaused {
+			continue
+		}
 		if goblinIsAlive(task, known, panes, worktree.Path) {
 			// A live goblin owns this directory, as its worktree or as an
 			// extra one it made for another branch. This outranks
@@ -805,6 +814,9 @@ func classifyMetas(inv Inventory, panes map[string]Pane, supervised, fleet map[i
 	}
 	var findings []Finding
 	for _, task := range inv.Tasks {
+		if task.IsPaused {
+			continue
+		}
 		if _, ok := panes[task.Meta.HerdrPaneID]; ok || task.Hosted {
 			continue
 		}
@@ -891,8 +903,8 @@ const fixtureAncestry = 8
 // home's host carries its harness's command line after --, and a program run
 // from a goblin's Go temporary directory may be the stand-in itself, so each
 // is checked as its own fixture origin too.
-func fixtureServer(process Process, byPID map[int]Process, session, stateDir string) (fixtureOrigin, bool) {
-	if origin, ok := nativeFixture(process, stateDir); ok {
+func fixtureServer(process Process, byPID map[int]Process, session, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
+	if origin, ok := nativeFixture(process, stateDir, owns); ok {
 		return origin, true
 	}
 	current := process
@@ -907,7 +919,7 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 			}
 			return fixtureOrigin{}, false
 		}
-		if origin, ok := nativeFixture(parent, stateDir); ok {
+		if origin, ok := nativeFixture(parent, stateDir, owns); ok {
 			return origin, true
 		}
 		current = parent
@@ -917,15 +929,37 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 
 // nativeFixture reports whether process is where a fixture without a Herdr
 // session runs its stand-ins from: the native terminal host of another CFO
-// home, or a program run from a goblin's Go temporary directory.
-func nativeFixture(process Process, stateDir string) (fixtureOrigin, bool) {
+// home, or a program run from a goblin's Go temporary directory and from that
+// goblin's own worktree or scratch directory.
+func nativeFixture(process Process, stateDir string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
 	if dirs, scratch := scratchHost(process, stateDir); scratch {
 		return fixtureOrigin{Process: process, Dirs: append([]string{process.Cwd}, dirs...), ScratchHome: true}, true
 	}
-	if task, ok := goTestTask(process); ok {
+	if task, ok := goTestTask(process); ok && owns(process.Cwd, task) {
 		return fixtureOrigin{Process: process, GoTestTask: task}, true
 	}
 	return fixtureOrigin{}, false
+}
+
+// runsForTask reports whether dir, a process's working directory, lies in
+// task's own worktree, an extra worktree ownerOf gives it, or its scratch
+// directory: its task temporary directory or its Claude Code scratchpad. A Go
+// temporary directory alone names no owner: the shared no-mistakes daemon
+// builds every goblin's gate tests under the directory of whichever goblin
+// started it, and runs them from the gate's own worktree.
+func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreadable map[string]bool) bool {
+	if inv.StateDir != "" && pathWithin(dir, filepath.Join(inv.StateDir, "tasktmp", task)) {
+		return true
+	}
+	worktree, ok := worktreeHolding(scratchpadOwner(dir, inv.Worktrees), inv.Worktrees)
+	if !ok {
+		return false
+	}
+	if strings.EqualFold(worktree.TaskID, task) {
+		return true
+	}
+	owner, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
+	return known && strings.EqualFold(owner.ID, task)
 }
 
 // fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
@@ -933,7 +967,8 @@ func nativeFixture(process Process, stateDir string) (fixtureOrigin, bool) {
 // a program a goblin's Go test runs. Dirs are where it was started and, for a
 // host, the state and terminal directories it names; any of them can tie it
 // to the goblin whose test or proof it is. GoTestTask is the task whose Go
-// temporary directory the program runs from, which ties it directly.
+// temporary directory the program runs from and in whose worktree or scratch
+// directory it runs, which ties it directly.
 type fixtureOrigin struct {
 	Process
 	Dirs        []string
@@ -945,7 +980,8 @@ type fixtureOrigin struct {
 // %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir), process's program
 // runs from. A goblin's Go test builds its test binary there, and the
 // stand-ins it starts run from the test's own temporary directory under it,
-// so the path names the goblin whose test it is.
+// so the path names the goblin the test may be; runsForTask decides whether
+// it is.
 func goTestTask(process Process) (string, bool) {
 	args := commandArgs(process.CommandLine)
 	if len(args) == 0 {
@@ -1309,10 +1345,12 @@ func isNonFleetHarness(process Process, desktopApp, gateAgents map[int]bool) boo
 	return false
 }
 
-// isDesktopApp matches the packaged desktop application by its install path,
-// which every one of its processes carries.
+// isDesktopApp matches a packaged desktop application's own process by its
+// install path; whatever it starts outside the package is found as its
+// descendant.
 func isDesktopApp(process Process) bool {
-	return strings.Contains(normalizePath(process.CommandLine), desktopAppMarker)
+	command := normalizePath(process.CommandLine)
+	return slices.ContainsFunc(desktopAppMarkers, func(marker string) bool { return strings.Contains(command, marker) })
 }
 
 // isGateSupervisor matches no-mistakes, whose children are the reviewer
@@ -1416,7 +1454,7 @@ func verbText(verb string) string {
 // the two outcomes a goblin reports through cfo notify; every other verb
 // leaves the task somebody's problem.
 func IsTerminal(verb string) bool {
-	return verb == "done" || verb == "failed"
+	return verb == "done" || verb == "failed" || verb == "stopped"
 }
 
 // normalizePath folds a Windows path for comparison: lowercase, with forward

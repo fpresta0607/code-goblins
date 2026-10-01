@@ -20,12 +20,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
-	"github.com/fpresta0607/code-goblins/internal/onboarding"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -40,7 +41,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run goblins from any folder for guided agent selection, installation and sign-in. It starts the CFO in the Code Goblins home, then offers Enter for the CFO terminal (default), B for the board, or Ctrl+click on the board address. A running CFO keeps its terminal and harness. goblins --harness claude|codex|pi chooses the remembered agent after verification. goblins --board explicitly opens the browser after starting or finding the CFO.
+Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
 
 commands:
   version   print the cfo version
@@ -49,8 +50,7 @@ commands:
   attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
-  setup     repeat quick start and choose the default agent; --installers prints this release's pinned installers
-  resume    restart the recorded CFO conversation and recover ended goblin sessions in place
+  update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
@@ -88,6 +88,7 @@ commands:
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
@@ -96,6 +97,7 @@ commands:
   cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CFO clear any open item, audited; a Lavish page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CFO as a review wake
   cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
   cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer
+  cfo run-request --withdraw <id> --reason "<why>"   registered CFO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
   cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
   hook <name>  claude code hook entry points (session-start, pretool-bash, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
@@ -122,6 +124,7 @@ type commandRuntime struct {
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
+	taskLifecycle func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	speedHint     func(context.Context, string) string
 	quota         func(context.Context) (quota.Report, string)
@@ -147,14 +150,12 @@ type commandRuntime struct {
 	// startNativeCFO and attachNative start the CFO in a native terminal and
 	// show a native terminal in this console, for goblins --native and a CFO
 	// registered in one.
-	startNativeCFO func(stateDir, project, harness string) error
+	startNativeCFO func(h home.Home, project, harness string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
-	setupAgent         func(context.Context, string, string, bool, io.Writer, io.Writer) (string, error)
-	choose             func(io.Writer, string, []string, int) (int, error)
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -258,8 +259,9 @@ func defaultCommandRuntime() commandRuntime {
 				System: runtime.System{Commands: commands},
 			}.Collect(ctx)
 		},
-		cleanup: defaultCleanup,
-		reap:    defaultReap,
+		cleanup:       defaultCleanup,
+		taskLifecycle: defaultTaskLifecycle,
+		reap:          defaultReap,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
@@ -281,8 +283,6 @@ func defaultCommandRuntime() commandRuntime {
 		startNativeCFO:     startNativeCFO,
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
-		setupAgent:         setupAgent,
-		choose:             onboarding.ChooseConsole,
 	}
 }
 
@@ -294,23 +294,6 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
-	if runtime.goblins && len(args) > 0 && args[0] == "resume" {
-		if len(args) != 1 {
-			fmt.Fprintln(stderr, "usage: goblins resume")
-			return 2
-		}
-		return runResume(stdout, stderr, runtime)
-	}
-	if runtime.goblins && len(args) > 0 && args[0] == "setup" {
-		if len(args) == 2 && args[1] == "--installers" {
-			return printAgentInstallers(stdout)
-		}
-		if len(args) != 1 {
-			fmt.Fprintln(stderr, "usage: goblins setup")
-			return 2
-		}
-		return runQuickstart(stdout, stderr, runtime, true, false, "")
-	}
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}
@@ -345,6 +328,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runStop(args[1:], stdout, stderr, runtime)
 	case "serve":
 		return runServe(args[1:], stdout, stderr, runtime)
+	case "update":
+		return runUpdate(args[1:], stdout, stderr, runtime)
 	case "host":
 		return runHost(args[1:], stderr)
 	case "native-hook":
@@ -373,6 +358,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDrain(h, args[1:], stdout, stderr)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr, runtime)
+	case "connection-repair":
+		return runConnectionRepair(args[1:], stdout, stderr)
 	case "project":
 		return runProject(args[1:], stdout, stderr, runtime)
 	case "route":
@@ -395,6 +382,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
+	case "pause", "resume":
+		return runLifecycle(args[0], args[1:], stdout, stderr, runtime)
+	case "kill":
+		return runLifecycle("stop", args[1:], stdout, stderr, runtime)
 	case "send":
 		return runSend(args[1:], stdout, stderr, runtime)
 	case "peek":

@@ -11,21 +11,28 @@ import { taskColumn } from "./workflow";
 const COLUMNS = [
   { name: "Tasks", list: "queued", hint: "Top starts first, when memory allows.", empty: "Nothing queued" },
   { name: "In progress", list: "progress", hint: "Top gets the CFO's attention first.", empty: "No work in progress" },
-  { name: "Completed", list: "", hint: "History, newest first.", empty: "Verified work will appear here" },
+  { name: "Completed", list: "", hint: "History, newest first.", empty: "Delivered and stopped tasks will appear here" },
 ] as const;
 
-export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo, onStartCfo, cardStart, presentations }: {
-  presentations:BoardActivity[];
+export type BoardLayout = "kanban" | "stacked";
+
+// The board is a kanban by default, its columns side by side, or stacked,
+// one under another. Paused tasks keep their work inside In progress, under a
+// divider after its working cards, and show only while one is paused.
+export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
+  presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
+  onOpenCommand: () => void;
   onStartCfo: () => void;
   cardStart: CardStarter;
 }) {
   const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} onSelect={onSelect} onTerminal={onTerminal} />;
-  return <section className="task-board" aria-label="Task board">
-    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onStart={onStartCfo} />
+  const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
+  return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
+    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
       const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
       const empty = <p className="column-empty">{column.empty}</p>;
@@ -35,6 +42,10 @@ export function Board({ snapshot, selected, now, onSelect, onTerminal, onOpenCfo
         {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={cardStart} onSelect={onSelect} />
           : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} />
             : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}</RenderBoundary>}
+        {column.list === "progress" && paused.length > 0 && <section className="paused-tasks" aria-label="Paused" data-fit-after>
+          <h3 className="column-divider">Paused<span className="column-count">{paused.length}</span></h3>
+          <div className="task-cards">{paused.map((task) => card(task))}</div>
+        </section>}
       </section>;
     })}
   </section>;

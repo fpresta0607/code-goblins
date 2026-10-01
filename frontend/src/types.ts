@@ -12,6 +12,15 @@ export interface Evaluation {
   at: string;
 }
 export interface Task extends Evaluation {
+  lifecycle?: LifecycleStatus;
+  // teardown names the task's stopped processes, from this or an earlier
+  // session, that Windows is still tearing down.
+  teardown: string[];
+  detail: string;
+  queue_revision: string;
+  notes: string[];
+  action_error: string;
+  branch: string;
   runtime?: RuntimeEvidence;
   id: string;
   title: string;
@@ -26,6 +35,9 @@ export interface Task extends Evaluation {
   session: string;
   dependencies: string[];
   activity: string;
+  handoff?: boolean;
+  last_report?: string;
+  retired_at?: string;
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
   report: string;
@@ -46,10 +58,21 @@ export interface Task extends Evaluation {
   starting: boolean;
   start_error: string;
 }
-// Memory is the machine's free memory in bytes beside the fleet's floor,
-// under which nothing starts, and the mark at which the CFO starts the next
-// queued task.
-export interface Memory { available: number; total: number; floor: number; next: number }
+export interface LifecycleStatus {
+  phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
+  handoff_saved: boolean; validation_restarts: boolean;
+}
+// Memory is the machine's free memory and free commit (memory plus page file)
+// in bytes beside the fleet's floor, under which nothing starts, and the mark
+// at which the CFO starts the next queued task; with the kernel's pools and,
+// while commit is the tighter, the apps holding the most of it.
+export interface Memory {
+  available: number; total: number; commit_available: number; commit_limit: number;
+  paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+}
+// CommitHolder is one app's commit: its first process and every process it
+// started.
+export interface CommitHolder { name: string; commit: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -65,6 +88,7 @@ export interface Session {
   agent_type: string;
   phase: string;
   turn_id: string;
+  host_id: string;
   last_event_id: string;
   updated_at: string;
 }
@@ -107,7 +131,8 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
-  cfo_generation?: string;
+  // The harness the registered CFO runs, such as claude; empty while none is registered.
+  cfo_harness: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -137,6 +162,10 @@ export interface Question {
   answered_option: string; answered_by: string; answered_at: string;
   // task names the goblin that asked; it is empty for the CFO's own question.
   task: string;
+  // page is the open review item whose page carries this question, which
+  // shows it; answered_in says where an answer given outside its card came
+  // from, such as "page".
+  page: string; answered_in: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
   // generation is the asking goblin's session; empty for the CFO's question.
@@ -149,6 +178,12 @@ export interface Review {
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
+  // answered_by and answered_in say who answered the item outside the
+  // Command Center and where, such as "overlord" on its "page".
+  answered_by: string; answered_in: string;
+  // question is the goblin's pending question this item's page carries, and
+  // window_closed_at when the page's review window last closed, if it has.
+  question: string; window_closed_at: string;
   // document is a delivered file, or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
@@ -162,6 +197,8 @@ export interface Run {
   id: string; identity: string; title: string; shell: string; admin: boolean; command: string; cwd: string;
   state: string; exit_code: number | null; output: string; reason: string;
   created_at: string; expires_at: string; ran_at: string; finished_at: string;
+  // connection_task and connection_generation name the goblin a connection repair belongs to.
+  connection_task: string; connection_generation: string;
 }
 export interface ChangedFile {
   path: string;
@@ -181,8 +218,8 @@ export interface FileDiff {
 // it, or why it offers none, the agents this machine has, and whether a CFO
 // already runs.
 export interface Setup {
-  home: string;
-  default_agent: string;
+  projects_root: string;
+  checkouts: string[];
   problem: string;
   agents: SetupAgent[];
   cfo_runs: boolean;
@@ -295,36 +332,44 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
-    cfo_generation: v.cfo_generation === undefined ? "" : string(v.cfo_generation),
+    cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, floor, next }) => ({ available: number(available), total: number(total), floor: number(floor), next: number(next) }))(object(v.memory)),
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+      available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
+      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
+      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+    }))(object(v.memory)),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
     questions: array(v.questions).map((value) => {
       const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation) };
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
         created_at: string(r.created_at), updated_at: string(r.updated_at) };
     }),
     runs: array(v.runs).map((value) => {
       const r = object(value);
       return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
-        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at) };
+        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
+        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation) };
     }),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),
@@ -338,6 +383,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         session: string(t.session),
         dependencies: strings(t.dependencies),
         activity: t.activity === undefined ? "" : string(t.activity),
+        handoff: t.handoff === undefined ? false : boolean(t.handoff),
+        last_report: string(t.last_report),
+        retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
         waiting_on: t.waiting_on === undefined ? "" : string(t.waiting_on),
         gate_step: t.gate_step === undefined ? "" : string(t.gate_step),
@@ -373,6 +421,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         agent_type: string(s.agent_type),
         phase: string(s.phase),
         turn_id: string(s.turn_id),
+        host_id: string(s.host_id),
         last_event_id: string(s.last_event_id),
         updated_at: string(s.updated_at),
       };
@@ -412,8 +461,8 @@ export function parseDiff(value: unknown): FileDiff {
 export function parseSetup(value: unknown): Setup {
   const v = object(value);
   return {
-    home: string(v.home),
-    default_agent: string(v.default_agent),
+    projects_root: string(v.projects_root),
+    checkouts: strings(v.checkouts),
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);

@@ -1,7 +1,7 @@
 # Installing Code Goblins
 
 There are two ways in, and each is one command you can rerun at any time.
-Both run `goblins doctor`, which checks every tool and harness the fleet needs, add Code Goblins to the Start menu, and end with the guided terminal quick start.
+Both run `goblins doctor`, which checks every tool and harness the fleet needs, add Code Goblins to the Start menu, and end by opening the board in your browser.
 Both put `cfo` and `goblins` on your PATH; the one-line install's own window has them at once, and any other terminal that was already open finds them once you open a new one.
 
 ## To use it
@@ -18,45 +18,32 @@ In order, it:
 3. Asks once for [your projects folder](#your-projects-folder).
 4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, and the program as `cfo.exe` and `goblins.exe`.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
-5. Installs each missing tool the fleet drives: git and gh with winget, Herdr and no-mistakes with their own installers, and Claude Code, Codex, pi and the axi tools with npm, which needs Node.js.
+5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code, Herdr and no-mistakes with their own installers, and Codex, pi and the axi tools with npm, which needs Node.js.
+   Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
+   When npm's copy still comes first on your PATH, it warns and prints the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Kimi has no scriptable installer, so it prints the manual step instead.
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
-8. Adds Code Goblins to your Start menu, which runs `goblins` in a visible terminal.
-9. Runs `goblins doctor`, then starts the guided agent selection and sign-in flow.
-   The final screen offers Enter for the CFO terminal, or B and a Ctrl+click link for the board; the browser opens only when you choose it.
+8. Adds Code Goblins to your Start menu, which runs `goblins --board`: it opens the board, starting the supervisor first when none runs.
+9. Runs `goblins doctor`, then opens the board in your browser with `goblins --board`.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins --board`, restarts it on the new one.
 
-## Quick start and recovery
+## On a fresh PC
 
-Run `goblins` from any folder.
-It checks Claude Code, Codex and pi with their own authentication checks, recommends a usable agent, and remembers your choice only after verification.
-Use Up and Down to choose, then Enter to accept the marked default.
-If the agent is missing, Enter offers its pinned npm installer, shared with this release's install script through `goblins setup --installers`.
-Node.js is required for that installer; if it is missing, setup prints its install command.
-If sign-in is needed, Enter opens the agent's login and waits for you to finish it.
-For pi, use `/login`, choose the provider with `/model`, and `/quit` to return for verification.
-An unavailable authentication check is shown as unverified, never as signed in.
-Escape returns to the agent choice; interrupted or failed steps can be retried.
+`cfo.exe` is not code-signed yet, so Windows knows it only as an unknown program from an unknown publisher.
+Its file properties (right-click, Properties, Details) name the product Code Goblins and its version, and it asks for no administrator rights.
 
-The CFO starts in the Code Goblins home, where it works across your projects and files.
-There is no project picker or option to continue without a CFO.
-Review any workspace trust or hook prompt in the CFO terminal using the guidance printed above the final choices.
-Setup never accepts a trust prompt or enters credentials for you.
-Enter opens the terminal by default; B or Ctrl+click on the board address opens the board.
-`goblins --board` explicitly asks for the browser after starting or finding the CFO.
-Later launches keep a running CFO and skip completed setup; `goblins setup` repeats the agent selection deliberately.
-
-Run `goblins resume` after a reboot, or when the CFO's terminal freezes.
-It interrupts a running CFO response, replaces that CFO's terminal process, and resumes the exact recorded conversation under the same terminal ID.
-The board's **Restart CFO** button offers the same operation with a confirmation first.
-Recovery refuses to stop a process whose identity or conversation cannot be verified.
-It then checks each task record, leaves running goblins alone, and resumes ended sessions with their existing worktree, harness, model and effort.
-Each task is reported as **Resumed**, **Already running**, **Waiting for memory**, or **Needs a hand**, with a next action when it cannot resume.
-A restart needs 4 GB free; each additional goblin needs 5 GB, checked again before each start.
-Missing session records or unavailable terminals stay visible for manual recovery; no replacement conversation is silently created.
+- **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
+  Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
+- **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
+  Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
+  Then **More info**, **Run anyway** runs it.
+- **Smart App Control**, where it is on (Windows Security, App & browser control), blocks unsigned programs that Microsoft does not already know, with no way to run them; a signed release is the fix.
+- **Microsoft Defender** can send a new build to Microsoft for cloud analysis, which is on by default, and a machine-learning false positive then quarantines it hours after it installed cleanly; `Trojan:Script/Wacatac.C!ml` is the one seen so far.
+  Do not add an exclusion or turn protection off.
+  Check the file's SHA256 as above, report it to Microsoft as a false positive at <https://www.microsoft.com/wdsi/filesubmission>, and rerun the install once Microsoft clears it or a newer release is out.
 
 ## To work on it
 

@@ -133,10 +133,9 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 		_ = file.Close()
 		drift := current.Process.Start.Sub(process.Start)
 		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
-		conversation := current
 		current.Process = lock.Info{}
 		if err == nil && sameProcess && current == primary {
-			return described, saveCFOConversation(stateDir, conversation, session)
+			return described, nil
 		}
 	}
 	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
@@ -152,7 +151,7 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
 		return "", err
 	}
-	return described, saveCFOConversation(stateDir, primary, session)
+	return described, nil
 }
 
 // nativeHarness proves this process runs under the program in native
@@ -186,7 +185,11 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
 	if at < 0 {
-		return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+		program, err := terminalProgram(record, os.Environ())
+		if err != nil || len(ancestry) == 0 {
+			return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+		}
+		ancestry, at = []proc.Entry{ancestry[0], program}, 1
 	}
 	// A host that was killed leaves its record behind, so only an answer on
 	// its pipe proves a host still serves the terminal.
@@ -196,6 +199,39 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	_ = client.Close()
 	return ancestry, at, nil
+}
+
+// terminalProgram proves that a process whose environment is env runs in
+// native terminal record, by the proof value its host put there, and returns
+// the terminal's program. It is how a process whose chain of parents stops
+// short of the program is proven, as a Cygwin or MSYS exec leaves one: Git
+// Bash runs timeout by replacing its own Windows process, so `timeout 60 cfo
+// notify ...` has a parent that already exited, and the MSYS runtime breaks
+// away from the terminal's job as well. Every descendant of the terminal
+// inherits the value, so a process in a Herdr pane proves nothing by it: a
+// Herdr server started from the terminal hands it to every pane it opens.
+func terminalProgram(record host.Record, env []string) (proc.Entry, error) {
+	if environmentValue(env, "HERDR_PANE_ID") != "" {
+		return proc.Entry{}, errors.New("it runs in a Herdr pane, not in the terminal")
+	}
+	if environmentValue(env, host.IDVariable) != record.ID || !record.Proves(environmentValue(env, host.ProofVariable)) {
+		return proc.Entry{}, errors.New("it carries no proof of the terminal")
+	}
+	program, err := proc.Ancestry(record.ChildPID, 1)
+	if err != nil || len(program) == 0 || !program[0].Start.Equal(record.ChildStart) {
+		return proc.Entry{}, fmt.Errorf("the terminal's program pid %d is not running", record.ChildPID)
+	}
+	return program[0], nil
+}
+
+// environmentValue is name's value in env, a process's environment.
+func environmentValue(env []string, name string) string {
+	for _, entry := range env {
+		if key, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 // herdrHarness proves this process runs under the foreground process of the
@@ -375,13 +411,14 @@ type cfoState struct {
 	// registered CFO names or, while it is starting, native terminal cfo,
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
-	terminal   string
-	generation string
+	terminal string
+	// harness is the harness the registered CFO runs, as it registered.
+	harness string
 }
 
 func readCFOState(stateDir string) cfoState {
 	if primary, live := livePrimary(stateDir); live {
-		return cfoState{registered: true, terminal: primary.Host, generation: fmt.Sprintf("%d:%d", primary.Process.PID, primary.Process.Start.UnixNano())}
+		return cfoState{registered: true, terminal: primary.Host, harness: primary.Agent}
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}

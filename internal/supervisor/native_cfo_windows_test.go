@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
@@ -251,6 +253,136 @@ func TestANativeCFOPresentsWithoutATask(t *testing.T) {
 	}
 }
 
+// A native CFO's command whose parent has exited, as Git Bash leaves one run
+// under timeout, is still proven the registered CFO's by the proof value its
+// terminal carries.
+func TestANativeCFOPresentsFromAProcessWhoseParentHasExited(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	// Act
+	cfo.typeLine(t, "orphaned present")
+
+	// Assert
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "presented" {
+		t.Fatalf("the program recorded %q, want its registration and then its presentation reported", lines)
+	}
+}
+
+// The proof value the CFO's terminal carries proves only a process in that
+// terminal. A Herdr server started from it hands the value to every pane it
+// opens, and a process in such a pane is not the CFO.
+func TestTheCFOsTerminalProofProvesNothingInAHerdrPane(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	// Act
+	cfo.typeLine(t, "orphaned-in-herdr present")
+
+	// Assert
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || !strings.HasPrefix(lines[1], "present error: ") {
+		t.Fatalf("the program recorded %q, want the presentation from a Herdr pane refused", lines)
+	}
+}
+
+// A terminal's proof proves its program only while the process at the
+// program's pid is the one the host started: once Windows gives that pid to a
+// later process, the proof proves nothing about it.
+func TestATerminalProofProvesOnlyTheProgramItsHostStarted(t *testing.T) {
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("this process has no start time")
+	}
+	sum := sha256.Sum256([]byte("terminal-proof"))
+	env := []string{host.IDVariable + "=cfo", host.ProofVariable + "=terminal-proof"}
+	for _, c := range []struct {
+		name       string
+		childStart time.Time
+		wantProven bool
+	}{
+		{"the program the host started", started, true},
+		{"a later process with the program's pid", started.Add(-time.Hour), false},
+		{"a record that never named the program's start", time.Time{}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			record := host.Record{ID: "cfo", ChildPID: os.Getpid(), ChildStart: c.childStart, ProofSum: hex.EncodeToString(sum[:])}
+
+			// Act
+			program, err := terminalProgram(record, env)
+
+			// Assert
+			if proven := err == nil && program.PID == os.Getpid(); proven != c.wantProven {
+				t.Errorf("terminalProgram = %+v, %v; want proven %t", program, err, c.wantProven)
+			}
+		})
+	}
+}
+
+// A native CFO's send from a process whose parent has exited still names the
+// CFO as the receipt's sender, proven by the proof value its terminal carries.
+func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	id := store.db.TaskSessions["task-1"]
+	node := store.db.Sessions[id]
+	node.Parent = "claude/cfo-1"
+	store.db.Sessions[id] = node
+	store.db.Sessions[node.Parent] = Session{ID: node.Parent, NativeID: "cfo-1", Harness: "claude", Role: "cfo", Phase: "active"}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("CFO_SESSION_ID", "cfo-1")
+	t.Setenv("CFO_SESSION_HARNESS", "claude")
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+
+	// Act
+	cfo.typeLine(t, "orphaned send task-1")
+
+	// Assert
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "sent" {
+		t.Fatalf("the program recorded %q, want its registration and then its send", lines)
+	}
+	if err := store.ingestActivity(); err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, a := range store.Snapshot().Activity {
+		if a.Kind == "message" {
+			sources = append(sources, a.Source)
+		}
+	}
+	if len(sources) != 1 || sources[0] != node.Parent {
+		t.Errorf("message receipt sources = %q, want the CFO named as its sender", sources)
+	}
+}
+
 // A delivery to a native CFO whose screen turns to work but whose prompt hook
 // never reports taking it is unconfirmed, not delivered, since Enter may have
 // chosen a dialog's option instead.
@@ -402,6 +534,29 @@ func TestTheSnapshotNamesTheNativeTerminalTheCFORunsIn(t *testing.T) {
 	}
 	if before.CFOTerminal != "" || after.CFOTerminal != "cfo" {
 		t.Errorf("CFOTerminal = %q before the CFO registered and %q after, want empty and cfo", before.CFOTerminal, after.CFOTerminal)
+	}
+}
+
+// The snapshot names the harness the registered CFO runs, so the board can
+// show its mark beside the CFO.
+func TestTheSnapshotNamesTheHarnessTheCFORuns(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	before, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativePrimary(t, h.Service.Store.Home.State)
+
+	// Act
+	after, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.CFOHarness != "" || after.CFOHarness != "claude" {
+		t.Errorf("CFOHarness = %q before the CFO registered and %q after, want empty and claude", before.CFOHarness, after.CFOHarness)
 	}
 }
 

@@ -60,8 +60,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// composer's footer says while it waits.
 			Ready: regexp.MustCompile(`bypass permissions on`),
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
-			// "✽ Reticulating…".
-			Working: regexp.MustCompile(`^[·✢✳✶✻✽] \S.*…`),
+			// "✽ Reticulating…". Claude Code draws the spinner from one of
+			// three glyph lists; one has "*" where the others have "✳".
+			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:  []string{"[Pasted text #"},
 		}, true
 	case Codex:
@@ -90,11 +91,17 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	case Pi:
 		return Screens{
-			// Its focused option has not been seen, so it is never answered.
-			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}}},
-			// The context meter that starts the footer's last row, as in
-			// "0.0%/1.0M (auto)".
-			Ready: regexp.MustCompile(`^\d+(\.\d+)?%/`),
+			// Captured on pi 0.85.1 started without --approve: "→ Trust" is
+			// focused first, above "Trust parent folder", "Trust (this session
+			// only)", "Do not trust" and "Do not trust (this session only)".
+			// Trusting for this session only matches --approve and saves
+			// nothing to pi's trust store; a pi that does not offer it still
+			// stops the spawn with the prompt named.
+			Dialogs: []Dialog{{Name: "the project trust prompt", Markers: []string{"Trust project folder?"}, Focus: "→", Accept: "Trust (this session only)"}},
+			// The context meter in the footer's last row, as in "0.0%/1.0M
+			// (auto)", which the session's token counts and cost lead once a
+			// turn has run: "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)".
+			Ready: regexp.MustCompile(`(^|\s)\d+(\.\d+)?%/\d`),
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
@@ -105,12 +112,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 
 // NativeDefault reports whether a spawn that names no backend starts kind in a
 // native terminal, which it does only once kind's native launch has been
-// proven live. Codex's composer, working and paste texts are not yet seen in a
-// capture and pi's trust prompt is never answered, so codex and pi, like kimi,
-// which has no native screens, start in Herdr until a live native spawn proves
-// them.
+// proven live: Claude Code; pi, proven on pi 0.85.1 (started with --approve,
+// so it never asks to trust the folder); and codex, proven on Codex 0.154.
+// Kimi, which has no native screens, starts in Herdr.
 func NativeDefault(kind Kind) bool {
-	return kind == Claude
+	return kind == Claude || kind == Pi || kind == Codex
 }
 
 // Dialog returns the dialog screen shows, if any.
@@ -184,6 +190,36 @@ func (d Dialog) Focused(screen []string) (string, bool) {
 		return "", false
 	}
 	return focused[0], true
+}
+
+// runningWork matches a row that shows a harness running a turn, a tool, or
+// a background job it will report back from, whichever harness drew it: the
+// interrupt hint Claude Code and Codex show while a turn runs, Codex's status
+// row, pi's rule, Claude Code's spinner and the "Running…" under a tool in
+// progress, and the count of background shells in Claude Code's footer. The
+// line that ends a Claude Code turn says "1 shell still running" and stays on
+// screen after the shell ends, so only the footer's count is read.
+var runningWork = []*regexp.Regexp{
+	regexp.MustCompile(`esc to interrupt`),
+	regexp.MustCompile(`^[•◦]\s+Working \(`),
+	regexp.MustCompile(`Running…`),
+	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
+	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
+}
+
+// RunningWork returns the first row of screen that shows a tool, a turn or a
+// background job running, and whether there is one.
+func RunningWork(screen []string) (string, bool) {
+	for _, row := range screen {
+		row = strings.TrimSpace(row)
+		for _, pattern := range runningWork {
+			if pattern.MatchString(row) {
+				return row, true
+			}
+		}
+	}
+	return "", false
 }
 
 // compactScreen joins screen without any whitespace, since a harness wraps a

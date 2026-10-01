@@ -21,6 +21,10 @@ go build ./cmd/cfo
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request.
 A pull request must keep all of them green.
 
+`cmd/cfo/winres.json` is the Windows version resource and manifest every build of `cfo.exe` carries, through the `rsrc_windows_*.syso` files beside it.
+After changing it, regenerate them in `cmd/cfo` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.
+Build release and deployment binaries with `-trimpath`, so a commit builds to the same file wherever it is built.
+
 ## Repo layout
 
 See [Repo layout](README.md#repo-layout) in the README.
@@ -54,6 +58,10 @@ Before it builds or runs anything it points `CFO_HOME` at the disposable home un
 
 - Table-driven tests for parsers, classifiers, flag mapping, and state transitions.
 - Typed errors that preserve the failed operation, target, and external stderr.
+- Start every process with `execx.Command` or `execx.CommandContext`, and add creation flags with `|=` rather than assigning them.
+  On Windows they keep a console program from opening a window when the program starting it has no console of its own, and `internal/execx`'s tests fail on any process start in fleet code that goes around them.
+- Read fleet files with `fsx.ReadFile` or `fsx.Open` and replace them with `fsx.AtomicWriteFile`.
+  On Windows a reader that does not share the file for deletion, as `os.Open` and `os.ReadFile` do not, blocks every replace of that file while it reads.
 - One sentence per line in Markdown.
 - Never name an AI product, company, model, agent, or assistant identity as a commit co-author - not in a `Co-Authored-By` trailer, not anywhere else in a commit message, and not in a pull request body.
 

@@ -110,6 +110,7 @@ func TestCheckSchemaRefusesUnsupportedContracts(t *testing.T) {
 		{"missing snapshot method", preflightSchemaJSON(22, 1, "session.snapshot", "success_response", "error_response"), "session.snapshot"},
 		{"missing pane read method", preflightSchemaJSON(22, 1, "pane.read", "success_response", "error_response"), "pane.read"},
 		{"missing agent get method", preflightSchemaJSON(22, 1, "agent.get", "success_response", "error_response"), "agent.get"},
+		{"missing pane send input method", preflightSchemaJSON(22, 1, "pane.send_input", "success_response", "error_response"), "pane.send_input"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

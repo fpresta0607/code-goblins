@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -48,7 +49,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude and herdr for codex, pi and kimi until each is proven natively")
+	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude, pi and codex and herdr for kimi")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -91,7 +92,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	briefText, err := os.ReadFile(*brief)
+	briefText, err := fsx.ReadFile(*brief)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
+)
+
+// screenReads is how many times a native screen is read before a failed read
+// counts, screenReread apart.
+const (
+	screenReads  = 3
+	screenReread = 250 * time.Millisecond
 )
 
 // NativeProber reads a native task's terminal: its host's record says whether
@@ -21,11 +29,16 @@ type NativeProber struct {
 	StateDir string
 	// ReadScreen reads a host's console; nil reads it through the host.
 	ReadScreen func(host.Record) ([]string, error)
+	// Dial checks that a host answers on its pipe; nil dials it.
+	Dial func(host.Record) error
 }
 
 // Inspect samples the task's native terminal. The sample names the terminal
 // as its tab, gb-<id>, the way a Herdr task's tab is named.
-func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointSample, error) {
+func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (EndpointSample, error) {
+	if err := ctx.Err(); err != nil {
+		return EndpointSample{}, err
+	}
 	unknown := func(detail string) EndpointSample {
 		return EndpointSample{Verdict: ProbeUnknown, Detail: detail}
 	}
@@ -48,16 +61,31 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 	if read == nil {
 		read = host.ReadScreen
 	}
+	// A read attaches a process of its own to the terminal's console, and
+	// one can fail while the terminal is alive and working, so a failed read
+	// is read again before anything is concluded from it.
 	screen, err := read(record)
+	for attempt := 1; err != nil && attempt < screenReads; attempt++ {
+		select {
+		case <-ctx.Done():
+			return EndpointSample{}, ctx.Err()
+		case <-time.After(screenReread):
+		}
+		screen, err = read(record)
+	}
 	if err != nil {
 		// A host that was killed leaves its record behind, so only an answer
 		// on its pipe says the terminal still runs.
-		client, dialErr := host.Dial(record)
-		if dialErr != nil {
+		dial := p.Dial
+		if dial == nil {
+			dial = dialHost
+		}
+		if dialErr := dial(record); dialErr != nil {
 			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume)}, nil
 		}
-		_ = client.Close()
-		return unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err)), nil
+		sample := unknown(fmt.Sprintf("native terminal %s's screen is unreadable: %v", meta.ID, err))
+		sample.ReadFailed = true
+		return sample, nil
 	}
 	sample := EndpointSample{
 		Verdict:             ProbePresent,
@@ -79,6 +107,14 @@ func (p NativeProber) Inspect(_ context.Context, meta state.TaskMeta) (EndpointS
 		sample.Status, sample.Busy = herdr.AgentUnknown, herdr.BusyUnknown
 	}
 	return sample, nil
+}
+
+func dialHost(record host.Record) error {
+	client, err := host.Dial(record)
+	if err != nil {
+		return err
+	}
+	return client.Close()
 }
 
 // BackendProber inspects each task with the prober of the terminal backend

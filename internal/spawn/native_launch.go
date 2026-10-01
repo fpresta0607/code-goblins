@@ -552,12 +552,13 @@ func cmdProgram(name string, args ...string) ([]string, error) {
 }
 
 // inheritedSessionVariables name what a session marks its own processes with
-// and a goblin must never start with: the harness that runs the CFO marks its
-// session (Claude Code treats a process that carries its markers as a child
-// session, which neither saves a transcript nor may start inside another),
-// and a Herdr pane names itself to the hooks that report into it. The user's
-// environment should hold none of them; they are dropped from it all the same.
-var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
+// and a goblin or the CFO must never start with: the harness that runs the
+// CFO marks its session (Claude Code treats a process that carries its markers
+// as a child session, which neither saves a transcript nor may start inside
+// another), and a Herdr pane names itself to the hooks that report into it.
+// The user's environment should hold none of them; they are dropped from it
+// all the same.
+var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable, host.ProofVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
 // harness run with, built the way a Herdr goblin's is: userEnv, the
@@ -578,7 +579,7 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 	}
 	for _, entry := range userEnv {
 		name, value, found := strings.Cut(entry, "=")
-		if !found || name == "" || auth.IsHarnessBillingKey(name) || inheritedSession(name) {
+		if !found || name == "" || auth.IsHarnessBillingKey(name) || IsSessionMarker(name) {
 			continue
 		}
 		set(name, value)
@@ -612,13 +613,17 @@ func hasNativeVariable(env []string, name string) bool {
 	return false
 }
 
-// userEnvironment is the environment Windows gives a new process of this
-// user: the user's and the machine's configured variables, and nothing this
-// process inherited from whatever runs it.
 func (s Service) userEnvironment() ([]string, error) {
 	if s.UserEnvironment != nil {
 		return s.UserEnvironment()
 	}
+	return UserEnvironment()
+}
+
+// UserEnvironment is the environment Windows gives a new process of this
+// user: the user's and the machine's configured variables, and nothing this
+// process inherited from whatever runs it.
+func UserEnvironment() ([]string, error) {
 	var token windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
 		return nil, err
@@ -627,7 +632,10 @@ func (s Service) userEnvironment() ([]string, error) {
 	return token.Environ(false)
 }
 
-func inheritedSession(name string) bool {
+// IsSessionMarker reports whether name is one of the variables a session
+// marks its own processes with, which a harness the fleet starts must never
+// inherit.
+func IsSessionMarker(name string) bool {
 	upper := strings.ToUpper(name)
 	for _, inherited := range inheritedSessionVariables {
 		if upper == inherited || (strings.HasSuffix(inherited, "_") && strings.HasPrefix(upper, inherited)) {

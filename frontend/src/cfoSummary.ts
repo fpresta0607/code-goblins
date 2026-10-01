@@ -22,5 +22,5 @@ export function cfoSummary(snapshot: Snapshot): { asking: boolean; line: string 
   const waiting = waitingItems(snapshot);
   if (waiting.length) return { asking: true, line: "Waiting on you: " + title(waiting[0]) + (waiting.length > 1 ? " and " + (waiting.length - 1) + " more" : "") };
   const goblins = snapshot.tasks.filter((task) => !!task.generation && !task.archived).length;
-  return { asking: false, line: goblins ? "Supervising " + goblins + (goblins === 1 ? " goblin" : " goblins") : "No goblins at work" };
+  return { asking: false, line: goblins ? "All quiet. The CFO supervises " + goblins + (goblins === 1 ? " goblin." : " goblins.") : "All quiet. No goblins are at work." };
 }

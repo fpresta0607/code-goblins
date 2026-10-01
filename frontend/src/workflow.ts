@@ -15,8 +15,9 @@ export function fitScale(graph: { width: number; height: number }, canvas: { wid
   return Math.max(.35, Math.min(1.25, (canvas.width - 48) / graph.width, (canvas.height - 48) / graph.height));
 }
 
-export function taskColumn(task: Task): "Tasks" | "In progress" | "Completed" {
-  if (task.archived) return "Completed";
+export function taskColumn(task: Task): "Tasks" | "In progress" | "Paused" | "Completed" {
+  if (task.archived || task.phase === "stopped" || task.phase === "stopping") return "Completed";
+  if (["paused", "pausing", "resuming"].includes(task.phase)) return "Paused";
   if (task.phase === "queued") return "Tasks";
   return task.phase === "done" && task.verified ? "Completed" : "In progress";
 }
@@ -94,6 +95,7 @@ export function safePullRequest(url: string): string {
 // evidence the supervisor holds.
 export function statusText(phase: string): string {
   const labels: Record<string, string> = {
+    paused: "Paused", pausing: "Pausing", resuming: "Resuming", stopping: "Stopping", stopped: "Stopped",
     queued: "Not started", working: "Working", active: "Working", started: "Starting",
     review: "In review gate", waiting: "Waiting", ready: "Checks passed", done: "Delivered", merged: "Merged, verifying", idle: "Waiting for input",
     blocked: "Blocked", failed: "Failed", unavailable: "No fresh evidence",
@@ -135,6 +137,7 @@ const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint"
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
+  if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
     const { phase, reason, verified } = node.task;
@@ -244,6 +247,11 @@ export function harnessName(id: string): string {
   return names[id] || id;
 }
 
+// A harness mark's tip: the harness, then the model and effort it runs, when known.
+export function harnessTip(harness: string, model: string, effort: string): string {
+  return [harnessName(harness), model, effort].filter(Boolean).join(" · ");
+}
+
 // fleetTraffic signs what each live task last reported, its status line and
 // the newest wake record it filed, and names the tasks whose signature moved
 // since the previous snapshot. Those are real reports reaching the CFO.
@@ -258,13 +266,16 @@ export function fleetTraffic(previous: Map<string, string> | null, snapshot: Sna
 
 // A connector pulses for PULSE_MS after its goblin reports. Each pulse is
 // keyed by the time of its report, so it expires on its own schedule however
-// many snapshots follow, and a newer report outlives an older one's expiry.
+// many snapshots follow, and a newer report plays alongside an older one
+// until each expires.
 export const PULSE_MS = 6000;
 
-export function reportTraffic(traffic: Record<string, number>, moved: string[], at: number): Record<string, number> {
-  return { ...traffic, ...Object.fromEntries(moved.map((id) => [id, at])) };
+export function reportTraffic(traffic: Record<string, number[]>, moved: string[], at: number): Record<string, number[]> {
+  return { ...traffic, ...Object.fromEntries(moved.map((id) => [id, [...(traffic[id] || []), at]])) };
 }
 
-export function expireTraffic(traffic: Record<string, number>, moved: string[], at: number): Record<string, number> {
-  return Object.fromEntries(Object.entries(traffic).filter(([id, when]) => !(moved.includes(id) && when === at)));
+export function expireTraffic(traffic: Record<string, number[]>, moved: string[], at: number): Record<string, number[]> {
+  return Object.fromEntries(Object.entries(traffic)
+    .map(([id, times]): [string, number[]] => [id, moved.includes(id) ? times.filter((when) => when !== at) : times])
+    .filter(([, times]) => times.length));
 }

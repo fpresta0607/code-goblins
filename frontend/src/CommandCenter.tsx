@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -23,6 +23,8 @@ const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
 
+// A focus opens its item; one without a key opens the first item waiting on
+// the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
@@ -68,14 +70,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const sending = draft ? sendState(draft, snapshot.actions) : undefined;
   // What the Overlord sent from this card shows as done the moment he sends
   // it; trouble keeps the card itself on screen with what went wrong. A run
-  // keeps its card, which shows the command's result.
-  const finishing = !!item && item.kind !== "run" && !!sending && !sending.failed;
+  // keeps its card, which shows the command's result. An item he answered
+  // elsewhere, such as on its page, finishes the same way, whatever this card
+  // tried meanwhile.
+  const elsewhere = !!item && answeredElsewhere(item);
+  const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
   const show = (key: string) => {
-    if (finishing && item.key !== key) setSent((prior) => new Set([...prior, item.key]));
-    setCurrent(key); setGallery(null); setAllDone(false);
+    const shown = cardKey(snapshot, key);
+    if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
+    setCurrent(shown); setGallery(null); setAllDone(false);
   };
   const fresh = waiting.filter((item) => item.kind === "question" && !announced.has(item.key));
   if (fresh.length) {
@@ -89,7 +95,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    if (focus) { setOpen(true); show(focus.key); setInbox(false); }
+    const key = focus?.key || waiting[0]?.key;
+    if (focus && key) { setOpen(true); show(key); setInbox(false); }
+    else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
   // or "You're all done" when nothing else waits.
@@ -106,8 +114,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (resume) show(resume);
   }
   // A send that fails after its card moved on brings the card back, with
-  // what went wrong and a retry.
-  const failing = failedSends(sent, drafts, snapshot.actions).filter((key) => !!itemFor(snapshot, key));
+  // what went wrong and a retry, unless he answered the item elsewhere.
+  const failing = failedSends(sent, drafts, snapshot.actions).filter((key) => { const found = itemFor(snapshot, key); return !!found && !answeredElsewhere(found); });
   if (failing.length) {
     setSent(new Set([...sent].filter((key) => !failing.includes(key))));
     setKept((prior) => new Set([...prior, ...failing]));
@@ -118,6 +126,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
+  const shownKey = item?.key || "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -141,11 +150,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (showing && !element.open) {
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
-      // Start on the question itself, not the close button.
-      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus();
+      // Start on the question itself, not the close button, with the
+      // Command Center at its top however it was left.
+      element.scrollTop = 0;
+      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus({ preventScroll: true });
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
+  // Each item shows from its top; within one item the scroll stays where he
+  // puts it.
+  useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
@@ -257,6 +271,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             }}>
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
+              : elsewhere
+              ? <DoneCard key={item.key} heading="Answered" label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={item.key} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />

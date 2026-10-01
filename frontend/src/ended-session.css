@@ -1,0 +1,12 @@
+.ended-session { display: flex; flex: 1; min-width: 0; overflow: auto; padding: 40px 24px; background: #071015; }
+.ended-session-content { width: min(100%, 560px); margin: auto; text-align: center; }
+.ended-session-icon { display: inline-flex; color: var(--mint); margin-bottom: 18px; }
+.ended-session-icon > .icon { width: 72px; height: 72px; stroke-width: 1.3; }
+.ended-session h2 { margin: 0; font: 800 clamp(1.5rem, 3vw, 2rem)/1.3 var(--font-body); }
+.ended-session-time { margin: 12px 0 0; color: var(--muted); font: .9375rem/1.6 var(--font-mono); }
+.ended-session-report { margin-top: 28px; padding: 16px 20px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); text-align: left; }
+.ended-session-report > p:first-child { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: var(--muted); font-size: .9375rem; }
+.ended-session-report > p:last-child { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .9375rem/1.7 var(--font-mono); }
+.ended-session-handoff { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 18px; color: #83c5ff; text-decoration: underline; text-underline-offset: 4px; }
+.ended-session-handoff:hover { color: #b5ddff; }
+.ended-session-handoff > .icon { flex: none; }

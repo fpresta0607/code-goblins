@@ -1,5 +1,6 @@
 import type { PanelView } from "./GoblinPanel";
 import type { Session, Task } from "./types";
+import { sessionEnd } from "./session-end.ts";
 
 // How long a goblin's session has run, or a queued task has waited, in whole
 // minutes, hours or days; empty when the start is unknown, so a card never
@@ -26,5 +27,7 @@ export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show mo
 // is its Task view alone; the CFO, a started task and a reported child
 // session each have a terminal too.
 export function panelViews(task?: Task, node?: Session): PanelView[] {
+  if (task && sessionEnd(task)) return ["task", "terminal"];
+  if (task && (task.archived || ["pausing", "stopping"].includes(task.phase))) return ["task"];
   return task && !task.generation && !node ? ["task"] : ["task", "terminal"];
 }

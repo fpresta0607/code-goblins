@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,9 +26,17 @@ import (
 
 // fakeBoard answers /api/snapshot the way cfo serve does and returns its
 // address.
+// fakeBoardPID is the supervisor every fake board answers as, the pid the
+// fixture records.
+const fakeBoardPID = 4242
+
 func fakeBoard(t *testing.T, snapshot string) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		if r.URL.Path != "/api/snapshot" {
 			http.NotFound(w, r)
 			return
@@ -77,16 +86,6 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 	f.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		goblins:     true,
-		setupAgent: func(_ context.Context, stateDir, chosen string, _ bool, _, _ io.Writer) (string, error) {
-			if chosen == "" {
-				return cfoHarness(stateDir)
-			}
-			if err := os.WriteFile(cfoHarnessPath(stateDir), []byte(chosen+"\n"), 0600); err != nil {
-				return "", err
-			}
-			return chosen, nil
-		},
-		choose: func(io.Writer, string, []string, int) (int, error) { return 0, nil },
 		startServe: func(h home.Home) (<-chan struct{}, error) {
 			f.starts++
 			return start(h)
@@ -119,10 +118,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_, project, harness string) error {
+		startNativeCFO: func(_ home.Home, project, harness string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
-			f.cfoTerminalRuns = true
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -150,7 +148,7 @@ func (f *launcherFixture) launch(args ...string) (int, string, string) {
 
 func (f *launcherFixture) record(board string) {
 	f.t.Helper()
-	if err := writeBoardRecord(f.home.State, boardRecord{PID: 4242, URL: board}); err != nil {
+	if err := writeBoardRecord(f.home.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -189,6 +187,10 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 		return nil, nil
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/alive" {
+			_, _ = fmt.Fprintf(w, `{"pid":%d}`, fakeBoardPID)
+			return
+		}
 		http.Error(w, "wake record is malformed", http.StatusServiceUnavailable)
 	}))
 	t.Cleanup(server.Close)
@@ -207,8 +209,9 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	}
 }
 
-// Starting a supervisor never opens a browser without a choice.
-func TestGoblinsStartsTheSupervisorWithoutOpeningTheBoard(t *testing.T) {
+// With no supervisor, goblins starts one, waits for its board, and opens the
+// board once; the next goblins finds it and only prints the link.
+func TestGoblinsStartsTheSupervisorAndOpensTheBoardOnce(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
 	var f *launcherFixture
 	f = newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
@@ -226,11 +229,11 @@ func TestGoblinsStartsTheSupervisorWithoutOpeningTheBoard(t *testing.T) {
 	if !strings.Contains(stdout, "  board   "+board+"\n") || !strings.Contains(stdout, "  status  CFO not connected · 0 goblins working · 0 waiting on you\n") {
 		t.Fatalf("stdout = %q, want the board line and the status line", stdout)
 	}
-	if len(f.opened) != 0 {
-		t.Fatalf("opened %q, want no browser opened", f.opened)
+	if len(f.opened) != 1 || f.opened[0] != board {
+		t.Fatalf("opened %q, want the board once", f.opened)
 	}
 
-	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 0 {
+	if exit, _, stderr := f.launch(); exit != 0 || f.starts != 1 || len(f.opened) != 1 {
 		t.Fatalf("second launch: exit=%d starts=%d opened=%q stderr=%q, want no second start or tab", exit, f.starts, f.opened, stderr)
 	}
 }
@@ -275,8 +278,10 @@ func TestGoblinsGivesUpOnASupervisorThatNeverAnswers(t *testing.T) {
 }
 
 // goblins --board starts the supervisor when none runs and opens the board,
-// after ensuring a CFO runs; a later request reuses the same CFO.
-func TestGoblinsBoardStartsCFOAndOpensTheBoard(t *testing.T) {
+// and starts, shows and attaches no CFO, which the board leaves to its own
+// first-run screen; run again, it finds the supervisor and opens the board
+// again, since opening it is what it is run for.
+func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	board := fakeBoard(t, `{"registration":"no CFO has registered yet"}`)
 	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
 		if err := writeBoardRecord(h.State, boardRecord{PID: 4242, URL: board}); err != nil {
@@ -297,8 +302,8 @@ func TestGoblinsBoardStartsCFOAndOpensTheBoard(t *testing.T) {
 	if !slices.Equal(f.opened, []string{board}) {
 		t.Fatalf("opened %q, want the board once", f.opened)
 	}
-	if len(f.nativeStarts) != 1 || f.nativeStarts[0] != f.home.Root || len(f.cfoStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
-		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want one native start in the home", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
 	}
 
 	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {
@@ -357,7 +362,7 @@ func TestGoblinsReplacesAStaleBoardRecord(t *testing.T) {
 	gone.Close()
 	board := fakeBoard(t, busySnapshot)
 	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
-		if err := writeBoardRecord(h.State, boardRecord{PID: 5151, URL: board}); err != nil {
+		if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 			t.Fatal(err)
 		}
 		return make(chan struct{}), nil
@@ -447,6 +452,32 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 	} {
 		if got := statusLine(c.snapshot); got != c.want {
 			t.Errorf("%s: statusLine = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// The status line counts what the Command Center's badge counts, from the
+// board's own snapshot.
+func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
+	for name, c := range map[string]struct {
+		snapshot string
+		want     int
+	}{
+		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
+		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
+	} {
+		// Arrange
+		var snapshot launcherSnapshot
+		if err := json.Unmarshal([]byte(c.snapshot), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		got := statusLine(snapshot)
+
+		// Assert
+		if want := fmt.Sprintf("CFO supervising · 0 goblins working · %d waiting on you", c.want); got != want {
+			t.Errorf("%s: statusLine = %q, want %q", name, got, want)
 		}
 	}
 }

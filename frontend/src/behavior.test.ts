@@ -311,7 +311,7 @@ test("a connector pulses only when a goblin reports something new", () => {
 test("a pulse ends with its own report however many snapshots follow", () => {
   const snapshot = (activity: string) => parseSnapshot({healthy:true, tasks:[{id:"a", phase:"working", verified:false, activity}]});
   let seen = fleetTraffic(null, snapshot("working: tests")).signatures;
-  let traffic: Record<string, number> = {};
+  let traffic: Record<string, number[]> = {};
   const report = (activity: string, at: number) => {
     const { signatures, moved } = fleetTraffic(seen, snapshot(activity));
     seen = signatures;
@@ -320,13 +320,16 @@ test("a pulse ends with its own report however many snapshots follow", () => {
   };
   const first = report("working: gate review", 1000);
   for (let at = 1001; at < 1010; at++) assert.deepEqual(report("working: gate review", at), []);
-  assert.deepEqual(traffic, {a:1000});
+  assert.deepEqual(traffic, {a:[1000]});
   traffic = expireTraffic(traffic, first, 1000);
   assert.deepEqual(traffic, {});
   const older = report("working: lint", 2000);
-  report("working: push", 3000);
+  const newer = report("working: push", 3000);
+  assert.deepEqual(traffic, {a:[2000, 3000]});
   traffic = expireTraffic(traffic, older, 2000);
-  assert.deepEqual(traffic, {a:3000});
+  assert.deepEqual(traffic, {a:[3000]});
+  traffic = expireTraffic(traffic, newer, 3000);
+  assert.deepEqual(traffic, {});
 });
 
 test("every status reads as plain words, never the old evidence jargon", () => {
@@ -471,11 +474,12 @@ test("a run item states its progress in plain words with its exit code", () => {
     { id: "d", state: "failed", exit_code: 2, reason: "The command exited with 2." },
     { id: "e", state: "failed", reason: "Windows asked to confirm and it was declined." },
     { id: "f", state: "expired", reason: "It waited more than 24 hours." },
+    { id: "g", state: "withdrawn", reason: "the candidate binary is gone" },
   ] });
   const runs = snapshot.runs ?? [];
   assert.equal(runs[0].command, "Get-Date");
   assert.equal(runs[0].exit_code, null);
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
-    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false]];
+    ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
 });

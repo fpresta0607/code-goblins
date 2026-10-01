@@ -37,12 +37,24 @@ export class ActivityBuffer {
   }
 }
 
+// A receipt's pulse, glow or birth highlight shows for EFFECT_MS.
+export const EFFECT_MS = 3200;
 export interface ActivityEffect extends BoardActivity { expires:number }
 export function mergeActivityEffects(prior:ActivityEffect[], incoming:BoardActivity[], now:number):ActivityEffect[] {
-  return [...prior.filter(event=>event.expires>now&&!incoming.some(next=>next.target===event.target)),...incoming.map(event=>({...event,expires:now+3200}))];
+  return [...prior.filter(event=>event.expires>now&&!incoming.some(next=>next.target===event.target)),...incoming.map(event=>({...event,expires:now+EFFECT_MS}))];
 }
 
-export function activityDisplay(effects:BoardActivity[],target:string,parent:string) {
+// A transient effect plays on the clock of the report it shows: seeking its
+// animations to the time since start means one drawn late, such as on a
+// branch expanded mid-pulse, still ends with its lifetime instead of being
+// cut off mid-way. Seeking again on a later render changes nothing.
+export function playFrom(start:number) {
+  return (element:Element|null) => {
+    for(const animation of element?.getAnimations({subtree:true})||[]) animation.currentTime=Date.now()-start;
+  };
+}
+
+export function activityDisplay<Effect extends BoardActivity>(effects:Effect[],target:string,parent:string) {
   const received=effects.find(event=>event.kind==="message"&&event.target===target);
   const created=effects.find(event=>event.kind==="created"&&event.target===target);
   const communication=parent?effects.find(event=>event.kind==="message"&&event.source===parent&&event.target===target):undefined;

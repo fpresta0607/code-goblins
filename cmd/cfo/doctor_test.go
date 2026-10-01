@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 )
@@ -87,9 +88,42 @@ func TestRunDoctorSaysWhenThereAreNoLanes(t *testing.T) {
 }
 
 // fakeDoctorTool writes a .bat that answers --version, so a temp PATH can
-// stand in for a fully provisioned machine.
+// stand in for a fully provisioned machine. Claude Code must be a program, as
+// its native build is, so claude is this test binary copied as claude.exe,
+// which TestMain answers as it.
 func fakeDoctorTool(t *testing.T, dir, name string) {
 	t.Helper()
+	if name == "claude" {
+		self, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		program, err := os.ReadFile(self)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claudePath := filepath.Join(dir, "claude.exe")
+		if err := os.WriteFile(claudePath, program, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// Antivirus can still hold the freshly written program when the test
+		// ends, so remove it with retries before t.TempDir's cleanup runs.
+		t.Cleanup(func() {
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				err := os.Remove(claudePath)
+				if err == nil {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Errorf("remove %s: %v", claudePath, err)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+		return
+	}
 	script := "@echo off\r\necho " + name + " 1.0.0\r\n"
 	if err := os.WriteFile(filepath.Join(dir, name+".bat"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -121,6 +155,31 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 }
 
+// Without Herdr, doctor says who needs it and how to get it, and stays
+// healthy: a goblin or CFO in a native terminal needs no Herdr.
+func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
+	bin := t.TempDir()
+	for _, name := range []string{
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
+		"claude", "codex", "pi", "kimi",
+	} {
+		fakeDoctorTool(t, bin, name)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("CFO_HOME", t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"doctor"}, &stdout, &stderr)
+
+	want := "OPTIONAL herdr not found on PATH (install: irm https://herdr.dev/install.ps1 | iex) - only a goblin or CFO started in Herdr needs it"
+	if !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "MISSING") {
+		t.Errorf("stdout lacks %q or reports something missing\n%s", want, stdout.String())
+	}
+	if exit != 0 {
+		t.Errorf("exit = %d, want 0: a missing Herdr must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
 // TestRunDoctorReportsPresentationUnavailableAndStaysHealthy drives the whole
 // command with every tool but lavish-axi on PATH: doctor's stdout names the
 // PRESENTATION_UNAVAILABLE state and the exit code still reports healthy, so a
@@ -144,5 +203,40 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0: a missing presentation tool must not make doctor unhealthy\n%s", exit, stdout.String())
+	}
+}
+
+// cfo doctor shows what the monitor counted: the stale wakes it raised and the
+// ones it held back, each reason with the last goblin and the evidence that
+// held it, so a detector that stops seeing is visible rather than read as a
+// quiet fleet.
+func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CFO_HOME", root)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	var empty bytes.Buffer
+	reportStaleWakes(&empty)
+	if !strings.Contains(empty.String(), "stale wakes: nothing counted yet") {
+		t.Errorf("a home the monitor never scanned reports %q, want nothing counted yet", empty.String())
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "state", "monitor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tally := `{"schema":"cfo-monitor-tally.v1","since":"2026-09-30T12:00:00Z","reasons":{"busy_turn_over_age":{"raised":1,"suppressed":3,"last":"2026-09-30T14:02:00Z","last_task":"g1","last_why":"the pane shows work running: ⎿  Running… (22s · timeout 10m)"},"goblin_idle":{"raised":2,"suppressed":0}}}`
+	if err := os.WriteFile(filepath.Join(root, "state", "monitor", "tally.json"), []byte(tally), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	reportStaleWakes(&stdout)
+
+	for _, want := range []string{
+		"stale wakes since 2026-09-30 12:00 UTC",
+		fmt.Sprintf("  %-20s raised %4d  held back %4d  last g1 at 09-30 14:02: the pane shows work running: ⎿  Running… (22s · timeout 10m)", "busy_turn_over_age", 1, 3),
+		fmt.Sprintf("  %-20s raised %4d  held back %4d", "goblin_idle", 2, 0),
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+		}
 	}
 }

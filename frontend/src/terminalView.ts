@@ -1,7 +1,9 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
+import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
+import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
@@ -23,6 +25,7 @@ export interface ViewEvents {
   // Dictation sees every key first: false keeps it from the terminal, true
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
+  harness: () => string;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -45,7 +48,12 @@ export class TerminalView {
   private written = 0;
   private consumed = 0;
   private acknowledged = 0;
+  // owner is whether the terminal has the size this view last claimed.
   private owner = true;
+  private claimed: { cols: number; rows: number } | null = null;
+  // claimedAt is how much output was drawn when the terminal first took this
+  // view's size; the repaint that size asked for follows it.
+  private claimedAt = -1;
   private sized = false;
   private isReady = false;
   private isShown = false;
@@ -87,6 +95,7 @@ export class TerminalView {
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
+    this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
     this.resize = new ResizeObserver(() => this.refit());
@@ -115,7 +124,7 @@ export class TerminalView {
   // paste types text into the terminal the way a paste does, so a program
   // that asked for bracketed paste receives it as one.
   paste(text: string): void {
-    this.term.paste(text);
+    this.term.paste(stripPasteEscapes(text));
   }
 
   setFont(size: number): void {
@@ -133,6 +142,7 @@ export class TerminalView {
     this.rendered.dispose();
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
+    this.element.removeEventListener("paste", this.pasteClipboard, true);
     window.removeEventListener("pointerup", this.copy);
     this.socket.onclose = null;
     this.socket.close(1000);
@@ -148,9 +158,11 @@ export class TerminalView {
     if (typeof data === "string") {
       const history = parseHistory(data);
       if (history !== null) { this.history = history; return; }
-      // Another view sized the terminal: draw at its size until typed into.
+      // The terminal took a size here in its output. xterm parses writes in
+      // order and calls back after each, so the grid changes once the output
+      // before the size is drawn, and before the output after it.
       const size = parseSize(data);
-      if (size && (size.cols !== this.term.cols || size.rows !== this.term.rows)) { this.owner = false; this.resizeGrid(size.cols, size.rows); }
+      if (size) this.term.write("", () => this.took(size.cols, size.rows));
       return;
     }
     const bytes = new Uint8Array(data);
@@ -162,10 +174,20 @@ export class TerminalView {
     });
   }
 
-  // The screen is whole once live output after the view's size, the repaint,
-  // is drawn and no synchronized update holds it back.
+  // The screen is whole once live output after the terminal took the view's
+  // size, the repaint, is drawn and no synchronized update holds it back.
   private readyIfDrawn(): void {
-    if (this.sized && this.history >= 0 && this.consumed > this.history && !this.frames.updating) this.markReady();
+    if (this.claimedAt >= 0 && this.history >= 0 && this.consumed > Math.max(this.history, this.claimedAt) && !this.frames.updating) this.markReady();
+  }
+
+  // took draws at the size the terminal took. Another view's size is drawn
+  // until this view is typed into.
+  private took(cols: number, rows: number): void {
+    if (this.disposed) return;
+    this.resizeGrid(cols, rows);
+    this.owner = this.claimed?.cols === cols && this.claimed.rows === rows;
+    if (this.owner && this.claimedAt < 0 && this.history >= 0 && this.consumed >= this.history) this.claimedAt = this.consumed;
+    this.readyIfDrawn();
   }
 
   private markReady(): void {
@@ -181,8 +203,10 @@ export class TerminalView {
   }
 
   // claim sizes the terminal to this panel, which makes this view its owner.
-  // The first size repaints the screen even when it matches; later ones reach
-  // the pseudo console once the panel has settled.
+  // The grid changes only when the terminal takes the size, at that point in
+  // its output, so output written for the old size is never drawn on the new
+  // grid. The first size repaints the screen even when it matches; later ones
+  // reach the pseudo console once the panel has settled.
   private claim(): void {
     if (this.disposed || !this.isShown || !this.step("claim")) return;
     const panel = this.element.getBoundingClientRect();
@@ -191,11 +215,12 @@ export class TerminalView {
     this.term.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`;
     if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); return; }
     if (this.socket.readyState !== WebSocket.OPEN) return;
-    if (this.sized && this.owner && size.cols === this.term.cols && size.rows === this.term.rows) return;
+    if (this.sized && this.owner && size.cols === this.claimed?.cols && size.rows === this.claimed.rows) return;
     this.owner = true;
-    this.resizeGrid(size.cols, size.rows);
+    const claimed = { cols: size.cols, rows: size.rows };
+    this.claimed = claimed;
     clearTimeout(this.settle);
-    const report = () => this.send(JSON.stringify({ type: "resize", cols: this.term.cols, rows: this.term.rows }));
+    const report = () => this.send(JSON.stringify({ type: "resize", ...claimed }));
     if (this.sized) { this.settle = setTimeout(report, RESIZE_SETTLE_MS); return; }
     this.sized = true;
     report();
@@ -234,10 +259,18 @@ export class TerminalView {
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
       return false;
     }
-    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
-      event.preventDefault();
-      if (down) this.copy();
-      return false;
+    const shortcut = terminalKey(event, this.term, this.copy);
+    if (shortcut !== null) return shortcut;
+    if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
+      // Claude reads LF as Ctrl+J. Codex's Windows reader needs the native
+      // Ctrl+J key down/up records: a bare LF loses its key identity in ConPTY.
+      const harness = this.events.harness();
+      const newline = harness === "claude" ? "\n" : harness === "codex" ? "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_" : null;
+      if (newline !== null) {
+        event.preventDefault();
+        if (down) this.term.input(newline, true);
+        return false;
+      }
     }
     const size = event.ctrlKey && !event.altKey && !event.metaKey ? fontSizeFor(event.key, this.term.options.fontSize ?? DEFAULT_FONT_SIZE) : null;
     if (size !== null) {
@@ -251,6 +284,14 @@ export class TerminalView {
   private readonly copy = (): void => {
     if (!this.term.hasSelection()) return;
     navigator.clipboard.writeText(this.term.getSelection()).then(() => this.events.copied(), () => {});
+  };
+
+  private readonly pasteClipboard = (event: ClipboardEvent): void => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const input = clipboardInput(event);
+    if (input && "text" in input) this.paste(input.text);
+    else if (input) this.term.input(input.key, true);
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.

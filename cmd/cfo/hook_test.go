@@ -1045,15 +1045,15 @@ func TestAutoarmHealthyAfterSteal(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exit := runHook("stop-autoarm", strings.NewReader(`{"session_id":"s1"}`), &stdout, &stderr)
-	if exit != 0 {
-		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	if exit != 2 || !strings.Contains(stderr.String(), "cfo watch window ended") {
+		t.Fatalf("exit = %d stderr=%s, want the re-arm rewake at the end of the window", exit, stderr.String())
 	}
 	epoch, err := supervise.ReadEpoch(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if epoch.Outcome != "clean" {
-		t.Errorf("epoch outcome = %q, want clean", epoch.Outcome)
+	if epoch.Outcome != "rewake" {
+		t.Errorf("epoch outcome = %q, want rewake", epoch.Outcome)
 	}
 	if _, err := os.Stat(filepath.Join(state, ".turnend-claude-blocks")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("budget file survives a HEALTHY outcome: stat err = %v, want ErrNotExist", err)
@@ -1127,25 +1127,6 @@ func TestAutoarmRewakesForAWakeQueuedWhileServeSupervises(t *testing.T) {
 	assertEpochOutcome(t, state, "rewake")
 }
 
-func TestAutoarmReturnsCleanAtItsWaitLimitWhileServeSupervisesAnIdleQueue(t *testing.T) {
-	dir := newPrimaryHome(t)
-	setAncestorPID(t, os.Getpid())
-	setTinyAutoarmIntervals(t)
-	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "2")
-	state := filepath.Join(dir, "state")
-	writeMetaFixture(t, state, "g1.meta")
-	servingWatcher(t, state)
-
-	exit, stderr, elapsed := runAutoarm(t)
-	if exit != 0 || stderr != "" {
-		t.Fatalf("exit=%d stderr=%q, want a silent clean return", exit, stderr)
-	}
-	if elapsed < 2*time.Second {
-		t.Errorf("elapsed = %v, want the hook to wait out its 2s limit before returning", elapsed)
-	}
-	assertEpochOutcome(t, state, "clean")
-}
-
 func TestAutoarmRewakesOncePerQueuedWakeWhileServeSupervises(t *testing.T) {
 	dir := newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())
@@ -1161,11 +1142,11 @@ func TestAutoarmRewakesOncePerQueuedWakeWhileServeSupervises(t *testing.T) {
 	if exit, stderr, _ := runAutoarm(t); exit != 2 || !strings.Contains(stderr, "notify:g1") {
 		t.Fatalf("first firing exit=%d stderr=%q, want a rewake for the queued question", exit, stderr)
 	}
-	// Still unanswered and unacked, the same record must not rewake again.
-	if exit, stderr, elapsed := runAutoarm(t); exit != 0 || stderr != "" || elapsed < 2*time.Second {
-		t.Fatalf("second firing exit=%d stderr=%q elapsed=%v, want a silent clean return after the full wait", exit, stderr, elapsed)
+	// Still unanswered and unacked, the same record must not rewake again:
+	// the second firing watches its whole window and only re-arms.
+	if exit, stderr, elapsed := runAutoarm(t); exit != 2 || strings.Contains(stderr, "notify:g1") || !strings.Contains(stderr, "cfo watch window ended") || elapsed < 2*time.Second {
+		t.Fatalf("second firing exit=%d stderr=%q elapsed=%v, want only the re-arm rewake after the full wait", exit, stderr, elapsed)
 	}
-	assertEpochOutcome(t, state, "clean")
 
 	if _, err := wake.Append(state, "stale", "g1", "awaiting-decision: still unanswered (re-ask 1)"); err != nil {
 		t.Fatal(err)
@@ -1445,7 +1426,14 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	setTinyAutoarmIntervals(t)
 	state := filepath.Join(dir, "state")
 	writeMetaFixture(t, state, "g1.meta")
-	if err := os.MkdirAll(filepath.Join(state, ".watch.lock"), 0o755); err != nil {
+	// The lock can neither read a directory as its record nor, once it
+	// holds a file, remove it as a crashed holder's orphan. An empty one is
+	// removable, and the hook then runs the real watcher instead of failing.
+	lock := filepath.Join(state, ".watch.lock")
+	if err := os.MkdirAll(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "held"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 

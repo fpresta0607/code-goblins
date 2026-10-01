@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
+	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -43,7 +44,7 @@ type Options struct {
 	// PullRequestState asks the forge whether a pull request is OPEN, CLOSED
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
-	PullRequestState func(ctx context.Context, url string) (string, error)
+	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -51,9 +52,7 @@ type Options struct {
 	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
-	FirstRun     *FirstRun
-	CFORecovery  *CFORecovery
-	TaskRecovery *TaskRecovery
+	FirstRun *FirstRun
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
@@ -71,6 +70,8 @@ type Service struct {
 	presentationChecked  time.Time
 	presentationIdentity string
 	registration         string
+	connectionChecks     *connections.Cache
+	connectionInspector  *connections.Inspector
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
@@ -87,9 +88,11 @@ type Service struct {
 	ordering sync.Mutex
 	// starts guards starting, the task a Start is running cfo spawn for, and
 	// startErrors, why each task's last Start failed.
-	starts      sync.Mutex
-	starting    string
-	startErrors map[string]string
+	starts       sync.Mutex
+	starting     string
+	startErrors  map[string]string
+	changing     map[string]string
+	changeErrors map[string]taskChangeError
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -106,7 +109,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if err := os.MkdirAll(h.State, 0700); err != nil {
 		return nil, err
 	}
-	if _, err := lock.AcquireExclusiveNamed(h.State, ".watch.lock"); err != nil {
+	if err := AcquireWatchLock(h.State); err != nil {
 		return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
 	}
 	clearStopRequest(h.State)
@@ -126,11 +129,32 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	return s, nil
 }
 
-func (s *Service) Close() { s.cancel(); <-s.done }
+func (s *Service) Close() {
+	s.cancel()
+	<-s.done
+	s.mu.Lock()
+	checks := s.connectionChecks
+	s.mu.Unlock()
+	if checks != nil {
+		checks.Close()
+	}
+}
 
 func (s *Service) Done() <-chan struct{} { return s.done }
 
+// storageGrace is how long a failing store stays off the board. A failed
+// save loses nothing: what it would have saved stays where it came from (an
+// inbox file, an action not yet acknowledged), and the next cycle, at most
+// two seconds away, saves it again. Only a store that keeps failing is the
+// Overlord's business.
+const storageGrace = 30 * time.Second
+
 func (s *Service) publish(err error) {
+	if errors.Is(err, ErrStorage) {
+		if since := s.Store.failingSince.Load(); since == 0 || time.Since(time.Unix(0, since)) < storageGrace {
+			err = withoutStorage(err)
+		}
+	}
 	s.mu.Lock()
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
@@ -139,6 +163,25 @@ func (s *Service) publish(err error) {
 	}
 	s.mu.Unlock()
 	s.notify()
+}
+
+// withoutStorage is err with every storage failure taken out of it, so the
+// other errors a cycle met still reach the board; nil when only storage
+// failed.
+func withoutStorage(err error) error {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		var kept []error
+		for _, part := range joined.Unwrap() {
+			if part = withoutStorage(part); part != nil {
+				kept = append(kept, part)
+			}
+		}
+		return errors.Join(kept...)
+	}
+	if errors.Is(err, ErrStorage) {
+		return nil
+	}
+	return err
 }
 
 // notify sends every board a fresh snapshot, keeping the last error.
@@ -331,6 +374,15 @@ func (s *Service) historyMark() string {
 			}
 		}
 	}
+	for _, directory := range []string{"outcomes", "lifecycle"} {
+		if entries, err := os.ReadDir(filepath.Join(s.Store.Home.State, directory)); err == nil {
+			for _, entry := range entries {
+				if info, err := entry.Info(); err == nil && !info.IsDir() {
+					fmt.Fprintf(&mark, "%s/%s@%d;", directory, entry.Name(), info.ModTime().UnixNano())
+				}
+			}
+		}
+	}
 	var merged []string
 	for id, evaluation := range s.Store.Snapshot().Tasks {
 		if evaluation.Phase == "merged" || evaluation.Phase == "done" {
@@ -346,7 +398,23 @@ func (s *Service) historyMark() string {
 // requests merged into fleet repositories, and what GitHub says of the
 // finished tasks' other pull requests.
 func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
-	history := finishedTasks(s.Store.Home.State, now)
+	history := finishedTasks(s.Store.Home, now)
+	for id, evaluation := range s.Store.Snapshot().Tasks {
+		if evaluation.Phase != "done" && evaluation.Phase != "merged" {
+			continue
+		}
+		meta, err := state.ReadTaskMeta(s.Store.Home.State, id)
+		if err != nil || evaluation.Generation != meta.SpawnGen {
+			continue
+		}
+		if evaluation.PR == "" {
+			lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+			_, evaluation.PR = statusActivity(lines, spawnTime(meta.SpawnGen))
+		}
+		if evaluation.PR != "" {
+			history = append(history, Task{ID: id, Title: meta.Title, Project: filepath.Base(meta.Project), Evaluation: evaluation})
+		}
+	}
 	var err error
 	if s.Options.MergedPRs != nil {
 		var merged []MergedPR
@@ -389,6 +457,9 @@ func (s *Service) reconcileTasks(now time.Time) error {
 			continue // Retired task metadata is not reconstructed from old events.
 		}
 		prior := d.Tasks[task]
+		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+			continue
+		}
 		if prior.Generation == meta.SpawnGen && prior.Phase == "done" && !node.UpdatedAt.After(prior.At) {
 			continue
 		}
@@ -422,6 +493,9 @@ func (s *Service) reconcileTasks(now time.Time) error {
 			continue
 		}
 		if prior := d.Tasks[task]; prior.Generation == meta.SpawnGen && prior.Phase == "done" || evaluationPending(d.Actions, task) {
+			continue
+		}
+		if record, err := state.ReadLifecycle(s.Store.Home.State, task); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 			continue
 		}
 		if err := s.Store.queueUnlessEvaluating(Action{ID: fmt.Sprintf("reconcile-%s-%d", task, now.Unix()/60), Kind: "evaluate", TaskID: task, Generation: meta.SpawnGen}); err != nil {
@@ -517,6 +591,12 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if meta.SpawnGen != a.Generation {
 		return Evaluation{}, fmt.Errorf("%w: task restarted or was replaced; refresh the board", ErrRejected)
+	}
+	if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+		if a.Kind != "evaluate" {
+			return Evaluation{}, fmt.Errorf("task is %s", record.Phase)
+		}
+		return Evaluation{Phase: record.Phase, Reason: record.Reason, Generation: meta.SpawnGen, At: record.Updated}, nil
 	}
 	if a.Kind == "review" {
 		return s.deliverReview(ctx, meta, a)
@@ -629,6 +709,7 @@ func (s *Service) previewGit(meta state.TaskMeta) Git {
 type Task struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
+	Branch       string          `json:"branch,omitempty"`
 	Project      string          `json:"project"`
 	Harness      string          `json:"harness"`
 	Backend      string          `json:"backend"` // the terminal it runs in: native or herdr
@@ -641,8 +722,11 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity string `json:"activity"`
-	Report   string `json:"report"`
+	Activity   string    `json:"activity"`
+	Report     string    `json:"report"`
+	LastReport string    `json:"last_report"`
+	Handoff    bool      `json:"handoff"`
+	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -655,9 +739,15 @@ type Task struct {
 	// Brief says queued work has its brief, which a Start needs; Starting
 	// that its Start runs cfo spawn now, and StartError why its last Start
 	// failed.
-	Brief      bool   `json:"brief"`
-	Starting   bool   `json:"starting"`
-	StartError string `json:"start_error"`
+	Brief         bool             `json:"brief"`
+	Starting      bool             `json:"starting"`
+	StartError    string           `json:"start_error"`
+	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
+	Teardown      []string         `json:"teardown,omitempty"`
+	ActionError   string           `json:"action_error,omitempty"`
+	QueueRevision string           `json:"queue_revision,omitempty"`
+	Detail        string           `json:"detail,omitempty"`
+	Notes         []string         `json:"notes,omitempty"`
 	Evaluation
 }
 
@@ -700,8 +790,11 @@ type Snapshot struct {
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
-	CFOTerminal   string `json:"cfo_terminal"`
-	CFOGeneration string `json:"cfo_generation"`
+	CFOTerminal string `json:"cfo_terminal"`
+	// CFOHarness names the harness the registered CFO runs, such as claude or
+	// codex, for the mark beside the CFO on the board; it is empty while no
+	// CFO is registered.
+	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -719,8 +812,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	s.mu.Unlock()
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting = cfo.terminal, cfo.registered || cfo.starting, cfo.starting
-	out.CFOGeneration = cfo.generation
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
 	// A starting CFO registers itself after sign-in, and one registered since
 	// the last check is no longer missing.
 	if cfo.starting || cfo.registered && out.Registration == errNotRegistered.Error() {
@@ -745,6 +837,17 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		out.Reviews[i] = r
 	}
+	// A goblin's question asked while its review page is open is that page's
+	// item, so the Command Center shows one card: each names the other, the
+	// page its newest pending question.
+	for i := range out.Reviews {
+		r := &out.Reviews[i]
+		for j := range out.Questions {
+			if q := &out.Questions[j]; carriesQuestion(*r, *q) {
+				q.Page, r.Question = r.ID, q.ID
+			}
+		}
+	}
 	// The board sees what runs and how it went, never the process or digest.
 	out.Runs = make([]Run, len(d.Runs))
 	for i, r := range d.Runs {
@@ -756,6 +859,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
 			if meta, err := state.ReadTaskMeta(s.Store.Home.State, node.TaskID); err == nil {
 				node.Runtime = s.runtimeEvidence(meta, node, out.At)
+				if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+					node.Phase = record.Phase
+				}
 			}
 		}
 		out.Sessions = append(out.Sessions, node)
@@ -809,11 +915,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		// A goblin's own newer report says what it is doing, unless a question
-		// or the gate holds it or its work already merged.
-		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, reportedAt, report); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+		// or the gate holds it or its work already merged. A question it asked
+		// since replaces no such report: once answered, the goblin stands on
+		// it again.
+		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
+		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
 		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
+		lastReport, _ := taskSessionSummary(lines, spawnTime(meta.SpawnGen))
 		if _, detail, ok := waitingQuestion(decisions, id); ok {
 			activity = detail
 		}
@@ -824,7 +934,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -871,23 +981,88 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == s.starting
 		if task.Phase == "queued" {
+			if queued, err := fleet.ReadQueuedTask(s.Store.Home, task.ID); err == nil {
+				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				if queued.IsBriefOnly {
+					task.Title = queued.Row.Title
+				}
+			}
+			for _, record := range out.Decisions {
+				if record.Key == task.ID && strings.HasPrefix(record.Detail, "task note: ") {
+					task.Notes = append(task.Notes, strings.TrimPrefix(record.Detail, "task note: "))
+				}
+			}
 			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.StartError = s.startErrors[task.ID]
+		}
+		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
+		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
+		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
+			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
+			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
+		}
+		if lifecycleErr == nil {
+			task.Teardown = record.TeardownLabels()
+		}
+		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
+			task.Lifecycle = lifecycleStatus(record)
+			if record.SuppressesMonitoring(s.Store.Home.State) {
+				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
+				task.Activity = record.Reason
+			}
+			if record.Phase == "stopped" {
+				task.Archived = true
+			}
+		}
+		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+			task.ActionError = failure.Message
+		}
+		if action := s.changing[task.ID]; action != "" {
+			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 		}
 	}
 	s.starts.Unlock()
 	if dispatch := s.Options.Dispatch; dispatch != nil {
-		if available, total, err := dispatch.Memory(); err == nil {
-			out.Memory = &Memory{Available: available, Total: total, Floor: memoryFloor, Next: memoryNext}
+		if memory, err := dispatch.Memory(); err == nil {
+			memory.Floor, memory.Next = memoryFloor, memoryNext
+			// Naming who holds commit reads every process, so it is done
+			// only while commit is what the meter shows.
+			if memory.CommitAvailable < memory.Available {
+				if holders, err := dispatch.CommitHolders(); err == nil {
+					memory.Holders = holders
+				}
+			}
+			out.Memory = &memory
 		}
 	}
 	for _, done := range history {
+		if !done.Archived {
+			for i := range out.Tasks {
+				task := &out.Tasks[i]
+				if task.ID == done.ID && task.PR == done.PR && (task.Phase == "done" || task.Phase == "merged") {
+					task.Title, task.Project, task.Branch = done.Title, done.Project, done.Branch
+					task.Merged, task.Closed = done.Merged, done.Closed
+				}
+			}
+			continue
+		}
 		if strings.HasPrefix(done.ID, "merged:") && slices.ContainsFunc(out.Tasks, func(t Task) bool {
 			return t.PR == done.PR && (t.Phase == "merged" || t.Phase == "done")
 		}) {
 			continue
 		}
 		out.Tasks = append(out.Tasks, done)
+	}
+	archived := archivedTasks(s.Store.Home)
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		id := strings.TrimPrefix(task.ID, "finished:")
+		if state.ValidTaskID(id) == nil {
+			if file, err := openTaskHandoff(s.Store.Home, id, archived); err == nil {
+				task.Handoff = true
+				file.Close()
+			}
+		}
 	}
 	if len(out.Decisions) > 100 {
 		out.Decisions = out.Decisions[len(out.Decisions)-100:]

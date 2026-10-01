@@ -1,6 +1,9 @@
 package host
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,17 +20,38 @@ import (
 // or by a view opened after it. It lives in the CFO home's state directory,
 // which only this Windows user can read, because it holds the token.
 type Record struct {
-	ID       string    `json:"id"`
-	Pipe     string    `json:"pipe"`
-	Token    string    `json:"token"`
-	Version  int       `json:"version"`
-	HostPID  int       `json:"host_pid"`
-	ChildPID int       `json:"child_pid"`
-	Started  time.Time `json:"started"`
+	ID       string `json:"id"`
+	Pipe     string `json:"pipe"`
+	Token    string `json:"token"`
+	Version  int    `json:"version"`
+	HostPID  int    `json:"host_pid"`
+	ChildPID int    `json:"child_pid"`
+	// ChildStart is when the terminal's program was created, which tells it
+	// from a later process Windows gave its pid.
+	ChildStart time.Time `json:"child_start,omitzero"`
+	Started    time.Time `json:"started"`
+	// ProofSum is the SHA-256 of the proof value the host put in its
+	// terminal's environment; the value itself is recorded nowhere.
+	ProofSum string `json:"proof_sum,omitempty"`
 	// Contained is what Launch knows and no record keeps: its launcher's job
 	// forbids breaking away, so the host runs inside that job and ends when
 	// the job closes.
 	Contained bool `json:"-"`
+}
+
+// Proves reports whether proof is the value this host put in its terminal's
+// environment. Every process in the terminal inherits it, through a Cygwin or
+// MSYS exec too, which leaves a chain of parents that stops short of the
+// terminal's program and a process outside the terminal's job: Git Bash runs
+// timeout by replacing its own Windows process, and the MSYS runtime breaks
+// away from the job. A record from before proofs proves nothing.
+func (r Record) Proves(proof string) bool {
+	return proof != "" && r.ProofSum != "" && subtle.ConstantTimeCompare([]byte(proofSum(proof)), []byte(r.ProofSum)) == 1
+}
+
+func proofSum(proof string) string {
+	sum := sha256.Sum256([]byte(proof))
+	return hex.EncodeToString(sum[:])
 }
 
 func recordPath(stateDir, id string) string {
@@ -58,7 +82,7 @@ func ReadRecord(stateDir, id string) (Record, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Record{}, err
 	}
-	data, err := os.ReadFile(recordPath(stateDir, id))
+	data, err := fsx.ReadFile(recordPath(stateDir, id))
 	if err != nil {
 		return Record{}, err
 	}
@@ -84,11 +108,23 @@ func writeRecord(stateDir string, record Record) error {
 }
 
 // removeRecord removes the record of terminal id only while it still names
-// hostPID, so a host that ends never removes its successor's record.
+// hostPID, so a host that ends never removes its successor's record. Windows
+// refuses to delete a file another process has open without delete sharing,
+// as Go opens every file, so a removal a reader refuses is tried again until
+// the reader lets go, for at most removeWait.
 func removeRecord(stateDir, id string, hostPID int) {
 	record, err := ReadRecord(stateDir, id)
 	if err != nil || record.HostPID != hostPID {
 		return
 	}
-	_ = os.Remove(recordPath(stateDir, id))
+	for deadline := time.Now().Add(removeWait); ; time.Sleep(20 * time.Millisecond) {
+		err := os.Remove(recordPath(stateDir, id))
+		if err == nil || errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+			return
+		}
+	}
 }
+
+// removeWait is how long a record's removal outlasts the readers that refuse
+// it.
+const removeWait = 2 * time.Second

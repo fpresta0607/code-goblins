@@ -56,6 +56,10 @@ type EndpointSample struct {
 	// together locate the transcript the harness writes as it works.
 	Harness string
 	Session string
+	// ReadFailed marks an unknown sample whose terminal answered but whose
+	// screen could not be read, which the monitor reads again on its next
+	// scan before it wakes anybody.
+	ReadFailed bool
 }
 
 type Health string
@@ -84,13 +88,14 @@ const (
 type Reason string
 
 const (
-	None            Reason = "none"
-	UnchangedIdle   Reason = "unchanged_idle"
-	BusyTurnOverAge Reason = "busy_turn_over_age"
-	DeclaredPause   Reason = "declared_pause"
-	EndpointMissing Reason = "endpoint_missing"
-	EndpointUnknown Reason = "endpoint_unknown"
-	InvalidRecord   Reason = "invalid_record"
+	None               Reason = "none"
+	UnchangedIdle      Reason = "unchanged_idle"
+	BusyTurnOverAge    Reason = "busy_turn_over_age"
+	DeclaredPause      Reason = "declared_pause"
+	LifecycleOperation Reason = "lifecycle_operation"
+	EndpointMissing    Reason = "endpoint_missing"
+	EndpointUnknown    Reason = "endpoint_unknown"
+	InvalidRecord      Reason = "invalid_record"
 	// HarnessError is a provider failure read out of the pane itself.
 	HarnessError Reason = "harness_error"
 	// AwaitingAnswer is a goblin whose agent turn ended (agent_status done) and
@@ -101,6 +106,10 @@ const (
 	// (blocked, needs-decision, or checks-passed) whose wake was already
 	// delivered by the watcher's decision signal or cfo notify's own wake.
 	AwaitingDecision Reason = "awaiting_decision"
+	// GoblinIdle is a goblin that has sat at its prompt with nothing running,
+	// nothing asked and nothing reported for the idle window, read from its
+	// own screen and processes whatever harness it runs, hooks or none.
+	GoblinIdle Reason = "goblin_idle"
 )
 
 type EventSource string
@@ -144,11 +153,15 @@ type Observation struct {
 	// harness's last transcript write, or a reading in which the processes
 	// the harness started were using the processor. JobCPU and JobSampledAt
 	// are the reading the next one is measured against, and JobSampledSince
-	// is when the current run of consecutive readings began.
+	// is when the current run of consecutive readings began. ProgressReadAt
+	// and Jobs are the scan's own reading, when it was made and the processes
+	// it found running, so one scan reads the goblin's progress once.
 	EvidenceAt         *time.Time    `json:"evidence_at,omitempty"`
 	JobCPU             time.Duration `json:"job_cpu,omitempty"`
 	JobSampledAt       *time.Time    `json:"job_sampled_at,omitempty"`
 	JobSampledSince    *time.Time    `json:"job_sampled_since,omitempty"`
+	ProgressReadAt     *time.Time    `json:"-"`
+	Jobs               []string      `json:"-"`
 	IdleSince          *time.Time    `json:"idle_since,omitempty"`
 	StaleSince         *time.Time    `json:"stale_since,omitempty"`
 	NextEscalation     *time.Time    `json:"next_escalation,omitempty"`
@@ -181,6 +194,17 @@ type Observation struct {
 	// a whole busy budget has passed.
 	BusyWakeKind string     `json:"busy_wake_kind,omitempty"`
 	BusyWakeAt   *time.Time `json:"busy_wake_at,omitempty"`
+	// PromptSince is when the goblin was last seen settle at its prompt with
+	// nothing running, nothing asked and nothing reported, PromptStatus its
+	// status log's stamp then, and IdleWokeAt when it last woke the CFO as
+	// goblin_idle.
+	PromptSince  *time.Time `json:"prompt_since,omitempty"`
+	PromptStatus string     `json:"prompt_status,omitempty"`
+	IdleWokeAt   *time.Time `json:"idle_woke_at,omitempty"`
+	// ScreenUnreadSince is the scan whose read of the goblin's screen failed,
+	// kept until a read works, so one failed read is read again before it
+	// wakes anybody.
+	ScreenUnreadSince *time.Time `json:"screen_unread_since,omitempty"`
 }
 
 type Heartbeat struct {
@@ -271,7 +295,7 @@ func TouchHeartbeat(stateDir string, now time.Time) error {
 }
 
 func readStrictJSON(path string, out any) error {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -327,6 +351,15 @@ func validateObservation(observation Observation) error {
 }
 
 func validateObservationState(observation Observation) error {
+	if observation.Reason == LifecycleOperation {
+		if observation.Health != HealthPaused && observation.Health != HealthParked && observation.Health != HealthLaunching {
+			return errors.New("monitor: lifecycle operation has incompatible health")
+		}
+		if observation.EndpointVerdict != ProbeUnknown || observation.PendingEvent != nil || observation.NextPauseResurface != nil || observation.NextEscalation != nil || observation.StaleSince != nil || observation.NextDecisionAsk != nil || observation.Escalation != 0 || observation.DemandDeepInspection {
+			return errors.New("monitor: lifecycle operation cannot carry endpoint or alarm evidence")
+		}
+		return nil
+	}
 	requireProgress := func() error {
 		if observation.Digest == "" || observation.LastSeen.IsZero() || observation.LastProgress.IsZero() {
 			return errors.New("monitor: observation progress fields are required")
@@ -343,7 +376,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthStale:
-		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer) {
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle) {
 			return errors.New("monitor: stale observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {
@@ -367,11 +400,18 @@ func validateObservationState(observation Observation) error {
 		}
 		return nil
 	case HealthPaused:
-		if observation.EndpointVerdict != ProbePresent || observation.Reason != DeclaredPause {
+		// A paused goblin is either read declaring its pause, or its pause
+		// stands while its terminal is gone.
+		declared := observation.EndpointVerdict == ProbePresent && observation.Reason == DeclaredPause
+		gone := observation.EndpointVerdict == ProbeMissing && observation.Reason == EndpointMissing
+		if !declared && !gone {
 			return errors.New("monitor: paused observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince != nil || observation.NextEscalation != nil || observation.NextPauseResurface == nil || observation.Escalation != 0 || observation.DemandDeepInspection {
 			return errors.New("monitor: paused observation has incompatible timing state")
+		}
+		if gone {
+			return nil
 		}
 		return requireProgress()
 	case HealthParked:

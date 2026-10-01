@@ -756,7 +756,7 @@ func validateDeliveryContract(req Request) error {
 	if req.Kind != "ship" {
 		return nil
 	}
-	data, err := os.ReadFile(req.BriefPath)
+	data, err := fsx.ReadFile(req.BriefPath)
 	if err != nil {
 		return fmt.Errorf("spawn: read brief delivery contract: %w", err)
 	}
@@ -970,8 +970,8 @@ func (s Service) confirmLaunch(ctx context.Context, client terminal.Backend, tar
 // started, or left at once, stops the spawn here with the pane's screen
 // instead of having its brief run as shell commands. A dialog a spawn never
 // answers (Codex's hook review) stops the spawn before any key is pressed,
-// unless the launch itself confirms it (pi's trust prompt, which its screens
-// never answer). A dialog the launch confirms is confirmed again should it
+// unless the launch itself confirms it (the trust prompt of a pi without
+// --approve). A dialog the launch confirms is confirmed again should it
 // show late, paced as confirmHarnessDialogs paces it, and pressed again only
 // once a later screen that has changed still shows it, so a frame not yet
 // redrawn never takes a second key. Any other dialog the harness is known to

@@ -43,7 +43,8 @@ const (
 var runShells = []string{"powershell", "pwsh", "bash"}
 
 // Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. Only the registered primary CFO creates one.
+// click from the Command Center. The registered primary CFO can create one;
+// the board can also create a connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
 // executes that file, never anything the browser sends.
 type Run struct {
@@ -70,6 +71,9 @@ type Run struct {
 	ExpiresAt  time.Time  `json:"expires_at"`
 	RanAt      *time.Time `json:"ran_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+
+	ConnectionTask       string `json:"connection_task,omitempty"`
+	ConnectionGeneration string `json:"connection_generation,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -161,13 +165,21 @@ func PublishRun(h home.Home, req RunRequest) error {
 	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
 }
 
+// WithdrawRun takes a run item nobody ran off the board for the registered
+// primary CFO, with its reason, over the supervisor's pipe.
+func WithdrawRun(h home.Home, id, reason string) error {
+	return sendPipeRequest(h.State, runPipeRequest{Kind: "withdraw-run", ID: id, Reason: reason})
+}
+
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
-// may put on the board (a question, a review record or an answer), which the
-// supervisor records only once the sending process is proven to be the CFO.
+// may put on the board (a question, a review record or an answer) or a run
+// item it withdraws, which the supervisor records only once the sending
+// process is proven to be the CFO.
 type runPipeRequest struct {
 	Kind     string     `json:"kind,omitempty"`
 	ID       string     `json:"id"`
+	Reason   string     `json:"reason,omitempty"`
 	Title    string     `json:"title"`
 	Shell    string     `json:"shell"`
 	Admin    bool       `json:"admin"`
@@ -230,7 +242,7 @@ func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.
 }
 
 func readRunCommand(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := fsx.Open(path)
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +271,7 @@ func (s *Store) acceptRun(r Run) error {
 	}
 	// The script on disk must be exactly the command the CFO published.
 	name, script := runScript(r)
-	data, err := os.ReadFile(filepath.Join(runDir(s.Home.State, r), name))
+	data, err := fsx.ReadFile(filepath.Join(runDir(s.Home.State, r), name))
 	if err != nil || r.ScriptSum != runDigest(script) || runDigest(data) != r.ScriptSum {
 		return errors.New("the run item's script file is missing or changed")
 	}
@@ -279,6 +291,47 @@ func (s *Store) acceptRun(r Run) error {
 	return s.save()
 }
 
+// withdrawRun takes the run item id, which nobody ran yet, off the board for
+// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// Run on it is refused from then on. Replacing an item is withdrawing it and
+// publishing the new command under a new ID.
+func (s *Store) withdrawRun(id, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > 1900 {
+		return errors.New("a withdrawal needs a reason of at most 1900 characters")
+	}
+	s.mu.Lock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id })
+	if i < 0 {
+		s.mu.Unlock()
+		return errors.New("no run item with that ID to withdraw")
+	}
+	r := &s.db.Runs[i]
+	now := time.Now().UTC()
+	switch {
+	case r.ConnectionTask != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CFO's to withdraw", r.ID, r.ConnectionTask)
+	case r.State != "ready":
+		s.mu.Unlock()
+		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
+	case !now.Before(r.ExpiresAt):
+		s.mu.Unlock()
+		return errors.New("the run item expired, so it cannot be withdrawn")
+	}
+	r.State, r.Reason, r.FinishedAt = "withdrawn", reason, &now
+	withdrawn := *r
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := appendRunAudit(s.Home.State, withdrawn, "withdrawn "+reason, now); err != nil {
+		return fmt.Errorf("the run item was withdrawn, but state/runs.audit was not written: %w", err)
+	}
+	return nil
+}
+
 // expireRuns closes each item nobody ran within its lifetime.
 func (s *Store) expireRuns(now time.Time) error {
 	s.mu.Lock()
@@ -296,8 +349,8 @@ func (s *Store) expireRuns(now time.Time) error {
 	return s.save()
 }
 
-// pruneRuns drops finished and expired items, with their directories, a set
-// time after they ended.
+// pruneRuns drops finished, expired and withdrawn items, with their
+// directories, a set time after they ended.
 func (s *Store) pruneRuns(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -376,11 +429,20 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 		return Evaluation{}, fmt.Errorf("%w: the run item changed; nothing ran", ErrRejected)
 	}
 	r := runs[i]
+	if r.ConnectionTask != "" {
+		meta, err := s.connectionTask(r.ConnectionTask, r.ConnectionGeneration)
+		if err == nil {
+			err = s.verifyWorkspace(ctx, meta)
+		}
+		if err != nil {
+			return Evaluation{}, errors.Join(ErrRejected, err, s.completeRun(ctx, r, nil, "the task changed; nothing ran"))
+		}
+	}
 	dir := runDir(s.Store.Home.State, r)
 	name, _ := runScript(r)
 	script := filepath.Join(dir, name)
 	var started RunStarted
-	data, err := os.ReadFile(script)
+	data, err := fsx.ReadFile(script)
 	switch {
 	case err != nil || runDigest(data) != r.ScriptSum:
 		err = errors.New("its script file is missing or changed")
@@ -418,7 +480,7 @@ func (s *Service) finishRuns(ctx context.Context) error {
 		dir := runDir(s.Store.Home.State, r)
 		if code, ok := readRunExit(dir); ok {
 			errs = errors.Join(errs, s.completeRun(ctx, r, &code, ""))
-		} else if declined, err := os.ReadFile(filepath.Join(dir, "declined.txt")); err == nil {
+		} else if declined, err := fsx.ReadFile(filepath.Join(dir, "declined.txt")); err == nil {
 			errs = errors.Join(errs, s.completeRun(ctx, r, nil, "Windows did not start it elevated: "+bounded(strings.TrimSpace(string(declined)), 300)))
 		} else if !runProcessAlive(r.PID, *r.Started) {
 			// The run may have written its exit code just before it ended.
@@ -446,7 +508,15 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if err != nil || !ended {
 		return err
 	}
-	err = appendRunAudit(s.Store.Home.State, r, code, time.Now().UTC())
+	exit := "none"
+	if code != nil {
+		exit = strconv.Itoa(*code)
+	}
+	err = appendRunAudit(s.Store.Home.State, r, exit, time.Now().UTC())
+	if r.ConnectionTask != "" {
+		checks, _ := s.connections()
+		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
+	}
 	text := fmt.Sprintf("Run item %s (%s) did not finish: %s.", r.ID, r.Title, reason)
 	if code != nil {
 		text = fmt.Sprintf("Run item %s (%s) finished with exit code %d.", r.ID, r.Title, *code)
@@ -492,7 +562,7 @@ func tail(text string, n int) string {
 
 // readRunExit reads the exit code a run writes when its command finishes.
 func readRunExit(dir string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "exit.txt"))
+	data, err := fsx.ReadFile(filepath.Join(dir, "exit.txt"))
 	if err != nil {
 		return 0, false
 	}
@@ -527,7 +597,7 @@ func (h *HTTP) runOutput(w http.ResponseWriter, r *http.Request) {
 
 // readRunOutput reads the end of what a run printed.
 func readRunOutput(dir string) string {
-	f, err := os.Open(filepath.Join(dir, "output.log"))
+	f, err := fsx.Open(filepath.Join(dir, "output.log"))
 	if err != nil {
 		return ""
 	}
@@ -545,19 +615,15 @@ func readRunOutput(dir string) string {
 	return strings.ToValidUTF8(text, "?")
 }
 
-// appendRunAudit records a run in state/runs.audit: when, the item, the
-// SHA-256 of exactly the script file it ran, and its exit code, or none when
-// it did not finish.
-func appendRunAudit(stateDir string, r Run, code *int, now time.Time) error {
-	exit := "none"
-	if code != nil {
-		exit = strconv.Itoa(*code)
-	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "runs.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+// appendRunAudit records how a run item ended in state/runs.audit: when, the
+// item, the SHA-256 of exactly its script file, and its outcome: the exit
+// code, none when it did not finish, or withdrawn and the CFO's reason.
+func appendRunAudit(stateDir string, r Run, outcome string, now time.Time) error {
+	f, err := fsx.OpenAppend(filepath.Join(stateDir, "runs.audit"), 0600)
 	if err != nil {
 		return err
 	}
-	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, exit)
+	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, strings.Join(strings.Fields(outcome), " "))
 	return errors.Join(werr, f.Close())
 }
 

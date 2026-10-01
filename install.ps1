@@ -10,7 +10,17 @@
 # cfo.exe and goblins.exe on your PATH, this window included, asks once for
 # the folder that holds your projects, installs the tools, skills and hooks
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
-# and ends with the guided terminal quick start.
+# and ends by opening the board in the browser.
+#
+# Releases are code-signed from the first signed release on; earlier ones
+# are not. The one-line install runs cfo.exe only when it matches the
+# release's SHA256SUMS and, for a signed release, carries a valid signature
+# from its publisher, and it shows no SmartScreen prompt. A cfo.exe saved
+# from a browser gets SmartScreen's "Windows protected your PC" while it is
+# unsigned or its certificate is still new, and Smart App Control, where it
+# is on, blocks an unsigned one. "On a fresh PC" in docs/install.md says how
+# to check the checksum by hand and what to do if Microsoft Defender flags
+# it.
 #
 # To work on it, in a clone:
 #
@@ -57,10 +67,17 @@
         $releaseBase = $env:CODE_GOBLINS_RELEASE_BASE.TrimEnd("/")
     }
 
+    # The copy of this script published with a release names the release's
+    # publisher here, and it installs only programs carrying a valid signature
+    # from that publisher. A copy that names none, such as a clone's run
+    # against a CI build, checks the release's SHA256SUMS alone and says so.
+    $releasePublisher = ""
+
     # Save-VerifiedRelease downloads the release's cfo.exe to $Path and keeps it
-    # only when it matches the release's SHA256SUMS. It returns $false when the
-    # release cannot be downloaded at all, and throws on a mismatch, leaving
-    # nothing at $Path.
+    # only when it matches the release's SHA256SUMS and, where this script
+    # names the release's publisher, is validly signed by it. It returns $false
+    # when the release cannot be downloaded at all, and throws on a mismatch,
+    # leaving nothing at $Path.
     function Save-VerifiedRelease([string]$Path) {
         $download = "$Path.download"
         $sums = "$Path.SHA256SUMS"
@@ -88,8 +105,24 @@
                 Write-Host "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$expected'"
                 throw "The downloaded cfo.exe does not match the release's SHA256SUMS, so it was not installed."
             }
+            $signed = ""
+            if ($releasePublisher) {
+                $signature = Get-AuthenticodeSignature -LiteralPath $download
+                $signer = ""
+                if ($signature.SignerCertificate) {
+                    $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
+                }
+                if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
+                    Write-Host "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
+                    throw "The downloaded cfo.exe is not validly signed by $releasePublisher, so it was not installed."
+                }
+                $signed = " and its signature by $releasePublisher"
+            }
+            else {
+                Write-Host "This copy of the install script names no publisher, so the download is checked against the release's SHA256SUMS only."
+            }
             Move-Item -LiteralPath $download -Destination $Path -Force
-            Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)."
+            Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)$signed."
             return $true
         }
         finally {
@@ -170,7 +203,7 @@
         $built = Join-Path $InstallDir "cfo.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
-            go build -o $built ./cmd/cfo
+            go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
         }
         finally {
@@ -311,22 +344,23 @@
     # installed:
     #   winget     - a winget package (needs winget)
     #   npm        - a global npm package (needs npm, i.e. Node.js)
-    #   powershell - an official install.ps1, fetched and run in a child shell so
-    #                its own `exit` cannot kill this install
+    #   powershell - an official install.ps1, saved to a file and run from it
+    #                in a child shell, so its own `exit` cannot kill this
+    #                install. It is never run as a download-and-run one-liner
+    #                (irm <url> | iex) on a child's command line, which
+    #                Defender blocks as Trojan:Win32/Commando.A!ml.
     #   manual     - no scriptable installer; print the manual step instead
-    $agentInstallers = & (Join-Path $InstallDir "goblins.exe") setup --installers | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) { throw "Could not read this release's agent installers" }
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "claude";              Kind = "npm";        Cmd = $agentInstallers.claude },
-        @{ Name = "herdr";               Kind = "powershell"; Cmd = "irm https://herdr.dev/install.ps1 | iex" },
-        @{ Name = "codex";               Kind = "npm";        Cmd = $agentInstallers.codex },
-        @{ Name = "pi";                  Kind = "npm";        Cmd = $agentInstallers.pi },
+        @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
+        @{ Name = "herdr";               Kind = "powershell"; Cmd = "https://herdr.dev/install.ps1" },
+        @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
+        @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
         @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
-        @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex" },
+        @{ Name = "no-mistakes";         Kind = "powershell"; Cmd = "https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
         @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
@@ -340,6 +374,11 @@
     $installedAny = $false
     foreach ($tool in $tools) {
         $found = Get-Command $tool.Name -ErrorAction SilentlyContinue
+        # A native terminal starts Claude Code only as claude.exe, so a script
+        # such as npm's claude.cmd does not count as present.
+        if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
+            $found = $null
+        }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
             continue
@@ -362,8 +401,15 @@
         Write-Host ("install  {0,-20} {1}" -f $tool.Name, $tool.Cmd)
         try {
             if ($tool.Kind -eq "powershell") {
-                & powershell -NoProfile -ExecutionPolicy Bypass -Command $tool.Cmd
-                if ($LASTEXITCODE -ne 0) { throw "installer exited with code $LASTEXITCODE" }
+                $installer = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N") + ".ps1")
+                try {
+                    Invoke-WebRequest -Uri $tool.Cmd -OutFile $installer -UseBasicParsing -ErrorAction Stop
+                    & powershell -NoProfile -ExecutionPolicy Bypass -File $installer
+                    if ($LASTEXITCODE -ne 0) { throw "installer exited with code $LASTEXITCODE" }
+                }
+                finally {
+                    Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+                }
             }
             else {
                 Invoke-Expression $tool.Cmd
@@ -378,6 +424,30 @@
         }
     }
 
+    # Claude Code's native installer puts claude.exe, the build a native
+    # terminal starts, in ~\.local\bin and may leave that off PATH. The user
+    # PATH keeps its registry kind, as cfo install keeps it, so its %VARIABLE%
+    # entries survive.
+    $claudeBin = Join-Path $env:USERPROFILE ".local\bin"
+    if (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe")) {
+        $environment = Get-Item -LiteralPath "HKCU:\Environment"
+        $userPath = [string]$environment.GetValue("Path", "", "DoNotExpandEnvironmentNames")
+        if (-not (@($userPath -split ';') -contains $claudeBin)) {
+            $kind = if ($null -ne $environment.GetValue("Path", $null)) { $environment.GetValueKind("Path") } else { "ExpandString" }
+            Set-ItemProperty -LiteralPath "HKCU:\Environment" -Name Path -Value ((@($userPath -split ';' | Where-Object { $_ -ne "" }) + $claudeBin) -join ';') -Type $kind
+            # WM_SETTINGCHANGE makes Explorer, and every window it opens after
+            # this, see the new PATH before the next sign-in.
+            Add-Type -Namespace CfoInstall -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+'@
+            $result = [UIntPtr]::Zero
+            [void][CfoInstall.Win32]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
+            Write-Host ("ok       {0,-20} {1} added to your PATH" -f "claude", $claudeBin)
+            $installedAny = $true
+        }
+    }
+
     # Installers write PATH entries to the registry; make them visible in this
     # shell (union with the current PATH, so nothing already present is lost).
     if ($installedAny) {
@@ -385,6 +455,16 @@
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
         $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
+    }
+
+    # The native build's folder is appended to PATH, so a script left earlier
+    # on it, such as npm's claude.cmd, still wins until the user removes it.
+    # Warn only once the native build is installed: until then the script is
+    # the only working claude.
+    $claude = Get-Command claude -ErrorAction SilentlyContinue
+    if ($claude -and [IO.Path]::GetExtension($claude.Source) -ne ".exe" -and (Test-Path -LiteralPath (Join-Path $claudeBin "claude.exe"))) {
+        Write-Host ("WARN     {0,-20} resolves to {1}, a script a native terminal cannot start; run: npm.cmd uninstall -g @anthropic-ai/claude-code" -f "claude", $claude.Source)
+        $failedInstalls += "claude: npm.cmd uninstall -g @anthropic-ai/claude-code"
     }
 
     # Point Claude Code's project skills directory at the clone's .agents/skills.
@@ -423,17 +503,19 @@
         }
     }
 
-    # Keep the quick start visible so install and sign-in choices can be read.
+    # Code Goblins in the Start menu opens the board, starting the supervisor
+    # when none runs; its console shows only minimized, for as long as that
+    # takes.
     $goblins = Join-Path $InstallDir "goblins.exe"
     $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
     try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $goblins
-        $shortcut.Arguments = ""
+        $shortcut.Arguments = "--board"
         $shortcut.WorkingDirectory = $InstallDir
-        $shortcut.WindowStyle = 1
-        $shortcut.Description = "Start the Code Goblins CFO"
+        $shortcut.WindowStyle = 7
+        $shortcut.Description = "Open the Code Goblins board"
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
     }
@@ -447,11 +529,14 @@
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
+    # Last, the board opens in the browser, starting the supervisor when none
+    # runs; the board shows the CFO, and its first-run screen while none is
+    # set up.
     Write-Host ""
-    & $goblins
+    & $goblins --board
     if ($LASTEXITCODE -ne 0) {
-        Write-Host ("WARN     {0,-20} quick start did not finish; run goblins to continue" -f "quick start")
-        $failedInstalls += "quick start: run goblins"
+        Write-Host ("WARN     {0,-20} the board did not open; see the lines above" -f "board")
+        $failedInstalls += "the board: run goblins --board"
     }
 
     if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
@@ -472,8 +557,8 @@
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens quick start; open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens the board; open a new terminal so cfo and goblins are on your PATH."
         exit $doctorExit
     }
-    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens quick start, and goblins works in this window and in any new one."
+    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens the board, and goblins works in this window and in any new one."
 } $args

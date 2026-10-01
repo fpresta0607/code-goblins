@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -122,6 +123,9 @@ type Store struct {
 	committed   Database
 	changed     chan struct{}
 	inboxCursor string
+	// failingSince is when saves started failing, in Unix nanoseconds; zero
+	// while they succeed.
+	failingSince atomic.Int64
 }
 
 func Open(h home.Home) (*Store, error) {
@@ -132,7 +136,7 @@ func Open(h home.Home) (*Store, error) {
 	if info, err := os.Stat(s.path()); err == nil && info.Size() > maxStateBytes {
 		return nil, errors.New("supervisor state exceeds its bound")
 	}
-	data, err := os.ReadFile(s.path())
+	data, err := fsx.ReadFile(s.path())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -189,14 +193,15 @@ func (s *Store) save() error {
 	if err == nil && len(data)+1 > maxStateBytes {
 		err = errors.New("supervisor state exceeds its bound")
 	}
+	if err == nil {
+		err = fsx.AtomicWriteFile(s.path(), append(data, '\n'))
+	}
 	if err != nil {
 		s.db = cloneDatabase(s.committed)
+		s.failingSince.CompareAndSwap(0, time.Now().UnixNano())
 		return fmt.Errorf("%w: %v", ErrStorage, err)
 	}
-	if err := fsx.AtomicWriteFile(s.path(), append(data, '\n')); err != nil {
-		s.db = cloneDatabase(s.committed)
-		return fmt.Errorf("%w: %v", ErrStorage, err)
-	}
+	s.failingSince.Store(0)
 	s.committed = cloneDatabase(s.db)
 	select {
 	case s.changed <- struct{}{}:
@@ -607,6 +612,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].State == "withdrawn":
+			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
 			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
 		}
@@ -705,6 +712,7 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
+				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -712,6 +720,9 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
+				}
+				if answered {
+					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}
@@ -749,7 +760,7 @@ func (s *Store) Ingest() error {
 		if info.Size() > nativehook.MaxInputBytes {
 			r.err = errors.New("oversized event")
 		} else {
-			data, readErr := os.ReadFile(r.path)
+			data, readErr := fsx.ReadFile(r.path)
 			if readErr != nil {
 				return readErr
 			}
