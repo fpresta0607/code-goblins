@@ -98,6 +98,8 @@ All other content is preserved.
 
 `cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
 A goblin is judged stalled by evidence rather than by how long its turn has run: its harness's transcript writes and the processor use of the processes its harness started, so a long refactor, a long test run, or a goblin waiting on its own background job or monitor stays quiet, and the CFO hears about it once that evidence stops.
+A pane that shows a tool or a turn running, whichever harness drew it, keeps the goblin read as working until that evidence stops, and a goblin sitting at its prompt with nothing running, nothing asked and nothing reported wakes the CFO after three minutes as `goblin_idle`, read from its own screen and processes, so a Codex or pi goblin without its hooks wakes the same as a Claude Code one.
+`cfo doctor` prints how many stale wakes the monitor raised and how many it held back, and why.
 
 ## Quick start
 
@@ -208,7 +210,7 @@ The header switches between two views, one at a time, each with a contextual pan
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
   Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.
-  The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open terminal** opens its terminal.
+  The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open Command Center** opens what waits; its terminal icon opens its terminal.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
   A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
@@ -360,7 +362,8 @@ Review items share the stack: a goblin's image review or review page, and a gobl
 A review page shows as a preview you click to open it (**Open review**); a page the board watches is answered on the page itself, and its card finishes when you send or end the review there.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
-Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request; clicking an alert opens that item, alerts stack and fade after a few seconds, and routine progress never alerts.
+Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
+Each alert is its goblin's dialogue box with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** and the goblin's name for its news; alerts stack and leave after a few seconds, and routine progress never alerts.
 While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
 
 <p align="center">

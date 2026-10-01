@@ -118,24 +118,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    board always does. */
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
 .task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
-/* The CFO pinned above the columns opens its terminal, and is the one place
-   on the board that says Waiting on you. */
+/* The CFO pinned above the columns is the one place on the board that says
+   Waiting on you. Its main action is Open Command Center, and its terminal is
+   on its icon and portrait. Hovered or focused, it rises over the columns so
+   its tooltips show in full. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
 .task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
+.cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
+.cfo-pin:hover, .cfo-pin:focus-within { z-index: 3; }
 /* Paused tasks sit inside In progress, after its working cards, under a thin
    labelled divider, like a page break. */
 .paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
 .column-divider { display: flex; align-items: center; gap: 10px; margin: 0; color: #edf4f3; font: 700 1rem/1.3 var(--font-body); }
 .column-divider::before, .column-divider::after { content: ""; flex: 1; height: 1px; background: var(--edge-lit); }
-.cfo-pin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 16px; background: #0f1820e6; box-shadow: var(--shadow-1); }
-.cfo-pin .goblin-avatar { flex: none; width: 44px; height: 44px; }
-.cfo-pin .pin-copy { display: grid; flex: 1 1 10rem; min-width: 0; }
-.cfo-pin .pin-copy strong { font-weight: 700; }
-.cfo-pin .pin-copy span { color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
-.cfo-pin.asking { border-left: 3px solid var(--amber); padding-left: 8px; }
-.cfo-pin.asking .pin-copy span { color: #f6d79e; }
-.cfo-pin .open-terminal { display: inline-flex; flex: none; align-items: center; gap: 8px; margin-left: auto; white-space: nowrap; }
-.cfo-pin .open-terminal .icon { width: 18px; height: 18px; }
 /* The first-run page: one card over the workshop, the folder, the project
    the CFO starts in, the agents with what this machine has, and Start. */
 .first-run-region { display: grid; align-content: start; justify-items: center; flex: 1; min-height: 0; overflow: auto; padding: 40px 16px; border: 1px solid var(--edge); border-radius: 18px; background: linear-gradient(#07101599, #07101599), url('/assets/goblin-workshop.png') right bottom / cover; }
@@ -504,23 +499,53 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .command-center-menu > summary:hover { transform: var(--lift); box-shadow: var(--shadow-2); }
 .command-center-menu > summary .icon { width: 26px; height: 26px; }
 .count-badge { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--amber); color: #2b1d02; font-size: .9375rem; font-weight: 800; line-height: 1; box-shadow: 0 0 0 3px var(--level-2); }
-/* Alerts stack bottom right, newest at the bottom; each fades in, and out
-   when it leaves. The edge color says whether it needs him, failed or is done. */
-.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 10px; width: min(420px, calc(100vw - 40px)); }
-.toast { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 4px; border: 1px solid var(--edge); border-left: 3px solid var(--amber); border-radius: 16px; background: #0f1820f2; box-shadow: var(--shadow-1); animation: toast-in .22s ease-out; }
-.toast.failed { border-left-color: #e0736b; }
-.toast.done { border-left-color: var(--accent); }
-.toast.leaving { opacity: 0; transform: translateY(8px); transition: opacity .22s ease-in, transform .22s ease-in; }
-.toast-open { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.toast-open:hover, .toast-open:focus-visible { background: #ffffff0d; }
-.toast-text { display: grid; flex: 1; min-width: 0; gap: 3px; }
-.toast-text strong { overflow-wrap: anywhere; }
-.toast-text span { color: var(--muted); overflow-wrap: anywhere; }
-.toast.ask { display: grid; gap: 10px; padding: 14px 16px; border-left-color: var(--accent); }
-.toast.ask p { margin: 0; }
-.toast-actions { display: flex; justify-content: flex-end; gap: 8px; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
-@media (prefers-reduced-motion: reduce) { .toast, .toast.leaving { animation: none; transition: none; transform: none; } }
+/* Alerts stack bottom right, newest at the bottom; each steps in as it
+   arrives and is gone when it leaves. The tab color says whether it needs him,
+   failed or is done. The alert under the pointer or the keyboard rises over
+   its neighbours so the next one's tab never covers its tooltips. */
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
+.toasts > .toast { position: relative; }
+.toasts > .toast:hover, .toasts > .toast:focus-within { z-index: 1; }
+/* Alerts and the CFO's banner are goblins' dialogue boxes in the workshop's
+   own lantern-and-leather palette: the speaker's portrait, the speaker's name
+   on a tab, and a stepped pixel frame with a hard shadow. Lantern means it
+   needs the Overlord and nothing else, so only then is the action filled.
+   A box steps up once as it arrives and is still after that. The stepped
+   fills and frames are drawn behind each box, portrait and button, never
+   clipping them, so focus rings and tooltips show in full. */
+.dialogue { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --ember: #D8664C; --bone: #EFE6D2; --edge: #5C4631; --tone: var(--lantern); --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(3px 3px 0 var(--soot)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
+.dialogue.done, .dialogue.quiet { --tone: var(--moss); }
+.dialogue.failed { --tone: var(--ember); }
+.dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--tone); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
+.dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon { position: relative; isolation: isolate; }
+.dialogue-box::before, .dialogue-portrait::before, .pixel-button::before, .dialogue .pixel-icon::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); }
+.dialogue-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; width: 100%; padding: 14px 16px 14px 14px; color: var(--bone); }
+.dialogue-box::before, .dialogue-portrait::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
+.dialogue-portrait { display: grid; place-items: center; width: 64px; height: 64px; min-height: 64px; padding: 0; border: 0; background: transparent; }
+.dialogue-portrait::before { background: #1a140f; }
+button.dialogue-portrait:hover { background: transparent; transform: none; }
+button.dialogue-portrait:hover::before { background: #2e241b; }
+.dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
+.dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
+.dialogue-text p { margin: 0; overflow-wrap: anywhere; }
+.dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
+.pixel-button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 14px; border: 0; border-radius: 0; background: transparent; color: var(--soot); font: 400 1rem/1.2 var(--font-display); }
+.pixel-button::before { background: var(--lantern); box-shadow: inset -2px -2px 0 #b8832a, inset 2px 2px 0 #ffd98a; }
+.pixel-button:hover { background: transparent; transform: none; }
+.pixel-button:hover::before { background: #f7c565; }
+.pixel-button:active::before { box-shadow: inset 2px 2px 0 #b8832a, inset -2px -2px 0 #ffd98a; }
+.pixel-button.outline { color: var(--bone); }
+.pixel-button.outline::before { background: transparent; box-shadow: inset 0 0 0 2px var(--bone); }
+.pixel-button.outline:hover::before { background: #ffffff12; }
+.pixel-button .icon { width: 16px; height: 16px; }
+.dialogue .pixel-icon { width: 40px; height: 40px; min-height: 40px; border: 0; border-radius: 0; background: transparent; color: var(--bone); }
+.dialogue .pixel-icon::before { box-shadow: inset 0 0 0 2px var(--bone); }
+.dialogue .pixel-icon:hover { background: transparent; transform: none; }
+.dialogue .pixel-icon:hover::before { background: #ffffff12; }
+@keyframes dialogue-in { from { transform: scaleY(.25); } }
+@container (max-width: 640px) { .dialogue-box { grid-template-columns: auto minmax(0, 1fr); } .dialogue-actions { grid-column: 2; } }
+@container (max-width: 400px) { .dialogue-actions { grid-column: 1 / -1; } }
+@media (prefers-reduced-motion: reduce) { .dialogue { animation: none; } }
 .command-center-updates { position: absolute; right: 0; top: calc(100% + 12px); width: min(390px, calc(100vw - 40px)); padding: 24px; background: var(--level-3); border: 1px solid var(--edge); border-top-color: var(--edge-lit); border-radius: 20px; z-index: 5; box-shadow: var(--shadow-3); }
 .browser-indicator { font-size: .9375rem; color: #91dfc2; }
 .activity-glow { pointer-events: none; position: absolute; inset: -2px; border: 2px solid #81edc0; border-radius: inherit; box-shadow: 0 0 16px #67e8b755; animation: received 3s ease-out both; }

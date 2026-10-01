@@ -192,6 +192,36 @@ func (d Dialog) Focused(screen []string) (string, bool) {
 	return focused[0], true
 }
 
+// runningWork matches a row that shows a harness running a turn, a tool, or
+// a background job it will report back from, whichever harness drew it: the
+// interrupt hint Claude Code and Codex show while a turn runs, Codex's status
+// row, pi's rule, Claude Code's spinner and the "Running…" under a tool in
+// progress, and the count of background shells in Claude Code's footer. The
+// line that ends a Claude Code turn says "1 shell still running" and stays on
+// screen after the shell ends, so only the footer's count is read.
+var runningWork = []*regexp.Regexp{
+	regexp.MustCompile(`esc to interrupt`),
+	regexp.MustCompile(`^[•◦]\s+Working \(`),
+	regexp.MustCompile(`Running…`),
+	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
+	regexp.MustCompile(`(^|·)\s*\d+ shells?\s*(·|$)`),
+}
+
+// RunningWork returns the first row of screen that shows a tool, a turn or a
+// background job running, and whether there is one.
+func RunningWork(screen []string) (string, bool) {
+	for _, row := range screen {
+		row = strings.TrimSpace(row)
+		for _, pattern := range runningWork {
+			if pattern.MatchString(row) {
+				return row, true
+			}
+		}
+	}
+	return "", false
+}
+
 // compactScreen joins screen without any whitespace, since a harness wraps a
 // long sentence across rows at the terminal's width.
 func compactScreen(screen []string) string {

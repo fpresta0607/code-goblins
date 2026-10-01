@@ -19,19 +19,20 @@ export type BoardLayout = "kanban" | "stacked";
 // The board is a kanban by default, its columns side by side, or stacked,
 // one under another. Paused tasks keep their work inside In progress, under a
 // divider after its working cards, and show only while one is paused.
-export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, onOpenCfo, onStartCfo, cardStart, presentations }: {
+export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; now: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
+  onOpenCommand: () => void;
   onStartCfo: () => void;
   cardStart: CardStarter;
 }) {
   const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} onSelect={onSelect} onTerminal={onTerminal} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
-    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onStart={onStartCfo} />
+    <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
       const tasks = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
       const empty = <p className="column-empty">{column.empty}</p>;
