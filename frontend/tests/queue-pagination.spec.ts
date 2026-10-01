@@ -3,7 +3,7 @@ import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // Tall enough for eight cards on the first page and a short final page that
 // ends the panel's scroll bar, the change that once drove a render loop.
-test.use({ viewport: { width: 1440, height: 1750 } });
+test.use({ viewport: { width: 1440, height: 1580 } });
 
 test("the CFO queue can turn to its short final page without a render loop", async ({ page }) => {
   const errors: string[] = [];

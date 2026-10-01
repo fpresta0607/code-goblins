@@ -13,9 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -329,10 +329,11 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 	defer log.Close()
 	var command *exec.Cmd
 	for _, flags := range []uint32{createNoWindow | createNewProcessGroup | createBreakawayFromJob, createNoWindow | createNewProcessGroup} {
-		command = exec.Command(executable, args...)
+		command = execx.Command(executable, args...)
 		command.Dir = dir
 		command.Stdout, command.Stderr = log, log
-		command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags, HideWindow: true}
+		command.SysProcAttr.CreationFlags |= flags
+		command.SysProcAttr.HideWindow = true
 		if err = command.Start(); err == nil {
 			return command, nil
 		}
@@ -343,5 +344,5 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 // openInBrowser opens url in the default browser through the URL protocol
 // handler, with no console window.
 func openInBrowser(target string) error {
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target).Start()
+	return execx.Command("rundll32.exe", "url.dll,FileProtocolHandler", target).Start()
 }
