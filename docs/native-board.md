@@ -475,6 +475,13 @@ A stored token does not change an already running native process's environment, 
 Matching-generation native model evidence takes precedence; otherwise the model is explicitly labeled configured, including a configured default.
 Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
 
+### The tab and the installed app
+
+The board's tab shows the goblin mark, from `/favicon.svg` with 16 and 32 px PNGs beside it, and its title counts what waits on the Overlord, such as (2) Code Goblins, dropping the count once nothing does.
+Its theme color is the #03050a base, so a browser that tints its bar, such as Chrome on Android, blends into the board.
+The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
+The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render them again from it whenever the mark changes.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
@@ -486,7 +493,12 @@ An answer to a question or on a review item, to a goblin or to a CFO, and a `cfo
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
-Surfaces sit on three elevation levels, each lighter and more shadowed than the one below, so what floats reads as floating.
+Every surface wears SIQstack's glass from SIQshift's brand stylesheet: a 135-degree green-to-blue tint over the #03050a base, a green hairline border and a deep shadow with a green top highlight; a hovered card brightens its border and glows faintly, and what floats, such as a dialog, a menu or a tooltip, is the same glass laid on the solid #04060a surface so nothing behind it shows through.
+The tokens live once, in `frontend/src/styles.css` `:root`, under SIQshift's and SIQstack's own names.
+A selected card has a solid green edge and glow, and keyboard focus is SIQstack's 3 px blue ring, so a focused control never reads as selected.
+The active tab of a pill switch carries SIQstack's green, blue and purple ring; primary buttons are SIQshift's solid green pill.
+The goblins' dialogue boxes keep their lantern-and-leather look and add a green glass hairline that follows their stepped frame, with a faint green glow around it.
+The board has one dark theme, and status colors keep their meaning in it: working blue, waiting and next amber, failed red, merged purple, done mint.
 
 ## Deliberate CFO questions
 
@@ -788,7 +800,8 @@ Native contracts were checked against installed versions and the primary [Codex 
 The pinned [Cline Kanban source](https://github.com/cline/kanban/tree/abd4912c27ce6b7f18b5a8106c145fd838e90cc4) supplied adapted board, diff, history, and runtime-stream behavior.
 Its Apache-2.0 license, copyright, file links, and modification notes are retained in `frontend/public/assets/NOTICE.txt` and the bundled license files; no upstream NOTICE file was present at that revision.
 SIQshift's shared brand stylesheet, desktop/web controls, and shared ShiftGroups supplied inspected card/ghost/focus, native-select and disclosure primitives.
-The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork.
+The board's palette and glass come from SIQshift's `packages/shared/styles/brand.css` and SIQstack's site (`src/app/brand.css`): the base and hero surfaces, the green, deep green and blue accents, the glass fill, border and shadow, the wordmark gradient, the electric tab ring and the blue focus ring, by their real values.
+The user-approved generated mockups supplied the final dark/mint two-view composition and terminal-goblin artwork, and the 2026-09-30 SIQstack restyle, its regenerated workshop background and the goblin mark the tab and app icons are drawn from.
 The board self-hosts three OFL faces, so it renders the same offline: Pixelify Sans for headings at weight 400 only, because heavier weights close its C and G into O; Nunito for body text, never below 15 px; and JetBrains Mono for code.
 Their licenses sit beside the font files under `/assets/fonts/`.
 The supplied code/workflow references informed review and lineage presentation without adding a graph dependency or an automation editor.
