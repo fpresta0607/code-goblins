@@ -4,10 +4,11 @@
 // lands, presses Save (confirming a replace if the card asks), and waits for
 // the row to show it saved. The value comes from a file this script deletes as
 // soon as it reads it, travels only over the local DevTools socket, and is
-// never printed. Before deleting its browser profile it counts the profile's
-// files that hold the value, and it prints one JSON line:
-// {"saved":true,"profile_hits":0}. It starts only its own browser and ends it
-// by its pid.
+// never printed. It starts only its own browser, ends every process running
+// from that browser's profile by its pid, then reads every file of the profile
+// and prints one JSON line with what it found: whether the row saved, whether
+// the browser stopped, how many profile files hold the value, how many it read
+// and how many it could not, and whether the profile was removed.
 //
 //   node tests/acceptance/credential_card.mjs --url http://127.0.0.1:PORT --request cred-... --name NAME --canary-file PATH
 import { spawn, spawnSync } from "node:child_process";
@@ -60,19 +61,46 @@ async function save(request, name) {
   return false;
 }
 
-// hits counts the files under dir whose bytes hold text.
-function hits(dir, text) {
+// search reads every file under dir and counts those whose bytes hold text,
+// those it read, and those it could not read: a search that skipped a file
+// has not shown the file is clean.
+function search(dir, text, seen = { hits: 0, files: 0, unreadable: 0 }) {
   const needle = Buffer.from(text);
-  let found = 0;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) { found += hits(path, text); continue; }
-    try { if (statSync(path).size > 0 && readFileSync(path).includes(needle)) found++; } catch { /* a file the browser removed */ }
+    if (entry.isDirectory()) { search(path, text, seen); continue; }
+    try {
+      if (readFileSync(path).includes(needle)) seen.hits++;
+      seen.files++;
+    } catch { seen.unreadable++; }
   }
-  return found;
+  return seen;
 }
 
-let result = { saved: false, profile_hits: -1 };
+// profileProcesses are the pids of every process still running from this
+// script's own browser profile. Edge hands a headless run to processes the
+// one this script started does not parent, so they are found by the
+// profile's path. A process that was ended stays listed while Windows tears
+// it down, so one that has exited is not counted.
+function profileProcesses() {
+  const listed = spawnSync("powershell.exe", ["-NoProfile", "-Command", `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${profile}*' -and $_.ProcessId -ne $PID } | ForEach-Object { $live = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($live -and -not $live.HasExited) { $_.ProcessId } }`], { encoding: "utf8" });
+  return (listed.stdout || "").split(/\s+/).filter(Boolean).map(Number);
+}
+
+// stopBrowser ends the browser this script started and everything else
+// running from its profile, each by its pid, and waits until none is left.
+async function stopBrowser() {
+  spawnSync("taskkill.exe", ["/PID", String(edge.pid), "/T", "/F"], { stdio: "ignore" });
+  for (let i = 0; i < 30; i++) {
+    const pids = profileProcesses();
+    if (!pids.length) return true;
+    for (const pid of pids) spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    await sleep(500);
+  }
+  return false;
+}
+
+let result = { saved: false, browser_stopped: false, profile_hits: -1, profile_files: 0, profile_unreadable: -1, profile_removed: false };
 try {
   let port = "";
   for (let i = 0; i < 200 && !port; i++) { await sleep(100); try { port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n")[0].trim(); } catch {} }
@@ -105,10 +133,19 @@ try {
   result.saved = await evaluate(save.toString(), options.request, options.name);
   socket.close();
 } finally {
-  spawnSync("taskkill.exe", ["/PID", String(edge.pid), "/T", "/F"], { stdio: "ignore" });
-  await sleep(1500);
-  try { result.profile_hits = hits(profile, value); } catch { result.profile_hits = -1; }
-  try { rmSync(profile, { recursive: true, force: true }); } catch {}
+  result.browser_stopped = await stopBrowser();
+  // A process that has ended still holds its files for a moment, so the
+  // search repeats until it has read every file, for up to 20 seconds.
+  for (let i = 0; i < 40; i++) {
+    try {
+      const seen = search(profile, value);
+      result.profile_hits = seen.hits; result.profile_files = seen.files; result.profile_unreadable = seen.unreadable;
+    } catch { /* the counts stay as a search that did not run */ }
+    if (result.profile_unreadable === 0) break;
+    await sleep(500);
+  }
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 }); } catch { /* reported as not removed */ }
+  try { statSync(profile); } catch { result.profile_removed = true; }
 }
 console.log(JSON.stringify(result));
-process.exit(result.saved && result.profile_hits === 0 ? 0 : 1);
+process.exit(result.saved && result.browser_stopped && result.profile_hits === 0 && result.profile_unreadable === 0 && result.profile_files > 0 && result.profile_removed ? 0 : 1);

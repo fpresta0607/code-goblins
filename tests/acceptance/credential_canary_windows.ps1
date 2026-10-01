@@ -107,16 +107,34 @@ function Save-Body($Request, [string]$Name, [string]$Value) {
     return (@{ id = $Request.id; generation = $Request.generation; values = @{ $Name = $Value } } | ConvertTo-Json -Compress)
 }
 # Hits counts the files under each root whose bytes hold text.
+# It counts every file it read in $script:searched, and every root it could
+# not find, folder it could not list and file it could not read in
+# $script:unread, because a search that skipped something has not shown it
+# clean. A file another process holds open is still read.
+$script:searched = 0
+$script:unread = 0
+function Read-Shared([string]$Path) {
+    $file = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $bytes = [byte[]]::new($file.Length)
+        $read = 0
+        while ($read -lt $bytes.Length) { $count = $file.Read($bytes, $read, $bytes.Length - $read); if ($count -le 0) { break }; $read += $count }
+        return ,$bytes
+    } finally { $file.Dispose() }
+}
 function Hits([string[]]$Roots, [string]$Text) {
-    $needle = $utf8.GetBytes($Text)
+    $latin = [Text.Encoding]::GetEncoding(28591)
+    $needle = $latin.GetString($utf8.GetBytes($Text))
     $found = [Collections.Generic.List[string]]::new()
     foreach ($root in $Roots) {
-        if (-not (Test-Path -LiteralPath $root)) { continue }
-        foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue) {
-            try { $bytes = [IO.File]::ReadAllBytes($file.FullName) } catch { continue }
-            $text = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
-            if ($text.Contains([Text.Encoding]::GetEncoding(28591).GetString($needle))) { $found.Add($file.FullName) }
+        if (-not (Test-Path -LiteralPath $root)) { $script:unread++; continue }
+        $unlisted = @()
+        foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable unlisted) {
+            try { $bytes = Read-Shared $file.FullName } catch { $script:unread++; continue }
+            $script:searched++
+            if ($latin.GetString($bytes).Contains($needle)) { $found.Add($file.FullName) }
         }
+        $script:unread += @($unlisted).Count
     }
     return ,$found
 }
@@ -207,7 +225,10 @@ try {
     Remove-Item -LiteralPath $canaryFile -Force -ErrorAction SilentlyContinue
     $card = $driver | ConvertFrom-Json
     Check 'the card saved the canary' ([bool]$card.saved)
-    Check 'the browser profile holds no canary' ($card.profile_hits -eq 0)
+    Check 'the proof''s browser was stopped, each process by its pid' ([bool]$card.browser_stopped)
+    Check 'the proof''s browser profile was removed' ([bool]$card.profile_removed)
+    Write-Host "canary: the browser profile: $($card.profile_hits) hit(s) in $($card.profile_files) file(s) read, $($card.profile_unreadable) unreadable"
+    Check 'the browser profile holds no canary in any of its files' ($card.profile_hits -eq 0 -and $card.profile_unreadable -eq 0 -and $card.profile_files -gt 0)
     Check 'a replay of the save is refused (409)' ((Probe '/api/credentials/save' $refused $loopback) -eq 409)
 
     $deadline = (Get-Date).AddSeconds(90)
@@ -236,7 +257,7 @@ try {
         Check "no $($value.Label) in data/, logs, the project, the stand-in's transcript or the event stream" ($other.Count -eq 0)
         Check "no $($value.Label) in the board snapshot" (-not $snapshotText.Contains($value.Text))
         $transcripts = Hits $Transcript $value.Text
-        Write-Host ("{0}: agent session transcripts ({1} searched): {2} hit(s)" -f $value.Label, $Transcript.Count, $transcripts.Count)
+        Write-Host ("{0}: agent session transcripts ({1} named): {2} hit(s)" -f $value.Label, $Transcript.Count, $transcripts.Count)
         Check "no $($value.Label) in the agent session transcripts" ($transcripts.Count -eq 0)
     }
     $delivered = @(Hits @($state) $canary | Where-Object { $_ -eq $script }).Count
@@ -254,6 +275,8 @@ try {
     $afterCleanup = Hits @($state) $canary
     Write-Host "canary: state/ after cfo cleanup: $($afterCleanup.Count) hit(s)"
     Check 'cfo cleanup removed the auth.ps1, and state/ holds no canary' ($afterCleanup.Count -eq 0 -and -not (Test-Path -LiteralPath $script))
+    Write-Host "searched $($script:searched) file reads in all; $($script:unread) root(s), folder(s) or file(s) could not be read"
+    Check 'every file the proof searched could be read' ($script:searched -gt 0 -and $script:unread -eq 0)
 } catch {
     # A step that could not run is a failed check, so the summary still says
     # what held before it.
