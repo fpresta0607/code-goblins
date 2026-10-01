@@ -516,6 +516,7 @@ The board never sees an image's path: it serves image n of a question at `/api/q
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
 Only a process running under the task's own terminal can surface its notify, by the same proof `cfo register` uses: under the harness in the foreground of its Herdr pane, or under the program of its native terminal, whose host must answer.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
+Such a question never reaches the board, so once it has had 30 seconds to arrive `cfo answer` sends the CFO's choice straight to the goblin that asked, marks the notify answered and records nothing on the board; it refuses, sending nothing, when the goblin's current generation started after the notify, since that goblin never asked.
 The question is bound to the task generation and terminal that asked.
 The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned or moved successor: through Herdr to its pane, or typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
 The notify then reads answered: `cfo drain` prints the board's answer and acks the record without `--ack-blocking`, and the monitor stops re-asking it.
