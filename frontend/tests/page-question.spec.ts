@@ -16,7 +16,15 @@ test("a question with an open review page is one card that shows the question an
   await expect(dialog.getByText("May I build item 4's Paused divider and layout switch as drawn?")).toBeVisible();
   await expect(dialog.getByRole("radio")).toHaveCount(0);
   await expect(dialog.getByRole("link", { name: "Open review" }).first()).toHaveAttribute("href", "http://127.0.0.1:4387/session/ec2ef7d06dddccbb");
-  await expect(dialog.getByText("Waiting for your answer. Reply in the page's conversation box; your answer closes this card.")).toBeVisible();
+  const status = dialog.getByText("Waiting for your answer. Reply in the page's conversation box; your answer closes this card.");
+  await expect(status).toBeVisible();
+  // The page's tile names the page in the goblin's words, without the queue's
+  // prefix or the link the tile itself opens, and the status reads on one
+  // line with its icon beside it.
+  await expect(dialog.locator(".page-shot strong")).toHaveText("item 4 mockup on the page; reply build or say what to change");
+  const icon = await status.locator(".icon").boundingBox();
+  const line = await status.boundingBox();
+  expect(icon && line && icon.height + 8 >= line.height, "the status icon sits beside its words, not above them").toBe(true);
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await page.locator(".command-center-menu summary").click();
   await expect(page.locator(".inbox-list li")).toHaveCount(1);
