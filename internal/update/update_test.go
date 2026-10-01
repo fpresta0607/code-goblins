@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // installedHome is a home whose aliases hold build "previous", with a
@@ -183,7 +185,9 @@ func TestAHeldBuildCannotChangeButStillRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	build := filepath.Join(t.TempDir(), "previous-goblins.exe")
+	dir := t.TempDir()
+	standin.RemoveAtCleanup(t, dir)
+	build := filepath.Join(dir, "previous-goblins.exe")
 	if err := os.WriteFile(build, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
