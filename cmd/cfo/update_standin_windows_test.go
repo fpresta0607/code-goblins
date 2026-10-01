@@ -171,6 +171,34 @@ func standInServe(build string) int {
 	return 0
 }
 
+// holdFailedExit is the exit of a stand-in update whose test asked it to hold
+// an alias it could not hold, so the test fails on its seam, distinctly.
+const holdFailedExit = 7
+
+// holdWait bounds how long the seam waits to hold an alias: Windows can keep
+// a candidate's image held for a moment after its process exits.
+const holdWait = 10 * time.Second
+
+// holdExclusively opens path with no sharing, trying again until wait runs
+// out while another handle still has it, and returns the handle it holds.
+func holdExclusively(path string, wait time.Duration) (syscall.Handle, error) {
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return syscall.InvalidHandle, err
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		handle, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+		if err == nil {
+			return handle, nil
+		}
+		if time.Now().After(deadline) {
+			return syscall.InvalidHandle, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // standInUpdate runs the real cfo update in the home the test names, with
 // the seams the test asks for: CFO_TEST_UPDATE_INTERRUPT ends the process at
 // a step, CFO_TEST_UPDATE_FAIL_RECORD fails the journal write of a phase,
@@ -215,11 +243,12 @@ func standInUpdate() int {
 			}
 		}
 		if step == "rolling-back" && hold != "" {
-			name, err := syscall.UTF16PtrFromString(filepath.Join(h.Root, hold))
-			if err == nil {
-				// Held for the rest of the process, as a program reading
-				// it would, so it can be neither moved nor replaced.
-				_, _ = syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+			// Held for the rest of the process, as a program reading it
+			// would, so it can be neither moved nor replaced. A test whose
+			// alias could not be held fails on this seam, not the product.
+			if _, err := holdExclusively(filepath.Join(h.Root, hold), holdWait); err != nil {
+				fmt.Fprintf(os.Stderr, "stand-in update: the test's alias %s could not be held: %v\n", hold, err)
+				os.Exit(holdFailedExit)
 			}
 		}
 	}

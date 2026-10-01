@@ -77,6 +77,10 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if h, err = pinHome(h); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	if err := os.MkdirAll(update.Dir(h.State), 0o700); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -134,8 +138,8 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// The update stops only this home's own supervisor, so one it cannot
 	// prove is refused before anything changes, never left serving behind a
 	// rollback that cannot start the previous build.
-	if pid, err := unprovedSupervisor(h); err != nil {
-		fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); an update stops only this home's own supervisor, so nothing was changed\n", pid, err)
+	if err := unprovedSupervisor(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: %v; an update stops only this home's own supervisor, so nothing was changed\n", err)
 		return 1
 	}
 
@@ -210,8 +214,8 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "The last update of this home finished: %s.\n", journal.Outcome)
 		return 0
 	}
-	if pid, err := unprovedSupervisor(h); err != nil {
-		fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", pid, err, recoverCommand(h))
+	if err := unprovedSupervisor(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: %v; recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", err, recoverCommand(h))
 		return 1
 	}
 	return rollBack(h, &journal, fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
@@ -279,6 +283,40 @@ func rolledBack(h home.Home, journal *update.Journal, running serveProcess, outc
 	update.CleanUp(journal)
 	fmt.Fprintf(stdout, "Rolled back: the previous build serves the board (pid %d).\n", running.pid)
 	return updateRolledBack
+}
+
+// resolvedFrom is path as a process working in folder resolves it: an
+// absolute path as it is, a rooted one on that folder's drive, and any other
+// relative to the folder.
+func resolvedFrom(folder, path string) string {
+	switch {
+	case filepath.IsAbs(path):
+		return path
+	case strings.HasPrefix(path, `\`) || strings.HasPrefix(path, "/"):
+		return filepath.VolumeName(folder) + path
+	default:
+		return filepath.Join(folder, path)
+	}
+}
+
+// pinHome makes the home's root and state absolute against this process's
+// folder and names both in this process's environment, which every
+// supervisor it starts inherits. A relative CFO_HOME or CFO_STATE_OVERRIDE
+// resolves against each process's own folder, and those supervisors run in
+// the home's root, not here: pinned, the update, its supervisors, its journal
+// and its recovery line all mean the one home and state.
+func pinHome(h home.Home) (home.Home, error) {
+	var err error
+	if h.Root, err = filepath.Abs(h.Root); err != nil {
+		return h, err
+	}
+	if h.State, err = filepath.Abs(h.State); err != nil {
+		return h, err
+	}
+	if err := os.Setenv("CFO_HOME", h.Root); err != nil {
+		return h, err
+	}
+	return h, os.Setenv("CFO_STATE_OVERRIDE", h.State)
 }
 
 // recoverCommand is the update --recover line to paste into Windows
@@ -411,15 +449,19 @@ func homeServe(h home.Home) func(proc.Identity) error {
 		if !homeProgram(h, identity.Image) {
 			return fmt.Errorf("it runs %s, not a program of this home", identity.Image)
 		}
+		// Its home and state are where its own file operations land: a
+		// relative name resolves against its own working folder.
 		root := identity.Getenv("CFO_HOME")
 		if root == "" {
 			root = identity.Directory
-		} else if !filepath.IsAbs(root) {
-			root = filepath.Join(identity.Directory, root)
+		} else {
+			root = resolvedFrom(identity.Directory, root)
 		}
 		state := identity.Getenv("CFO_STATE_OVERRIDE")
 		if state == "" {
 			state = filepath.Join(root, "state")
+		} else {
+			state = resolvedFrom(identity.Directory, state)
 		}
 		if !sameHomePath(root, h.Root) || !sameHomePath(state, h.State) {
 			return fmt.Errorf("it serves the home %s with state %s, not this one", root, state)
@@ -474,15 +516,32 @@ func endSupervisor(h home.Home, running serveProcess) error {
 	return nil
 }
 
-// unprovedSupervisor is the pid of the supervisor holding this home's watcher
-// lock and why it is not proved this home's, or no error when none holds it
-// or it is proved.
-func unprovedSupervisor(h home.Home) (int, error) {
-	running, ok := homeSupervisor(h.State)
-	if !ok {
-		return 0, nil
+// unprovedSupervisor says why this home's watcher lock may be held by a
+// supervisor this update cannot prove is this home's, or nothing when the
+// lock is free, is held by a watcher (which a supervisor takes over), names a
+// supervisor proved to have ended or a pid now another process's, or is held
+// by a supervisor proved this home's. It reads the lock as the lock package
+// does: a holder that may still run but cannot be verified, as one on another
+// host or one this user cannot inspect is, counts as running, and a record
+// that cannot be read proves nothing either way.
+func unprovedSupervisor(h home.Home) error {
+	holder, err := lock.ReadNamed(h.State, ".watch.lock")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	return running.pid, provedHomeSupervisor(h, running)
+	if err != nil {
+		return fmt.Errorf("the watcher lock's record cannot be read (%v), so who holds it is not proved", err)
+	}
+	if holder.Session != "exclusive-spawn" || !holder.Alive() {
+		return nil
+	}
+	if !holder.VerifiedAlive() {
+		return fmt.Errorf("the watcher lock is held by pid %d on %q, which may still be running but cannot be verified as this home's supervisor", holder.PID, holder.Hostname)
+	}
+	if err := provedHomeSupervisor(h, serveProcess{pid: holder.PID, start: holder.Start}); err != nil {
+		return fmt.Errorf("the watcher lock is held by pid %d, which is not proved this home's supervisor (%v)", holder.PID, err)
+	}
+	return nil
 }
 
 // provedHomeSupervisor proves the running process this home's supervisor by

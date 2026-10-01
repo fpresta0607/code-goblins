@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -759,6 +762,321 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 	if _, ok := proc.StartTime(child.Process.Pid); !ok {
 		t.Fatal("the premise failed: the ended process's start time is not readable through the held handle")
 	}
+}
+
+// environmentWithout is this process's environment less the named variables,
+// compared without regard to case as Windows does.
+func environmentWithout(names ...string) []string {
+	var kept []string
+	for _, variable := range os.Environ() {
+		name, _, _ := strings.Cut(variable, "=")
+		isDropped := false
+		for _, dropped := range names {
+			isDropped = isDropped || strings.EqualFold(name, dropped)
+		}
+		if !isDropped {
+			kept = append(kept, variable)
+		}
+	}
+	return kept
+}
+
+// relativeHomes are the ways to name a home relative to the folder an update
+// runs in, the folder that holds the home: its root by CFO_HOME, or its state
+// by CFO_STATE_OVERRIDE.
+var relativeHomes = []struct {
+	name        string
+	environment func(u *updateHome) []string
+}{
+	{"a relative CFO_HOME", func(*updateHome) []string { return []string{"CFO_HOME=my-home"} }},
+	{"a relative CFO_STATE_OVERRIDE", func(u *updateHome) []string {
+		return []string{"CFO_HOME=" + u.root, `CFO_STATE_OVERRIDE=my-home\state`}
+	}},
+}
+
+// A supervisor's home and state are where its own file operations land: a
+// relative CFO_HOME or CFO_STATE_OVERRIDE resolves against the folder it runs
+// in, so one started from the folder that holds the home with relative names
+// is this home's, and a relative name that means another state is not.
+func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "my-home")
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	for _, test := range []struct {
+		name        string
+		directory   string
+		environment []string
+		isHomes     bool
+	}{
+		{"a relative CFO_HOME from the folder that holds it", parent, []string{"CFO_HOME=my-home"}, true},
+		{"a relative CFO_STATE_OVERRIDE from the folder that holds it", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=my-home\state`}, true},
+		{"both relative from the folder that holds it", parent, []string{"CFO_HOME=my-home", `CFO_STATE_OVERRIDE=my-home\state`}, true},
+		{"a relative state that means another state", parent, []string{"CFO_HOME=" + root, `CFO_STATE_OVERRIDE=other\state`}, false},
+		{"the same relative state from the home's own root", root, []string{`CFO_STATE_OVERRIDE=my-home\state`}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			program := filepath.Join(root, "goblins.exe")
+			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:0"}, Directory: test.directory, Environment: test.environment}
+
+			err := homeServe(h)(identity)
+
+			if test.isHomes && err != nil {
+				t.Fatalf("this home's supervisor was refused: %v", err)
+			}
+			if !test.isHomes && err == nil {
+				t.Fatal("a supervisor of another state was taken for this home's")
+			}
+		})
+	}
+}
+
+// An update whose home is named relative to the folder it runs in installs
+// into that home and state: the supervisors it starts run in the home's root,
+// where the same relative name means another place, so it pins the home and
+// state for them; that other place stays untouched. The supervisor already
+// running may have been started either way: by absolute names in the home's
+// root, or from the folder that holds the home with the same relative names.
+func TestAnUpdateNamedByRelativePathsInstallsIntoItsHome(t *testing.T) {
+	for _, test := range relativeHomes {
+		for _, isRelativeSupervisor := range []bool{false, true} {
+			name := test.name + ", the running supervisor started by absolute names"
+			if isRelativeSupervisor {
+				name = test.name + ", the running supervisor started by the same relative names"
+			}
+			t.Run(name, func(t *testing.T) {
+				parent := t.TempDir()
+				u := newUpdateHomeIn(t, filepath.Join(parent, "my-home"), "previous", "candidate")
+				if isRelativeSupervisor {
+					running := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+					running.Dir = parent
+					running.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
+					running.Env = append(running.Env, "CFO_TEST_UPDATE_RESOLVE=1")
+					if err := running.Start(); err != nil {
+						t.Fatal(err)
+					}
+					started, _ := proc.StartTime(running.Process.Pid)
+					u.started[running] = started
+					go func() { _ = running.Wait() }()
+					u.awaitBoard()
+				} else {
+					u.serving()
+				}
+				candidate, _ := os.ReadFile(u.candidate)
+				updating := exec.Command(u.candidate, "update")
+				updating.Dir = parent
+				updating.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
+				updating.Env = append(updating.Env, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+
+				output, err := updating.CombinedOutput()
+
+				if err != nil {
+					t.Fatalf("update ended %v, want it installed:\n%s", err, output)
+				}
+				u.aliasesAre(candidate, "candidate")
+				if err := boardAlive(context.Background(), u.awaitBoard()); err != nil {
+					t.Fatalf("the candidate's supervisor does not answer as this home's: %v", err)
+				}
+				if _, err := os.Stat(filepath.Join(u.root, "my-home")); !os.IsNotExist(err) {
+					t.Errorf("the update reached %s, the place the relative name means from the home's root (%v)", filepath.Join(u.root, "my-home"), err)
+				}
+			})
+		}
+	}
+}
+
+// An update named by relative paths that ends part way prints a recovery
+// line that, pasted in another folder, recovers that home and state, and
+// leaves the place the relative names mean from that folder untouched.
+func TestARelativelyNamedUpdateRecoversFromAnotherFolder(t *testing.T) {
+	for _, test := range relativeHomes {
+		t.Run(test.name, func(t *testing.T) {
+			parent := t.TempDir()
+			u := newUpdateHomeIn(t, filepath.Join(parent, "my-home"), "previous", "candidate")
+			u.serving()
+			updating := exec.Command(u.candidate, "update")
+			updating.Dir = parent
+			updating.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
+			updating.Env = append(updating.Env, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s", "CFO_TEST_UPDATE_INTERRUPT=swapped")
+			output, updateErr := updating.CombinedOutput()
+			var line string
+			printed := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+			for at := 0; at+1 < len(printed); at++ {
+				if strings.HasSuffix(printed[at], "Windows PowerShell:") {
+					line = strings.TrimSpace(printed[at+1])
+				}
+			}
+			if line == "" {
+				t.Fatalf("the update (%v) printed no recovery line:\n%s", updateErr, output)
+			}
+			elsewhere := t.TempDir()
+			pasted := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", line+"; exit $LASTEXITCODE")
+			pasted.Dir = elsewhere
+			pasted.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+
+			recovered, err := pasted.CombinedOutput()
+
+			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != updateRolledBack {
+				t.Fatalf("the pasted line %s ended %v, want exit %d:\n%s", line, err, updateRolledBack, recovered)
+			}
+			u.previousServes()
+			if _, err := os.Stat(filepath.Join(elsewhere, "my-home")); !os.IsNotExist(err) {
+				t.Errorf("the recovery reached %s, the place the relative name means from the folder it was pasted in (%v)", filepath.Join(elsewhere, "my-home"), err)
+			}
+		})
+	}
+}
+
+// The seam that holds an alias through a rollback holds it for certain or
+// fails: it waits out another handle that still has the file, as Windows can
+// for a candidate's image just after its process exits, and once it holds
+// the file no other open succeeds; a file never let go fails it, so a test
+// can never pass without the condition it meant to set up.
+func TestTheHoldSeamHoldsTheAliasOrFails(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		releaseIn time.Duration
+		isHeld    bool
+	}{
+		{"another handle lets go in time", 300 * time.Millisecond, true},
+		{"another handle never lets go", 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "goblins.exe")
+			if err := os.WriteFile(path, []byte("an alias"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			other, err := holdExclusively(path, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			released := make(chan struct{})
+			go func() {
+				defer close(released)
+				if test.isHeld {
+					time.Sleep(test.releaseIn)
+				} else {
+					time.Sleep(1500 * time.Millisecond)
+				}
+				_ = syscall.CloseHandle(other)
+			}()
+
+			held, err := holdExclusively(path, time.Second)
+			<-released
+
+			if !test.isHeld {
+				if err == nil {
+					_ = syscall.CloseHandle(held)
+					t.Fatal("the seam reported holding a file another handle never let go")
+				}
+				if !errors.Is(err, errorSharingViolation) {
+					t.Fatalf("the seam failed with %v, want a sharing violation", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("the seam did not hold a file let go in time: %v", err)
+			}
+			defer syscall.CloseHandle(held)
+			if third, err := holdExclusively(path, 0); err == nil {
+				_ = syscall.CloseHandle(third)
+				t.Fatal("the premise failed: the held file opened again")
+			}
+		})
+	}
+}
+
+// writeWatchLock writes holder as this home's watcher lock record, as a
+// holder of it would.
+func writeWatchLock(t *testing.T, stateDir string, holder lock.Info) {
+	t.Helper()
+	data, err := json.Marshal(holder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, ".watch.lock"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Before an update or a recovery changes anything it reads the watcher lock
+// as the lock package does: a supervisor that may still run but cannot be
+// verified, as one on another host is, and a record that cannot be read are
+// refused; a supervisor proved to have ended, or whose pid is now another
+// process's, is passed over; a watcher is left to serve's handover.
+func TestTheUpdatePreflightRefusesASupervisorItCannotVerify(t *testing.T) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("no start time for this process")
+	}
+	ended := exec.Command("cmd", "/c", "exit 0")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		record    []byte
+		holder    *lock.Info
+		isRefused bool
+	}{
+		{"no lock", nil, nil, false},
+		{"a record that cannot be read", []byte("{not a lock record"), nil, true},
+		{"a supervisor on another host", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started, Hostname: "another-host"}, true},
+		{"a supervisor that ended", nil, &lock.Info{PID: ended.Process.Pid, OwnerPID: ended.Process.Pid, Session: "exclusive-spawn", Start: time.Now().Add(-time.Minute), Hostname: hostname}, false},
+		{"a pid now another process's", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started.Add(-time.Hour), Hostname: hostname}, false},
+		{"a watcher", nil, &lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "watch", Start: started, Hostname: hostname}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			if err := os.MkdirAll(h.State, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.record != nil {
+				if err := os.WriteFile(filepath.Join(h.State, ".watch.lock"), test.record, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.holder != nil {
+				writeWatchLock(t, h.State, *test.holder)
+			}
+
+			err := unprovedSupervisor(h)
+
+			if test.isRefused && err == nil {
+				t.Fatal("the preflight passed a lock it cannot verify")
+			}
+			if !test.isRefused && err != nil {
+				t.Fatalf("the preflight refused: %v", err)
+			}
+		})
+	}
+}
+
+// A supervisor on another host holding this home's lock refuses the update
+// before it writes anything: no journal, no copies, the aliases as they were.
+func TestAnUpdateRefusedByAnUnverifiableSupervisorChangesNothing(t *testing.T) {
+	u := newUpdateHome(t, "previous", "candidate")
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("no start time for this process")
+	}
+	writeWatchLock(t, u.state, lock.Info{PID: os.Getpid(), OwnerPID: os.Getpid(), Session: "exclusive-spawn", Start: started, Hostname: "another-host"})
+
+	code, output := u.run(nil)
+
+	if code != 1 {
+		t.Fatalf("update exited %d, want 1:\n%s", code, output)
+	}
+	for _, name := range []string{"journal.json", "candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
+		if _, err := os.Stat(filepath.Join(update.Dir(u.state), name)); !os.IsNotExist(err) {
+			t.Errorf("the refused update wrote %s (%v)", name, err)
+		}
+	}
+	u.aliasesAre(u.previous, "previous")
 }
 
 // The recovery line names the home, its exact state and the candidate's kept
