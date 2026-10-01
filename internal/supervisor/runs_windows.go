@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -38,8 +41,7 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 	if err := fsx.AtomicWriteFile(args[len(args)-1], runner); err != nil {
 		return RunStarted{}, err
 	}
-	cmd := execx.Command(shell, args...)
-	flags := uint32(createNewConsole)
+	var started RunStarted
 	if l.Admin {
 		helper, err := runShellPath("powershell", exec.LookPath, exists, systemRoot)
 		if err != nil {
@@ -49,20 +51,42 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 		if err := fsx.AtomicWriteFile(elevate, elevateScript(shell, args, filepath.Join(l.Dir, "declined.txt"))); err != nil {
 			return RunStarted{}, err
 		}
-		cmd = execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
-		flags = createNoWindow
+		cmd := execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
+		cmd.Dir = l.Cwd
+		cmd.SysProcAttr.CreationFlags |= createNoWindow
+		if err := cmd.Start(); err != nil {
+			return RunStarted{}, err
+		}
+		go func() { _ = cmd.Wait() }()
+		started.PID = cmd.Process.Pid
+	} else {
+		// exec.Cmd always hands a process standard handles, NUL where none is
+		// given, so the window would read nothing typed in it. Started without
+		// any, it takes its new console's, and CREATE_NEW_CONSOLE shows that
+		// window even from a supervisor with no console.
+		application, err := windows.UTF16PtrFromString(shell)
+		if err != nil {
+			return RunStarted{}, err
+		}
+		commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{shell}, args...)))
+		if err != nil {
+			return RunStarted{}, err
+		}
+		dir, err := windows.UTF16PtrFromString(l.Cwd)
+		if err != nil {
+			return RunStarted{}, err
+		}
+		startup := windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
+		var info windows.ProcessInformation
+		if err := windows.CreateProcess(application, commandLine, nil, nil, false, createNewConsole, nil, dir, &startup, &info); err != nil {
+			return RunStarted{}, err
+		}
+		windows.CloseHandle(info.Thread)
+		windows.CloseHandle(info.Process)
+		started.PID = int(info.ProcessId)
 	}
-	cmd.Dir = l.Cwd
-	// CREATE_NEW_CONSOLE outranks the CREATE_NO_WINDOW execx may have set, so
-	// the run's window shows even from a supervisor with no console.
-	cmd.SysProcAttr.CreationFlags |= flags
-	if err := cmd.Start(); err != nil {
-		return RunStarted{}, err
-	}
-	go func() { _ = cmd.Wait() }()
 	// A process already gone reports no start time, so the item ends at once
 	// unless its run wrote an exit code.
-	started := RunStarted{PID: cmd.Process.Pid}
 	if entries, err := proc.Ancestry(started.PID, 1); err == nil && len(entries) == 1 {
 		started.Start = entries[0].Start
 	}
