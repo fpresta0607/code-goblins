@@ -55,6 +55,11 @@ type CFOConnection struct {
 	State string
 	// Terminals opens the terminal backend the CFO and its goblins run in.
 	Terminals terminal.Opener
+	// ReadScreen reads a native terminal's console for a typed wake; nil
+	// reads it through its host. Deliver submits a typed wake; nil delivers
+	// it as cfo send does.
+	ReadScreen func(host.Record) ([]string, error)
+	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {

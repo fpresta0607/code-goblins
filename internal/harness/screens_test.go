@@ -219,3 +219,32 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 		}
 	}
 }
+
+// Text is typed into a CFO's composer only while it holds nothing, so a line
+// somebody left unsent is never typed over: Codex shows its placeholder only
+// while its composer is empty, and pi's editor is the rows between its last
+// two rules. A harness whose empty composer is not known never reads empty.
+func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	footer := "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		empty  bool
+	}{
+		"codex placeholder":        {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
+		"codex follow-up":          {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
+		"codex text typed":         {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
+		"pi empty editor":          {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
+		"pi text typed":            {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
+		"pi two lines typed":       {Pi, []string{rule, "first", "second", rule, footer}, false},
+		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
+		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
+		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+	} {
+		screens, _ := NativeScreens(test.kind)
+		if got := screens.ComposerEmpty(test.screen); got != test.empty {
+			t.Errorf("%s: ComposerEmpty = %v, want %v", name, got, test.empty)
+		}
+	}
+}
