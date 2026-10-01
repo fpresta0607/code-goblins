@@ -216,7 +216,7 @@ func TestAWatcherInASlowCycleYieldsAtOnceAndAnswersTheServe(t *testing.T) {
 		t.Fatalf("the watcher did not answer the serve: %v", err)
 	}
 	var ack struct {
-		WatcherPID   int       `json:"watcher_pid"`
+		WatcherPID      int       `json:"watcher_pid"`
 		WatcherStart    time.Time `json:"watcher_start"`
 		WatcherHostname string    `json:"watcher_hostname"`
 		ServePID        int       `json:"serve_pid"`
