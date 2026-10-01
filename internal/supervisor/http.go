@@ -100,6 +100,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/voice" && r.Method == "POST":
 		h.voice(w, r)
+	case r.URL.Path == "/api/alive" && r.Method == "GET":
+		// Liveness for goblins and its status and stop: the supervisor's own
+		// pid, answered without building the fleet's snapshot, which can
+		// take longer than any launcher waits.
+		respond(w, 200, map[string]int{"pid": os.Getpid()})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
 		snapshot, err := h.Service.Snapshot()
 		if err != nil {

@@ -621,6 +621,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
 		case s.db.Runs[run].State == "expired" || s.db.Runs[run].State == "ready" && !time.Now().Before(s.db.Runs[run].ExpiresAt):
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
+		case s.db.Runs[run].State == "withdrawn":
+			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
 			return Action{}, errors.New("that run item already ran; running it again needs a new item from the CFO")
 		}
