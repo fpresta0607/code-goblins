@@ -370,8 +370,9 @@ An answer you send on the page finishes its card with the same check as an answe
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
-Each alert is its goblin's dialogue box with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** and the goblin's name for its news; alerts stack and leave after a few seconds, and routine progress never alerts.
-While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert.
+Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
+Each event alerts once, however often the board reconnects or reloads, and a goblin's question alerts as that question alone.
+While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert, and clicking one opens its item and takes its alert off the board.
 
 <p align="center">
   <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: the goblin fixing the flaky checkout test wants your review, with its request, Look at the checkout race fix before it ships, and a close button" width="420" />

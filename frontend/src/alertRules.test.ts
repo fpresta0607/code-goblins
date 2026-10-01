@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrive, asksPermission, boardAlerts, notifies, type AlertTarget, type BoardAlert } from "./alertRules.ts";
+import { arrive, asksPermission, boardAlerts, notifies, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert } from "./alertRules.ts";
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
@@ -8,18 +8,21 @@ const question = (id: string, extra: Partial<Question> = {}): Question => ({ id,
 const review = (id: string): Review => ({ id, title: "Review the plan", state: "open", task: "a", created_at: "2026-09-27T01:00:00Z" }) as Review;
 const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the board", state, created_at: "2026-09-27T01:00:00Z" }) as Run;
 const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Review[]; runs?: Run[] }): Snapshot => ({ tasks: parts.tasks || [task("a", "working")], questions: parts.questions || [], reviews: parts.reviews || [], runs: parts.runs || [], attention: [] as string[] }) as Snapshot;
+// The title of the goblin whose finished alert the Overlord showed on
+// 2026-10-01: its name tab, its text and its Open button each said it.
+const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
 
 test("what needs the Overlord or finished alerts once, and opens its item", () => {
   const before = snapshot({});
   const cases: [string, Snapshot, { key: string; tone: string; target: unknown }[]][] = [
-    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "question:q1", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
-    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "review:r1", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
-    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "run:c1", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
-    ["a goblin blocked", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), [{ key: "task:a:a-1:blocked", tone: "needs", target: { kind: "command", key: "" } }]],
-    ["a goblin failed", snapshot({ tasks: [task("a", "failed")] }), [{ key: "task:a:a-1:failed", tone: "failed", target: { kind: "task", id: "a" } }]],
-    ["a goblin done with its pull request", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done", tone: "done", target: { kind: "task", id: "a" } }]],
-    ["a goblin reporting it failed", snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke" })] }), [{ key: "task:a:a-1:failed", tone: "failed", target: { kind: "task", id: "a" } }]],
-    ["a goblin reporting done with its pull request", snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done", tone: "done", target: { kind: "task", id: "a" } }]],
+    ["a new question", snapshot({ questions: [question("q1")] }), [{ key: "item:a:Goblin a asks: Which option?", tone: "needs", target: { kind: "command", key: "question:q1" } }]],
+    ["a new review card", snapshot({ reviews: [review("r1")] }), [{ key: "item:a:Goblin a wants your review: Review the plan", tone: "needs", target: { kind: "command", key: "review:r1" } }]],
+    ["a new run card", snapshot({ runs: [run("c1")] }), [{ key: "item:cfo:A command waits for you to run it: Restart the board", tone: "needs", target: { kind: "command", key: "run:c1" } }]],
+    ["a goblin blocked", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), [{ key: "task:a:a-1:blocked:Needs a key", tone: "needs", target: { kind: "command", key: "" } }]],
+    ["a goblin failed", snapshot({ tasks: [task("a", "failed")] }), [{ key: "task:a:a-1:failed:", tone: "failed", target: { kind: "task", id: "a" } }]],
+    ["a goblin done with its pull request", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done:https://github.com/o/r/pull/7", tone: "done", target: { kind: "task", id: "a" } }]],
+    ["a goblin reporting it failed", snapshot({ tasks: [task("a", "review", { report: "failed", activity: "The build broke" })] }), [{ key: "task:a:a-1:failed:The build broke", tone: "failed", target: { kind: "task", id: "a" } }]],
+    ["a goblin reporting done with its pull request", snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/7" })] }), [{ key: "task:a:a-1:done:https://github.com/o/r/pull/7", tone: "done", target: { kind: "task", id: "a" } }]],
   ];
   for (const [name, next, want] of cases) {
     assert.deepEqual(boardAlerts(before, next).map(({ key, tone, target }) => ({ key, tone, target })), want, name);
@@ -47,10 +50,10 @@ test("routine updates and what was already there alert nothing", () => {
 test("a done goblin alerts when its pull request arrives, and a restarted goblin alerts again", () => {
   const done = snapshot({ tasks: [task("a", "done")] });
   const withPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] });
-  assert.deepEqual(boardAlerts(done, withPR).map((alert) => alert.key), ["task:a:a-1:done"]);
+  assert.deepEqual(boardAlerts(done, withPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/7"]);
   const blocked = snapshot({ tasks: [task("a", "blocked")] });
   const restartedBlocked = snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] });
-  assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked"]);
+  assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked:"]);
 });
 
 test("a blocked goblin needs the Overlord, so it opens its newest item waiting in the Command Center, or else the first waiting or the inbox", () => {
@@ -74,11 +77,68 @@ test("a goblin's own failure says what it reported", () => {
   assert.equal(alert.text, "Goblin a failed: The build broke");
 });
 
-test("a goblin waiting on the Overlord says so, and a review item asks for review", () => {
-  const waiting = { ...review("waiting-a-3"), title: "Sign in to GitHub" };
+test("a goblin waiting on the Overlord says so once, and a review item asks for review", () => {
+  // The supervisor titles a wait as the Command Center's card heads it, with
+  // the page it names, so the alert says what the goblin waits for, once.
+  const page = "http://sermon.tail.ts.net:4387/session/0f5b";
+  const waiting = { ...review("waiting-a-3"), title: "Waiting on you: Sign in to GitHub (page " + page + ")", lavish: page };
   const [wait, plan] = boardAlerts(snapshot({}), snapshot({ reviews: [waiting, review("plan")] }));
   assert.equal(wait.text, "Goblin a is waiting on you: Sign in to GitHub");
   assert.equal(plan.text, "Goblin a wants your review: Review the plan");
+});
+
+test("a goblin's own question alerts once, as its question, whichever reaches the board first", () => {
+  // As the supervisor serves it: the goblin's blocked notify sets its task
+  // blocked, Waiting on the CFO, before or as its question reaches the
+  // Command Center, and both say the same thing.
+  const asked = "May I finish the remaining heavy steps now, or stay paused?";
+  const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
+  const blocked = task("a", "blocked", { report: "blocked", reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
+  const pending = question("notify-a-7", { text: asked });
+  const orders: [string, Snapshot[]][] = [
+    ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
+    ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+    ["the question first", [working, snapshot({ questions: [pending] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+  ];
+  for (const [name, snapshots] of orders) {
+    const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+    assert.deepEqual(alerts.map((alert) => alert.text), ["Goblin a asks: " + asked], name);
+  }
+});
+
+test("an event alerts once however often a snapshot or a reconnect brings it back, and a goblin's next news alerts", () => {
+  const pr = "https://github.com/o/r/pull/7";
+  const working = snapshot({ tasks: [task("a", "working")] });
+  const done = snapshot({ tasks: [task("a", "review", { report: "done", pr })] });
+  const restarting = snapshot({ tasks: [] });
+  const wait = (id: string, state = "open") => ({ ...review(id), title: "Waiting on you: Look at the card", state });
+  const waiting = snapshot({ reviews: [wait("waiting-a-3")] });
+  const refiled = snapshot({ reviews: [wait("waiting-a-3", "withdrawn"), wait("waiting-a-5")] });
+  const nextPR = snapshot({ tasks: [task("a", "review", { report: "done", pr: "https://github.com/o/r/pull/8" })] });
+  let seen: string[] = [];
+  const shown = (from: Snapshot, to: Snapshot) => {
+    const sighting = unseen(boardAlerts(from, to), seen);
+    seen = sighting.seen;
+    return sighting.fresh.map((alert) => alert.text);
+  };
+  assert.deepEqual(shown(working, done), ["Goblin a finished: r #7 is ready."]);
+  assert.deepEqual(shown(done, restarting), [], "the supervisor restarting");
+  assert.deepEqual(shown(restarting, done), [], "the same news in the restarted supervisor's snapshot");
+  assert.deepEqual(shown(done, working), []);
+  assert.deepEqual(shown(working, done), [], "the same news after the goblin flickered back to work");
+  assert.deepEqual(shown(done, waiting), ["Goblin a is waiting on you: Look at the card"]);
+  assert.deepEqual(shown(waiting, refiled), [], "the same wait filed again");
+  assert.deepEqual(shown(refiled, nextPR), ["Goblin a finished: r #8 is ready."], "its next pull request is news");
+});
+
+test("a browser remembers the newest alerts it showed, a bounded few, and one snapshot shows each once", () => {
+  const alert = (key: string) => ({ key }) as BoardAlert;
+  const many = Array.from({ length: SEEN_LIMIT + 5 }, (_, i) => alert("k" + i));
+  const { fresh, seen } = unseen([...many, alert("k0")], ["k-old"]);
+  assert.equal(fresh.length, SEEN_LIMIT + 5);
+  assert.equal(seen.length, SEEN_LIMIT);
+  assert.equal(seen.at(-1), "k" + (SEEN_LIMIT + 4));
+  assert.deepEqual(unseen([alert("k-old"), alert("k3")], ["k-old"]).fresh.map((one) => one.key), ["k3"]);
 });
 
 test("the Completed column's history alerts nothing, while a live goblin done with its pull request alerts once", () => {
@@ -87,7 +147,7 @@ test("the Completed column's history alerts nothing, while a live goblin done wi
   const done = snapshot({ tasks: [task("a", "review", { report: "done", pr })] });
   const finished = task("finished:a", "done", { archived: true, pr, title: "a" });
   const merged = task("merged:" + pr, "done", { archived: true, merged: true, pr, title: "feat/a" });
-  assert.deepEqual(boardAlerts(working, done).map((alert) => alert.key), ["task:a:a-1:done"]);
+  assert.deepEqual(boardAlerts(working, done).map((alert) => alert.key), ["task:a:a-1:done:" + pr]);
   const cases: [string, Snapshot, Snapshot][] = [
     ["a finished entry appearing", working, snapshot({ tasks: [task("a", "working"), finished] })],
     ["a merged entry appearing", working, snapshot({ tasks: [task("a", "working"), merged] })],
@@ -112,9 +172,11 @@ test("each alert names who speaks by its goblin's title, as its card does, says 
     ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?", action: "Open Command Center" }],
     ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board", action: "Open Command Center" }],
     ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "Goblin a", text: "Goblin a is blocked: Needs a key", action: "Open Command Center" }],
-    ["a failed goblin", snapshot({ tasks: [task("a", "failed")] }), { speaker: "Goblin a", text: "Goblin a failed: it needs a decision to go on.", action: "Open Goblin a" }],
-    ["a finished goblin", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), { speaker: "Goblin a", text: "Goblin a finished: r #7 is ready.", action: "Open Goblin a" }],
-    ["a goblin without a title", snapshot({ tasks: [task("a", "failed", { title: "" })] }), { speaker: "a", text: "a failed: it needs a decision to go on.", action: "Open a" }],
+    ["a failed goblin", snapshot({ tasks: [task("a", "failed")] }), { speaker: "Goblin a", text: "Goblin a failed: it needs a decision to go on.", action: "Open" }],
+    ["a finished goblin", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), { speaker: "Goblin a", text: "Goblin a finished: r #7 is ready.", action: "Open" }],
+    ["a goblin without a title", snapshot({ tasks: [task("a", "failed", { title: "" })] }), { speaker: "a", text: "a failed: it needs a decision to go on.", action: "Open" }],
+    ["a goblin whose title is a whole sentence", snapshot({ tasks: [task("a", "done", { title: LONG_TITLE, pr: "https://github.com/fpresta0607/code-goblins/pull/225" })] }),
+      { speaker: LONG_TITLE, text: "Answers given in a review page's editor are never lost (a d… finished: code-goblins #225 is ready.", action: "Open" }],
   ];
   for (const [name, next, want] of cases) {
     const [alert] = boardAlerts(before, next);
@@ -122,18 +184,12 @@ test("each alert names who speaks by its goblin's title, as its card does, says 
   }
 });
 
-test("each arrival gets its own identity, so a replacement toast starts afresh and outlives the old one's dismissal", () => {
-  const alert = (key: string) => ({ key, tone: "failed", speaker: "a", text: key, action: "Open a", task: "a", target: { kind: "task", id: "a" } }) as BoardAlert;
-  const first = arrive([], [alert("task:a:a-1:failed"), alert("question:q1")]);
-  assert.deepEqual(first.map((toast) => toast.alert.key), ["task:a:a-1:failed", "question:q1"]);
-  assert.equal(new Set(first.map((toast) => toast.id)).size, 2);
-  const replaced = arrive(first, [alert("task:a:a-1:failed")]);
-  assert.deepEqual(replaced.map((toast) => toast.alert.key), ["question:q1", "task:a:a-1:failed"]);
-  const [old] = first;
-  assert.ok(!replaced.some((toast) => toast.id === old.id), "the replacement has a new identity");
-  assert.deepEqual(replaced.filter((toast) => toast.id !== old.id), replaced, "dismissing the old arrival keeps the new one");
-  const full = arrive(replaced, ["r1", "r2", "r3"].map((key) => alert("review:" + key)));
-  assert.deepEqual(full.map((toast) => toast.alert.key), ["task:a:a-1:failed", "review:r1", "review:r2", "review:r3"], "at most four, the oldest leaving first");
+test("fresh alerts stack below the ones on screen, at most four, the oldest leaving first", () => {
+  const alert = (key: string) => ({ key }) as BoardAlert;
+  const first = arrive([], [alert("task:a"), alert("item:q1")]);
+  assert.deepEqual(first.map((toast) => toast.key), ["task:a", "item:q1"]);
+  const full = arrive(first, ["r1", "r2", "r3"].map((key) => alert("item:" + key)));
+  assert.deepEqual(full.map((toast) => toast.key), ["item:q1", "item:r1", "item:r2", "item:r3"]);
 });
 
 test("an alert names who asks and what, in a few words", () => {
