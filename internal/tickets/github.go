@@ -259,13 +259,12 @@ func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Act
 		}
 		files, err := g.lines(ctx, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100", repository, pull.Number), "--jq", ".[].filename")
 		if err != nil {
-			return Activity{}, fmt.Errorf("read the files of pull request %d: %w", pull.Number, err)
+			activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d past the first %d: %v", pull.Number, len(pull.Files), err))
+			continue
 		}
 		activity.PullRequests[i].Files = files
 	}
-	if err := g.compareBranches(ctx, &activity, now); err != nil {
-		return Activity{}, err
-	}
+	g.compareBranches(ctx, &activity, now)
 	return activity, nil
 }
 
@@ -292,10 +291,11 @@ func readFirstRound(activity *Activity, response activityResponse) {
 }
 
 // compareBranches reads the files of each listed branch no pull request
-// heads, comparing commit ids so no branch name needs escaping.
-func (g GitHub) compareBranches(ctx context.Context, activity *Activity, now time.Time) error {
+// heads, comparing commit ids so no branch name needs escaping. A branch
+// GitHub cannot compare, such as an orphan gh-pages, is named in Unread.
+func (g GitHub) compareBranches(ctx context.Context, activity *Activity, now time.Time) {
 	if activity.DefaultHead == "" {
-		return nil
+		return
 	}
 	names := BranchesToCompare(*activity, now)
 	if len(names) > maxBranchCompares {
@@ -310,12 +310,12 @@ func (g GitHub) compareBranches(ctx context.Context, activity *Activity, now tim
 			}
 			files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/compare/%s...%s", activity.Repository, activity.DefaultHead, branch.Head), "--jq", ".files[].filename")
 			if err != nil {
-				return fmt.Errorf("compare branch %s with %s: %w", name, activity.DefaultBranch, err)
+				activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of branch %s: %v", name, err))
+				continue
 			}
 			branch.Files = files
 		}
 	}
-	return nil
 }
 
 func (g GitHub) query(ctx context.Context, owner, name, since string, include map[string]bool, cursors map[string]string) (activityResponse, error) {

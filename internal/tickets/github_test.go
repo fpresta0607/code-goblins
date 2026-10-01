@@ -13,11 +13,12 @@ import (
 // fakeGitHub answers gh the way GitHub would, from canned responses, and
 // records every call so a test can check what was asked and how often.
 type fakeGitHub struct {
-	graphql []string
-	rest    map[string]string
-	remote  string
-	failGh  string
-	calls   [][]string
+	graphql  []string
+	rest     map[string]string
+	restFail map[string]string
+	remote   string
+	failGh   string
+	calls    [][]string
 }
 
 func (f *fakeGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -43,6 +44,9 @@ func (f *fakeGitHub) Run(_ context.Context, req execx.Request) (execx.Result, er
 		return execx.Result{Stdout: []byte(response)}, nil
 	}
 	for _, arg := range req.Args {
+		if stderr, ok := f.restFail[arg]; ok {
+			return execx.Result{ExitCode: 1, Stderr: []byte(stderr)}, nil
+		}
 		if body, ok := f.rest[arg]; ok {
 			return execx.Result{Stdout: []byte(body)}, nil
 		}
@@ -231,6 +235,72 @@ func TestReadNamesWhatItCouldNotRead(t *testing.T) {
 	}
 }
 
+func TestReadNamesAFailedPerItemReadAndKeepsTheRest(t *testing.T) {
+	withPages := strings.Replace(firstPage, `{"name":"fix/sync-says-why"`, `{"name":"gh-pages","target":{"oid":"pages0001","committedDate":"2026-09-30T00:00:00Z","author":{"name":"github-actions[bot]","user":null}}},
+   {"name":"fix/sync-says-why"`, 1)
+	const (
+		pullFiles   = "repos/fpresta0607/northwind-api/pulls/409/files?per_page=100"
+		taxCompare  = "repos/fpresta0607/northwind-api/compare/main0001...tax0001"
+		pageCompare = "repos/fpresta0607/northwind-api/compare/main0001...pages0001"
+	)
+	cases := []struct {
+		name         string
+		failing      string
+		stderr       string
+		wantUnread   string
+		wantPull409  []string
+		wantBranches map[string][]string
+	}{
+		{
+			name:         "a branch compare",
+			failing:      pageCompare,
+			stderr:       "gh: No common ancestor between main0001 and pages0001. (HTTP 404)",
+			wantUnread:   "the changed files of branch gh-pages: ",
+			wantPull409:  []string{"schema/v1/contract.json", "schema/v1/openapi.json"},
+			wantBranches: map[string][]string{"fix/118-tax-rounding": {"services/rounding.py"}, "gh-pages": nil},
+		},
+		{
+			name:         "a pull request's files past the first hundred",
+			failing:      pullFiles,
+			stderr:       "gh: Server Error (HTTP 502)",
+			wantUnread:   "the changed files of pull request 409 past the first 1: ",
+			wantPull409:  []string{"schema/v1/contract.json"},
+			wantBranches: map[string][]string{"fix/118-tax-rounding": {"services/rounding.py"}, "gh-pages": {"index.html"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			rest := map[string]string{
+				pullFiles:   "schema/v1/contract.json\nschema/v1/openapi.json\n",
+				taxCompare:  "services/rounding.py\n",
+				pageCompare: "index.html\n",
+			}
+			delete(rest, tc.failing)
+			gh := &fakeGitHub{graphql: []string{withPages}, rest: rest, restFail: map[string]string{tc.failing: tc.stderr}}
+
+			// Act
+			activity, err := GitHub{Commands: gh}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("one failed read failed the whole report: %v", err)
+			}
+			if len(activity.Unread) != 1 || !strings.HasPrefix(activity.Unread[0], tc.wantUnread) || !strings.Contains(activity.Unread[0], tc.stderr) {
+				t.Fatalf("unread = %q, want one entry starting %q and naming %q", activity.Unread, tc.wantUnread, tc.stderr)
+			}
+			if got := activity.PullRequests[1].Files; !slices.Equal(got, tc.wantPull409) {
+				t.Fatalf("pull request 409 files = %v, want %v", got, tc.wantPull409)
+			}
+			for _, branch := range activity.Branches {
+				if want, ok := tc.wantBranches[branch.Name]; ok && !slices.Equal(branch.Files, want) {
+					t.Fatalf("branch %s files = %v, want %v", branch.Name, branch.Files, want)
+				}
+			}
+		})
+	}
+}
+
 func TestRepositoryOfReadsTheOriginRemote(t *testing.T) {
 	cases := []struct {
 		remote  string
@@ -239,7 +309,7 @@ func TestRepositoryOfReadsTheOriginRemote(t *testing.T) {
 	}{
 		{remote: "https://github.com/fpresta0607/northwind-api.git", want: "fpresta0607/northwind-api"},
 		{remote: "https://github.com/fpresta0607/code-goblins", want: "fpresta0607/code-goblins"},
-		{remote: "git@github.com:fpresta0607/siqshift.git", want: "fpresta0607/siqshift"},
+		{remote: "git@github.com:fpresta0607/northwind-web.git", want: "fpresta0607/northwind-web"},
 		{remote: "https://gitlab.com/someone/project.git", wantErr: "not a GitHub repository"},
 		{remote: "", wantErr: "No such remote"},
 	}

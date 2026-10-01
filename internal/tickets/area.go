@@ -15,49 +15,68 @@ type Area struct {
 }
 
 // BriefArea reads the area from a brief's Task and Acceptance criteria
-// sections, or from the whole text when it has neither. Other sections are
-// left out on purpose: a brief's Constraints name the files other goblins own,
+// sections, or from the whole text but its Constraints when it has neither.
+// Constraints are left out on purpose: they name the files other goblins own,
 // which are exactly the files this work must not be matched against.
-func BriefArea(text string) Area {
+//
+// A path whose last segment names no file, such as services/retry, is a
+// folder only when hasPath says the checkout has it; otherwise it is prose
+// like and/or or CI/CD.
+func BriefArea(text string, hasPath func(repositoryPath string) bool) Area {
 	scope := briefScope(text)
 	area := Area{words: map[string]bool{}}
 	for _, word := range significantWords(scope) {
 		area.words[word.stem] = true
 	}
-	return area.WithPaths(pathMentions(scope)...)
+	for _, mention := range pathMentions(scope) {
+		if hasFileExtension(mention) || hasPath(mention) {
+			area.Paths = append(area.Paths, mention)
+		}
+	}
+	return area
 }
 
-// WithPaths adds repository paths to the area, each written with forward
-// slashes, and keeps them sorted and unique.
-func (a Area) WithPaths(paths ...string) Area {
+// WithPaths adds repository paths given by hand to the area, each written
+// with forward slashes, and keeps them sorted and unique. It returns the
+// paths that are not repository paths, such as absolute paths and URLs.
+func (a Area) WithPaths(paths ...string) (Area, []string) {
 	merged := slices.Clone(a.Paths)
+	var ignored []string
 	for _, p := range paths {
 		if normalized := normalizePath(p); normalized != "" {
 			merged = append(merged, normalized)
+		} else {
+			ignored = append(ignored, p)
 		}
 	}
 	slices.Sort(merged)
 	a.Paths = slices.Compact(merged)
-	return a
+	return a, ignored
 }
 
-// briefScope is the text of a brief's Task and Acceptance criteria sections.
+// briefScope is the text of a brief's Task and Acceptance criteria sections,
+// or the whole text but its Constraints when it has neither. Headings match
+// whatever their case and a trailing colon.
 func briefScope(text string) string {
-	var scope []string
-	inScope, sawSection := false, false
+	var scope, unconstrained []string
+	inScope, inConstraints, sawScope := false, false, false
 	for _, line := range strings.Split(text, "\n") {
 		if heading, ok := strings.CutPrefix(strings.TrimSpace(line), "## "); ok {
-			heading = strings.ToLower(strings.TrimSpace(heading))
-			inScope = heading == "task" || strings.HasPrefix(heading, "acceptance")
-			sawSection = sawSection || inScope
+			heading = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(heading)), ":"))
+			inScope = heading == "task" || heading == "tasks" || strings.HasPrefix(heading, "acceptance")
+			inConstraints = strings.HasPrefix(heading, "constraint")
+			sawScope = sawScope || inScope
 			continue
 		}
 		if inScope {
 			scope = append(scope, line)
 		}
+		if !inConstraints {
+			unconstrained = append(unconstrained, line)
+		}
 	}
-	if !sawSection {
-		return text
+	if !sawScope {
+		return strings.Join(unconstrained, "\n")
 	}
 	return strings.Join(scope, "\n")
 }
@@ -102,8 +121,7 @@ func normalizePath(token string) string {
 	token = strings.TrimPrefix(strings.ReplaceAll(token, `\`, "/"), "./")
 	token = strings.TrimSuffix(token, "/")
 	if !strings.Contains(token, "/") {
-		extension := strings.ToLower(strings.TrimPrefix(path.Ext(token), "."))
-		if !pathSegment.MatchString(token) || strings.TrimSuffix(token, path.Ext(token)) == "" || !slices.Contains(fileNameExtensions, extension) {
+		if !pathSegment.MatchString(token) || strings.TrimSuffix(token, path.Ext(token)) == "" || !hasFileExtension(token) {
 			return ""
 		}
 		return token
@@ -114,6 +132,12 @@ func normalizePath(token string) string {
 		}
 	}
 	return token
+}
+
+// hasFileExtension reports whether a path's last segment ends in one of the
+// fileNameExtensions.
+func hasFileExtension(repositoryPath string) bool {
+	return slices.Contains(fileNameExtensions, strings.ToLower(strings.TrimPrefix(path.Ext(repositoryPath), ".")))
 }
 
 // coversFile reports whether an area path covers a file a pull request or

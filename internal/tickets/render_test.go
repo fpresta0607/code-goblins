@@ -26,7 +26,7 @@ func teammateActivity() Activity {
 
 func TestRenderTextShowsTeammatesWorkAndWhereItOverlaps(t *testing.T) {
 	// Arrange
-	area := BriefArea(syncBrief)
+	area := BriefArea(syncBrief, syncCheckout)
 	report := Build(teammateActivity(), testNow, &area)
 	var out strings.Builder
 

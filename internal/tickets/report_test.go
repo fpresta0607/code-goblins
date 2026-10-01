@@ -181,14 +181,73 @@ const syncBrief = "# Brief nw-sync-mismatch\n\n" +
 	"## Acceptance criteria\n\n- A red-first regression test per fix, in tests/invoices.\n\n" +
 	"## Constraints\n\n- nw-quickstart owns services/discovery.py and the ledger reconciliation drift report.\n"
 
+// syncCheckout has the folders syncBrief names.
+func syncCheckout(repositoryPath string) bool {
+	return repositoryPath == "services/retry" || repositoryPath == "tests/invoices"
+}
+
+func noFolders(string) bool { return false }
+
 func TestBriefAreaReadsPathsFromTaskAndAcceptanceOnly(t *testing.T) {
 	// Act
-	area := BriefArea(syncBrief)
+	area := BriefArea(syncBrief, syncCheckout)
 
 	// Assert
 	want := []string{"api/routes_orders.py", "invoice_service.py", "services/retry", "tasks/billing_sync.py", "tests/invoices"}
 	if !slices.Equal(area.Paths, want) {
 		t.Fatalf("area paths = %v, want %v (no URL, no absolute path, nothing from Constraints)", area.Paths, want)
+	}
+}
+
+func TestBriefAreaNeverReadsConstraints(t *testing.T) {
+	cases := []struct {
+		name      string
+		brief     string
+		wantPaths []string
+	}{
+		{
+			name:      "a Tasks heading with a colon",
+			brief:     "## Tasks:\n\nRetry the refund in api/refunds.py.\n\n## Constraints\n\n- nw-ledger owns services/ledger.py and the reconciliation drift report.\n",
+			wantPaths: []string{"api/refunds.py"},
+		},
+		{
+			name:      "a brief with no Task or Acceptance section",
+			brief:     "## Goal\n\nRetry the refund in api/refunds.py.\n\n## Constraints\n\n- nw-ledger owns services/ledger.py and the reconciliation drift report.\n\n## Notes\n\nSee docs/refunds.md.\n",
+			wantPaths: []string{"api/refunds.py", "docs/refunds.md"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			area := BriefArea(tc.brief, noFolders)
+
+			// Assert
+			if !slices.Equal(area.Paths, tc.wantPaths) {
+				t.Fatalf("area paths = %v, want %v", area.Paths, tc.wantPaths)
+			}
+			for _, word := range []string{"ledger", "reconciliation", "drift"} {
+				if area.words[word] {
+					t.Fatalf("area words include %q, which only Constraints uses", word)
+				}
+			}
+			if !area.words["refund"] {
+				t.Fatalf("area words %v lack the task's word refund", area.words)
+			}
+		})
+	}
+}
+
+func TestBriefAreaKeepsAFolderPathOnlyWhenTheCheckoutHasIt(t *testing.T) {
+	// Arrange
+	brief := "## Task\n\nRetry and/or refund the charge in services/retry, keep CI/CD green, and say why in api/refunds.py and web/missing.\n"
+
+	// Act
+	area := BriefArea(brief, syncCheckout)
+
+	// Assert
+	want := []string{"api/refunds.py", "services/retry"}
+	if !slices.Equal(area.Paths, want) {
+		t.Fatalf("area paths = %v, want %v (prose slash words and folders the checkout lacks are not paths)", area.Paths, want)
 	}
 }
 
@@ -205,7 +264,7 @@ func TestBuildNamesEveryPullRequestAndBranchThatChangesTheArea(t *testing.T) {
 	}
 	activity.Branches = append(activity.Branches, Branch{Name: "fix/no-pr", Head: "f2", Author: Actor{Login: "ben-teammate"}, CommittedAt: daysAgo(1),
 		Files: []string{"API/ROUTES_ORDERS.py"}})
-	area := BriefArea(syncBrief)
+	area := BriefArea(syncBrief, syncCheckout)
 
 	// Act
 	report := Build(activity, testNow, &area)
@@ -247,7 +306,7 @@ func TestBuildMatchesIssuesThatNameAnAreaPathOrShareTheBriefsWords(t *testing.T)
 		{Number: 418, Title: "Rename routes_orders.py handlers", Author: Actor{Login: "ben-teammate"}},
 		{Number: 419, Title: "Terminal status email lags behind the retry queue for large exports and archived projects", Author: Actor{Login: "ben-teammate"}},
 	}
-	area := BriefArea(syncBrief)
+	area := BriefArea(syncBrief, syncCheckout)
 
 	// Act
 	report := Build(activity, testNow, &area)

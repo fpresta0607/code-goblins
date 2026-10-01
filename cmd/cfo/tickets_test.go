@@ -136,3 +136,97 @@ func TestTicketsSaysWhenTheBriefNamesNoPath(t *testing.T) {
 		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
 	}
 }
+
+func TestTicketsReadsAFolderFromTheBriefOnlyWhenTheCheckoutHasIt(t *testing.T) {
+	// Arrange
+	checkout := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(checkout, "web", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(brief, []byte("## Task\n\nRestyle web/src and/or the CI/CD badge.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var readFrom string
+	var stdout, stderr strings.Builder
+
+	// Act
+	code := runTickets([]string{checkout, "--brief", brief}, &stdout, &stderr, ticketsRuntime(teammateRepository(), nil, &readFrom))
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Overlaps with web/src\n") || strings.Contains(stdout.String(), "and/or") {
+		t.Fatalf("output names the wrong area:\n%s", stdout.String())
+	}
+}
+
+func TestTicketsSaysWhyNoPathIsCompared(t *testing.T) {
+	cases := []struct {
+		name    string
+		brief   string
+		files   []string
+		want    []string
+		notWant string
+	}{
+		{
+			name:    "a brief with only prose slash words",
+			brief:   "## Task\n\nRetry and/or refund the charge; keep CI/CD green.\n",
+			want:    []string{"the brief names no repository path"},
+			notWant: "neither",
+		},
+		{
+			name:    "--files with an absolute Windows path",
+			files:   []string{`C:\dev\northwind-api\api\x.py`},
+			want:    []string{`--files C:\dev\northwind-api\api\x.py is not a repository path`, "--files names no repository path"},
+			notWant: "the brief",
+		},
+		{
+			name:    "--files with a URL",
+			files:   []string{"https://github.com/fpresta0607/northwind-api/blob/main/api/x.py", "/srv/northwind-api/api/y.py"},
+			want:    []string{"--files https://github.com/fpresta0607/northwind-api/blob/main/api/x.py is not a repository path", "--files /srv/northwind-api/api/y.py is not a repository path", "--files names no repository path"},
+			notWant: "the brief",
+		},
+		{
+			name:  "a brief and --files that both name none",
+			brief: "## Task\n\nMake the refund email honest.\n",
+			files: []string{`C:\dev\northwind-api\api\x.py`},
+			want:  []string{`--files C:\dev\northwind-api\api\x.py is not a repository path`, "neither the brief nor --files names a repository path"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			args := []string{t.TempDir()}
+			if tc.brief != "" {
+				brief := filepath.Join(t.TempDir(), "brief.md")
+				if err := os.WriteFile(brief, []byte(tc.brief), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--brief", brief)
+			}
+			for _, file := range tc.files {
+				args = append(args, "--files", file)
+			}
+			var readFrom string
+			var stdout, stderr strings.Builder
+
+			// Act
+			code := runTickets(args, &stdout, &stderr, ticketsRuntime(teammateRepository(), nil, &readFrom))
+
+			// Assert
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("stderr = %q, want it to say %q", stderr.String(), want)
+				}
+			}
+			if tc.notWant != "" && strings.Contains(stderr.String(), tc.notWant) {
+				t.Fatalf("stderr = %q, want nothing about %q", stderr.String(), tc.notWant)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +25,15 @@ func readRepositoryActivity(ctx context.Context, checkout string, now time.Time)
 		return tickets.Activity{}, err
 	}
 	return github.Read(ctx, repository, now)
+}
+
+// checkoutHas reports whether a checkout has a repository path, written with
+// forward slashes.
+func checkoutHas(checkout string) func(repositoryPath string) bool {
+	return func(repositoryPath string) bool {
+		_, err := os.Stat(filepath.Join(checkout, filepath.FromSlash(repositoryPath)))
+		return err == nil
+	}
 }
 
 func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -69,11 +79,21 @@ func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 				fmt.Fprintf(stderr, "cfo tickets: read the brief: %v\n", err)
 				return 1
 			}
-			value = tickets.BriefArea(string(text))
+			value = tickets.BriefArea(string(text), checkoutHas(checkout))
 		}
-		value = value.WithPaths(files...)
+		value, ignored := value.WithPaths(files...)
+		for _, file := range ignored {
+			fmt.Fprintf(stderr, "cfo tickets: --files %s is not a repository path, so it is ignored\n", file)
+		}
 		if len(value.Paths) == 0 {
-			fmt.Fprintln(stderr, "cfo tickets: the brief names no repository path, so only issue text is compared; add --files <paths> to compare changed files")
+			switch {
+			case *briefPath != "" && len(files) > 0:
+				fmt.Fprintln(stderr, "cfo tickets: neither the brief nor --files names a repository path, so only issue text is compared")
+			case *briefPath != "":
+				fmt.Fprintln(stderr, "cfo tickets: the brief names no repository path, so only issue text is compared; add --files <paths> to compare changed files")
+			default:
+				fmt.Fprintln(stderr, "cfo tickets: --files names no repository path, so nothing is compared")
+			}
 		}
 		area = &value
 	}
