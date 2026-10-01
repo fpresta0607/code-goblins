@@ -43,10 +43,12 @@ func settleNativeCFO(ctx context.Context, stateDir, name string) []string {
 		return nil
 	}
 	return settleCFO(name, screens, cfoScreen{
-		read:   func() ([]string, error) { return host.ReadScreen(record) },
-		answer: func(dialog harness.Dialog, screen []string) error { return spawn.AnswerDialog(ctx, record, dialog, screen) },
-		sleep:  time.Sleep,
-		now:    time.Now,
+		read: func() ([]string, error) { return host.ReadScreen(record) },
+		answer: func(dialog harness.Dialog, screen []string) error {
+			return spawn.AnswerDialog(ctx, record, dialog, screen)
+		},
+		sleep: time.Sleep,
+		now:   time.Now,
 	})
 }
 

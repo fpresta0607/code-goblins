@@ -103,7 +103,9 @@ func TestGoblinsStartsTheCFOInItsHome(t *testing.T) {
 func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
 	// Arrange
 	herdrStart, nativeStart := newSessionFixture(t), newSessionFixture(t)
-	herdrStart.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, errors.New("herdr is not installed") }
+	herdrStart.runtime.startCFO = func(context.Context, string, string) (bool, error) {
+		return false, errors.New("herdr is not installed")
+	}
 	nativeStart.runtime.startNativeCFO = func(home.Home, string, string) error { return errors.New("claude is not on PATH") }
 
 	// Act
