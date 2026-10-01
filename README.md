@@ -459,10 +459,10 @@ cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [-
 Run `cfo doctor` after installation for the current dependency and harness health report.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
-If an update stops part way, it prints a recovery line that runs the candidate's kept copy, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
+If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell
-$env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; & 'C:\Users\you\AppData\Local\CodeGoblins\state\update\candidate.exe' update --recover
+$env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\you\AppData\Local\CodeGoblins\state'; & 'C:\Users\you\AppData\Local\CodeGoblins\state\update\candidate.exe' update --recover
 ```
 
 ## Your data

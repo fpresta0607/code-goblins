@@ -249,14 +249,10 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 
 // recoverCommand is the update --recover line to paste into Windows
 // PowerShell: it runs the candidate's kept copy, so it works with cfo.exe and
-// goblins.exe both gone, and names this home and its state itself, so it
-// works from any folder.
+// goblins.exe both gone, and names this home and its exact state itself, so
+// it works from any folder whatever state the shell's environment names.
 func recoverCommand(h home.Home, journal *update.Journal) string {
-	line := "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; "
-	if !sameHomePath(h.State, filepath.Join(h.Root, "state")) {
-		line += "$env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; "
-	}
-	return line + "& " + powerShellQuote(journal.Copy) + " update --recover"
+	return "$env:CFO_HOME = " + powerShellQuote(h.Root) + "; $env:CFO_STATE_OVERRIDE = " + powerShellQuote(h.State) + "; & " + powerShellQuote(journal.Copy) + " update --recover"
 }
 
 // powerShellQuote is text as a PowerShell literal string, which expands

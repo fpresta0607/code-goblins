@@ -468,9 +468,9 @@ func TestAnEndedProcessIsNotRunningWhileAHandleToItStaysOpen(t *testing.T) {
 	}
 }
 
-// The recovery line names the home, its state and the candidate's kept copy
-// as PowerShell literal strings, so a path with a quote or a space pastes as
-// it is.
+// The recovery line names the home, its exact state and the candidate's kept
+// copy as PowerShell literal strings, so a path with a quote or a space
+// pastes as it is.
 func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
 	root := `C:\Users\O'Brien\Code Goblins`
 	copy := root + `\state\update\candidate.exe`
@@ -479,7 +479,7 @@ func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
 		state string
 		want  string
 	}{
-		{"the home's own state", root + `\state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
+		{"the home's own state", root + `\state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'C:\Users\O''Brien\Code Goblins\state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
 		{"a state elsewhere", `D:\fleet's state`, `$env:CFO_HOME = 'C:\Users\O''Brien\Code Goblins'; $env:CFO_STATE_OVERRIDE = 'D:\fleet''s state'; & 'C:\Users\O''Brien\Code Goblins\state\update\candidate.exe' update --recover`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -493,9 +493,10 @@ func TestRecoverCommandQuotesForPowerShell(t *testing.T) {
 }
 
 // The line an unfinished update prints is the recovery: pasted into Windows
-// PowerShell in another folder, with no CFO home in its environment and both
-// cfo.exe and goblins.exe gone, it puts the previous build back and its board
-// serves. The home's path has a quote and a space in it.
+// PowerShell in another folder, with no CFO home in its environment, another
+// fleet's state inherited in CFO_STATE_OVERRIDE, and both cfo.exe and
+// goblins.exe gone, it puts the previous build back and its board serves. The
+// home's path has a quote and a space in it.
 func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "O'Brien goblins")
 	if err := os.MkdirAll(root, 0o700); err != nil {
@@ -531,7 +532,8 @@ func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
 	}
 	pasted := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", line+"; exit $LASTEXITCODE")
 	pasted.Dir = t.TempDir()
-	pasted.Env = append(environment, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
+	inherited := filepath.Join(t.TempDir(), "state")
+	pasted.Env = append(environment, "CFO_STATE_OVERRIDE="+inherited, "CFO_TEST_UPDATE_RESOLVE=1", "CFO_TEST_UPDATE_SERVE_WAIT=8s", "CFO_TEST_HANDOVER_WAIT=2s")
 
 	recovered, err := pasted.CombinedOutput()
 
