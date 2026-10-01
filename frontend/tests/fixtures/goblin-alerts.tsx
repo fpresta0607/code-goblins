@@ -11,7 +11,7 @@ import "../../src/styles.css";
 // would open is written under the banners, and Open Command Center opens the
 // real Command Center: on a review waiting in it, or with ?nothing on none.
 // The waiting banner sits over a board column, as it does on the board.
-const base = { healthy: true, instance: "fixture", cfo_runs: true };
+const base = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }] };
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
 const quiet = parseSnapshot({ ...base, tasks: [task("cg-board-kill"), task("pd-billing-admin"), task("cg-voice")] });
 const asking = parseSnapshot({ ...base, tasks: quiet.tasks, questions: [{ id: "q1", text: "Which layout should I keep?", status: "pending", task: "cg-board-kill", created_at: "2026-09-30T12:00:00Z" }] });

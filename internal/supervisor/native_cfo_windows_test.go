@@ -537,6 +537,29 @@ func TestTheSnapshotNamesTheNativeTerminalTheCFORunsIn(t *testing.T) {
 	}
 }
 
+// The snapshot names the harness the registered CFO runs, so the board can
+// show its mark beside the CFO.
+func TestTheSnapshotNamesTheHarnessTheCFORuns(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	before, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativePrimary(t, h.Service.Store.Home.State)
+
+	// Act
+	after, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.CFOHarness != "" || after.CFOHarness != "claude" {
+		t.Errorf("CFOHarness = %q before the CFO registered and %q after, want empty and claude", before.CFOHarness, after.CFOHarness)
+	}
+}
+
 // The board shows the registered native CFO's terminal as it shows a
 // task's: its output reaches the view and typing reaches the CFO.
 func TestTheBoardShowsANativeCFOsTerminalAndTypesIntoIt(t *testing.T) {

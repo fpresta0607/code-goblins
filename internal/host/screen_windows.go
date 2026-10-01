@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -18,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // screenRole, as a program's first argument, makes a program built with this
@@ -152,10 +151,10 @@ func readScreenOf(pid int) ([]string, error) {
 	if screenHold > 0 {
 		args = append(args, screenHold.String())
 	}
-	reader := exec.CommandContext(ctx, self, args...)
+	reader := execx.CommandContext(ctx, self, args...)
 	reader.Args[0] = screenRole
 	// Without a console of its own, the reader can attach to the terminal's.
-	reader.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+	reader.SysProcAttr.CreationFlags |= windows.DETACHED_PROCESS
 	var problem strings.Builder
 	reader.Stderr = &problem
 	output, err := reader.Output()
