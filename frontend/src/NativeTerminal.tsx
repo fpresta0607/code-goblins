@@ -10,6 +10,8 @@ import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
+import { useVoice } from "./useVoice";
+import { VoiceBubble } from "./VoiceBubble";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 // A panel that changes size asks for its new grid at once, and while it keeps
@@ -66,7 +68,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
-  const dictation = useDictation((text) => pasteText.current?.(text));
+  const voice = useVoice(instance, task?.id || "cfo", shown);
+  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); }, voice.defers);
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -632,7 +635,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" data-tip-align="end" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    {dictation.listening && <span className="terminal-state live terminal-listening" role="status"><Icon name="mic" />Listening</span>}
+    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
     {error ? <p className="terminal-error" role="alert">{error}</p> : dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }

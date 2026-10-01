@@ -9,6 +9,8 @@ Docker remains an optional project environment managed by the existing worktree 
 The service takes the existing `.watch.lock` before opening recovery state.
 An existing watcher must finish before `serve` can acquire that singleton; starting the board never kills a watcher or worker.
 While `serve` holds it, the Claude CFO's `stop-autoarm` hook still rewakes the idle CFO: it waits on the wake queue, rewakes once for each record no earlier rewake covered, and hosts the watcher itself again if `serve` stops.
+It counts `serve` as the watcher until its heartbeat is older than the stall window (15 minutes, `CFO_WATCHER_STALL`), because `serve` stamps its heartbeat in the loop that runs its reconcile cycle and a slow cycle can hold it past the turn-end guard's five minutes; past the window it reports supervision down, naming `serve`'s pid and saying to restart it, since nothing can take the watcher from a live `serve`.
+When its wait ends with its window and nothing queued, it rewakes the CFO to end a turn, which re-arms it.
 Closing the browser disconnects a view, while Ctrl-C in the supervisor terminal, or `goblins stop` from any terminal, stops that process.
 Once it holds the singleton and listens, `serve` records its pid and the board's address in `state/board.json`, and removes the record when it exits.
 `goblins` with no command reads that record: when the address answers at all it prints the board's link and a status line from the snapshot, or says the board could not read the fleet's state when the snapshot fails, and starts and opens nothing.
@@ -114,8 +116,11 @@ Uncertain actions remain visible for operator inspection and can eventually exha
 ## Board and orchestration
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
-Board groups actual tasks into Tasks, In progress, Paused and Completed.
-The four columns stack one above the other at every width, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+Board groups actual tasks into Tasks, In progress and Completed, side by side as a kanban by default.
+Paused, pausing and resuming tasks sit at the bottom of In progress, under a thin Paused divider with their count, like a page break; the divider and its cards show only while a task is paused, pausing or resuming, and each keeps its Resume and Stop.
+The layout button in the header, left of the Command Center, switches the board between the kanban and a stacked layout, one column under another; its tooltip names the layout it switches to, and the browser remembers the choice in local storage, falling back to the kanban when storage is unavailable.
+A board narrower than 960 px, such as a phone or a narrow window beside the panel, stacks either way, so a card never squeezes its title or status; the CFO's bar and a column's heading wrap too, so nothing on the board is clipped or scrolls sideways at any width.
+When In progress pages, its paused section keeps its room below the list, so paused tasks show without scrolling the board.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
 A list of up to ten cards shows them all, with no pager, and the board scrolls when they run past the screen.
@@ -169,7 +174,8 @@ A goblin waiting on another goblin links to it: a chip on its card and a button 
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
-The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says how many goblins the CFO supervises; its Open terminal button opens the CFO's terminal and hands it the keyboard.
+The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says All quiet and how many goblins the CFO supervises.
+The bar is the CFO's dialogue box, drawn like the alerts below: its main button, Open Command Center, opens the Command Center on the first item waiting, or its inbox when nothing waits, and is filled lantern only while something waits; its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
@@ -325,12 +331,20 @@ Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
 A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; a terminal opened from the Board opens maximized and the Task view beside the board, the Orchestration view follows the Task view's choice so its graph stays beside the panel, each view keeping the last choice, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
 
-Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed.
-It listens in the browser's language while the keys are held, a Listening pill says so, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
+It is drawn like the board's goblin alerts: a microphone in a stepped pixel frame, outlined in Bone while idle, dimmed to the frame's brown edge while SIQspeak is not running, was not found or could not be read, and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed, unless SIQspeak, the Overlord's local dictation app, is running.
+At each press the board asks the supervisor whether SIQspeak runs; if it does, the shortcut is left to SIQspeak and the board starts no recorder, so one press never starts two, and SIQspeak's own pill shows its recording.
+Otherwise the board opens the microphone once and hands that track to the speech recognizer, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing else reads, keeps or sends the audio, and nothing runs while the bubble is idle.
+It listens in the browser's language, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
 A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
 Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
+Clicking the bubble lists the pane's five most recent messages, newest first: SIQspeak's transcriptions, read through `POST /api/voice` while the pane is shown and the page visible (on showing, every 30 seconds, at each press and when its list opens) and never kept, and the board's own dictations for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own.
+Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
+The bubble's tip says whether SIQspeak runs, is not running or was not found, and the list says how to start it; a first visit shows a hint about the shortcut once, until it is dismissed.
+The supervisor finds SIQspeak in one `SIQspeak` or `SIQspeak-main` folder under the projects root, or in `CFO_SIQSPEAK_DIR`, and tells whether it runs from its single-instance mutex without holding or changing it.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
@@ -378,7 +392,7 @@ The page lists the git checkouts directly in a projects folder, opening on the r
 Start records a new folder as the machine's projects root, as `cfo install --projects-root` does, and starts Claude Code as the CFO in native terminal `cfo` in the picked project, as `goblins --native` does.
 Only Claude Code can start today, since goblins can wake only a Claude Code CFO, and a Claude Code the terminal cannot start itself (anything but `claude.exe`) says so.
 Start is refused, with the reason, while a CFO runs or is starting, for a folder that is not a full path, cannot be read or holds no checkout, and for a project that is not one of its checkouts; an example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
-After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open terminal, which leads back to the first-run page.
+After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open Command Center and its terminal icon, which leads back to the first-run page.
 Keys pass through raw, the terminal follows the console's size, taken back with the next key after another viewer resized it, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
@@ -553,6 +567,7 @@ The notify opens the page without a browser, and refuses, recording nothing, whe
 The page's link goes into the wait's line, so the CFO's wake carries it, and onto the wait's review item.
 `cfo serve` then polls the page, one bounded `lavish-axi poll` at a time, for as long as the item is open, and is the only one that does: a poll hands the Overlord's feedback to whoever runs it, so nobody, goblin or CFO, polls a page themselves.
 Whatever becomes of the page reaches the CFO as a `review` wake, retried until the queue takes it, and then the item closes: his feedback, saved whole under `state/reviews/feedback/` for the CFO to read and relay; the review ended; the review window disconnected; or a page that cannot be polled three times running.
+How it closes says who closed it: his feedback closes it as answered, by the Overlord (`answered_by: overlord`), on the page (`answered_in: page`), which also ends the goblin's wait because the CFO relays it; his own end of the review on the page closes it as his clear (You ended the review on its page.); and it reads withdrawn only when it closed without his word, such as a window that disconnected, a page that cannot be polled, or an agent that ended the review itself (lavish-axi reports `ended_by: agent`).
 Only the item gets the page polled, so when it cannot be published the notify says nothing watches the page and fails, telling the goblin to ask in text with `--blocked`; the wait's line is already recorded and still reaches the CFO.
 
 The monitor watches for the mistake this rule prevents.
@@ -591,10 +606,16 @@ An answer the goblin received also reaches the CFO as a `review` wake that asks 
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
 The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin's own blocked report does not alert, since the question it raises does.
-Each alert is a toast at the bottom right that opens its item when clicked, fades after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
+Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, its name on a tab, one plain line such as cg-board-kill asks: Which layout should I keep?, and one action.
+A goblin speaks by its title, as its card does, falling back to its id.
+What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
+A goblin's finished or failed news offers Open and its name, outlined, on that goblin, with a moss tab when it finished and an ember tab when it failed.
+Lantern means it needs the Overlord and nothing else.
+An alert steps up once as it arrives, or just appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
 While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview that opens the page with Open review.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
+A card open on screen when he answers on the page finishes as one he answered from it does: a check with Answered and You answered on its page, then the next open item, and History lists it with a double check; a Clear or Dismiss the board refused because the answer had already closed it shows no error, and no card shows a refusal once its item has closed.
 Any other item takes a written answer with Send answer or closes with Clear.
 `cfo deliver` hands the Overlord a document the same way: the registered primary CFO delivers any file it can read, a goblin only one from its worktree, task scratch or data directory, at most 64 MiB, and the file is copied beside the item so it outlives the original.
 `--url` names where Open goes instead of the copy, such as a hosted page, under the same rules as a presentation link (https or plain http on this machine or the tailnet, no query, no credential in the path).

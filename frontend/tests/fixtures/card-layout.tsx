@@ -27,12 +27,13 @@ const snapshot = parseSnapshot({
 // beside an open panel, which leaves it at least 280 px. With ?queue the queue
 // shows in the CFO's panel instead, stacked under the board as on a phone,
 // where the app's 8 px margin leaves the pane 16 px narrower than the screen.
+// The board is stacked, so each card spans the board's whole width.
 const search = new URLSearchParams(location.search);
 const width = Number(search.get("board")) || undefined;
 const presentations = [{ id: "p1", kind: "browser", task_id: "cg-board-kill-with-a-long-goblin-name", generation: "g1", source: "", target: "", state: "active", url: "", at: "", until: "" }];
 function Fixture() {
   const [selected, setSelected] = useState<string>();
-  const board = <Board snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={(chosen) => setSelected(chosen.id)} onTerminal={() => {}} onOpenCfo={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
+  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={(chosen) => setSelected(chosen.id)} onTerminal={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", problem: "", onStart: () => {} })} onSelect={(chosen) => setSelected(chosen.id)} />
   </section></div></aside>;

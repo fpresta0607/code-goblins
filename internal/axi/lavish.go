@@ -24,6 +24,9 @@ type PagePoll struct {
 	Status string
 	// Ended says the Overlord ended the session along with this feedback.
 	Ended bool
+	// EndedBy says who ended an ended session: user for the Overlord on the
+	// page, agent for an agent that ran lavish-axi end.
+	EndedBy string
 	// Output is the poll's whole output, which the CFO reads.
 	Output string
 }
@@ -59,7 +62,7 @@ func (l Lavish) Poll(ctx context.Context, file string, timeout time.Duration) (P
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", Output: output}, nil
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Output: output}, nil
 }
 
 // sessionField reads one scalar field of the top-level TOON `session:`

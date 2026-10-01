@@ -373,9 +373,11 @@ func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Tim
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.
+		// An answer he gave elsewhere, such as on the item's page, is the
+		// CFO's to relay.
 		if slices.ContainsFunc(reviews, func(r Review) bool {
 			return r.Task == id && strings.HasPrefix(r.ID, "waiting-"+id+"-") && !r.CreatedAt.Before(reportedAt) &&
-				r.State != "open" && (r.State != "answered" || r.Delivered)
+				r.State != "open" && (r.State != "answered" || r.Delivered || r.AnsweredIn != "")
 		}) {
 			return "", "", "", false
 		}
