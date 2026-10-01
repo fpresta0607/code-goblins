@@ -255,3 +255,70 @@ func TestCancelledAgentStepsLeaveTheRememberedAgentAlone(t *testing.T) {
 		t.Errorf("the home remembers %q, %v; want it left as it was", data, err)
 	}
 }
+
+// A CFO started in Herdr has nothing watching its startup dialogs, so goblins
+// says what to choose at each: Claude Code's trust dialog focuses No, which
+// exits, and Codex's hook review is the person's own decision.
+func TestGoblinsSaysWhatToChooseAtTheDialogsOfACFOStartedInHerdr(t *testing.T) {
+	for _, c := range []struct {
+		agent string
+		want  string
+	}{
+		{"claude", "If Claude Code asks whether you trust this folder, its first choice, No, exits: choose Yes with Up, then press Enter.\n"},
+		{"codex", "If Codex asks you to review hooks, Continue without trusting keeps them off; trusting them is your own decision.\n"},
+	} {
+		t.Run(c.agent, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.agent = c.agent
+
+			// Act
+			exit, stdout, stderr := f.launch()
+
+			// Assert
+			if exit != 0 || !slices.Equal(f.cfoStarts, []string{f.home.Root}) {
+				t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want the CFO started in Herdr", exit, f.cfoStarts, stderr)
+			}
+			if !strings.Contains(stdout, c.want) {
+				t.Errorf("stdout = %q, want the guidance %q", stdout, c.want)
+			}
+		})
+	}
+}
+
+// Escape on the final screen leaves goblins with the CFO and the board
+// running, says so, and opens and shows nothing.
+func TestEscapeOnTheFinalScreenLeavesTheCFOAndTheBoardRunning(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.runtime.choose = func(io.Writer, string, []onboarding.Choice, int) (int, error) {
+		return 0, onboarding.ErrBack
+	}
+
+	// Act
+	exit, stdout, stderr := f.launch("--native")
+
+	// Assert
+	if exit != 0 || stderr != "" || !strings.HasSuffix(stdout, "\nThe CFO and the board keep running; run goblins to see them again.\n") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want a clean exit saying the CFO and the board keep running", exit, stdout, stderr)
+	}
+	if len(f.nativeStarts) != 1 || len(f.nativeAttached)+len(f.attached)+len(f.opened) != 0 {
+		t.Errorf("nativeStarts=%q nativeAttached=%q attached=%q opened=%q, want the CFO started and nothing shown or opened", f.nativeStarts, f.nativeAttached, f.attached, f.opened)
+	}
+}
+
+// Escape at the first choice of agent is reported in the quick start's own
+// words, with nothing internal before them.
+func TestGoblinsReportsEscapeAtTheChoiceAsACancel(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.setupErr = onboarding.ErrBack
+
+	// Act
+	exit, _, stderr := f.launch()
+
+	// Assert
+	if exit != 1 || stderr != "goblins: setup was cancelled; run goblins to continue\n" {
+		t.Errorf("exit=%d stderr=%q, want the cancel reported in the quick start's words", exit, stderr)
+	}
+}

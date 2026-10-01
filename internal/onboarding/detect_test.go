@@ -131,11 +131,50 @@ func TestDetectCountsClaudeCodeOnlyAsItsNativeBuild(t *testing.T) {
 	codex := detector.Detect(context.Background(), "codex")
 
 	// Assert
-	if claude.State != Missing || claude.Reason != "Installed as a script; the CFO needs its native build, claude.exe" {
+	if claude.State != Missing || claude.Reason != npmClaude {
 		t.Errorf("claude as a script = %+v, want it missing for its native build", claude)
 	}
 	if codex.State != Ready || !slices.Equal(probed, []string{"codex"}) {
 		t.Errorf("codex as a script = %+v, probed %q; want it ready and claude never probed", codex, probed)
+	}
+}
+
+// npmClaude is the reason Claude Code found as npm's script is not ready.
+const npmClaude = "npm's claude.cmd comes first on PATH and a native terminal cannot start it; run: npm.cmd uninstall -g @anthropic-ai/claude-code"
+
+// Claude Code found as npm's script while its native build is installed is
+// shadowed, not missing: installing again would change nothing, and the
+// reason names the uninstall that does. Its status command is never run.
+func TestDetectNamesTheUninstallWhenNpmsClaudeShadowsTheNativeBuild(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		isNative bool
+		want     State
+	}{
+		{"the native build installed", true, Shadowed},
+		{"no native build", false, Missing},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			if c.isNative {
+				if err := os.WriteFile(filepath.Join(directory, "claude.exe"), nil, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			detector := Detector{ClaudeDirectory: directory, LookPath: func(name string) (string, error) { return name + ".cmd", nil }, Probe: func(context.Context, string, ...string) (execx.Result, error) {
+				t.Error("probed claude found as a script")
+				return execx.Result{}, nil
+			}}
+
+			// Act
+			agent := detector.Detect(context.Background(), "claude")
+
+			// Assert
+			if agent.State != c.want || agent.Reason != npmClaude {
+				t.Errorf("Detect = %+v, want state %d with the uninstall named", agent, c.want)
+			}
+		})
 	}
 }
 

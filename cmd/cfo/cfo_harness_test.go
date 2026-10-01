@@ -115,7 +115,7 @@ func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
 	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("codex\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil }, commandRuntime{startNativeCFO: startNativeCFO})
 
 	// Act
 	err := run.StartCFO(t.TempDir())

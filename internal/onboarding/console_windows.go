@@ -41,7 +41,14 @@ func ChooseConsole(output io.Writer, title string, choices []Choice, selected in
 		return 0, err
 	}
 	defer windows.SetConsoleMode(screen, screenMode)
-	menu := Menu{Output: output, ReadKey: func() (Key, error) {
+	width := func() int {
+		var info windows.ConsoleScreenBufferInfo
+		if windows.GetConsoleScreenBufferInfo(screen, &info) != nil {
+			return 0
+		}
+		return int(info.Window.Right-info.Window.Left) + 1
+	}
+	menu := Menu{Output: output, Width: width, ReadKey: func() (Key, error) {
 		for {
 			var event keyEvent
 			var count uint32

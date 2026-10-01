@@ -12,8 +12,8 @@ import (
 var ErrCancelled = errors.New("setup was cancelled; run goblins to continue")
 
 // ErrBack is Escape at a step: the quick start returns to the choice of
-// agent, and at that choice it is a cancel.
-var ErrBack = fmt.Errorf("back: %w", ErrCancelled)
+// agent, and at that choice it is a cancel, said in ErrCancelled's words.
+var ErrBack = fmt.Errorf("%w", ErrCancelled)
 
 // Flow is the quick start's steps for the agent the CFO runs on: choose one,
 // install it when it is missing, sign in when nobody is, and remember it.
@@ -115,6 +115,7 @@ func (f Flow) save(id string) error {
 const (
 	chooseAnother      = "Choose another agent"
 	continueUnverified = "Continue without verifying"
+	checkAgain         = "Check again"
 )
 
 // step is the screen for an agent that is not ready: its title, its choices
@@ -124,6 +125,8 @@ func (f Flow) step(agent Agent) (title string, choices []string, run func(string
 	case Missing:
 		installer, _ := InstallerFor(agent.ID)
 		return "Install " + agent.Name + "\n" + agent.Reason + ". Enter runs " + installer.Describe() + ".", []string{"Install " + agent.Name, chooseAnother}, f.Install
+	case Shadowed:
+		return "Remove npm's " + agent.Name + "\n" + agent.Reason + ". Run it in another window, then press Enter to check again.", []string{checkAgain, chooseAnother}, func(string) error { return nil }
 	case SignedOut:
 		return "Sign in to " + agent.Name + "\nEnter opens " + agent.Name + "'s own sign-in. Code Goblins never sees your password.", []string{"Open sign-in", chooseAnother}, f.Login
 	default:

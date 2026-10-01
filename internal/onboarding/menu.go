@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ErrNoConsole says the quick start has no console to ask in.
@@ -39,6 +40,9 @@ type Menu struct {
 	// ReadKey waits for the next key. An error means no key can come, as at
 	// the end of input.
 	ReadKey func() (Key, error)
+	// Width is the console's width in columns, onto which a wider row wraps.
+	// With none, or a width of 0 or less, every row is one line.
+	Width func() int
 }
 
 // The quick start's own greens, the board's accent and mint.
@@ -70,15 +74,25 @@ func (m Menu) Choose(title string, choices []Choice, selected int) (int, error) 
 	}
 	hint += "   Up/Down to choose   Esc to go back"
 	for {
+		width := 0
+		if m.Width != nil {
+			width = m.Width()
+		}
+		// The blank line above the hint.
+		drawn := 1
 		for index, choice := range choices {
 			// \x1b[2K clears the row, so a redraw leaves nothing of the last.
+			row := "    " + choice.Label
 			if index == selected {
-				fmt.Fprintf(m.Output, "\x1b[2K%s  > %s%s\n", menuMarked, choice.Label, menuReset)
+				row = "  > " + choice.Label
+				fmt.Fprintf(m.Output, "\x1b[2K%s%s%s\n", menuMarked, row, menuReset)
 			} else {
-				fmt.Fprintf(m.Output, "\x1b[2K    %s\n", choice.Label)
+				fmt.Fprintf(m.Output, "\x1b[2K%s\n", row)
 			}
+			drawn += lines(row, width)
 		}
 		fmt.Fprintf(m.Output, "\x1b[2K\n\x1b[2K%s\n", hint)
+		drawn += lines(hint, width)
 		key, err := m.ReadKey()
 		if err != nil {
 			return 0, ErrCancelled
@@ -100,8 +114,16 @@ func (m Menu) Choose(title string, choices []Choice, selected int) (int, error) 
 			}
 		}
 		// Back to the first choice's row, to draw the choices again in place.
-		fmt.Fprintf(m.Output, "\x1b[%dA", len(choices)+2)
+		fmt.Fprintf(m.Output, "\x1b[%dA", drawn)
 	}
+}
+
+// lines is how many lines row takes in a console width columns wide.
+func lines(row string, width int) int {
+	if width <= 0 {
+		return 1
+	}
+	return max(1, (utf8.RuneCountInString(row)+width-1)/width)
 }
 
 // Labels are choices with no letters of their own.

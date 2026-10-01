@@ -67,6 +67,10 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	}
 	title := fmt.Sprintf("%s\nHome   %s\nBoard  %s  (Ctrl+click opens it)", heading, h.Root, link)
 	choice, err := runtime.choose(stdout, title, []onboarding.Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}}, 0)
+	if errors.Is(err, onboarding.ErrBack) {
+		fmt.Fprintln(stdout, "\nThe CFO and the board keep running; run goblins to see them again.")
+		return 0
+	}
 	if err != nil {
 		// The CFO and the board run either way; only this screen had no
 		// answer.
@@ -158,19 +162,24 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	}
 	fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s.\n", agent, h.Root)
 	warnNoWakePath(stdout, agent)
+	for _, note := range unreached(agent, nil) {
+		fmt.Fprintln(stdout, note)
+	}
 	return cfoSession{herdr: herdrSession()}, true, nil
 }
 
 // quickstartDetector reads how ready each agent is on this machine: PATH,
-// each agent's own status command, and pi's settings in its agent folder.
+// each agent's own status command, pi's settings in its agent folder, and
+// whether Claude Code's native build is installed.
 func quickstartDetector() onboarding.Detector {
-	directory := os.Getenv("PI_CODING_AGENT_DIR")
-	if directory == "" {
-		if userHome, err := os.UserHomeDir(); err == nil {
+	directory, claudeDirectory := os.Getenv("PI_CODING_AGENT_DIR"), ""
+	if userHome, err := os.UserHomeDir(); err == nil {
+		if directory == "" {
 			directory = filepath.Join(userHome, ".pi", "agent")
 		}
+		claudeDirectory = filepath.Join(userHome, ".local", "bin")
 	}
-	return onboarding.Detector{LookPath: exec.LookPath, PiDirectory: directory, Probe: func(ctx context.Context, name string, args ...string) (execx.Result, error) {
+	return onboarding.Detector{LookPath: exec.LookPath, PiDirectory: directory, ClaudeDirectory: claudeDirectory, Probe: func(ctx context.Context, name string, args ...string) (execx.Result, error) {
 		program, err := spawn.NativeProgram(name, args...)
 		if err != nil {
 			return execx.Result{}, err

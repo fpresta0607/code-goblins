@@ -32,7 +32,7 @@ func (m *machine) flow() Flow {
 	return Flow{
 		Detect: func(_ context.Context, id string) Agent {
 			m.probes = append(m.probes, id)
-			reason := map[State]string{Missing: "Not installed", SignedOut: "Sign-in needed", Unverified: "Sign-in could not be verified"}[m.states[id]]
+			reason := map[State]string{Missing: "Not installed", Shadowed: "npm's claude.cmd comes first on PATH", SignedOut: "Sign-in needed", Unverified: "Sign-in could not be verified"}[m.states[id]]
 			return Agent{ID: id, Name: agentNames[id], State: m.states[id], Reason: reason}
 		},
 		Choose: func(title string, choices []string, selected int) (int, error) {
@@ -357,5 +357,51 @@ func TestTheInstallScreenNamesWhatItRuns(t *testing.T) {
 				t.Errorf("the install screen is %q, want %q", title, want)
 			}
 		})
+	}
+}
+
+// Claude Code shadowed by npm's script is never reinstalled, which would
+// change nothing: its screen names the uninstall, Enter checks again, and
+// once npm's script is gone the flow carries on to the sign-in.
+func TestAShadowedClaudeCodeIsCheckedAgainNeverReinstalled(t *testing.T) {
+	// Arrange
+	m := &machine{t: t, states: map[string]State{"claude": Shadowed}}
+	m.answer = func(shown screen) (int, error) {
+		if shown.heading == "Remove npm's Claude Code" && len(m.screens) == 3 {
+			m.states["claude"] = SignedOut // the person ran the uninstall
+		}
+		return shown.selected, nil
+	}
+
+	// Act
+	agent, err := m.flow().Run(context.Background(), "", false)
+
+	// Assert
+	if err != nil || agent != "claude" {
+		t.Fatalf("Run = %q, %v; want claude", agent, err)
+	}
+	if want := []string{"Choose the agent your CFO runs on", "Remove npm's Claude Code", "Remove npm's Claude Code", "Sign in to Claude Code"}; !slices.Equal(m.headings(), want) {
+		t.Errorf("screens = %q, want %q", m.headings(), want)
+	}
+	if want := []string{"Check again", "Choose another agent"}; !slices.Equal(m.screens[1].choices, want) {
+		t.Errorf("the shadowed screen offers %q, want %q", m.screens[1].choices, want)
+	}
+	if want := []string{"sign in claude", "save claude"}; !slices.Equal(m.actions, want) {
+		t.Errorf("actions = %q, want %q with no install", m.actions, want)
+	}
+}
+
+// Escape at the first choice cancels in the quick start's own words, with
+// nothing internal before them.
+func TestEscapeAtTheChoiceCancelsInTheQuickStartsWords(t *testing.T) {
+	// Arrange
+	m := &machine{t: t, states: map[string]State{}, answer: func(screen) (int, error) { return 0, ErrBack }}
+
+	// Act
+	_, err := m.flow().Run(context.Background(), "", false)
+
+	// Assert
+	if !errors.Is(err, ErrCancelled) || !errors.Is(err, ErrBack) || err.Error() != "setup was cancelled; run goblins to continue" {
+		t.Errorf("Run error = %q, want the cancel in ErrCancelled's words", err)
 	}
 }

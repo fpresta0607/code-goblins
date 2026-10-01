@@ -119,7 +119,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if userHome, err := os.UserHomeDir(); err != nil {
 		fmt.Fprintf(stderr, "cfo serve: the first-run page is off, the home folder is unknown: %v\n", err)
 	} else {
-		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot)
+		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot, runtime)
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:          *example,
@@ -167,8 +167,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 // firstRunOn is what the first-run page reads and changes on this machine for
 // the CFO home h. setMachine records the projects folder as this machine's
 // setting; an example board, such as a test fixture, never calls it and
-// records the folder for itself alone.
-func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error) *supervisor.FirstRun {
+// records the folder for itself alone. The CFO it starts is runtime's native
+// one, whose startup dialogs are watched while the page carries on.
+func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error, runtime commandRuntime) *supervisor.FirstRun {
 	return &supervisor.FirstRun{
 		Home:         userHome,
 		LookPath:     exec.LookPath,
@@ -183,8 +184,14 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
-		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(project string) error { return startNativeCFO(h, project, "claude") },
+		CFORuns: func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO: func(project string) error {
+			if err := runtime.startNativeCFO(h, project, "claude"); err != nil {
+				return err
+			}
+			go runtime.settleCFO(context.Background(), h.State, "claude")
+			return nil
+		},
 	}
 }
 

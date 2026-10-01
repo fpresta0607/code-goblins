@@ -30,6 +30,10 @@ const (
 	// Missing is an agent not on PATH, or on it only in a form a native
 	// terminal cannot start.
 	Missing State = iota
+	// Shadowed is Claude Code whose native build is installed but found
+	// after npm's claude.cmd on PATH, which a native terminal cannot start.
+	// Installing again changes nothing; removing npm's package does.
+	Shadowed
 	// SignedOut is an installed agent whose own status command says nobody is
 	// signed in.
 	SignedOut
@@ -64,6 +68,9 @@ type Detector struct {
 	// PiDirectory is pi's agent folder, whose settings.json names the
 	// provider pi signs in to.
 	PiDirectory string
+	// ClaudeDirectory is the folder Claude Code's native installer puts
+	// claude.exe in, ~\.local\bin.
+	ClaudeDirectory string
 }
 
 // Detect reads how ready the agent named id is.
@@ -80,7 +87,10 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 	// A native terminal starts a program itself, with no shell to run a
 	// script shim, and Claude Code's native build is claude.exe.
 	if id == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe") {
-		agent.Reason = "Installed as a script; the CFO needs its native build, claude.exe"
+		agent.Reason = "npm's claude.cmd comes first on PATH and a native terminal cannot start it; run: npm.cmd uninstall -g @anthropic-ai/claude-code"
+		if _, err := os.Stat(filepath.Join(d.ClaudeDirectory, "claude.exe")); d.ClaudeDirectory != "" && err == nil {
+			agent.State = Shadowed
+		}
 		return agent
 	}
 	agent.State, agent.Reason = Unverified, "Sign-in could not be verified"

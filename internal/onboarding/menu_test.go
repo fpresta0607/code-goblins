@@ -98,3 +98,37 @@ func TestAMenuRefusesADefaultThatIsNoChoice(t *testing.T) {
 		})
 	}
 }
+
+// A row wider than the console wraps onto more lines, and a redraw climbs
+// back over every one of them, so the choices are drawn again in place rather
+// than below the last ones.
+func TestAMenuRedrawClimbsBackOverWrappedRows(t *testing.T) {
+	// The hint is 60 columns; the rows are "    One" and the 34 columns of
+	// four spaces and 30 x's.
+	for _, c := range []struct {
+		name  string
+		width int
+		want  string
+	}{
+		{"a console 20 columns wide", 20, "\x1b[7A"},
+		{"a console wide enough for every row", 120, "\x1b[4A"},
+		{"a console of no known width", 0, "\x1b[4A"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			var output bytes.Buffer
+			menu := Menu{Output: &output, ReadKey: keys(KeyDown, KeyEnter), Width: func() int { return c.width }}
+
+			// Act
+			_, err := menu.Choose("Title", Labels("One", strings.Repeat("x", 30)), 0)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if moves := strings.Count(output.String(), c.want); moves != 1 {
+				t.Errorf("the redraw moved up with %q %d times in %q, want once", c.want, moves, output.String())
+			}
+		})
+	}
+}
