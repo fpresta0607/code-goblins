@@ -125,6 +125,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
+  const shownKey = item?.key || "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -148,11 +149,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (showing && !element.open) {
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
-      // Start on the question itself, not the close button.
-      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus();
+      // Start on the question itself, not the close button, with the
+      // Command Center at its top however it was left.
+      element.scrollTop = 0;
+      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus({ preventScroll: true });
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
+  // Each item shows from its top; within one item the scroll stays where he
+  // puts it.
+  useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
