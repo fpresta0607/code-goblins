@@ -245,7 +245,7 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 // holds, the checkout's merges are the ones last read.
 func refStamp(common string) string {
 	names := []string{"config", "packed-refs", "refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"}
-	if head, err := os.ReadFile(filepath.Join(common, "refs", "remotes", "origin", "HEAD")); err == nil {
+	if head, err := fsx.ReadFile(filepath.Join(common, "refs", "remotes", "origin", "HEAD")); err == nil {
 		if target, ok := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: "); ok {
 			names = append(names, target)
 		}
@@ -528,7 +528,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				project = briefProject(brief)
 			}
 			if title == id {
-				if content, err := os.ReadFile(brief); err == nil {
+				if content, err := fsx.ReadFile(brief); err == nil {
 					_, task, ok := strings.Cut(strings.ReplaceAll(string(content), "\r\n", "\n"), "## Task\n")
 					if ok {
 						first, _, _ := strings.Cut(strings.TrimSpace(task), "\n")

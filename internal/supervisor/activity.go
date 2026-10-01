@@ -194,7 +194,7 @@ func spoolActivity(dir string, a BoardActivity) error {
 		if info.Size() > 8192 {
 			return errors.New("pending activity exceeds its bound")
 		}
-		data, err := os.ReadFile(path)
+		data, err := fsx.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -247,7 +247,7 @@ func (s *Store) ingestActivity() error {
 		}
 		var a BoardActivity
 		if info.Size() <= 8192 {
-			data, err := os.ReadFile(path)
+			data, err := fsx.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -274,7 +274,7 @@ func readBoardState(h home.Home) (*Store, error) {
 	if info.Size() > maxStateBytes {
 		return nil, errors.New("supervisor state exceeds its bound")
 	}
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

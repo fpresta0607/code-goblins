@@ -23,21 +23,13 @@ func NormalizeStatusDetail(value string) string {
 // the wake queue is acknowledged away - and no elapsed time between two events
 // can be recovered from it, so "decision requested" to "response applied" is
 // unanswerable after the fact. Lines otherwise carry their own grammar; this
-// layer adds nothing else. The open retries briefly because antivirus and
-// indexer scans on Windows hold transient sharing locks.
+// layer adds nothing else. The open waits out another process's brief hold
+// on the file, such as an antivirus or indexer scan's.
 func AppendStatus(dir, id, line string) error {
 	line = time.Now().UTC().Format(time.RFC3339) + " " + line
-	path := filepath.Join(dir, id+".status")
-	var f *os.File
-	var openErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		if f, openErr = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); openErr == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if f == nil {
-		return openErr
+	f, err := fsx.OpenAppend(filepath.Join(dir, id+".status"), 0o644)
+	if err != nil {
+		return err
 	}
 	_, werr := f.WriteString(line + "\n")
 	return errors.Join(werr, f.Close())

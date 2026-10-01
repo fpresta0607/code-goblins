@@ -278,7 +278,7 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 	}
 	named := map[string]string{}
 	for _, file := range files {
-		data, err := os.ReadFile(file)
+		data, err := fsx.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
@@ -314,7 +314,7 @@ func noteNames(named map[string]string, text, where string) bool {
 // the supervisor's database: a question not yet closed, an open review item
 // and a run card ready or running.
 func openBoardText(h home.Home) (string, error) {
-	data, err := os.ReadFile(filepath.Join(h.State, ".supervisor.json"))
+	data, err := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -417,7 +417,7 @@ func File(h home.Home, now time.Time) ([]Move, error) {
 func recordFailure(h home.Home, now time.Time, failure error) error {
 	path := filepath.Join(h.Data, filepath.FromSlash(FilingLog))
 	message := " could not file: " + strings.ReplaceAll(failure.Error(), "\n", " ")
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -500,7 +500,7 @@ func dataPath(h home.Home, path string) string {
 
 // addParkedRow adds row to the backlog file: see withParkedRow.
 func addParkedRow(path, row string) error {
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -562,7 +562,7 @@ func headingIndex(lines []string, name string) int {
 }
 
 func appendLog(path, line string) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := fsx.OpenAppend(path, 0o644)
 	if err != nil {
 		return err
 	}

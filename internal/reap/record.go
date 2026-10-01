@@ -56,7 +56,7 @@ func RecordPath(stateDir string) string {
 // ReadRecord returns the last persisted audit. A missing file is os.ErrNotExist,
 // which every caller treats as "no sweep has run yet" rather than a failure.
 func ReadRecord(stateDir string) (Record, error) {
-	data, err := os.ReadFile(RecordPath(stateDir))
+	data, err := fsx.ReadFile(RecordPath(stateDir))
 	if err != nil {
 		return Record{}, err
 	}

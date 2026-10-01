@@ -19,7 +19,7 @@ func AppendOnce(directory, identity, kind, key, detail string) (Record, error) {
 	}
 	var record Record
 	err := withLock(directory, func() error {
-		data, err := os.ReadFile(oncePath(directory, identity))
+		data, err := fsx.ReadFile(oncePath(directory, identity))
 		if err == nil {
 			if err := json.Unmarshal(data, &record); err != nil {
 				return err
