@@ -102,6 +102,9 @@ func TestMain(m *testing.M) {
 		fmt.Println("claude 1.0.0")
 		os.Exit(0)
 	}
+	if stateDir := os.Getenv(watchLockStandInVariable); stateDir != "" {
+		os.Exit(holdWatchLockAs(stateDir, os.Getenv(watchLockRoleVariable)))
+	}
 	if report := os.Getenv(consoleProbeVariable); report != "" {
 		os.Exit(probeConsole(report))
 	}

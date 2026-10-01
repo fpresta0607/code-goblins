@@ -66,8 +66,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// A supervisor already serving this home is the one supervisor: a second
 	// serve says where it is rather than failing to take the address or the
 	// lock from it.
-	if board, _, running := liveBoard(context.Background(), h.State); running {
-		fmt.Fprintf(stderr, "cfo serve: the supervisor already serves this home's board at %s; goblins status shows it, goblins stop stops it\n", board)
+	if record, err := readBoardRecord(h.State); err == nil && boardAlive(context.Background(), record) == nil {
+		fmt.Fprintf(stderr, "cfo serve: the supervisor already serves this home's board at %s; goblins status shows it, goblins stop stops it\n", record.URL)
 		return 1
 	}
 	if *example {

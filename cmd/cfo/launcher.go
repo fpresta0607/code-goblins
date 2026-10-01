@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -166,15 +167,19 @@ func runBoardLauncher(stdout, stderr io.Writer, runtime commandRuntime) int {
 func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdout, stderr io.Writer) (board string, started, ok bool) {
 	board, status, running := liveBoard(ctx, h.State)
 	if !running {
-		exited, err := runtime.startServe(h)
-		if err != nil && !errors.Is(err, errorSharingViolation) {
-			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", err)
+		exited, startErr := runtime.startServe(h)
+		if startErr != nil && !errors.Is(startErr, errorSharingViolation) {
+			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", startErr)
 			return "", false, false
 		}
 		// A serve.log another process holds open is the supervisor another
 		// goblins started a moment ago, writing it: this one waits for that
-		// board.
+		// board, and says why it started none when no board comes.
 		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
+			if startErr != nil {
+				fmt.Fprintf(stderr, "goblins: the supervisor was not started, because another process holds %s (%v), and no other supervisor started either\n", serveLogPath(h.State), startErr)
+				return "", false, false
+			}
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
 			return "", false, false
 		}

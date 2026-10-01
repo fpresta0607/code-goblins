@@ -176,6 +176,38 @@ func TestAServeWhoseRequestWasReplacedByOneThatEndedStillGetsTheLock(t *testing.
 	_ = lock.ReleaseExclusiveNamed(h.State, watchLock)
 }
 
+// A watcher on this binary that is winding a slow cycle down when serve asks
+// answers at once but can hold the lock past the handover wait. Serve sees the
+// answer and waits for it rather than ending a watcher that is yielding: the
+// Stop hook it would end is what rewakes an idle CFO.
+func TestServeWaitsForAWatcherThatAnsweredRatherThanEndingIt(t *testing.T) {
+	setHandoverWait(t, 2*time.Second)
+	_, h := testStore(t)
+	hook := startStandIn(t, h.State, "acknowledging", "cfo.exe", "hook", "stop-autoarm")
+	began := time.Now()
+
+	s, err := Start(context.Background(), h, Options{})
+
+	if err != nil {
+		t.Fatalf("serve refused to start over a watcher that answered: %v", err)
+	}
+	defer s.Close()
+	if took := time.Since(began); took < acknowledgedHold-time.Second {
+		t.Errorf("serve had the lock after %s, before the watcher let it go at %s", took, acknowledgedHold)
+	}
+	if code := hook.exitsWithin(t, 10*time.Second); code != 0 {
+		t.Errorf("the watcher exited %d, want it left to let the lock go and exit cleanly, not ended", code)
+	}
+	if !lock.HeldByNamed(h.State, watchLock, os.Getpid()) {
+		t.Error("serve runs without holding the watcher lock")
+	}
+	for _, name := range []string{watch.HandoverName, watch.HandoverAckName} {
+		if _, err := os.Stat(filepath.Join(h.State, name)); !os.IsNotExist(err) {
+			t.Errorf("%s outlived the handover: %v", name, err)
+		}
+	}
+}
+
 // The Stop hook that held the lock on 2026-10-01 ran a binary from before
 // the handover and never reads the request. Once the wait runs out, serve
 // ends that watcher alone, proved by its lock record, its start time and its

@@ -255,3 +255,19 @@ func TestGoblinsWaitsForTheSupervisorAnotherGoblinsStartedAtTheSameMoment(t *tes
 		})
 	}
 }
+
+// A serve.log some other process holds, with no supervisor starting behind
+// it, is named once the wait runs out: the log cannot be read to say why.
+func TestGoblinsNamesTheHeldServeLogWhenNoSupervisorStarts(t *testing.T) {
+	defer func(timeout, poll time.Duration) { launcherStartTimeout, launcherPoll = timeout, poll }(launcherStartTimeout, launcherPoll)
+	launcherStartTimeout, launcherPoll = 200*time.Millisecond, 20*time.Millisecond
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		return nil, &os.PathError{Op: "open", Path: "serve.log", Err: syscall.Errno(32)}
+	})
+
+	exit, _, stderr := f.launch()
+
+	if exit != 1 || !strings.Contains(stderr, "was not started, because another process holds") || !strings.Contains(stderr, "serve.log") {
+		t.Fatalf("exit=%d stderr=%q, want the held serve.log named", exit, stderr)
+	}
+}

@@ -351,6 +351,19 @@ func Run(cfg Config) (string, error) {
 	if cfg.Cleanup != nil {
 		defer cfg.Cleanup()
 	}
+	// A serve asking for the lock cancels the cycle in progress, whatever
+	// it is waiting on, and the watcher yields once it winds down. ctx is
+	// cancelled only for that, so a done ctx means a serve took over.
+	ctx, cancel := context.WithCancel(context.Background())
+	watching := make(chan struct{})
+	go func() {
+		defer close(watching)
+		yieldOnRequest(ctx, cancel, cfg.Home.State)
+	}()
+	defer func() {
+		cancel()
+		<-watching
+	}()
 
 	var lastFiled time.Time
 	for {
@@ -369,8 +382,9 @@ func Run(cfg Config) (string, error) {
 			// double-live watcher that both proceeded here would each
 			// append and publish, producing two episodes whose generations
 			// collide on the next ack. Return quietly, exactly as the
-			// mid-loop steal check below does.
-			if !lock.HeldByNamed(cfg.Home.State, watchLockName, os.Getpid()) {
+			// mid-loop steal check below does, and likewise for a serve
+			// that asked for the lock meanwhile.
+			if !lock.HeldByNamed(cfg.Home.State, watchLockName, os.Getpid()) || ctx.Err() != nil {
 				return "", nil
 			}
 
@@ -425,9 +439,12 @@ func Run(cfg Config) (string, error) {
 		}
 
 		if cfg.Monitor != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.reconcileBudget())
-			result, err := cfg.Monitor.Scan(ctx)
-			cancel()
+			scanCtx, cancelScan := context.WithTimeout(ctx, cfg.reconcileBudget())
+			result, err := cfg.Monitor.Scan(scanCtx)
+			cancelScan()
+			if ctx.Err() != nil {
+				return signalDetail, nil
+			}
 			if err != nil {
 				return "", err
 			}
@@ -442,8 +459,8 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		fileData(cfg, &lastFiled)
-		sweepCtx, cancelSweep := context.WithTimeout(context.Background(), cfg.reconcileBudget())
+		fileData(ctx, cfg, &lastFiled)
+		sweepCtx, cancelSweep := context.WithTimeout(ctx, cfg.reconcileBudget())
 		orphanDetail := sweepOrphans(sweepCtx, cfg)
 		cancelSweep()
 		if signalDetail != "" {
@@ -451,6 +468,9 @@ func Run(cfg Config) (string, error) {
 		}
 		if orphanDetail != "" {
 			return orphanDetail, nil
+		}
+		if ctx.Err() != nil {
+			return "", nil
 		}
 
 		if cfg.WaitEvent != nil {
@@ -481,7 +501,7 @@ func Run(cfg Config) (string, error) {
 		// A serve asking for the lock is the supervisor now: yield it,
 		// with nothing appended and no episode published, exactly as
 		// when a successor took it.
-		if HandoverPending(cfg.Home.State) {
+		if ctx.Err() != nil || HandoverPending(cfg.Home.State) {
 			return "", nil
 		}
 	}
@@ -492,12 +512,12 @@ func Run(cfg Config) (string, error) {
 // in the data folder's filing log. A pass that fails is recorded there by
 // layout.File and retried on the next pass, and it never stops the watcher,
 // because supervising the goblins matters more than tidying their folders.
-func fileData(cfg Config, last *time.Time) {
+func fileData(ctx context.Context, cfg Config, last *time.Time) {
 	if cfg.FileEvery <= 0 || time.Since(*last) < cfg.FileEvery {
 		return
 	}
 	*last = time.Now()
-	_, _ = layout.File(cfg.Home, *last)
+	_, _ = layout.File(ctx, cfg.Home, *last)
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
@@ -522,6 +542,11 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 
 	record := reap.Record{Time: time.Now().UTC()}
 	result, auditErr := cfg.Reap.Audit(ctx, reap.Options{})
+	// A sweep a serve's takeover cut short saw nothing: the serve sweeps
+	// again rather than reading a failure into the record.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ""
+	}
 	record.Findings = result.Findings
 	record.Notes = result.Notes
 	if auditErr != nil {

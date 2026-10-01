@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -10,7 +11,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // startServeStandIn starts a live process to stand for a serve asking for
@@ -150,4 +153,80 @@ func TestAWatcherIgnoresARequestFromAServeThatIsGone(t *testing.T) {
 	eventually(t, 3*time.Second, "the watcher taking the lock", func() bool { return lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
 	askForTheLock(t, dir, startServeStandIn(t))
 	eventually(t, 5*time.Second, "the watcher yielding", func() bool { return !lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) })
+}
+
+// slowProbe stands for a slow cycle: each inspection runs until its context
+// ends, as a Herdr read on a starved machine does.
+type slowProbe struct{ inspecting chan struct{} }
+
+func (p slowProbe) Inspect(ctx context.Context, _ state.TaskMeta) (monitor.EndpointSample, error) {
+	select {
+	case p.inspecting <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return monitor.EndpointSample{}, ctx.Err()
+}
+
+// A watcher in the middle of a slow cycle, a monitor scan that would run to
+// its three-minute budget, still yields as soon as a serve asks: it answers
+// the serve, naming itself and the serve, so the serve knows it is yielding
+// and does not end it, and stops the scan.
+func TestAWatcherInASlowCycleYieldsAtOnceAndAnswersTheServe(t *testing.T) {
+	dir := t.TempDir()
+	cfg := baseConfig(dir)
+	cfg.Monitor = monitoringService(t, dir, "g1")
+	probe := slowProbe{inspecting: make(chan struct{}, 1)}
+	cfg.Monitor.Probe = probe
+	type result struct {
+		reason string
+		err    error
+	}
+	returned := make(chan result, 1)
+	go func() {
+		reason, err := Run(cfg)
+		returned <- result{reason, err}
+	}()
+	select {
+	case <-probe.inspecting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the watcher never started its scan")
+	}
+
+	serve := startServeStandIn(t)
+	asked := time.Now()
+	askForTheLock(t, dir, serve)
+
+	select {
+	case got := <-returned:
+		if got.err != nil || got.reason != "" {
+			t.Fatalf("Run = %q, %v; want it to yield quietly", got.reason, got.err)
+		}
+		if waited := time.Since(asked); waited > 3*time.Second {
+			t.Errorf("the watcher yielded %s after the request, want at once, not when its scan ended", waited)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the watcher kept the lock a serve asked for until its scan ended")
+	}
+	if lock.HeldByNamed(dir, ".watch.lock", os.Getpid()) {
+		t.Error("the watcher still holds the lock after yielding it")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, HandoverAckName))
+	if err != nil {
+		t.Fatalf("the watcher did not answer the serve: %v", err)
+	}
+	var ack struct {
+		WatcherPID   int       `json:"watcher_pid"`
+		WatcherStart time.Time `json:"watcher_start"`
+		ServePID     int       `json:"serve_pid"`
+		ServeStart   time.Time `json:"serve_start"`
+	}
+	if err := json.Unmarshal(data, &ack); err != nil {
+		t.Fatal(err)
+	}
+	watcherStart, _ := proc.StartTime(os.Getpid())
+	serveStart, _ := proc.StartTime(serve)
+	if ack.WatcherPID != os.Getpid() || !ack.WatcherStart.Equal(watcherStart) || ack.ServePID != serve || !ack.ServeStart.Equal(serveStart) {
+		t.Errorf("the answer %+v does not name this watcher (pid %d, %s) and the serve (pid %d, %s)", ack, os.Getpid(), watcherStart, serve, serveStart)
+	}
 }

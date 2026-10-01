@@ -19,12 +19,23 @@ const watchLock = ".watch.lock"
 // answered the handover has been ended.
 const legacyExitWait = 5 * time.Second
 
+// AcquireWatchLock takes the watcher lock for this supervisor, taking it over
+// from a watcher that holds it.
+func AcquireWatchLock(stateDir string) error {
+	if _, err := lock.AcquireExclusiveNamed(stateDir, watchLock); err != nil {
+		return takeOverWatcher(stateDir, err)
+	}
+	return nil
+}
+
 // takeOverWatcher takes the lock from a watcher the Stop hook hosts, or a cfo
 // watch, when held says one holds it. The supervisor supersedes a watcher, so
 // it asks the watcher to yield and waits for the lock; another supervisor
 // holding it is refused as before, so two never run. On 2026-10-01 an install
 // stopped serve, the CFO's Stop hook took the lock in the gap, and every new
-// serve refused to start until the hook's window ended.
+// serve refused to start until the hook's window ended. A watcher that
+// answered the request is yielding and only winding its cycle down, so it is
+// given up to HandoverAckWait more; one that never answered is ended.
 func takeOverWatcher(stateDir string, held error) error {
 	holder, err := lock.ReadNamed(stateDir, watchLock)
 	if !errors.Is(held, lock.ErrHeld) || err != nil || holder.Session != watch.WatcherSession {
@@ -37,6 +48,11 @@ func takeOverWatcher(stateDir string, held error) error {
 	defer withdraw()
 	if err := acquireWithin(stateDir, watch.HandoverWait, true); err == nil || !errors.Is(err, lock.ErrHeld) {
 		return err
+	}
+	if current, err := lock.ReadNamed(stateDir, watchLock); err == nil && watch.HandoverAcknowledged(stateDir, *current) {
+		if err := acquireWithin(stateDir, watch.HandoverAckWait, true); err == nil || !errors.Is(err, lock.ErrHeld) {
+			return err
+		}
 	}
 	if err := endLegacyWatcher(stateDir, *holder); err != nil {
 		return err
