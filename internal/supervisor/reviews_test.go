@@ -571,6 +571,65 @@ func TestWaitOnTheOverlordRetiresWhenTheGoblinReportsAgain(t *testing.T) {
 	}
 }
 
+// A goblin waiting on the Overlord that asks the CFO a question waits on both
+// at once: the question replaces nothing, so the wait's item stays in the
+// Command Center while the question is open, and once the CFO answers, the
+// board reads the goblin as waiting on the Overlord again. On 2026-10-01 each
+// question cg-credential-requests asked (3620, 3624) withdrew its wait, and it
+// filed the wait again each time.
+func TestAWaitOnTheOverlordOutlastsAQuestionToTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	if err := state.AppendStatus(h.State, "task-1", "waiting on overlord: look at the credential card"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.acceptReview(openReview("waiting-task-1-7", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	question, err := wake.Append(h.State, "notify", "task-1", "blocked: May I add to the shared files?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "blocked: May I add to the shared files?"); err != nil {
+		t.Fatal(err)
+	}
+	task := func() Evaluation {
+		t.Helper()
+		snapshot, err := s.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+		if i < 0 {
+			t.Fatal("task-1 missing from the snapshot")
+		}
+		return snapshot.Tasks[i].Evaluation
+	}
+
+	// Act
+	retired := store.retireItems()
+	asking := task()
+	if err := wake.MarkAnswered(h.State, question.Seq, wake.AnsweredByCFO, "Yes, keep the hunks small"); err != nil {
+		t.Fatal(err)
+	}
+	answered := task()
+
+	// Assert
+	if retired != nil {
+		t.Fatal(retired)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" {
+		t.Errorf("the wait after the goblin asked the CFO = %+v, want it still open", got)
+	}
+	if asking.Phase != "blocked" {
+		t.Errorf("task-1 with its question open = %+v, want blocked on it", asking)
+	}
+	if answered.Phase != "waiting" || answered.WaitingOn != "overlord" {
+		t.Errorf("task-1 once the CFO answered = %+v, want waiting on the Overlord again", answered)
+	}
+}
+
 // A goblin's own item, such as a page or images to look at, stays while the
 // goblin keeps working, asks or waits, and closes once its task finishes after
 // publishing it or is gone: nobody will act on an answer then.

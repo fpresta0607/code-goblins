@@ -174,8 +174,7 @@ export function questionOutcome(question: Question): QuestionOutcome {
 export function answeredLabel(question: Question): string {
   switch (questionOutcome(question)) {
     case "pending": return "Waiting on you";
-    // Superseded covers a replaced asker and a question the CFO retired with
-    // cfo send --ack-blocking; the backend's message tells them apart.
+    // Superseded is a replaced asker; the backend's message says which.
     case "superseded": return question.message || "Superseded; the asker was replaced";
     case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
@@ -184,6 +183,9 @@ export function answeredLabel(question: Question): string {
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
   if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CFO";
+  // A question the CFO answered and retired with --ack-blocking closed
+  // without the board learning which choice.
+  if (!question.answer) return who + " answered it";
   return question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer;
 }
 
