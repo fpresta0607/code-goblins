@@ -375,11 +375,13 @@ type cfoState struct {
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
 	terminal string
+	// harness is the harness the registered CFO runs, as it registered.
+	harness string
 }
 
 func readCFOState(stateDir string) cfoState {
 	if primary, live := livePrimary(stateDir); live {
-		return cfoState{registered: true, terminal: primary.Host}
+		return cfoState{registered: true, terminal: primary.Host, harness: primary.Agent}
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}

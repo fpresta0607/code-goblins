@@ -136,3 +136,13 @@ test("with reduced motion the boxes just appear", async ({ page }) => {
   await open(page);
   expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(6).fill("none"));
 });
+
+test("the CFO's banner wears the mark of the harness the CFO runs, and no goblin's alert does", async ({ page }) => {
+  await open(page);
+  for (const text of ["Waiting on you", "All quiet."]) {
+    const mark = box(page, text).locator(".dialogue-who [role=img]");
+    await expect(mark).toHaveAttribute("aria-label", "Claude Code · claude-opus-5-5");
+    await expect(mark).toHaveAttribute("data-tip", "Claude Code · claude-opus-5-5");
+  }
+  await expect(page.locator(".toasts .dialogue-who")).toHaveCount(0);
+});

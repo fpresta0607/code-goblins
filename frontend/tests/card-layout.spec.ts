@@ -99,6 +99,7 @@ test("a clamped title shows in full in the card's tip", async ({ page }) => {
 for (const [spot, at] of [
   ["its corner under its controls", async (shell: Locator) => { const box = (await shell.boundingBox())!; return { x: box.width - 8, y: box.height - 8 }; }],
   ["the room right of its pull request", async (shell: Locator) => { const box = (await shell.boundingBox())!, chip = (await shell.locator(".card-pr").boundingBox())!; return { x: chip.x + chip.width + 12 - box.x, y: chip.y + chip.height / 2 - box.y }; }],
+  ["its harness mark", async (shell: Locator) => { const box = (await shell.boundingBox())!, mark = (await shell.locator(".card-harness").boundingBox())!; return { x: mark.x + mark.width / 2 - box.x, y: mark.y + mark.height / 2 - box.y }; }],
 ] as const) {
   for (const width of [390, 1000]) {
     test(`at ${width} px a click on ${spot} selects the card`, async ({ page }) => {
@@ -111,3 +112,26 @@ for (const [spot, at] of [
     });
   }
 }
+
+// A card chosen by its harness mark is the card focus returns to when its
+// panel closes, as it is when chosen by any other part of it.
+test("closing a card chosen by its harness mark returns focus to the card", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  const card = shell.locator(".task-card");
+  await shell.locator(".card-harness").click();
+  await expect(card).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(card).toHaveAttribute("aria-pressed", "false");
+  await expect(card).toBeFocused();
+});
+
+// Each card carries the mark of the harness its goblin runs, and the mark's tip
+// names the harness, the model and the effort.
+test("a card shows its harness mark with the harness, model and effort in its tip", async ({ page }) => {
+  await board(page, 1000);
+  const mark = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).locator(".card-harness [role=img]");
+  await expect(mark).toHaveAttribute("aria-label", "Codex · gpt-6-astra · xhigh");
+  await expect(mark).toHaveAttribute("data-tip", "Codex · gpt-6-astra · xhigh");
+  await expect(mark.locator("svg path")).toHaveCount(1);
+});
