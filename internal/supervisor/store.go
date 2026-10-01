@@ -718,6 +718,13 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			s.db.Tasks[a.TaskID] = result
 		}
 	}
+	// An answer closes the pages that carry its question once, when it is
+	// sent or taken: a delivery that settles later was sent first.
+	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
+		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
+			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
+		}
+	}
 	s.updateQuestionOutcomes()
 	return s.save()
 }
@@ -730,7 +737,6 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
-				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -738,9 +744,6 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
-				}
-				if answered {
-					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}

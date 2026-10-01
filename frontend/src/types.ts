@@ -101,10 +101,10 @@ export interface Action {
   generation: string;
   status: string;
   message: string;
-  // sent: the delivery was typed and submitted, and its reader has yet to
-  // report taking it. advice: what to do about one that never arrived, in
-  // the Overlord's words.
-  sent: boolean;
+  // awaiting: who a delivery typed and submitted waits on to report taking
+  // it, empty when it waits on nobody. advice: what to do about one that
+  // never arrived, in the Overlord's words.
+  awaiting: "" | "the CFO" | "the goblin";
   advice: string;
   text: string;
   file: string;
@@ -312,7 +312,7 @@ export function parseAction(value: unknown): Action {
     generation: string(v.generation),
     status: string(v.status),
     message: string(v.message),
-    sent: v.awaiting !== undefined && v.awaiting !== null,
+    awaiting: isRecord(v.awaiting) ? (string(v.awaiting.task) ? "the goblin" : "the CFO") : "",
     advice: string(v.advice),
     text: string(v.text),
     file: string(v.file),

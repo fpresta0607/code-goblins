@@ -192,14 +192,16 @@ export function outcomeIcon(outcome: QuestionOutcome): IconName {
 // outcome, a review item by its state. The backend marks a review answered as
 // soon as it queues the answer and sets delivered only once the goblin has it,
 // so only delivered says it arrived. An answer action that succeeded without
-// delivery was handed to the CFO because the goblin was replaced, and an
-// answer whose action has aged out of the snapshot is no longer recorded.
-function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed" | "pending" | "failed" | "uncertain" | "unrecorded" {
+// delivery was handed to the CFO because the goblin was replaced, one of a
+// goblin's items that awaits the CFO is being handed to it, and an answer
+// whose action has aged out of the snapshot is no longer recorded.
+function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed" | "handing" | "pending" | "failed" | "uncertain" | "unrecorded" {
   if (review.delivered) return "delivered";
-  const status = actions.find((action) => action.id === review.answer_id)?.status;
-  if (!status) return "unrecorded";
-  if (status === "succeeded") return "handed";
-  return status === "failed" || status === "uncertain" ? status : "pending";
+  const action = actions.find((candidate) => candidate.id === review.answer_id);
+  if (!action) return "unrecorded";
+  if (action.status === "succeeded") return "handed";
+  if (action.status === "failed" || action.status === "uncertain") return action.status;
+  return review.task && action.awaiting === "the CFO" ? "handing" : "pending";
 }
 
 export function settledLabel(item: Item, actions: Action[]): string {
@@ -214,6 +216,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
     case "failed": return "Your answer did not reach " + asker;
     case "uncertain": return "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
+    case "handing": return "You wrote: " + answer + " (not yet delivered to the CFO)";
     case "handed": return "Sent to the CFO: " + answer;
     case "unrecorded": return "You wrote: " + answer + " (delivery no longer recorded)";
     case "delivered": return "You wrote: " + answer;
