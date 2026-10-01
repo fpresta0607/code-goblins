@@ -137,13 +137,23 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	p.say("CFO ready")
 
 	goblin := "idle-" + p.goblin
+	// A proof that fails still ends its goblin, whose terminal's host would
+	// otherwise outlive it; the log is still open while deferred calls run.
+	defer func() {
+		command := exec.Command(p.binary, "cleanup", goblin)
+		command.Env = p.env
+		output, err := command.CombinedOutput()
+		p.say("cfo cleanup %s (error %v):\n%s", goblin, err, output)
+	}()
 	p.cfoCommand(t, "spawn", goblin, "--project", p.project, "--brief", p.brief(t, goblin, "This is a supervision fixture. Run the command git status once, then reply with the single word ready and end your turn. Change no files and run no cfo command."), "--mode", "local-only", "--harness", p.goblin, "--model", proofModel(p.goblin))
 	idle := p.expectOneWake(t, "the idle goblin", 10*time.Minute, func(r wake.Record) bool {
 		return r.Kind == "stale" && r.Key == goblin && (strings.HasPrefix(r.Detail, "goblin_idle:") || strings.HasPrefix(r.Detail, "awaiting_answer:"))
 	})
 	p.expectAcked(t, idle)
 
-	p.cfoCommand(t, "notify", goblin, "--working", "the fixture goblin reports to its CFO")
+	// A working report is status for the board and wakes nobody; a failure
+	// wakes the CFO.
+	p.cfoCommand(t, "notify", goblin, "--failed", "the fixture goblin reports to its CFO")
 	report := p.expectOneWake(t, "the goblin's report", 5*time.Minute, func(r wake.Record) bool {
 		return r.Kind == "notify" && r.Key == goblin && strings.Contains(r.Detail, "reports to its CFO")
 	})
@@ -155,7 +165,6 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	if records, err := wake.Pending(p.home.State); err == nil {
 		p.say("records still queued: %d", len(records))
 	}
-	p.cfoCommand(t, "cleanup", goblin)
 }
 
 // setUpProject makes the scratch project, a checkout with an origin, at the
@@ -248,13 +257,17 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 		}
 	})
 	screens, _ := harness.NativeScreens(harness.Kind(p.cfo))
+	// A dialog is answered before anything else, and the composer or a turn
+	// counts only once it has shown startupSettle reads in a row: on
+	// 2026-10-01 a Codex CFO showed one of them for a moment before its
+	// directory trust prompt drew, and the proof waited behind that prompt.
+	const startupSettle = 5
+	settled := 0
 	deadline := time.Now().Add(3 * time.Minute)
 	for time.Now().Before(deadline) {
 		screen, err := host.ReadScreen(record)
-		if err == nil && (screens.IsWorking(screen) || screens.IsReady(screen)) {
-			return record
-		}
 		if dialog, shows := screens.Dialog(screen); err == nil && shows && dialog.Accept != "" {
+			settled = 0
 			key := "\x1b[B"
 			if focused, ok := dialog.Focused(screen); ok && dialog.Chosen(focused) {
 				key = "\r"
@@ -264,6 +277,12 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 				_ = client.Input([]byte(key))
 				_ = client.Close()
 			}
+		} else if err == nil && (screens.IsWorking(screen) || screens.IsReady(screen)) {
+			if settled++; settled >= startupSettle {
+				return record
+			}
+		} else {
+			settled = 0
 		}
 		time.Sleep(time.Second)
 	}
