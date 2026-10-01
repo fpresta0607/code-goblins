@@ -589,7 +589,9 @@ A question the goblin asks while it waits (`--blocked`) replaces no wait: the go
 So `--waiting-on overlord` is only for a wait on the Overlord personally: his sign-in, his click, his page.
 A choice the CFO can make, such as whether to start something now or after a reset, is an actual question and uses `--blocked` with options.
 
-A wait whose answer the Overlord gives on a Lavish page names the page:
+Scrawl is the Overlord's name for the review page he annotates and answers on.
+The `lavish-axi` command serves it, and the command, the `--lavish` flags and the `lavish` state fields keep their names.
+A wait whose answer the Overlord gives on a Scrawl page names the page:
 
 ```powershell
 lavish-axi .lavish/plan.html --no-open
@@ -729,8 +731,8 @@ Its report names no native session, and the board treats it as live while the ta
 `--generation` is optional and refused when it is no longer the task's current generation.
 Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in a Herdr pane or a native terminal as it does for a question.
 A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
-The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
-For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
+The tailnet URL `lavish-axi` returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
+For a Scrawl page, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.
 Refresh the same ID only while the activity remains live, and report `--state ended` with the same identity/URL on completion.
 IDs cannot change recipient or URL, and an ended pending record cannot be reopened by a later refresh.
 The store and inbox retain at most 128 receipts, URLs exclude credentials/query/fragment and known sensitive paths, and expiry is limited to thirty minutes.
