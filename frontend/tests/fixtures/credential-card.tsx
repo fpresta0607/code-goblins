@@ -24,7 +24,7 @@ const requests: Record<string, unknown>[] = [
   },
   {
     id: "cred-fedcba9876543210", generation: "e".repeat(32), identity: "b".repeat(64), by: "cfo", task: "",
-    project: "precisiondocs", repository: "C:\\dev\\precisiondocs", names: ["DATABASE_URL"], why: "Local database for docker compose",
+    project: "precisiondocs", repository: "C:\\dev\\precisiondocs", env_file: ".env.docker.local", names: ["DATABASE_URL"], why: "Local database for docker compose",
     state: "open", created_at: "2026-10-01T03:05:00Z", expires_at: "2026-10-02T03:05:00Z",
   },
 ];

@@ -61,12 +61,13 @@ export function valueWarnings(hint: CredentialHint | undefined, value: string): 
 }
 
 // Where a row's value goes: the repository the request is for (empty when it
-// has no checkout on this machine), the credential scope, and who reads it:
+// has no checkout on this machine), the credential scope, the env file at the
+// repository's root it is also set in (empty when none), and who reads it:
 // every goblin of the project, through its auth.ps1, and each auth.json
 // service that declares the name.
-export function destination(request: CredentialRequest, name: string): { repository: string; scope: string; usedBy: string[] } {
+export function destination(request: CredentialRequest, name: string): { repository: string; scope: string; file: string; usedBy: string[] } {
   const repository = request.repository.split(/[\\/]/).filter(Boolean).pop() || "";
-  return { repository, scope: request.project, usedBy: ["Goblins' auth.ps1", ...(request.services[name] || []).map((service) => service + " service")] };
+  return { repository, scope: request.project, file: request.env_file, usedBy: ["Goblins' auth.ps1", ...(request.services[name] || []).map((service) => service + " service")] };
 }
 
 // The board takes values only on this PC: a board opened over the tailnet

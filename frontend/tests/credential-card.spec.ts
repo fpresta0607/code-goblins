@@ -207,3 +207,20 @@ test("an expired request says why and takes nothing", async ({ page }) => {
   await expect(card.locator("input")).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Save" })).toHaveCount(0);
 });
+
+test("a request whose values also go to an env file shows the file and its checks on each row and in its saved state", async ({ page }) => {
+  // Arrange
+  await answer(page);
+  await openCard(page);
+  await page.getByRole("dialog").getByRole("button", { name: "Previous item" }).click();
+  const row = page.getByRole("dialog").locator('[data-credential-request="cred-fedcba9876543210"] [data-credential-name="DATABASE_URL"]');
+  await expect(row).toContainText("File .env.docker.local · gitignored, checked · local dev");
+
+  // Act
+  await page.evaluate((id) => window.board?.request(id, { state: "saved", saved: ["DATABASE_URL"], written: ["DATABASE_URL"], closed_at: "2026-10-01T03:20:00Z" }), "cred-fedcba9876543210");
+
+  // Assert
+  await expect(row).toHaveAttribute("data-state", "saved");
+  await expect(row).toContainText("Pasted on the card · also set in .env.docker.local");
+  await expect(row).toContainText("File .env.docker.local · gitignored, checked · local dev");
+});

@@ -124,6 +124,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
             <td className="credential-saved-to"><ul className="credential-where">
               {where.repository && <li><Icon name="folder" /><span>Repository {where.repository}</span></li>}
               <li><Icon name="key" /><span>Credential scope {where.scope}</span></li>
+              {where.file && <li><Icon name="file" /><span>File {where.file} · gitignored, checked · local dev</span></li>}
               <li><Icon name="terminal" /><span>{where.usedBy.join(" · ")}</span></li>
             </ul></td>
             {index === 0 && <td className="credential-why" rowSpan={request.names.length}>{request.why}</td>}
@@ -131,7 +132,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
               ? <a href={request.link} target="_blank" rel="noreferrer"><Icon name="external" /><span>{linkLabel(request.link).split("/").map((part, place, parts) => <Fragment key={place}>{part}{place < parts.length - 1 && <>/<wbr /></>}</Fragment>)}</span></a>
               : <span className="muted">No link given</span>}</td>}
             <td className="credential-value">{saved
-              ? <span className="credential-saved"><Icon name="check" /><span><strong>{request.replaced.includes(name) ? "Replaced" : "Saved"}</strong><small>{request.typed.includes(name) ? "Typed in the terminal" : "Pasted on the card"}</small></span></span>
+              ? <span className="credential-saved"><Icon name="check" /><span><strong>{request.replaced.includes(name) ? "Replaced" : "Saved"}</strong><small>{request.typed.includes(name) ? "Typed in the terminal" : "Pasted on the card"}{request.written.includes(name) ? " · also set in " + request.env_file : ""}</small></span></span>
               : !open ? <span className="muted">Not stored</span>
               : !local ? <span className="credential-pill"><Icon name={held(name) ? "refresh" : "lock"} />{held(name) ? "Stored before: saving replaces it" : "Type it on your PC"}</span>
               : <>

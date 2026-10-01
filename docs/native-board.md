@@ -697,6 +697,13 @@ A project's `auth.json` may declare format hints, which the request carries for 
 
 A name in `names` is exact or ends in `*` to match every name starting with what comes before it, and the first matching format applies.
 
+A request may also name a local env file with `--env-file <file>`, such as `.env.docker.local` for a project's docker compose setup: each saved value then also sets its `NAME=` line in that file, beside the credential scope.
+The file must be an env file name (`.env`, `.env.<name>` or `<name>.env`) at the root of the project's main checkout, never a goblin's worktree; a plain file or one not made yet; ignored by git (`git check-ignore`) and not tracked (`git ls-files`), so a value written there can never be committed.
+`cfo auth request` checks it before filing, the board checks it when it takes the request and again before each write, and a goblin's request may name an env file only in its own task's checkout.
+The board rewrites the file in place and never replaces it, because goblin worktrees share a project's env files as hardlinks to the same file: every line that sets the name changes, keeping an `export` prefix, and nothing else does; it never writes through a link, and a file swapped for one between the check and the write is refused.
+A value is written as it is when it is plain and in single quotes otherwise, which docker compose and the board's own env reader both read literally; a value with a single quote or a line break stays in the scope only, and the card and the CFO say why.
+A value typed in the card's terminal reaches the file the same way, read back from the scope for each name the terminal provably stored.
+
 The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name the Overlord filled, and the names he confirmed replacing.
 It is the one board endpoint that takes a secret value.
 Every other endpoint that changes anything still refuses one, as the connection repairs always have: each reads a fixed request shape and refuses a body that carries a value, secret, password, token or credential field, as text, an object or a list, before it reads anything else, and `internal/supervisor/value_guard_test.go` reads the board's route table and fails the moment any other endpoint starts reading such a field.
@@ -712,7 +719,7 @@ The board holds at most 64 requests, never drops an open one to make room, and p
 A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
 The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
 A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
-The value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
+Beside that, and the env file a request names, the value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
@@ -722,7 +729,7 @@ When the window finishes, the board checks each row it provably stored, a name t
 A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
 
 On the board each open request is a card in the Command Center, announced like any new item by an alert and, while the board is out of sight, a Windows notification.
-The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
+The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, the env file the request names, shown as `File .env.docker.local · gitignored, checked · local dev`, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
 Each field is a password field with `autocomplete="new-password"` and spellcheck off; nothing blocks pasting into it, and its value stays in the field, never in the page's markup, until **Save** sends it.
 Every field empties once a save is answered, taken or refused, except while the card asks **Replace a stored credential?** about a name the scope holds: **Cancel** sends nothing and keeps the pasted value, and **Replace and save** sends the same values with that name confirmed.
 A value that does not start the way its format hint expects, or starts the way a hint warns about, shows the hint's warning under its field, and **Save** still takes it.
