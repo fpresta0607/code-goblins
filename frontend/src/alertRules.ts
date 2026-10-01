@@ -1,4 +1,5 @@
 import { newestItemOf, waitingItems, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { credentialAsk } from "./credentials.ts";
 import { messageBlocks } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
@@ -45,6 +46,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
     return alert(item.question.task, asker(item.question.task) + " asks: " + spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim());
   }
   if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " : " wants your review: ") + item.review.title);
+  if (item.kind === "credential") return alert(item.request.task, asker(item.request.task) + " asks: " + credentialAsk(item.request));
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
