@@ -97,15 +97,12 @@ func RequestHandover(stateDir string) (func(), error) {
 }
 
 // HandoverAcknowledged reports whether holder, the watcher holding the lock,
-// answered this process's request: it is yielding the lock and only winding
-// its cycle down.
+// answered a serve's request: it reads the request and is yielding the lock,
+// only winding its cycle down. Which serve the answer names does not matter:
+// two serves asking at once each have their request answered in turn.
 func HandoverAcknowledged(stateDir string, holder lock.Info) bool {
 	ack, ok := readHandoverAck(stateDir)
-	if !ok {
-		return false
-	}
-	start, ok := proc.StartTime(os.Getpid())
-	return ok && ack.WatcherPID == holder.PID && ack.WatcherStart.Equal(holder.Start) && ack.WatcherHostname == holder.Hostname && ack.ServePID == os.Getpid() && ack.ServeStart.Equal(start)
+	return ok && ack.WatcherPID == holder.PID && ack.WatcherStart.Equal(holder.Start) && ack.WatcherHostname == holder.Hostname
 }
 
 func readHandoverAck(stateDir string) (handoverAck, bool) {

@@ -22,8 +22,9 @@ import (
 // request; "acknowledging" answers the request as a watcher winding a slow
 // cycle down does and lets the lock go acknowledgedHold later; "slow-watcher"
 // runs a real watcher whose monitor scan cannot be cut short, each inspection
-// taking unheededInspection whatever its context says; "idle" holds
-// nothing, a bystander such as a terminal's host.
+// taking unheededInspection whatever its context says; "serve" takes the lock
+// as cfo serve does, over a watcher holding it, with a two-second handover
+// wait; "idle" holds nothing, a bystander such as a terminal's host.
 const (
 	lockHolderVariable     = "CFO_TEST_LOCK_HOLDER_STATE"
 	lockHolderModeVariable = "CFO_TEST_LOCK_HOLDER_MODE"
@@ -49,6 +50,11 @@ func holdWatcherLock(stateDir, mode string) int {
 		return 0
 	case "legacy":
 		if _, err := lock.AcquireNamedOwner(stateDir, ".watch.lock", os.Getpid(), watch.WatcherSession); err != nil {
+			return 1
+		}
+	case "serve":
+		watch.HandoverWait = 2 * time.Second
+		if err := AcquireWatchLock(stateDir); err != nil {
 			return 1
 		}
 	case "acknowledging":

@@ -66,7 +66,7 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 		_ = cmd.Process.Kill()
 		<-stand.exited
 	})
-	if mode != "idle" {
+	if mode != "idle" && mode != "serve" {
 		for deadline := time.Now().Add(15 * time.Second); !lock.HeldByNamed(stateDir, watchLock, stand.pid); time.Sleep(20 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatalf("the %s stand-in never took the watcher lock", mode)
@@ -268,6 +268,69 @@ func TestAWatcherYieldingToOneServeAnswersTheNextServeToo(t *testing.T) {
 	}
 	if !lock.HeldByNamed(h.State, watchLock, os.Getpid()) {
 		t.Error("the second serve runs without holding the watcher lock")
+	}
+}
+
+// requestFor writes the request a serve, here pid, writes while it waits.
+func requestFor(stateDir string, pid int) error {
+	start, ok := proc.StartTime(pid)
+	if !ok {
+		return fmt.Errorf("read pid %d's start time", pid)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(map[string]any{"pid": pid, "start": start, "hostname": hostname})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(stateDir, watch.HandoverName), data, 0o600)
+}
+
+// Two serves started at once, an install's restart and a goblins launch, both
+// ask a watcher that is yielding but cannot let the lock go within the
+// handover wait, and its answer switches between them as each asks again.
+// Neither ends the watcher: an answer naming the watcher proves it is
+// yielding, whichever serve it names. One serve takes the lock once the
+// watcher lets it go, and the other refuses, because a supervisor holds it.
+func TestTwoServesAskingAtOnceNeverEndAWatcherThatAnswered(t *testing.T) {
+	setHandoverWait(t, 2*time.Second)
+	_, h := testStore(t)
+	hook := startStandIn(t, h.State, "slow-watcher", "cfo.exe", "hook", "stop-autoarm")
+	other := startStandIn(t, h.State, "serve", "cfo.exe", "serve")
+	// The other serve's request is written again far more often than once a
+	// second, so the answer names it, not this serve, when this serve's
+	// handover wait runs out. A write that meets the watcher reading the
+	// request is made again on the next pass, as a serve asking again does.
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			_ = requestFor(h.State, other.pid)
+			select {
+			case <-stop:
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}()
+
+	s, err := Start(context.Background(), h, Options{})
+
+	close(stop)
+	<-stopped
+	if code := hook.exitsWithin(t, 15*time.Second); code != 0 {
+		t.Errorf("the watcher exited %d, want it left to finish its inspection and yield, not ended", code)
+	}
+	if err == nil {
+		defer s.Close()
+		if code := other.exitsWithin(t, 15*time.Second); code != 1 {
+			t.Errorf("the other serve exited %d, want it refused because this serve holds the lock", code)
+		}
+	} else if !lock.HeldByNamed(h.State, watchLock, other.pid) {
+		t.Errorf("neither serve holds the lock (this serve: %v)", err)
 	}
 }
 
