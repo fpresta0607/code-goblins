@@ -7,6 +7,10 @@ import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 // command the CFO needs him to run.
 export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run };
 
+// A question its goblin asked while its review page is open is that page's
+// item: the page's card shows it, so it never waits as a card of its own.
+const foldedIntoPage = (item: Item) => item.kind === "question" && !!item.question.page;
+
 const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.questions || []).map((question): Item => ({ kind: "question", key: "question:" + question.id, question })),
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
@@ -38,7 +42,7 @@ export const waitReason = (review: Review) => review.title.replace(/^Waiting on 
 // it delivered, else a web link in its words. Null when it names nothing.
 export type WaitTarget = { kind: "item"; key: string; label: string; says: string } | { kind: "page"; url: string; label: string; says: string };
 export function waitTarget(review: Review, snapshot: Snapshot): WaitTarget | null {
-  if (review.lavish) return { kind: "page", url: review.lavish, label: "Open the page", says: "It waits on your answer on its review page." };
+  if (review.lavish) return { kind: "page", url: review.lavish, label: "Open review", says: "It waits on your answer on its review page." };
   const question = (snapshot.questions || []).filter((candidate) => candidate.task === review.task && candidate.status === "pending").sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
   if (question) return { kind: "item", key: "question:" + question.id, label: "Open its question", says: "It waits on your answer to its question." };
   const file = (snapshot.reviews || []).find((candidate) => candidate.task === review.task && candidate.state === "open" && candidate.document);
@@ -52,6 +56,13 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
   return asItems(snapshot).find((item) => item.key === key);
 }
 
+// The card that shows the item at key: its page's card for a question folded
+// into one, else its own.
+export function cardKey(snapshot: Snapshot, key: string): string {
+  const item = itemFor(snapshot, key);
+  return item?.kind === "question" && item.question.page ? "review:" + item.question.page : key;
+}
+
 // The stack he works through: the CFO's own items first, then goblins in the
 // In progress order he set, then goblins he has not placed, each by longest
 // wait. An item answered in this sitting keeps its place, so it can show its
@@ -59,7 +70,7 @@ export function itemFor(snapshot: Snapshot, key: string): Item | undefined {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => isOpen(item) || kept.has(item.key))
+    .filter((item) => !foldedIntoPage(item) && (isOpen(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
@@ -156,14 +167,17 @@ export function questionOutcome(question: Question): QuestionOutcome {
 export function answeredLabel(question: Question): string {
   switch (questionOutcome(question)) {
     case "pending": return "Waiting on you";
-    // Superseded covers a replaced asker and a question the CFO retired with
-    // cfo send --ack-blocking; the backend's message tells them apart.
+    // Superseded is a replaced asker; the backend's message says which.
     case "superseded": return question.message || "Superseded; the asker was replaced";
     case "cleared": return "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Delivery unconfirmed";
   }
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
+  if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
+  // A question the CFO answered and retired with --ack-blocking closed
+  // without the board learning which choice.
+  if (!question.answer) return who + " answered it";
   return question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer;
 }
 

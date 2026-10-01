@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -358,11 +359,15 @@ func openBoardText(h home.Home) (string, error) {
 // row, and records the move in the filing log. A move that fails is skipped
 // and the rest still made, so a folder a process still holds open stays
 // exactly where it was for the next pass without holding back the others.
-// It returns the moves it made, with every failure joined.
-func Apply(h home.Home, moves []Move, now time.Time) ([]Move, error) {
+// Once ctx is done it makes no further move. It returns the moves it made,
+// with every failure joined.
+func Apply(ctx context.Context, h home.Home, moves []Move, now time.Time) ([]Move, error) {
 	var done []Move
 	var failures []error
 	for _, move := range moves {
+		if err := ctx.Err(); err != nil {
+			return done, errors.Join(append(failures, err)...)
+		}
 		if err := os.MkdirAll(filepath.Dir(move.To), 0o755); err != nil {
 			failures = append(failures, fmt.Errorf("file %s: %w", move.ID, err))
 			continue
@@ -398,17 +403,18 @@ func logLine(h home.Home, move Move, now time.Time) string {
 // without the layout marker is left alone, because reorganising it is the
 // migration its owner decides on. A pass that fails is recorded in the
 // filing log, once until the failure changes, so a folder a process holds
-// open shows there instead of being retried in silence.
-func File(h home.Home, now time.Time) ([]Move, error) {
+// open shows there instead of being retried in silence. A pass stopped
+// because ctx is done is not a failure: the next pass files the rest.
+func File(ctx context.Context, h home.Home, now time.Time) ([]Move, error) {
 	laidOut, err := exists(filepath.Join(h.Data, Marker))
 	if err != nil || !laidOut {
 		return nil, err
 	}
 	moves, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
 	if err == nil {
-		moves, err = Apply(h, moves, now)
+		moves, err = Apply(ctx, h, moves, now)
 	}
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		err = errors.Join(err, recordFailure(h, now, err))
 	}
 	return moves, err
