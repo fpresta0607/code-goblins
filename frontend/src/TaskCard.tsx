@@ -1,4 +1,4 @@
-import { useState, type SyntheticEvent } from "react";
+import { useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
@@ -26,6 +26,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
 }) {
   // A title still shortened shows in full in a tip on hover or focus.
   const [clipped, setClipped] = useState(false);
+  const card = useRef<HTMLButtonElement>(null);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
@@ -51,7 +52,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
-    <button className="task-card"
+    <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(awaited || pr || column === "Completed") && <div className="card-links">
       {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" /><span>{awaited.id}</span></button>}
@@ -59,6 +60,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} leading={terminal} onAdjust={(source) => onSelect(task, source)} />
-    {task.harness && <span className="card-harness" onClick={(event) => onSelect(task, event.currentTarget)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
+    {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
   </div>;
 }

@@ -113,6 +113,19 @@ for (const [spot, at] of [
   }
 }
 
+// A card chosen by its harness mark is the card focus returns to when its
+// panel closes, as it is when chosen by any other part of it.
+test("closing a card chosen by its harness mark returns focus to the card", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  const card = shell.locator(".task-card");
+  await shell.locator(".card-harness").click();
+  await expect(card).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(card).toHaveAttribute("aria-pressed", "false");
+  await expect(card).toBeFocused();
+});
+
 // Each card carries the mark of the harness its goblin runs, and the mark's tip
 // names the harness, the model and the effort.
 test("a card shows its harness mark with the harness, model and effort in its tip", async ({ page }) => {
