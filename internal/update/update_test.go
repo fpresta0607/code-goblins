@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -245,5 +246,46 @@ func TestCleanUpRemovesOnlyWhatThisUpdateMovedAside(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s, which this update moved aside, is still there: %v", path, err)
 		}
+	}
+}
+
+// A journal names a file moved aside only as moveAside writes it, in this
+// home's root under the alias's own name, so clean-up never removes a file a
+// journal edited to name it.
+func TestValidateAcceptsOnlyTheFilesAnUpdateMovesAside(t *testing.T) {
+	root, stateDir, candidate := installedHome(t)
+	journal, err := Prepare(root, stateDir, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Swap(journal); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		aside string
+		valid bool
+	}{
+		{"as moved aside", journal.Aliases[0].Aside[0], true},
+		{"the root in other case", filepath.Join(strings.ToUpper(root), "cfo.exe.1.update-old"), true},
+		{"outside the home", filepath.Join(t.TempDir(), "cfo.exe.1.update-old"), false},
+		{"another alias's", filepath.Join(root, "goblins.exe.1.update-old"), false},
+		{"no number", filepath.Join(root, "cfo.exe..update-old"), false},
+		{"a word for the number", filepath.Join(root, "cfo.exe.abc.update-old"), false},
+		{"an extra suffix", filepath.Join(root, "cfo.exe.1.update-old.txt"), false},
+		{"an extra path element", root + `\state\..\cfo.exe.1.update-old`, false},
+		{"in a folder of the root", filepath.Join(root, "state", "cfo.exe.1.update-old"), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			edited := *journal
+			edited.Aliases = append([]Alias{}, journal.Aliases...)
+			edited.Aliases[0].Aside = []string{test.aside}
+
+			err := Validate(edited, root, stateDir)
+
+			if (err == nil) != test.valid {
+				t.Fatalf("Validate with aside %s = %v, want valid %v", test.aside, err, test.valid)
+			}
+		})
 	}
 }

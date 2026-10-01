@@ -319,22 +319,73 @@ func TestARollbackThatCannotRestoreAnAliasStaysRecoverableUntilRepaired(t *testi
 	u.aliasesAre(u.previous, "previous")
 }
 
+// updateFiles is every file under the home's state\update but the update's
+// own lock, by name.
+func (u *updateHome) updateFiles() map[string][]byte {
+	u.t.Helper()
+	files := map[string][]byte{}
+	entries, _ := os.ReadDir(update.Dir(u.state))
+	for _, entry := range entries {
+		if entry.Name() == ".lock" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(update.Dir(u.state), entry.Name()))
+		if err != nil {
+			u.t.Fatal(err)
+		}
+		files[entry.Name()] = data
+	}
+	return files
+}
+
+// unchanged checks every file under state\update is still before.
+func (u *updateHome) unchanged(before map[string][]byte) {
+	u.t.Helper()
+	after := u.updateFiles()
+	if len(after) != len(before) {
+		u.t.Fatalf("state\\update holds %d files, want the %d it held", len(after), len(before))
+	}
+	for name, data := range before {
+		if !bytes.Equal(after[name], data) {
+			u.t.Fatalf("%s under state\\update was changed", name)
+		}
+	}
+}
+
+// The ways an update refuses an earlier journal, by what it tells the user.
+const (
+	// recoverFirst: an unfinished update of this home, finished by its
+	// recovery line.
+	recoverFirst = "recover first"
+	// untrusted: this home's journal, but one no update writes.
+	untrusted = "untrusted"
+	// movedHome: a finished update of another home, which may be this home
+	// before it was moved.
+	movedHome = "moved home"
+	// othersWayBack: an unfinished update of another home, whose journal is
+	// that update's way back and is never to be moved aside.
+	othersWayBack = "another's way back"
+)
+
 // A journal that cannot be read, or that is not this home's, finished or not,
 // is never taken for permission: update and recover both refuse and change
-// nothing, the backups included. Only an unfinished update of this home is
-// answered with a recovery line, and that line is this home's own.
+// nothing, the journal and every copy included. Only an unfinished update of
+// this home is answered with a recovery line, and that line is this home's
+// own; a malformed journal of this home is one that cannot be trusted, and
+// only a finished journal of another home may be moved aside.
 func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		journal string
-		foreign bool
+		refusal string
 	}{
-		{"unreadable", "not json", false},
-		{"another schema", `{"schema":"cfo-update.v0","phase":"swapped"}`, false},
-		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, true},
-		{"another home's finished", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"done","candidate_copy":"C:\\elsewhere\\state\\update\\candidate.exe","aliases":[]}`, true},
-		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, false},
-		{"unfinished here", "", false},
+		{"unreadable", "not json", untrusted},
+		{"another schema", `{"schema":"cfo-update.v0","root":"ROOT","phase":"swapped"}`, untrusted},
+		{"another alias set", `{"schema":"cfo-update.v1","root":"ROOT","phase":"done","candidate_copy":"STATE\\update\\candidate.exe","aliases":[]}`, untrusted},
+		{"an edited copy", `{"schema":"cfo-update.v1","root":"ROOT","phase":"swapped","candidate_copy":"C:\\elsewhere\\x.exe","aliases":[]}`, untrusted},
+		{"another home's", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"swapped","aliases":[]}`, othersWayBack},
+		{"another home's finished", `{"schema":"cfo-update.v1","root":"C:\\elsewhere","phase":"done","candidate_copy":"C:\\elsewhere\\state\\update\\candidate.exe","aliases":[]}`, movedHome},
+		{"unfinished here", "", recoverFirst},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			u := newUpdateHome(t, "previous", "candidate")
@@ -347,21 +398,17 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				journal := strings.ReplaceAll(test.journal, "ROOT", strings.ReplaceAll(u.root, `\`, `\\`))
+				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.root, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
 				if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				for _, name := range update.Aliases {
-					if err := os.WriteFile(filepath.Join(update.Dir(u.state), "previous-"+name), []byte("an earlier update's backup of "+name), 0o600); err != nil {
+				for _, name := range []string{"candidate.exe", "previous-cfo.exe", "previous-goblins.exe"} {
+					if err := os.WriteFile(filepath.Join(update.Dir(u.state), name), []byte("an earlier update's "+name), 0o600); err != nil {
 						t.Fatal(err)
 					}
 				}
 			}
-			kept := []string{"journal.json", "previous-cfo.exe", "previous-goblins.exe"}
-			before := map[string][]byte{}
-			for _, name := range kept {
-				before[name], _ = os.ReadFile(filepath.Join(update.Dir(u.state), name))
-			}
+			before := u.updateFiles()
 
 			code, output := u.run(nil)
 
@@ -369,22 +416,23 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				t.Fatalf("update over a journal it cannot trust exited %d:\n%s", code, output)
 			}
 			u.aliasesAre(u.previous, "previous")
-			for _, name := range kept {
-				if after, _ := os.ReadFile(filepath.Join(update.Dir(u.state), name)); !bytes.Equal(before[name], after) {
-					t.Fatalf("%s was overwritten", name)
-				}
+			u.unchanged(before)
+			if line := recoverCommand(home.Home{Root: u.root, State: u.state}); (test.refusal == recoverFirst) != strings.Contains(output, line) {
+				t.Fatalf("the recovery line %s is printed only for an unfinished update of this home:\n%s", line, output)
 			}
-			if test.journal == "" {
-				if line := recoverCommand(home.Home{Root: u.root, State: u.state}); !strings.Contains(output, line) {
-					t.Fatalf("the unfinished update did not print this home's recovery line %s:\n%s", line, output)
-				}
-			} else if strings.Contains(output, "--recover") {
+			if test.refusal != recoverFirst && strings.Contains(output, "--recover") {
 				t.Fatalf("a recovery line was printed for a journal that is not this home's:\n%s", output)
 			}
-			if test.foreign && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root) || !strings.Contains(output, "moved")) {
-				t.Fatalf("the refusal does not name both homes and the way out for a moved home:\n%s", output)
+			if (test.refusal == untrusted) != strings.Contains(output, "cannot be trusted") {
+				t.Fatalf("only a malformed journal of this home is refused as one that cannot be trusted:\n%s", output)
 			}
-			if test.journal != "" {
+			if (test.refusal == movedHome) != strings.Contains(output, "aside") {
+				t.Fatalf("only a finished journal of another home may be moved aside:\n%s", output)
+			}
+			if (test.refusal == movedHome || test.refusal == othersWayBack) && (!strings.Contains(output, `C:\elsewhere`) || !strings.Contains(output, u.root)) {
+				t.Fatalf("the refusal does not name both homes:\n%s", output)
+			}
+			if test.refusal != recoverFirst {
 				if code, output := u.run(nil, "--recover"); code != 1 {
 					t.Fatalf("recover from a journal it cannot trust exited %d:\n%s", code, output)
 				}
@@ -393,21 +441,30 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 	}
 }
 
-// An update stops only this home's own supervisor. One holding this home's
-// watcher lock that is not proved this home's, here one serving another
-// state, is refused before anything changes, and it keeps serving.
-func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
-	u := newUpdateHome(t, "previous", "candidate")
+// strangerServing starts a supervisor that holds this home's watcher lock and
+// serves its board but cannot be proved this home's: by the state it runs
+// with, it serves another.
+func (u *updateHome) strangerServing() *exec.Cmd {
+	u.t.Helper()
 	stranger := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	stranger.Dir = u.root
-	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(t.TempDir(), "state"))
+	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
 	if err := stranger.Start(); err != nil {
-		t.Fatal(err)
+		u.t.Fatal(err)
 	}
 	start, _ := proc.StartTime(stranger.Process.Pid)
 	u.started[stranger] = start
 	go func() { _ = stranger.Wait() }()
 	u.awaitBoard()
+	return stranger
+}
+
+// An update stops only this home's own supervisor. One holding this home's
+// watcher lock that is not proved this home's, here one serving another
+// state, is refused before anything changes, and it keeps serving.
+func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
+	u := newUpdateHome(t, "previous", "candidate")
+	stranger := u.strangerServing()
 
 	code, output := u.run(nil)
 
@@ -428,6 +485,141 @@ func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 		t.Fatal("the refused update ended a supervisor it could not prove this home's")
 	}
 	u.awaitBoard()
+}
+
+// Recovery stops only this home's own supervisor too. With an update ended
+// part way and a supervisor that cannot be proved this home's holding the
+// lock and serving, recovery refuses before anything changes, names it to be
+// stopped, leaves the update unfinished, and never reports the board down.
+func TestRecoverRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=swapped"}); code != 9 {
+		t.Fatalf("the update did not end at swapped (exit %d):\n%s", code, output)
+	}
+	journal, err := update.ReadJournal(u.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.candidate = journal.Copy
+	candidate, _ := os.ReadFile(journal.Copy)
+	stranger := u.strangerServing()
+	before := u.updateFiles()
+
+	code, output := u.run(nil, "--recover")
+
+	if code != 1 || !strings.Contains(output, "pid "+strconv.Itoa(stranger.Process.Pid)) || !strings.Contains(output, "goblins stop") {
+		t.Fatalf("recover exited %d, want a refusal naming pid %d to stop:\n%s", code, stranger.Process.Pid, output)
+	}
+	if strings.Contains(output, "BOARD IS DOWN") {
+		t.Fatalf("recover reported the board down while a supervisor serves it:\n%s", output)
+	}
+	u.aliasesAre(candidate, "candidate")
+	u.unchanged(before)
+	if journal, err := update.ReadJournal(u.state); err != nil || journal.Phase.Finished() {
+		t.Fatalf("journal phase %q, %v; want the update still unfinished", journal.Phase, err)
+	}
+	if !u.running(stranger) {
+		t.Fatal("recover ended a supervisor it could not prove this home's")
+	}
+	u.awaitBoard()
+}
+
+// The files a rollback moved aside go only once the rollback is durably
+// recorded. When the journal cannot record it, the previous build still
+// serves, every file stays, and the output says the update is unfinished with
+// the line that finishes it, which then does, and cleans up.
+func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
+	u := newUpdateHome(t, "previous", "crash")
+	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.awaitBoard()
+
+	code, output := u.run([]string{"CFO_TEST_UPDATE_FAIL_RECORD=rolled-back"})
+
+	if code != updateRolledBack {
+		t.Fatalf("update exited %d, want %d:\n%s", code, updateRolledBack, output)
+	}
+	u.previousServes()
+	line := recoverCommand(home.Home{Root: u.root, State: u.state})
+	if !strings.Contains(output, "could not record the rollback") || !strings.Contains(output, line) {
+		t.Fatalf("the output does not say the rollback is unrecorded with the line %s:\n%s", line, output)
+	}
+	journal, err := update.ReadJournal(u.state)
+	if err != nil || journal.Phase.Finished() {
+		t.Fatalf("journal phase %q, %v; want the update still unfinished", journal.Phase, err)
+	}
+	var aside []string
+	for _, alias := range journal.Aliases {
+		aside = append(aside, alias.Aside...)
+	}
+	if len(aside) == 0 {
+		t.Fatal("the journal tracks no file moved aside")
+	}
+	for _, path := range aside {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s, moved aside by an unrecorded rollback, is gone: %v", path, err)
+		}
+	}
+	u.candidate = journal.Copy
+
+	code, output = u.run(nil, "--recover")
+
+	if code != updateRolledBack {
+		t.Fatalf("recover exited %d, want %d:\n%s", code, updateRolledBack, output)
+	}
+	u.previousServes()
+	for _, path := range aside {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is still there once the rollback is recorded: %v", path, err)
+		}
+	}
+}
+
+// Recovery removes the files its journal says were moved aside, so a journal
+// that names any other file, outside the home, under another alias's name or
+// without a number, is refused before anything changes, and that file and
+// everything under state\update stay as they are.
+func TestRecoverRefusesAJournalNamingAFileAnUpdateNeverMovedAside(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		aside func(u *updateHome) string
+	}{
+		{"outside the home", func(u *updateHome) string { return filepath.Join(u.t.TempDir(), "sentinel.txt") }},
+		{"another alias's", func(u *updateHome) string { return filepath.Join(u.root, "goblins.exe.1.update-old") }},
+		{"no number", func(u *updateHome) string { return filepath.Join(u.root, "cfo.exe.abc.update-old") }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			u := newUpdateHome(t, "previous", "candidate")
+			u.serving()
+			if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=swapped"}); code != 9 {
+				t.Fatalf("the update did not end at swapped (exit %d):\n%s", code, output)
+			}
+			journal, err := update.ReadJournal(u.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sentinel := test.aside(u)
+			if err := os.WriteFile(sentinel, []byte("not this update's"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			journal.Aliases[0].Aside = append(journal.Aliases[0].Aside, sentinel)
+			if err := update.Record(u.state, &journal, journal.Phase, ""); err != nil {
+				t.Fatal(err)
+			}
+			u.candidate = journal.Copy
+			before := u.updateFiles()
+
+			code, output := u.run(nil, "--recover")
+
+			if code != 1 {
+				t.Fatalf("recover exited %d, want 1:\n%s", code, output)
+			}
+			u.unchanged(before)
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "not this update's" {
+				t.Fatalf("the file the journal named was changed or removed (%v)", err)
+			}
+		})
+	}
 }
 
 // A rollback removes what it moved aside or staged, and only that: an

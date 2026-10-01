@@ -145,8 +145,27 @@ func Validate(journal Journal, root, stateDir string) error {
 		if alias.Name != Aliases[i] || !strings.EqualFold(filepath.Clean(alias.Backup), filepath.Join(Dir(stateDir), "previous-"+Aliases[i])) || len(alias.Previous) != 64 {
 			return fmt.Errorf("update: the journal's alias %q is not this home's", alias.Name)
 		}
+		for _, aside := range alias.Aside {
+			if !isAside(aside, root, alias.Name) {
+				return fmt.Errorf("update: the journal's file %s is not one an update moved out of this home's %s", aside, alias.Name)
+			}
+		}
 	}
 	return nil
+}
+
+// isAside reports whether path is exactly a name moveAside gives the alias
+// name in root: <root>\<name>.<digits>.update-old.
+func isAside(path, root, name string) bool {
+	if filepath.Clean(path) != path || !strings.EqualFold(filepath.Dir(path), filepath.Clean(root)) {
+		return false
+	}
+	number, ok := strings.CutPrefix(filepath.Base(path), name+".")
+	if !ok {
+		return false
+	}
+	number, ok = strings.CutSuffix(number, ".update-old")
+	return ok && number != "" && strings.Trim(number, "0123456789") == ""
 }
 
 // HashFile is the SHA-256 of the file at path, in hex.

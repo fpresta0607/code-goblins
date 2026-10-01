@@ -110,29 +110,33 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// An earlier update that did not finish, or whose journal cannot be
 	// read or is not this home's, is never overwritten: its verified copies
 	// are the way back.
-	switch journal, err := update.ReadJournal(h.State); {
+	switch last, err := update.ReadJournal(h.State); {
 	case errors.Is(err, os.ErrNotExist):
-	case err != nil:
-		fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be read (%v); nothing was changed\n", err)
+	case err == nil && !sameHomePath(last.Root, h.Root) && last.Phase.Finished():
+		fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s; nothing was changed. If this home was moved, move the old journal in %s aside by hand.\n", last.Root, h.Root, update.Dir(h.State))
+		return 1
+	case err == nil && !sameHomePath(last.Root, h.Root):
+		fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s, and that update stopped at %s; nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
 		return 1
 	default:
-		if err := update.Validate(journal, h.Root, h.State); err != nil {
-			fmt.Fprintf(stderr, "cfo update: the last update's journal is for the home %s, not this home %s (%v); nothing was changed. If this home was moved, move the old journal in %s aside by hand.\n", journal.Root, h.Root, err, update.Dir(h.State))
+		if err == nil {
+			err = update.Validate(last, h.Root, h.State)
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "cfo update: the last update's journal cannot be trusted (%v); nothing was changed, and journal.json, candidate.exe and the previous-*.exe copies in %s are kept as they are\n", err, update.Dir(h.State))
 			return 1
 		}
-		if !journal.Phase.Finished() {
-			fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", journal.Phase, recoverCommand(h))
+		if !last.Phase.Finished() {
+			fmt.Fprintf(stderr, "cfo update: an earlier update stopped at %s; finish it first in Windows PowerShell:\n  %s\n", last.Phase, recoverCommand(h))
 			return 1
 		}
 	}
 	// The update stops only this home's own supervisor, so one it cannot
 	// prove is refused before anything changes, never left serving behind a
 	// rollback that cannot start the previous build.
-	if running, ok := homeSupervisor(h.State); ok {
-		if err := provedHomeSupervisor(h, running); err != nil {
-			fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); an update stops only this home's own supervisor, so nothing was changed\n", running.pid, err)
-			return 1
-		}
+	if pid, err := unprovedSupervisor(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); an update stops only this home's own supervisor, so nothing was changed\n", pid, err)
+		return 1
 	}
 
 	journal, err := update.Prepare(h.Root, h.State, candidate)
@@ -206,6 +210,10 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "The last update of this home finished: %s.\n", journal.Outcome)
 		return 0
 	}
+	if pid, err := unprovedSupervisor(h); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the watcher lock is held by pid %d, which is not proved this home's supervisor (%v); recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", pid, err, recoverCommand(h))
+		return 1
+	}
 	return rollBack(h, &journal, fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
 }
 
@@ -225,10 +233,7 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 	// rollback's result only when the program it runs now is proved the
 	// previous build, never a candidate answering from its moved-aside file.
 	if running, ok := homeSupervisor(h.State); ok && restoreErr == nil && runsPreviousBuild(running, journal) && serves(h.State, running, false) == nil {
-		_ = recordUpdate(h.State, journal, update.RolledBack, "the previous build's supervisor still serves after: "+cause.Error())
-		update.CleanUp(journal)
-		fmt.Fprintf(stdout, "Rolled back: the previous build's supervisor (pid %d) still serves the board.\n", running.pid)
-		return updateRolledBack
+		return rolledBack(h, journal, running, "the previous build's supervisor still serves after: "+cause.Error(), stdout, stderr)
 	}
 	var lastErr error
 	for try := 0; try < updateServeTries; try++ {
@@ -248,10 +253,7 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 					fmt.Fprintf(stderr, "cfo update: the previous build serves from %s (pid %d), but cfo.exe and goblins.exe are not repaired yet; repair them in Windows PowerShell:\n  %s\n", program, started.pid, recoverCommand(h))
 					return updateDegraded
 				}
-				_ = recordUpdate(h.State, journal, update.RolledBack, "the previous build serves again after: "+cause.Error())
-				update.CleanUp(journal)
-				fmt.Fprintf(stdout, "Rolled back: the previous build serves the board again (pid %d).\n", started.pid)
-				return updateRolledBack
+				return rolledBack(h, journal, started, "the previous build serves again after: "+cause.Error(), stdout, stderr)
 			}
 			// A supervisor that runs but does not serve keeps the lock
 			// from the next try: end it, and only it.
@@ -264,6 +266,19 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 	_ = recordUpdate(h.State, journal, update.RollingBack, "the previous build did not serve: "+lastErr.Error())
 	fmt.Fprintf(stderr, "cfo update: THE BOARD IS DOWN: neither build serves (%v). Run this again in Windows PowerShell, or goblins --board:\n  %s\n", lastErr, recoverCommand(h))
 	return updateBoardDown
+}
+
+// rolledBack finishes a rollback whose previous build serves: it records the
+// update as rolled back and only then removes what it moved aside. A record
+// that fails keeps every file, so update --recover can still finish it.
+func rolledBack(h home.Home, journal *update.Journal, running serveProcess, outcome string, stdout, stderr io.Writer) int {
+	if err := recordUpdate(h.State, journal, update.RolledBack, outcome); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the previous build serves the board (pid %d), but the update's journal could not record the rollback (%v), so the update is not finished; finish it in Windows PowerShell:\n  %s\n", running.pid, err, recoverCommand(h))
+		return updateRolledBack
+	}
+	update.CleanUp(journal)
+	fmt.Fprintf(stdout, "Rolled back: the previous build serves the board (pid %d).\n", running.pid)
+	return updateRolledBack
 }
 
 // recoverCommand is the update --recover line to paste into Windows
@@ -457,6 +472,17 @@ func endSupervisor(h home.Home, running serveProcess) error {
 		return fmt.Errorf("the supervisor (pid %d) still runs", running.pid)
 	}
 	return nil
+}
+
+// unprovedSupervisor is the pid of the supervisor holding this home's watcher
+// lock and why it is not proved this home's, or no error when none holds it
+// or it is proved.
+func unprovedSupervisor(h home.Home) (int, error) {
+	running, ok := homeSupervisor(h.State)
+	if !ok {
+		return 0, nil
+	}
+	return running.pid, provedHomeSupervisor(h, running)
 }
 
 // provedHomeSupervisor proves the running process this home's supervisor by
