@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // TerminalFrame is Herdr's rendered native screen, not historical PTY output.
@@ -120,7 +122,7 @@ const closeGrace = time.Second
 // stdin and writes frames on its stdout.
 func startTerminal(ctx context.Context, name string, args ...string) (*terminalProcess, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := execx.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = 2 * time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

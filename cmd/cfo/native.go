@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -91,7 +91,7 @@ func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRunt
 		// Only fixed, whitelisted harness names and probe flags enter this
 		// shell. PowerShell resolves both native executables and npm shims,
 		// and a shim is a script that a Restricted policy would refuse.
-		cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& "+name+" "+arg+"; exit $LASTEXITCODE")
+		cmd := execx.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "& "+name+" "+arg+"; exit $LASTEXITCODE")
 		data, err := cmd.Output()
 		return string(data), err
 	}
