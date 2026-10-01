@@ -143,6 +143,9 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		}
 		fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", agent, h.Root, supervisor.NativeCFOTerminal)
 		warnNoWakePath(stdout, agent)
+		for _, note := range runtime.settleCFO(ctx, h.State, agent) {
+			fmt.Fprintln(stdout, note)
+		}
 		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
 	}
 	started, err := runtime.startCFO(ctx, h.Root, agent)

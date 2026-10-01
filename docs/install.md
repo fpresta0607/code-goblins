@@ -45,6 +45,8 @@ A supervisor still running the previous build keeps running it, since a running 
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
 5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native` in a native terminal of its own.
+   In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   It types nothing at a screen it does not know, such as Claude Code's own first-run questions, and says what to choose at the trust dialog that may follow them, whose first choice, No, exits.
 6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes.
 
 Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CFO running they start nothing.

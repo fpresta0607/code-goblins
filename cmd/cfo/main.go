@@ -155,6 +155,9 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
+	// settleCFO answers the known startup dialogs of a CFO just started in
+	// native terminal cfo and returns what to tell the Overlord about them.
+	settleCFO func(ctx context.Context, stateDir, harness string) []string
 	// setupAgent runs the quick start's agent steps and returns the agent
 	// the CFO starts as, and choose shows one of its screens and returns the
 	// choice the person accepts.
@@ -285,6 +288,7 @@ func defaultCommandRuntime() commandRuntime {
 		startNativeCFO:     startNativeCFO,
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
+		settleCFO:          settleNativeCFO,
 		setupAgent:         setupAgent,
 		choose:             onboarding.ChooseConsole,
 	}

@@ -81,7 +81,10 @@ type launcherFixture struct {
 	// CFO's terminal unless a test says otherwise.
 	screens []finalScreen
 	answer  int
-	runtime commandRuntime
+	// settleNotes are what the watch of a new native CFO's startup dialogs
+	// says.
+	settleNotes []string
+	runtime     commandRuntime
 }
 
 // agentSetup is one run of the quick start's agent steps: the agent
@@ -177,6 +180,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 				},
 			})
 		},
+		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
 		choose: func(_ io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
 			f.screens = append(f.screens, finalScreen{title, choices, selected})
 			return f.answer, nil

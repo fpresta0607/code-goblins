@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -45,6 +46,27 @@ func TestGoblinsEndsOnOneScreenWithTheCFOsTerminalAsItsDefault(t *testing.T) {
 	}
 	if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) || len(f.opened) != 0 {
 		t.Errorf("after Enter: native terminals shown = %q, opened = %q; want the CFO's terminal and no browser", f.nativeAttached, f.opened)
+	}
+}
+
+// What the watch of a new native CFO's startup dialogs found is said before
+// the final screen, which then opens the CFO's terminal on Enter.
+func TestGoblinsSaysWhatItAnsweredForANewCFOBeforeTheFinalScreen(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.settleNotes = []string{"Answered the workspace trust dialog in the CFO's terminal: Yes, I trust this folder."}
+	said := ""
+	f.runtime.choose = func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
+		said = output.(*bytes.Buffer).String()
+		return selected, nil
+	}
+
+	// Act
+	exit, _, stderr := f.launch("--native")
+
+	// Assert
+	if exit != 0 || !strings.Contains(said, "Answered the workspace trust dialog in the CFO's terminal: Yes, I trust this folder.\n") {
+		t.Errorf("exit=%d stderr=%q; before the final screen goblins said %q, want the answered dialog", exit, stderr, said)
 	}
 }
 
