@@ -32,8 +32,16 @@ function Write-UTF8([string]$Path, [string]$Content) { [IO.File]::WriteAllText($
 function Hex([byte[]]$Bytes) { -join ($Bytes | ForEach-Object { $_.ToString('x2') }) }
 function Random-Hex([int]$Count) { $bytes = [byte[]]::new($Count); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); Hex $bytes }
 function Sha256([string]$Text) { Hex ([Security.Cryptography.SHA256]::Create().ComputeHash($utf8.GetBytes($Text))) }
+# Native runs a program and answers what it printed. Windows PowerShell turns
+# each line a program writes to stderr into an error record once stderr is
+# redirected, which Stop would throw on, so a run is judged by its exit code.
+function Native([string]$Command, [string[]]$Arguments) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { return (& $Command @Arguments 2>&1 | Out-String) } finally { $ErrorActionPreference = $previous }
+}
 function Checked([string]$Command, [string[]]$Arguments) {
-    $output = & $Command @Arguments 2>&1 | Out-String
+    $output = Native $Command $Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Command $($Arguments -join ' ') failed ($LASTEXITCODE): $output" }
     return $output
 }
@@ -235,14 +243,19 @@ try {
     Write-Host "canary: state/ after cfo cleanup: $($afterCleanup.Count) hit(s)"
     Check 'cfo cleanup removed the auth.ps1, and state/ holds no canary' ($afterCleanup.Count -eq 0 -and -not (Test-Path -LiteralPath $script))
 } finally {
+    # Cleanup runs whatever failed above, so nothing in it may stop it.
+    $ErrorActionPreference = 'Continue'
     if ($canaryFile) { Remove-Item -LiteralPath $canaryFile -Force -ErrorAction SilentlyContinue }
-    $deleted = [CanaryProof.Vault]::CredDeleteW("cfo:$scope/$name", 1, 0)
-    $remaining = & $cfo auth list --project $scope 2>&1 | Out-String
-    Write-Host ("deleted the throwaway credential cfo:$scope/$name from Windows Credential Manager: " + ($deleted -and $remaining -match 'no credentials stored'))
-    $results['the throwaway credential was deleted'] = $deleted -and $remaining -match 'no credentials stored'
-    if (-not $results['the throwaway credential was deleted']) { $failures.Add('the throwaway credential was deleted') }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue }
     if ($serve -and -not $serve.HasExited) { Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue }
+    # A credential the proof never stored is gone already: CredDeleteW then
+    # fails with ERROR_NOT_FOUND.
+    $deleted = [CanaryProof.Vault]::CredDeleteW("cfo:$scope/$name", 1, 0)
+    $neverStored = -not $deleted -and [Runtime.InteropServices.Marshal]::GetLastWin32Error() -eq 1168
+    $gone = ($deleted -or $neverStored) -and (Native $cfo @('auth', 'list', '--project', $scope)) -match 'no credentials stored'
+    Write-Host ("the throwaway credential cfo:$scope/$name is gone from Windows Credential Manager: $gone" + $(if ($deleted) { ' (deleted)' } elseif ($neverStored) { ' (it was never stored)' } else { '' }))
+    $results['the throwaway credential is gone from Windows Credential Manager'] = $gone
+    if (-not $gone) { $failures.Add('the throwaway credential is gone from Windows Credential Manager') }
     Start-Sleep -Seconds 1
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }

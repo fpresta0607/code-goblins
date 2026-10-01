@@ -27,8 +27,12 @@ Note "stand-in goblin $Task started"
 foreach ($asked in $requested) {
     $filed = $false
     for ($attempt = 1; $attempt -le 15 -and -not $filed; $attempt++) {
+        # A refusal is written to stderr, which Stop would throw on once
+        # redirected; the exit code says whether it was filed.
+        $ErrorActionPreference = 'Continue'
         $output = & $Cfo auth request --project $Project --task $Task --why 'Canary proof for the credential card' $asked 2>&1 | Out-String
         $filed = $LASTEXITCODE -eq 0
+        $ErrorActionPreference = 'Stop'
         Note ("cfo auth request $asked (attempt $attempt): " + $output.Trim())
         if (-not $filed) { Start-Sleep -Seconds 2 }
     }
