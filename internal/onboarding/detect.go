@@ -88,7 +88,7 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 	if id == "pi" {
 		provider := piProvider(d.PiDirectory)
 		if provider == "" {
-			agent.State, agent.Reason = SignedOut, "No provider chosen; sign in with /login and pick a model with /model"
+			agent.State, agent.Reason = SignedOut, "Sign-in needed: no provider chosen"
 			return agent
 		}
 		args = []string{"auth", "check", "--provider", provider, "--json", "--no-refresh"}

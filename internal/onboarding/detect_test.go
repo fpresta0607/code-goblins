@@ -160,7 +160,7 @@ func TestDetectReadsPiAsSignedOutUntilItHasAProvider(t *testing.T) {
 			agent := detector.Detect(context.Background(), "pi")
 
 			// Assert
-			if agent.State != SignedOut || agent.Reason != "No provider chosen; sign in with /login and pick a model with /model" {
+			if agent.State != SignedOut || agent.Reason != "Sign-in needed: no provider chosen" {
 				t.Errorf("Detect = %+v, want pi signed out until it has a provider", agent)
 			}
 		})

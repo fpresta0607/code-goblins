@@ -95,9 +95,12 @@ func TestEnterAloneCarriesAFirstRunToAReadyAgent(t *testing.T) {
 	}
 }
 
-// The choice starts on the remembered agent, or else on the first one that is
-// ready, Claude Code among equals and when none is.
-func TestTheChoiceStartsOnTheRememberedAgentOrAReadyOne(t *testing.T) {
+// The choice starts on the remembered agent, or else on Claude Code, the one
+// it recommends, however ready the others are: the default Enter takes is
+// always the marked one. A scratch profile showed Codex ready, from a sign-in
+// kept outside the profile, while Claude Code was not, and the choice started
+// on Codex beside Claude Code's recommended mark.
+func TestTheChoiceStartsOnTheRememberedAgentOrTheRecommendedOne(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		states map[string]State
@@ -105,11 +108,11 @@ func TestTheChoiceStartsOnTheRememberedAgentOrAReadyOne(t *testing.T) {
 		want   int
 	}{
 		{"nothing ready", map[string]State{}, "", 0},
-		{"only codex ready", map[string]State{"codex": Ready}, "", 1},
-		{"codex and pi ready", map[string]State{"codex": Ready, "pi": Ready}, "", 1},
+		{"only codex ready", map[string]State{"codex": Ready}, "", 0},
+		{"codex and pi ready", map[string]State{"codex": Ready, "pi": Ready}, "", 0},
 		{"all ready", map[string]State{"claude": Ready, "codex": Ready, "pi": Ready}, "", 0},
 		{"pi remembered though claude is ready", map[string]State{"claude": Ready, "pi": Ready}, "pi", 2},
-		{"a remembered name that is no agent", map[string]State{"pi": Ready}, "kimi", 2},
+		{"a remembered name that is no agent", map[string]State{"pi": Ready}, "kimi", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange

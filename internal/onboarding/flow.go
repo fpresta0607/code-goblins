@@ -41,7 +41,9 @@ type Flow struct {
 // or the person chose to continue with one whose sign-in cannot be verified.
 func (f Flow) Run(ctx context.Context, saved string, rerun bool) (string, error) {
 	choosing := rerun || !slices.Contains(Agents, saved)
-	selected := slices.Index(Agents, saved)
+	// The choice starts on the remembered agent, or else on Claude Code, the
+	// one it recommends, so Enter always takes the marked agent.
+	selected := max(slices.Index(Agents, saved), 0)
 	// Each agent is read once, when a screen first needs it, so a run with a
 	// remembered agent asks only that agent's status command.
 	agents := make([]*Agent, len(Agents))
@@ -61,9 +63,6 @@ func (f Flow) Run(ctx context.Context, saved string, rerun bool) (string, error)
 			all := make([]Agent, len(Agents))
 			for index := range Agents {
 				all[index] = detected(index)
-			}
-			if selected < 0 {
-				selected = defaultAgent(all)
 			}
 			choice, err := f.Choose("Choose the agent your CFO runs on", agentLabels(all, saved), selected)
 			if err != nil {
@@ -132,17 +131,6 @@ func (f Flow) step(agent Agent) (title string, choices []string, run func(string
 		// in again is the default, and continuing is the person's own call.
 		return agent.Name + "'s sign-in could not be verified\nEnter opens " + agent.Name + "'s own sign-in. Code Goblins never sees your password.", []string{"Open sign-in", continueUnverified, chooseAnother}, f.Login
 	}
-}
-
-// defaultAgent is the agent the choice starts on when none is remembered: the
-// first that is ready, Claude Code among equals, or Claude Code when none is.
-func defaultAgent(agents []Agent) int {
-	for index, agent := range agents {
-		if agent.State == Ready {
-			return index
-		}
-	}
-	return 0
 }
 
 // agentLabels are the choice's rows: each agent's name and how ready it is.
