@@ -322,7 +322,7 @@ func serveArguments(preferred string) []string {
 // refuses that flag, so the start is retried inside the job rather than not
 // made.
 func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return nil, err
 	}

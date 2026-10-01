@@ -37,7 +37,7 @@ func AppendOutcome(path string, o Outcome) error {
 	if e != nil {
 		return e
 	}
-	f, e := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	f, e := fsx.OpenAppend(path, 0644)
 	if e != nil {
 		return e
 	}

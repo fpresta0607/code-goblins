@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -38,7 +39,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		return Record{}, err
 	}
 	logPath := filepath.Join(stateDir, "hosts", spec.ID+".log")
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return Record{}, err
 	}

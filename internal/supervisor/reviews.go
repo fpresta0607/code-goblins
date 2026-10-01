@@ -679,7 +679,7 @@ func appendReviewAudit(stateDir string, r Review) error {
 	if task == "" {
 		task = "-"
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "reviews.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := fsx.OpenAppend(filepath.Join(stateDir, "reviews.audit"), 0600)
 	if err != nil {
 		return err
 	}

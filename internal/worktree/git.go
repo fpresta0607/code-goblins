@@ -318,7 +318,7 @@ func (g RunnerGit) ensureExcluded(ctx context.Context, dir, pattern string) erro
 	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 		entry = "\n" + entry
 	}
-	file, err := os.OpenFile(excludePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := fsx.OpenAppend(excludePath, 0o644)
 	if err != nil {
 		return fmt.Errorf("worktree: open %q: %w", excludePath, err)
 	}

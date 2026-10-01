@@ -29,3 +29,15 @@ func ReadFile(path string) ([]byte, error) {
 	defer file.Close()
 	return io.ReadAll(file)
 }
+
+// OpenAppend opens path to append to it, creating it with perm if it is
+// missing, for every file a fleet program appends to. An open that meets
+// another process's brief hold on the file waits it out.
+func OpenAppend(path string, perm os.FileMode) (*os.File, error) {
+	var file *os.File
+	err := retryTransient(func() (err error) {
+		file, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
+		return err
+	})
+	return file, err
+}

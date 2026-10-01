@@ -562,7 +562,7 @@ func headingIndex(lines []string, name string) int {
 }
 
 func appendLog(path, line string) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := fsx.OpenAppend(path, 0o644)
 	if err != nil {
 		return err
 	}

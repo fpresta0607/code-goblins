@@ -570,7 +570,7 @@ func appendRunAudit(stateDir string, r Run, code *int, now time.Time) error {
 	if code != nil {
 		exit = strconv.Itoa(*code)
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir, "runs.audit"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, err := fsx.OpenAppend(filepath.Join(stateDir, "runs.audit"), 0600)
 	if err != nil {
 		return err
 	}
