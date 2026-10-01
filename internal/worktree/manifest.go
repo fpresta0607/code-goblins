@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 )
 
@@ -111,7 +112,7 @@ func ManifestPath(dataDir, project string) string {
 func Resolve(dataDir, project string) (Manifest, error) {
 	manifest := Manifest{}
 	path := ManifestPath(dataDir, project)
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(data, &manifest); err != nil {

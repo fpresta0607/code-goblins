@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { arrive, asksPermission, boardAlerts, notifies, type AlertTarget, type Arrival } from "./alertRules";
 import { personaFor } from "./workflow";
+import { DialogueBox } from "./DialogueBox";
+import { Icon } from "./Icon";
 import { Toast } from "./Toast";
 import type { Snapshot } from "./types";
 
@@ -29,7 +31,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   useEffect(() => {
     // A Command Center item alerts once a page; a goblin alerts each time it
     // fails or finishes again, replacing its toast still on screen.
-    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => alert.target.kind !== "command" || !seen.current.has(alert.key));
+    const fresh = boardAlerts(previous.current, snapshot).filter((alert) => alert.key.startsWith("task:") || !seen.current.has(alert.key));
     previous.current = snapshot;
     if (!fresh.length) return;
     for (const alert of fresh) seen.current.add(alert.key);
@@ -37,7 +39,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
     if (asksPermission(permission(), asked())) setAsking(true);
     if (!notifies(permission(), document.hidden, document.hasFocus())) return;
     for (const alert of fresh) {
-      const note = new Notification(alert.title, { body: alert.text, tag: alert.key });
+      const note = new Notification(alert.speaker, { body: alert.text, tag: alert.key });
       note.onclick = () => { window.focus(); open.current(alert.target); note.close(); };
     }
   }, [snapshot]);
@@ -49,9 +51,15 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   };
   if (!toasts.length && !asking) return null;
   return <section className="toasts" aria-live="polite" aria-label="Alerts">
-    {asking && <div className="toast ask" role="group" aria-label="Windows notifications">
-      <p>Show a Windows notification when something needs you while the board is in the background?</p>
-      <div className="toast-actions"><button onClick={() => answer(false)}>Not now</button><button className="primary" onClick={() => answer(true)}>Allow</button></div>
+    {asking && <div className="toast ask">
+      <DialogueBox persona="cfo" speaker="CFO" tone="needs" label="Windows notifications"
+        actions={<>
+          <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
+          <button className="pixel-button outline" onClick={() => answer(false)}>Not now</button>
+          <button className="icon-button pixel-icon" aria-label="Dismiss: Windows notifications" data-tip="Dismiss" data-tip-align="end" onClick={() => answer(false)}><Icon name="close" /></button>
+        </>}>
+        <p>Show a Windows notification when something needs you while the board is in the background?</p>
+      </DialogueBox>
     </div>}
     {toasts.map(({ id, alert }) => <Toast key={id} alert={alert} persona={alert.task ? personaFor(snapshot.tasks.find((task) => task.id === alert.task)) : "cfo"}
       onOpen={() => { dismiss(id); onOpen(alert.target); }} onDismiss={() => dismiss(id)} />)}

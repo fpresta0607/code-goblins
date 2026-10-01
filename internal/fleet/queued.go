@@ -92,7 +92,7 @@ func changeQueuedTask(h home.Home, id, revision, title, detail string, remove bo
 		return nil
 	}
 	path := filepath.Join(h.Data, "backlog.md")
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) && before.IsBriefOnly {
 		data, err = []byte("## Queued\n"), nil
 	}
@@ -140,7 +140,7 @@ func changeQueuedTask(h home.Home, id, revision, title, detail string, remove bo
 	brief := filepath.Join(h.Data, id, "brief.md")
 	var oldBrief []byte
 	if !remove {
-		oldBrief, err = os.ReadFile(brief)
+		oldBrief, err = fsx.ReadFile(brief)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -174,7 +174,7 @@ func ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return QueuedTask{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(h.Data, "backlog.md"))
+	data, err := fsx.ReadFile(filepath.Join(h.Data, "backlog.md"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return QueuedTask{}, err
 	}
@@ -224,7 +224,7 @@ func readUndispatchedBrief(h home.Home, id string, backlog []string) (QueuedTask
 			return QueuedTask{}, ErrNotQueued
 		}
 	}
-	brief, err := os.ReadFile(filepath.Join(h.Data, id, "brief.md"))
+	brief, err := fsx.ReadFile(filepath.Join(h.Data, id, "brief.md"))
 	if errors.Is(err, os.ErrNotExist) {
 		return QueuedTask{}, ErrNotQueued
 	}

@@ -19,7 +19,7 @@ const SERVICES: [RegExp, Mark][] = [
   [/neon/, { brand: "neon" }],
   [/notion/, { brand: "notion" }],
   [/openrouter/, { brand: "openrouter" }],
-  [/openai/, { glyph: "openai" }],
+  [/openai/, { brand: "openai" }],
   [/anthropic|claude/, { brand: "anthropic" }],
   [/gemini/, { brand: "gemini" }],
   [/kimi|moonshot/, { brand: "moonshot" }],
@@ -49,14 +49,14 @@ export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
 }
 
 export function harnessMark(harness: string): Mark {
-  const marks: Record<string, Mark> = { claude: { brand: "claude" }, codex: { glyph: "openai" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
-  return marks[harness] || { glyph: "sparkle" };
+  const marks: Record<string, Mark> = { claude: { brand: "claude" }, codex: { brand: "openai" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
+  return marks[harness] || { glyph: "terminal" };
 }
 
 export function modelMark(model: string): { mark: Mark; provider: string } {
   const name = model.toLowerCase();
   if (/claude|opus|sonnet|haiku|fable|mythos/.test(name)) return { mark: { brand: "anthropic" }, provider: "Anthropic" };
-  if (/gpt|codex|openai|^o\d/.test(name)) return { mark: { glyph: "openai" }, provider: "OpenAI" };
+  if (/gpt|codex|openai|^o\d/.test(name)) return { mark: { brand: "openai" }, provider: "OpenAI" };
   if (/kimi|moonshot/.test(name)) return { mark: { brand: "moonshot" }, provider: "Moonshot AI" };
   if (/gemini/.test(name)) return { mark: { brand: "gemini" }, provider: "Google" };
   return { mark: { glyph: "sparkle" }, provider: "Model" };

@@ -290,7 +290,7 @@ func ScanSignals(stateDir string) ([]Change, error) {
 		}
 		sig := fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 
-		seen, err := os.ReadFile(filepath.Join(stateDir, SeenName(name)))
+		seen, err := fsx.ReadFile(filepath.Join(stateDir, SeenName(name)))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}

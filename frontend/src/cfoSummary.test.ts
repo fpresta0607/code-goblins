@@ -10,9 +10,9 @@ const run = (id: string, title: string, changes: Partial<Run> = {}) => ({ id, ti
 const snapshot = (changes: Partial<Snapshot> = {}) => ({ tasks: [], attention: [], questions: [], reviews: [], runs: [], ...changes }) as unknown as Snapshot;
 
 test("with nothing waiting on the Overlord the CFO says how many goblins it supervises", () => {
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a"), task("b"), task("queued", { generation: "" }), task("history", { archived: true })] })), { asking: false, line: "Supervising 2 goblins" });
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")] })), { asking: false, line: "Supervising 1 goblin" });
-  assert.deepEqual(cfoSummary(snapshot()), { asking: false, line: "No goblins at work" });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a"), task("b"), task("queued", { generation: "" }), task("history", { archived: true })] })), { asking: false, line: "All quiet. The CFO supervises 2 goblins." });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")] })), { asking: false, line: "All quiet. The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(snapshot()), { asking: false, line: "All quiet. No goblins are at work." });
 });
 
 test("what the CFO needs from the Overlord leads, the CFO's own first, in plain words", () => {
@@ -27,7 +27,7 @@ test("what the CFO needs from the Overlord leads, the CFO's own first, in plain 
 test("a review or a command to run is named by its title, and answered items no longer count", () => {
   assert.deepEqual(cfoSummary(snapshot({ reviews: [review("look", "Check the onboarding mockup")] })), { asking: true, line: "Waiting on you: Check the onboarding mockup" });
   assert.deepEqual(cfoSummary(snapshot({ runs: [run("fix", "Restart the dev database")] })), { asking: true, line: "Waiting on you: Restart the dev database" });
-  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { asking: false, line: "Supervising 1 goblin" });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { asking: false, line: "All quiet. The CFO supervises 1 goblin." });
 });
 
 test("a goblin's wait on the Overlord, titled Waiting on you by its item, says it once", () => {

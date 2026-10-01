@@ -4,6 +4,9 @@ import { Icon } from "./Icon";
 import { closedReason, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
+import { useVoice } from "./useVoice";
+import { hostPane } from "./voice";
+import { VoiceBubble } from "./VoiceBubble";
 
 // A view that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
@@ -32,7 +35,8 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
-  const dictation = useDictation((text) => current.current?.paste(text));
+  const voice = useVoice(instance, hostPane(query), shown);
+  const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, voice.defers);
   const dictate = dictation.key;
   useEffect(() => {
     shownValue.current = shown;
@@ -110,7 +114,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
-    {dictation.listening && <span className="terminal-state live terminal-listening" role="status"><Icon name="mic" />Listening</span>}
+    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
     {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }
