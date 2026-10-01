@@ -45,20 +45,46 @@ var (
 // Dispatch is what a queued task's Start reads and runs on this machine:
 // its memory, and cfo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
-	// Memory reads the machine's available and total physical memory, in
-	// bytes.
-	Memory func() (available, total uint64, err error)
+	// Memory reads the machine's physical memory, commit and kernel pools.
+	Memory func() (Memory, error)
+	// CommitHolders names the apps holding the most commit.
+	CommitHolders func() ([]CommitHolder, error)
 	// Spawn runs cfo with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }
 
-// Memory is the machine's available memory beside the fleet's floor, under
-// which nothing starts, and the mark at which the CFO starts the next task.
+// Memory is the machine's available physical memory and available commit,
+// in bytes, beside the fleet's floor, under which nothing starts, and the mark
+// at which the CFO starts the next task: a start needs both to reach them.
+// The kernel's pools ride along, since a paged pool that keeps growing is a
+// driver leaking memory, and so do the apps holding the most commit once
+// commit is the tighter of the two.
 type Memory struct {
-	Available uint64 `json:"available"`
-	Total     uint64 `json:"total"`
-	Floor     uint64 `json:"floor"`
-	Next      uint64 `json:"next"`
+	Available       uint64         `json:"available"`
+	Total           uint64         `json:"total"`
+	CommitAvailable uint64         `json:"commit_available"`
+	CommitLimit     uint64         `json:"commit_limit"`
+	PagedPool       uint64         `json:"paged_pool"`
+	NonpagedPool    uint64         `json:"nonpaged_pool"`
+	Floor           uint64         `json:"floor"`
+	Next            uint64         `json:"next"`
+	Holders         []CommitHolder `json:"holders,omitempty"`
+}
+
+// shortfall says how much of memory, of commit or of both is free when it is
+// under the mark at which a task starts, rounded down so memory just under
+// the mark never reads as the mark itself, and is empty when both reach it.
+func (m Memory) shortfall() string {
+	gigabytes := func(bytes uint64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
+	switch {
+	case m.Available < memoryNext && m.CommitAvailable < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of memory and %.1f GB of commit (RAM plus page file) are free", gigabytes(m.Available), gigabytes(m.CommitAvailable))
+	case m.Available < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of memory is free", gigabytes(m.Available))
+	case m.CommitAvailable < memoryNext:
+		return fmt.Sprintf("Only %.1f GB of commit (RAM plus page file) is free", gigabytes(m.CommitAvailable))
+	}
+	return ""
 }
 
 // startPlan is the cfo spawn a Start runs.
@@ -154,12 +180,12 @@ func (s *Service) startTask(id string) error {
 	if err != nil {
 		return err
 	}
-	available, _, err := dispatch.Memory()
+	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
-	if available < memoryNext {
-		return StartRefusal{Reason: fmt.Sprintf("Only %.1f GB of memory is free; Start needs 5 GB to keep the 4 GB floor", math.Floor(float64(available)/(1<<30)*10)/10), Passing: true}
+	if short := memory.shortfall(); short != "" {
+		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
 	if plan.missingBrief != nil {
 		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {

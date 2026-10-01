@@ -51,6 +51,9 @@ func TestRenderMarkdownCarriesAllFiveSections(t *testing.T) {
 		"cfo reap",
 		// headroom, including the footprint that starves the fleet
 		"WSL virtual machine: 11.0 GB",
+		// commit beside memory, and whether the next goblin fits in both
+		"| commit (memory plus page file) | 40.0 GB | 6.0 GB (15%) |",
+		"Dispatch: ready, 8.0 GB of memory and 6.0 GB of commit are free",
 	} {
 		if !strings.Contains(out, fact) {
 			t.Errorf("output is missing %q", fact)
@@ -122,6 +125,9 @@ func TestRenderJSONRoundTripsTheTypedReport(t *testing.T) {
 	}
 	if back.Schema != Schema || back.Home != report.Home {
 		t.Errorf("schema/home = %q/%q, want %q/%q", back.Schema, back.Home, Schema, report.Home)
+	}
+	if back.Dispatch != report.Dispatch || back.Headroom.CommitAvailable != report.Headroom.CommitAvailable {
+		t.Errorf("dispatch/commit = %+v/%d, want %+v/%d", back.Dispatch, back.Headroom.CommitAvailable, report.Dispatch, report.Headroom.CommitAvailable)
 	}
 	if len(back.Stacks) != len(report.Stacks) || len(back.Servers) != len(report.Servers) {
 		t.Errorf("stacks/servers = %d/%d, want %d/%d", len(back.Stacks), len(back.Servers), len(report.Stacks), len(report.Servers))
