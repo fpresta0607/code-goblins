@@ -8,10 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -36,11 +33,9 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	c := supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	c := supervisor.CFOConnection{State: h.State}
 	if *recordOnly {
-		chosen, err := c.RecordGoblinAnswer(ctx, args[0], *option, *note)
+		chosen, err := c.RecordGoblinAnswer(args[0], *option, *note)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -48,6 +43,8 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintf(stdout, "recorded %s on the board: %s (nothing was sent)\n", args[0], chosen)
 		return 0
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	chosen, queued, err := c.AnswerGoblin(ctx, args[0], *option, *note)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

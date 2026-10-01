@@ -27,6 +27,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -60,7 +61,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 	fmt.Println("program ready")
 	// harness makes the program show Claude Code's composer, and each line
 	// typed after it a turn in progress, so a native delivery can type into
-	// it the way it types into Claude Code.
+	// it the way it types into Claude Code. turn shows a turn already in
+	// progress, whose prompt hook reports nothing until it ends.
 	harness := false
 	// hooked raises a native prompt hook for every line taken, as a harness
 	// with native hooks does, naming the terminal it runs in.
@@ -74,8 +76,12 @@ func TestNativeTerminalProgram(t *testing.T) {
 			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
 		case line == "hooked":
 			hooked = true
+		case line == "turn":
+			harness, hooked = true, false
+			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+			fmt.Println("✽ Pondering… (esc to interrupt)")
 		case strings.HasPrefix(line, "ask "):
-			if _, err := goblinAsker(context.Background(), args[2], nil, strings.TrimPrefix(line, "ask ")); err != nil {
+			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())
 				continue
 			}
@@ -83,19 +89,19 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "present":
 			now := time.Now().UTC()
 			a := BoardActivity{ID: "cfo-walkthrough", Kind: "browser", State: "active", URL: "http://127.0.0.1:4387/walkthrough", At: now, Until: now.Add(time.Minute)}
-			if err := PublishPresentation(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, a); err != nil {
+			if err := PublishPresentation(home.Home{Root: filepath.Dir(args[2]), State: args[2]}, a); err != nil {
 				record("present error: " + err.Error())
 				continue
 			}
 			record("presented")
 		case strings.HasPrefix(line, "send "):
-			if err := PrepareSendActivity(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, strings.TrimPrefix(line, "send "))(); err != nil {
+			if err := PrepareSendActivity(home.Home{Root: filepath.Dir(args[2]), State: args[2]}, strings.TrimPrefix(line, "send "))(); err != nil {
 				record("send error: " + err.Error())
 				continue
 			}
 			record("sent")
 		case line == "register":
-			described, err := Register(context.Background(), args[2], nil, "claude", "session-1")
+			described, err := Register(args[2], "claude", "session-1")
 			if err != nil {
 				record("register error: " + err.Error())
 				continue
@@ -207,6 +213,52 @@ func hostTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 		}
 	})
 	return terminal
+}
+
+// standIn makes this test process the program of the terminal: its host's
+// record names this process, so what the test calls is proven to run in that
+// terminal, while the host still serves it and its program still records what
+// is typed into it.
+func (terminal hostedTerminal) standIn(t *testing.T) {
+	t.Helper()
+	terminal.runs(t, os.Getpid())
+}
+
+// runs makes the host's record name pid as the terminal's program.
+func (terminal hostedTerminal) runs(t *testing.T, pid int) {
+	t.Helper()
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ChildPID = pid
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(terminal.stateDir, "hosts", terminal.id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// startTurn puts the terminal's program inside a long turn, as a harness
+// whose screen shows work and whose hooks report no prompt until it ends.
+func (terminal hostedTerminal) startTurn(t *testing.T) {
+	t.Helper()
+	terminal.typeLine(t, "turn")
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Claude)
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if rows, err := host.ReadScreen(record); err == nil && screens.IsWorking(rows) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the terminal never showed a turn under way")
+		}
+	}
 }
 
 // typeLine types line and Enter into the terminal directly, not through a

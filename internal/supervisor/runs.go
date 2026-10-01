@@ -187,11 +187,11 @@ type runPipeRequest struct {
 // registered primary CFO.
 // Republishing an ID with the same content while its item still waits changes
 // nothing; any other reuse of the ID is refused.
-func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
+func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequest) error {
 	if s.Options.CFO == nil {
 		return errors.New("this supervisor cannot verify the CFO")
 	}
-	identity, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	identity, release, err := s.Options.CFO.identityOf(pid, connected)
 	if err != nil {
 		return err
 	}

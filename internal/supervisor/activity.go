@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,7 +21,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 const maxBoardActivity = 128
@@ -86,7 +84,7 @@ func (s *Store) retainActivity(a BoardActivity) error {
 	}
 	a.Live = false
 	node, ok := s.db.Sessions[a.Target]
-	// A goblin proves its presentation by its own Herdr pane when it
+	// A goblin proves its presentation by its own terminal when it
 	// publishes, so the report names no native session.
 	paneProven := a.Target == "" && a.TaskID != "" && (a.Kind == "browser" || a.Kind == "review")
 	if a.CFOIdentity != "" {
@@ -309,7 +307,7 @@ func callerSession() string {
 
 // PublishPresentation is an explicit report after the browser/presentation
 // command succeeds. It neither invokes that tool nor controls its browser.
-func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Opener, a BoardActivity) error {
+func PublishPresentation(h home.Home, a BoardActivity) error {
 	if a.Kind != "browser" && a.Kind != "review" {
 		return errors.New("presentation kind must be browser or review")
 	}
@@ -319,9 +317,9 @@ func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Op
 	}
 	if a.TaskID != "" {
 		// A goblin proves itself the way it does for a question: this command
-		// runs under the task's own Herdr pane. That needs no native hook, so
+		// runs under the task's own terminal. That needs no native hook, so
 		// a goblin can present however and whenever it was spawned.
-		meta, err := goblinAsker(ctx, h.State, terminals, a.TaskID)
+		meta, err := goblinAsker(h.State, a.TaskID)
 		if err != nil {
 			return err
 		}
@@ -330,9 +328,9 @@ func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Op
 		}
 		a.Generation, a.Target = meta.SpawnGen, ""
 	} else {
-		// The primary CFO proves itself as it does for a question, in a Herdr
-		// pane or a native terminal.
-		identity, release, err := (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
+		// The primary CFO proves itself as it does for a question, in its
+		// native terminal.
+		identity, release, err := (&CFOConnection{State: h.State}).CallerIdentity()
 		if err != nil {
 			return fmt.Errorf("only the registered primary CFO may report a presentation without a task: %w", err)
 		}
@@ -349,16 +347,11 @@ func PublishPresentation(ctx context.Context, h home.Home, terminals terminal.Op
 // PrepareSendActivity pins the observed destination before a send. The caller
 // invokes its returned function only after native acceptance, never on an
 // uncertain submit. Observability failure must not cause a message retry.
-func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Opener, target string) func() error {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
+func PrepareSendActivity(h home.Home, target string) func() error {
 	none := func() error { return nil }
 	meta, native := fleet.NativeTask(h.State, target)
 	if !native {
-		var err error
-		if _, meta, err = (fleet.Resolver{StateDir: h.State}).Resolve(ctx, target); err != nil || meta.ID == "" {
-			return none
-		}
+		return none
 	}
 	store, err := readBoardState(h)
 	if err != nil {
@@ -374,21 +367,13 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 	if err == nil {
 		p, _, err := decodePrimary(file)
 		_ = file.Close()
-		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(p.Process) && (&CFOConnection{State: h.State, Terminals: terminals}).verify(ctx, p) == nil {
+		if err == nil && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role == "cfo" && parent.Harness == p.Agent && callerOwns(p.Process) && (&CFOConnection{State: h.State}).verify(p) == nil {
 			source = parent.ID
 		}
 	}
 	if parent.ID != "" && parent.ID == callerSession() && parent.Phase != "ended" && parent.Role != "cfo" && parent.TaskID != "" {
-		if parentMeta, err := state.ReadTaskMeta(h.State, parent.TaskID); err == nil && parentMeta.Backend == "native" {
-			if proven, err := goblinAsker(ctx, h.State, terminals, parent.TaskID); err == nil && proven.SpawnGen == parent.Generation {
-				source = parent.ID
-			}
-		} else {
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminals}}}
-			binding, err := service.resolveTerminal(ctx, terminalSelection{Task: parent.TaskID, Generation: parent.Generation, Session: parent.ID}, false)
-			if err == nil && callerOwns(binding.Process) {
-				source = parent.ID
-			}
+		if proven, err := goblinAsker(h.State, parent.TaskID); err == nil && proven.SpawnGen == parent.Generation {
+			source = parent.ID
 		}
 	}
 	var bytes [16]byte
@@ -398,7 +383,7 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 	a := BoardActivity{ID: "send-" + hex.EncodeToString(bytes[:]), Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Source: source, Target: node.ID, State: "accepted"}
 	return func() error {
 		current, err := state.ReadTaskMeta(h.State, meta.ID)
-		if err != nil || current.SpawnGen != meta.SpawnGen || current.Worktree != meta.Worktree || current.HerdrSession != meta.HerdrSession || current.HerdrPaneID != meta.HerdrPaneID {
+		if err != nil || current.SpawnGen != meta.SpawnGen || current.Worktree != meta.Worktree || current.Backend != meta.Backend {
 			return errors.New("message accepted but recipient changed before board receipt")
 		}
 		a.At = time.Now().UTC()
@@ -408,7 +393,7 @@ func PrepareSendActivity(ctx context.Context, h home.Home, terminals terminal.Op
 
 // Reuse the supervisor's existing cycle. At most one bounded native identity
 // check per minute while a primary presentation is live; no browser polling.
-func (s *Service) reconcilePresentations(ctx context.Context) {
+func (s *Service) reconcilePresentations() {
 	now := time.Now()
 	if s.Options.CFO == nil {
 		return
@@ -434,9 +419,7 @@ func (s *Service) reconcilePresentations(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	if err := s.Options.CFO.verify(ctx, p); err != nil {
+	if err := s.Options.CFO.verify(p); err != nil {
 		return
 	}
 	s.mu.Lock()

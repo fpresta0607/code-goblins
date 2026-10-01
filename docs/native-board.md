@@ -363,13 +363,13 @@ The CFO in that recording still runs in Herdr, so its first open shows Herdr's c
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
 The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.
 `cfo register` refreshes it by hand.
-Registering the same process in the same pane again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
-Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` must have one of the caller's own process ancestors in its foreground, and that harness must hold the home's session lock, taking it only when no live session does.
-A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
-Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, and the host to answer on its pipe, since a host that was killed leaves its record behind.
-The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
-A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
-The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it within five seconds, the Herdr sender's confirmation budget.
+Registering the same process in the same terminal again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
+A CFO registers from a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
+Registration trusts no variable alone: the terminal's program, named by its host's record, must be one of the caller's own ancestors, the host must answer on its pipe, since a host that was killed leaves its record behind, and that harness must hold the home's session lock, taking it only when no live session does.
+The registration names that terminal, and it stays valid while the host's record names the registered process as the terminal's program.
+A session in no native terminal, a Herdr pane included, registers nothing, and a registration an older build wrote for a CFO in a Herdr pane reads as not reachable: the board delivers nothing to it and takes no proof from it until the CFO is started again in a native terminal.
+A message for the CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
+The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it within five seconds.
 A screen turning to work is no proof, since Enter may have chosen a dialog's option instead.
 Without its hook, a CFO its screen showed in a turn takes it when that turn ends, and the board says so; any other is unconfirmed, to be checked in its terminal before anything is sent again.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
@@ -419,17 +419,18 @@ Codex can also take the Enter as part of a paste, so Enter is pressed again one,
 Codex's screens are the ones captured live on Codex 0.154, whose empty composer shows its placeholder rather than the context left.
 A spawn that fails closes the terminal it started, which ends the harness and everything it started, and retires the task; a terminal that already ran under the task's id refuses the spawn's host and is left running.
 If the terminal's host still runs but does not answer the close, the spawn's error says so, and the worktree and task record stay, so the task can still be reached.
-`cfo send` reaches a native task by its id or `gb-<id>` through its own terminal, never through Herdr: text is typed into the composer and submitted once the composer shows it, as the spawn delivers its instruction, and `--key` writes the key straight to the terminal.
-Once delivered, a send to a native task leaves the board's message receipt as a send to a Herdr task does.
+`cfo send` reaches a task by its id or `gb-<id>` through its own native terminal, and nothing else: text is typed into the composer and submitted once the composer shows it, as the spawn delivers its instruction, and `--key` writes the key straight to the terminal.
+A task an older build recorded in Herdr and a name that is no task are refused by name with nothing typed, and `cfo peek` of either fails the same way, since it reads native terminals only.
+Once delivered, a send leaves the board's message receipt.
 The text is delivered once the harness's own native hooks report it took a prompt after the submit (Claude Code's and Codex's `UserPromptSubmit`, Pi's `agent_start`, marked `prompt` in their events), or, where no hook has reported, once its screen shows it working when it was not working before.
-Text sent while the harness is already in a turn waits in its composer until that turn ends, so without a hook report within a few seconds the send says it waits behind the turn, as a Herdr send does, rather than calling it delivered; a board answer in that case reads submitted while the goblin was working.
+Text sent while the harness is already in a turn waits in its composer until that turn ends, so without a hook report within a few seconds the send says it waits behind the turn rather than calling it delivered; a board answer in that case reads submitted while the goblin was working.
 A credential stored for the project after a goblin started reaches it while its terminal's host runs: its task's credential script is rewritten and the goblin is told, through its terminal, to re-source it.
 `cfo switch` changes a goblin's harness, model or effort in place: the harness exits on its own command, its terminal is closed if it will not, which ends it and everything it started, and the new harness starts in a new terminal under the same id with the task's credentials in its environment.
 A reboot or sign-out ends every native terminal; the monitor's wake for a native task whose terminal has ended says so, and `cfo switch <id>`, to what it already ran, starts it again under the same id with the harness's own resume (`--continue` for Claude Code, `resume --last` for Codex) and tells it to continue where it left off.
 Every restarted goblin, resumed or handed off, is also told that a question it asked the CFO before the restart was cancelled with it, and to ask it again with `cfo notify --blocked` if it was waiting on an answer.
 That resume in place skips the dirty-worktree refusal, since uncommitted edits are the goblin's own work in progress and nothing is stopped or handed off; a switch that changes the harness, model or effort is still refused on a dirty worktree unless `--force-dirty`.
 A task an older build recorded in Herdr is refused by `cfo switch` by name, before anything is stopped or written.
-A `/` or `$` command gets the completion popup's longer wait before Enter, as on the Herdr path, and is reported submitted once but unconfirmed rather than awaited, because `/exit` ends the harness and `/model` opens a picker; check it with `cfo peek` rather than sending it again.
+A `/` or `$` command gets the completion popup's longer wait before Enter and is reported submitted once but unconfirmed rather than awaited, because `/exit` ends the harness and `/model` opens a picker; check it with `cfo peek` rather than sending it again.
 The monitor supervises a native goblin as it does a Herdr one: its host's record says whether its terminal runs, and the harness's own screen, read the way the spawn reads it, says whether a turn is in progress, a dialog waits on a person or the composer waits for input.
 Its progress evidence is the processes its terminal's program started; its transcript is not located yet, since no Herdr session names it, so only those processes count as progress before a stale wake.
 The board's runtime line for a native task names its terminal instead of Herdr.
@@ -437,9 +438,9 @@ The board's runtime line for a native task names its terminal instead of Herdr.
 It asks nothing of Herdr for a native task, so a machine without Herdr retires its native goblins; only a Herdr task needs Herdr.
 The orphan sweep (`cfo reap` and the watcher's) refuses when a running Herdr server for its session cannot be read, since every goblin in it would read as an orphan, and sweeps on the native hosts and the process table alone when no Herdr server runs for its session, so no pane can exist; a test fixture's server for another session or a Herdr CLI call does not stop it.
 A missing or stale registration shows on the board as one banner, and in the CFO terminal as its own state, naming what went stale and the fix, `cfo register` in the CFO session.
-On Windows normal message delivery holds that registration against replacement and validates the live process/start time, foreground process group, registered agent, pane, workspace, tab and terminal ID before using a required-agent sender.
-Missing or changed identity is refused, never passed to the explicit-pane shell fallback.
-Herdr acceptance counters establish accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
+On Windows normal message delivery holds that registration against replacement and validates the live process and start time and that the registered terminal's host still names that process as its program before it types anything.
+Missing or changed identity is refused with nothing typed.
+The CFO's own prompt hook establishes accepted delivery; the current native contract cannot prove a model response or provide an atomic process-identity compare-and-send operation.
 Terminal input pins the exact terminal ID and task generation, checks process ownership and pipeline custody on the schedule above, and consumes ordered input identities once.
 Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
@@ -471,7 +472,7 @@ Recurring tool actions (open in VS Code, open folder, open pull request, refresh
 Decisions and one-off commands keep a short word, for example Send decision, Retry or Show the next 300 lines.
 Every connector, MCP server, credential, harness and model provider shows a mark beside its name: the brand's mark from Simple Icons where one exists, a plain glyph where the owner withholds its mark, the Model Context Protocol mark for an unknown MCP server and a key for an unknown credential.
 Delivery reads as a mark: one check once the supervisor accepted it, two checks once delivered; only a failed or unconfirmed delivery is spelled out, with what to check before sending again.
-An answer to a question or on a review item, to a goblin or to a CFO, and a `cfo answer` to a goblin, that arrives while it is working, such as inside a long tool call, waits in its input until that turn ends, and nothing can show it taken before then (the turn moves none of Herdr's counters, and a native harness's prompt hook fires only when it takes it), so it counts as delivered once submitted; anything else sent to a working agent, such as a `cfo send` steer, a run result or a review request, still reads unconfirmed.
+An answer to a question or on a review item, to a goblin or to a CFO, and a `cfo answer` to a goblin, that arrives while it is working, such as inside a long tool call, waits in its input until that turn ends, and nothing can show it taken before then (a harness's prompt hook fires only when it takes it), so it counts as delivered once submitted; anything else sent to a working agent, such as a `cfo send` steer, a run result or a review request, still reads unconfirmed.
 A review answer's own action keeps one check, because it succeeds whether the answer reached the goblin or went to the CFO; only its review item says which.
 Status words say what is happening in plain words, such as Working, In review gate, Waiting on you, Waiting on the CFO or Merged, verifying, never the evidence the supervisor holds.
 Text is never smaller than 15 px.
@@ -527,11 +528,11 @@ When the asking goblin has a review page live, the card and its gallery offer it
 An image must be a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, reached without a symlink or junction, and `cfo notify` refuses a wrong count or a bad image before anything is recorded.
 The board never sees an image's path: it serves image n of a question at `/api/questions/<id>/images/<n>`, checks the file again on every request, and stops serving once the task restarts or ends.
 A blocked notify without an `options:` marker, and every other worker alert, stays in the CFO wake queue only.
-Only a process running under the task's own terminal can surface its notify, by the same proof `cfo register` uses: under the harness in the foreground of its Herdr pane, or under the program of its native terminal, whose host must answer.
+Only a process running under the task's own terminal can surface its notify, by the same proof `cfo register` uses: under the program of its native terminal, whose host must answer.
 A notify that fails that proof or offers more than eight choices still wakes the CFO, and `cfo notify` prints why the board could not show it.
 Such a question never reaches the board, so once it has had 30 seconds to arrive `cfo answer` sends the CFO's choice straight to the goblin that asked, marks the notify answered and records nothing on the board; it refuses, sending nothing, when the goblin's current generation started after the notify, since that goblin never asked.
 The question is bound to the task generation and terminal that asked.
-The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned or moved successor: through Herdr to its pane, or typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
+The Overlord's answer goes to that goblin exactly once, never through the CFO and never to a respawned successor: typed into its native terminal the way `cfo send` types, submitted once its composer shows it and delivered once the harness works on it.
 The notify then reads answered: `cfo drain` prints the board's answer and acks the record without `--ack-blocking`, and the monitor stops re-asking it.
 The CFO still acks it in the ordinary way.
 Once the CFO acks a notify it handled itself, the board retires its copy, and an answer queued before that ack is refused with nothing sent.
@@ -591,7 +592,7 @@ cfo review --id dispatch-review-1 --title "Pick the dispatch order" --lavish .la
 cfo deliver --id setbacks-1204-oak --title "Setbacks and envelope, 1204 Oak St" --file "$env:USERPROFILE\Desktop\setbacks-1204-oak-st.pdf"
 ```
 
-A goblin runs it from its own Herdr pane or native terminal, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
+A goblin runs it from its own native terminal, proven the way its questions are; the registered primary CFO omits `--task`, and only a goblin's item takes images.
 The ID is 8 to 128 letters, digits, dots, dashes or underscores; republishing the same ID with the same content changes nothing, and other content under that ID is refused.
 Up to twelve images, each a PNG, JPEG, GIF or WebP of at most 10 MiB inside the task's worktree, task scratch or data directory, are checked like a question's and copied under `state/reviews`, so the item outlives the worktree and the goblin; `data/` is never used, because it is pushed.
 A `--lavish` link follows the presentation URL rule below, and a refusal names the rule it broke.
@@ -681,7 +682,7 @@ cfo present --id browser-walkthrough-001 --task task-id --kind browser --url htt
 A goblin proves itself the way it does for a question: the command must run under the task's own Herdr pane or native terminal, so no native hook is needed and a goblin spawned while serve runs can present at once.
 Its report names no native session, and the board treats it as live while the task's own runtime evidence is fresh.
 `--generation` is optional and refused when it is no longer the task's current generation.
-Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in a Herdr pane or a native terminal as it does for a question.
+Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in its native terminal as it does for a question.
 A URL must be https, or plain http where it never crosses an untrusted network: this machine (127.0.0.1, localhost, ::1) or the tailnet (`*.ts.net` names and 100.64.0.0/10 addresses), whose traffic Tailscale encrypts.
 The tailnet URL Lavish returns is therefore kept exactly as returned and opens on the Overlord's phone through the tailnet as well as on this machine, and every refusal names the rule the URL broke.
 For Lavish, use `lavish-axi <file> --no-open`, then report the actual successful session URL; do not republish a user-ended session.

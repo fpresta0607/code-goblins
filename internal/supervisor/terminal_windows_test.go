@@ -233,7 +233,7 @@ func TestTerminalPasteCannotEndItselfEarly(t *testing.T) {
 func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.Server, string, *cfoRunner) {
 	t.Helper()
 	store, _ := testStore(t)
-	_, identity, runner, cfo := primaryFixture(t, store)
+	_, identity, runner, cfo := herdrPrimaryFixture(t, store)
 	runner.socket = herdrtest.NewSocket(t)
 	s := &Service{Store: store, Options: Options{CFO: cfo}, Instance: "instance", done: make(chan struct{})}
 	h := NewHTTP(s, "", nil)
@@ -375,7 +375,7 @@ func TestNativeBindingRejectsChangedTerminalAndKnownExitedProcess(t *testing.T) 
 
 func TestTaskTerminalIdentityIgnoresDeliveryMetadata(t *testing.T) {
 	store, h := testStore(t)
-	_, _, runner, cfo := primaryFixture(t, store)
+	_, _, runner, cfo := herdrPrimaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	meta.Mode = "local-only"
 	_ = state.WriteTaskMeta(h.State, meta)
@@ -404,7 +404,7 @@ func TestTaskTerminalIdentityIgnoresDeliveryMetadata(t *testing.T) {
 
 func TestMissingTerminalRegistrationIsNotATransientConnection(t *testing.T) {
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
+	_, _, _, cfo := herdrPrimaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	meta.HerdrPaneID = ""
 	meta.Backend = ""

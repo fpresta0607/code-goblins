@@ -284,7 +284,8 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 		}
 	}
 	t.Setenv("CFO_HOME", dir)
-	// No Herdr pane, so the Command Center step stops before any Herdr call.
+	// No native terminal, so the Command Center step stops at the goblin's
+	// proof.
 	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "g1", Project: worktree, Worktree: worktree, Harness: "codex", Mode: "no-mistakes", Kind: "ship", SpawnGen: "g1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +431,7 @@ func TestNotifyWaitNamesTheLavishPageTheOverlordAnswersOn(t *testing.T) {
 		t.Fatalf("status = %q after refused notifies, want nothing recorded", lines)
 	}
 
-	// g1 is no goblin Herdr knows, so the wait's item cannot be published and
+	// g1 runs in no native terminal, so the wait's item cannot be published and
 	// nothing would watch the page: the notify fails loudly, and the CFO still
 	// has the wait.
 	var stdout, stderr bytes.Buffer

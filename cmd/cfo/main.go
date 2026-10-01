@@ -29,7 +29,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -116,9 +115,9 @@ type commandRuntime struct {
 	spawn         func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
 	switchTask    func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
 	sendText      func(context.Context, home.Home, string, string) error
-	sendKey       func(context.Context, home.Home, string, string) error
+	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
-	peek          func(context.Context, home.Home, string, int) (string, error)
+	peek          func(home.Home, string, int) (string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -209,17 +208,12 @@ func defaultCommandRuntime() commandRuntime {
 			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)
-			send := func() error {
-				return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Text(ctx, target, text)
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				send = func() error {
-					return spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}.SendNative(ctx, meta, fleet.Stamp(text))
-				}
-			}
-			if err := send(); err != nil {
+			receipt := supervisor.PrepareSendActivity(h, target)
+			if err := (spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}).SendNative(ctx, meta, fleet.Stamp(text)); err != nil {
 				return err
 			}
 			if err := receipt(); err != nil {
@@ -227,12 +221,12 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return nil
 		},
-		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
+		sendKey: func(h home.Home, target, key string) error {
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Key(ctx, target, key)
+			return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
 		},
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
 			return spawn.AuthRefresher{

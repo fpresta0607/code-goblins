@@ -76,7 +76,7 @@ var faultPatterns = []struct {
 // of their own. Detect blanks lines carrying either, and the indented
 // continuation lines a pane wraps a long prompt into, before it looks for a
 // fault: text an operator wrote about a provider is not evidence about the
-// harness. The sender (fleet.Sender.Text) stamps with this same constant and
+// harness. Every send (fleet.Stamp) stamps with this same constant and
 // its test asserts the stamp through it, so a prefix change here changes the
 // stamp and the exclusion together rather than leaving one behind.
 const (

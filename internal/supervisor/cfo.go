@@ -53,7 +53,8 @@ const errNotRegistered = registrationProblem("The CFO is not registered")
 // Reading it grants no permission to guess a different pane or register one.
 type CFOConnection struct {
 	State string
-	// Terminals opens the terminal backend the CFO and its goblins run in.
+	// Terminals opens Herdr for the board's views of a terminal an older
+	// build started there. Nothing is delivered or proven through it.
 	Terminals terminal.Opener
 }
 
@@ -86,27 +87,18 @@ func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
 }
 
 // Register writes primary.json for the harness this process runs under: the
-// program in the native terminal named by host.IDVariable, or else the
-// foreground process of the Herdr pane named by HERDR_PANE_ID. Either must be
-// one of this process's own ancestors, so an inherited variable cannot
+// program in the native terminal named by host.IDVariable. That program must
+// be one of this process's own ancestors, so an inherited variable cannot
 // register someone else's terminal. That harness must also hold the home's
 // session lock, taking it when nobody live does, because the primary CFO is
-// whoever holds the home. harness names the agent when neither Herdr nor the
-// program's own name says which it is. terminals opens the backend in its own
-// session, which the caller reads from HERDR_SESSION the way spawn and the
-// watcher do.
-func Register(ctx context.Context, stateDir string, terminals terminal.Opener, harness, session string) (string, error) {
-	var (
-		primary   primaryRegistration
-		ancestry  []proc.Entry
-		harnessAt int
-		err       error
-	)
-	if id := os.Getenv(host.IDVariable); id != "" && os.Getenv("HERDR_PANE_ID") == "" {
-		primary, ancestry, harnessAt, err = nativeHarness(stateDir, id, harness)
-	} else {
-		primary, ancestry, harnessAt, err = herdrHarness(ctx, terminals, harness)
+// whoever holds the home. harness names the agent when the program's own
+// name does not say which it is.
+func Register(stateDir, harness, session string) (string, error) {
+	id := os.Getenv(host.IDVariable)
+	if id == "" {
+		return "", errors.New("this session runs in no native terminal, so the board cannot reach it")
 	}
+	primary, ancestry, harnessAt, err := nativeHarness(stateDir, id, harness)
 	if err != nil {
 		return "", err
 	}
@@ -121,11 +113,7 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 		return "", err
 	}
 	process := ancestry[harnessAt]
-	where := fmt.Sprintf("Herdr pane %s:%s", primary.Target.Session, primary.Target.Pane)
-	if primary.Host != "" {
-		where = "native terminal " + primary.Host
-	}
-	described := fmt.Sprintf("%s pid %d in %s", primary.Agent, process.PID, where)
+	described := fmt.Sprintf("%s pid %d in native terminal %s", primary.Agent, process.PID, primary.Host)
 	// primary.json's hash is the identity questions, reviews and answers are
 	// bound to, so the same process in the same terminal keeps its bytes.
 	if file, err := openPrimary(filepath.Join(stateDir, "primary.json")); err == nil {
@@ -197,120 +185,31 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	return ancestry, at, nil
 }
 
-// herdrHarness proves this process runs under the foreground process of the
-// Herdr pane named by HERDR_PANE_ID and names the agent Herdr detects there.
-func herdrHarness(ctx context.Context, terminals terminal.Opener, harness string) (primaryRegistration, []proc.Entry, int, error) {
-	pane := os.Getenv("HERDR_PANE_ID")
-	if pane == "" {
-		return primaryRegistration{}, nil, 0, errors.New("this session runs in neither a Herdr pane nor a native terminal, so the board cannot reach it")
-	}
-	backend := terminals("")
-	target := herdr.Target{Session: backend.EffectiveSession(), Pane: pane}
-	ancestry, harnessAt, err := paneHarness(ctx, backend, target)
-	if err != nil {
-		return primaryRegistration{}, nil, 0, err
-	}
-	snapshot, err := backend.Snapshot(ctx)
-	if err != nil {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("Herdr snapshot: %w", err)
-	}
-	primary := primaryRegistration{Target: target, Agent: harness}
-	for _, p := range snapshot.Panes {
-		if p.ID == pane {
-			primary.Workspace, primary.Tab, primary.Terminal = p.WorkspaceID, p.TabID, p.TerminalID
-		}
-	}
-	if primary.Terminal == "" {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("Herdr session %s does not list pane %s", target.Session, pane)
-	}
-	for _, agent := range snapshot.Agents {
-		if agent.PaneID == pane && agent.Agent != "" {
-			if harness != "" && agent.Agent != harness {
-				return primaryRegistration{}, nil, 0, fmt.Errorf("Herdr detects %s in pane %s, not %s", agent.Agent, pane, harness)
-			}
-			primary.Agent = agent.Agent
-		}
-	}
-	if primary.Agent == "" {
-		return primaryRegistration{}, nil, 0, fmt.Errorf("Herdr has not detected the agent in pane %s yet; retry once it has", pane)
-	}
-	return primary, ancestry, harnessAt, nil
-}
+// errHerdrRegistration is a registration an older build wrote for a CFO in a
+// Herdr pane. Registering again from that pane is refused, so it names its
+// own fix.
+var errHerdrRegistration = errors.New("The CFO is registered in a Herdr pane, which this build cannot reach; start the CFO again in a native terminal")
 
-// paneHarness proves the calling process runs under the harness Herdr shows
-// in the foreground of target, so a pane variable a process merely inherited
-// never passes. It returns this process's ancestry and the harness's place in
-// it.
-func paneHarness(ctx context.Context, client terminal.Backend, target herdr.Target) ([]proc.Entry, int, error) {
-	info, err := client.PaneProcessInfo(ctx, target)
-	if err != nil {
-		return nil, 0, fmt.Errorf("Herdr cannot describe pane %s: %w", target.Pane, err)
-	}
-	if info.ForegroundProcessGroupID == info.ShellPID {
-		return nil, 0, fmt.Errorf("pane %s has no harness in its foreground", target.Pane)
-	}
-	ancestry, err := proc.Ancestry(os.Getpid(), 32)
-	if err != nil {
-		return nil, 0, err
-	}
-	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == info.ForegroundProcessGroupID })
-	if at < 0 {
-		return nil, 0, fmt.Errorf("pane %s runs pid %d in its foreground, and this command does not run under it", target.Pane, info.ForegroundProcessGroupID)
-	}
-	return ancestry, at, nil
-}
-
-func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration) error {
-	if primary.Host == "" && c.Terminals == nil {
-		return errors.New("Native CFO transport is unavailable")
+// verify reports why the registered CFO cannot be reached, or nil while its
+// process runs as the program of the native terminal it registered in.
+func (c *CFOConnection) verify(primary primaryRegistration) error {
+	if primary.Host == "" {
+		return errHerdrRegistration
 	}
 	if !primary.Process.VerifiedAlive() {
 		return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
 	}
-	if primary.Host != "" {
-		// The host's job ends its terminal's program with the host, so while
-		// the program the record names runs, its host serves it.
-		if record, err := host.ReadRecord(c.State, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
-			return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
-		}
-		return nil
-	}
-	client := c.Terminals(primary.Target.Session)
-	snapshot, err := client.Snapshot(ctx)
-	if err != nil {
-		return errors.New("Herdr cannot verify the registered CFO")
-	}
-	found := false
-	for _, agent := range snapshot.Agents {
-		if agent.PaneID == primary.Target.Pane && agent.TabID == primary.Tab && agent.WorkspaceID == primary.Workspace && agent.Agent == primary.Agent {
-			found = true
-		}
-	}
-	if !found {
-		return registrationProblem("The registered CFO agent changed or is missing in Herdr pane " + primary.Target.Pane)
-	}
-	found = false
-	for _, pane := range snapshot.Panes {
-		if pane.ID == primary.Target.Pane && pane.TabID == primary.Tab && pane.WorkspaceID == primary.Workspace && pane.TerminalID == primary.Terminal {
-			found = true
-		}
-	}
-	if !found {
-		return registrationProblem("The registered CFO terminal changed or is missing in Herdr pane " + primary.Target.Pane)
-	}
-	process, err := client.PaneProcessInfo(ctx, primary.Target)
-	if err != nil {
-		return errors.New("Herdr cannot verify the registered CFO")
-	}
-	if process.ForegroundProcessGroupID != primary.Process.PID || process.ForegroundProcessGroupID == process.ShellPID {
-		return registrationProblem("The registered CFO process no longer owns its pane " + primary.Target.Pane)
+	// The host's job ends its terminal's program with the host, so while the
+	// program the record names runs, its host serves it.
+	if record, err := host.ReadRecord(c.State, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
+		return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
 	}
 	return nil
 }
 
 // check reports why the board cannot reach the registered CFO right now, or
 // nil when it can.
-func (c *CFOConnection) check(ctx context.Context) error {
+func (c *CFOConnection) check() error {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return errNotRegistered
@@ -320,7 +219,7 @@ func (c *CFOConnection) check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.verify(ctx, primary)
+	return c.verify(primary)
 }
 
 // LiveCFO returns the registered CFO's Herdr address when primary.json names
@@ -406,22 +305,8 @@ func livePrimary(stateDir string) (primaryRegistration, bool) {
 	return primary, err == nil && primary.Process.VerifiedAlive()
 }
 
-type primaryResolver struct {
-	connection *CFOConnection
-	primary    primaryRegistration
-}
-
-func (r primaryResolver) Resolve(ctx context.Context, _ string) (herdr.Target, state.TaskMeta, error) {
-	if err := r.connection.verify(ctx, r.primary); err != nil {
-		return herdr.Target{}, state.TaskMeta{}, fmt.Errorf("%w: %v", ErrRejected, err)
-	}
-	// Nonempty metadata makes registration mandatory in fleet.Sender. It can
-	// never switch to the explicit-target raw shell typing fallback.
-	return r.primary.Target, state.TaskMeta{HerdrPaneID: r.primary.Target.Pane}, nil
-}
-
-// oneLine keeps a board delivery on one line: Herdr's agent prompt drops
-// line breaks, which would run the words on either side together.
+// oneLine keeps a board delivery on one line: it is typed into a terminal,
+// where a line break would submit the words before it on their own.
 func oneLine(text string) string {
 	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(text)
 }
@@ -436,29 +321,16 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	if err != nil || current != identity {
 		return Evaluation{}, fmt.Errorf("%w: the primary CFO changed; refresh before sending", ErrRejected)
 	}
-	if primary.Host != "" {
-		return c.sendNative(ctx, primary, text)
-	}
-	guard := func(ctx context.Context, target herdr.Target, agent herdr.AgentDetail) error {
-		if target != primary.Target || agent.Agent != primary.Agent {
-			return errors.New("primary CFO agent identity changed")
-		}
-		return c.verify(ctx, primary)
-	}
-	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: primaryResolver{c, primary}, Guard: guard}
-	if err := sender.Text(ctx, "primary-cfo", oneLine("Overlord: "+text)); err != nil {
-		return Evaluation{}, err
-	}
-	return Evaluation{Reason: "Accepted by the registered CFO through Herdr."}, nil
+	return c.sendNative(ctx, primary, text)
 }
 
 // nativeSubmitSettle lets the CFO's harness take typed text before Enter
-// submits it, as the Herdr sender waits.
+// submits it.
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
-// Enter for the CFO to show it took the message, the Herdr sender's
-// confirmation budget; nativeConfirmPoll spaces the looks.
+// Enter for the CFO to show it took the message; nativeConfirmPoll spaces the
+// looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
@@ -470,7 +342,7 @@ const (
 // reports taking it. Unproven, a CFO its screen showed in a turn takes it
 // when that turn ends, and any other is unconfirmed. It is never typed again.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
-	if err := c.verify(ctx, primary); err != nil {
+	if err := c.verify(primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)

@@ -308,13 +308,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
-	s.reconcilePresentations(ctx)
+	s.reconcilePresentations()
 	s.watchPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
-		s.checkRegistration(ctx)
+		s.checkRegistration()
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr)
 		s.mu.Unlock()
@@ -431,14 +431,12 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 // checkRegistration runs on the once-a-minute recovery cycle, so a CFO that
 // exited or moved shows as one state on the board before anyone tries to
 // deliver to it.
-func (s *Service) checkRegistration(ctx context.Context) {
+func (s *Service) checkRegistration() {
 	if s.Options.CFO == nil {
 		return
 	}
-	check, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
 	problem := ""
-	if err := s.Options.CFO.check(check); err != nil {
+	if err := s.Options.CFO.check(); err != nil {
 		problem = err.Error()
 	}
 	s.mu.Lock()

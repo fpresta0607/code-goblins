@@ -21,7 +21,7 @@ const pageLink = "http://127.0.0.1:4387/session/f26e"
 // returns the task ID and the page.
 func waitOnAPage(t *testing.T, store *Store) (string, string) {
 	t.Helper()
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	page := filepath.Join(meta.Worktree, ".lavish", "plan.html")
 	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func waitOnAPage(t *testing.T, store *Store) (string, string) {
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), store.Home, connection.Terminals, meta.ID, 7, "pick a plan", pageLink, page); err != nil {
+	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -135,7 +135,7 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(context.Background(), h, cfo.Terminals, "", "dispatch-review-1", "Pick the dispatch order", pageLink, page, nil); err != nil {
+	if err := PublishReview(h, "", "dispatch-review-1", "Pick the dispatch order", pageLink, page, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

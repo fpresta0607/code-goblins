@@ -148,6 +148,27 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 	})
 }
 
+// standInAsTerminalProgram makes this test process the program of native
+// terminal id, which hostAttachTestTerminal hosts: the host's record names
+// this process, so what the test calls is proven to run in that terminal,
+// while the host still answers on its pipe.
+func standInAsTerminalProgram(t *testing.T, stateDir, id string) {
+	t.Helper()
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ChildPID = os.Getpid()
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(host.IDVariable, id)
+}
+
 // attachInConsole runs cfo attach id in a 100x30 pseudo console of its own.
 func attachInConsole(t *testing.T, stateDir, id string) *console {
 	t.Helper()

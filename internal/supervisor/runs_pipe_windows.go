@@ -38,12 +38,10 @@ const (
 	errorPipeBusy           = syscall.Errno(231)
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
-	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the proof and work for it, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
-	runReadTimeout    = 10 * time.Second
-	runRequestTimeout = 20 * time.Second
-	runReplyTimeout   = 30 * time.Second
+	// runReadTimeout bounds how long a client takes to send its request, and
+	// runReplyTimeout how long cfo run-request waits for the answer.
+	runReadTimeout  = 10 * time.Second
+	runReplyTimeout = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -125,14 +123,14 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 			_ = syscall.CloseHandle(syscall.Handle(handle))
 			continue
 		}
-		go s.handleRunClient(ctx, syscall.Handle(handle), connected)
+		go s.handleRunClient(syscall.Handle(handle), connected)
 	}
 }
 
 // handleRunClient answers one run request with the reason it was refused, or
 // nothing when the item is on the board. A client that has not sent its
 // request within runReadTimeout is disconnected unanswered.
-func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, connected time.Time) {
+func (s *Service) handleRunClient(handle syscall.Handle, connected time.Time) {
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
@@ -162,15 +160,13 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	case json.Unmarshal(line, &req) != nil:
 		reply.Error = "the run request is not valid JSON"
 	default:
-		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
 		s.runRequests.Lock()
 		if req.Kind == "" {
-			err = s.acceptRunRequest(ctx, int(pid), connected, req)
+			err = s.acceptRunRequest(int(pid), connected, req)
 		} else {
-			err = s.acceptCFOItem(ctx, int(pid), connected, req)
+			err = s.acceptCFOItem(int(pid), connected, req)
 		}
 		s.runRequests.Unlock()
-		cancel()
 		if err != nil {
 			reply.Error = err.Error()
 		} else {
