@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#071c1a"/><path d="M10 14h20v12H10zM14 10v20m12-20v20" fill="none" stroke="#00e59b" stroke-width="3"/><path d="M16 18h3v4h-3zm6 0h3v4h-3z" fill="#00e59b"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <filter id="eye-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="1.6"/></filter>
+    <clipPath id="head"><circle cx="32" cy="36" r="18"/></clipPath>
+  </defs>
+  <path d="M21 31 1.5 18.5Q5 37 20 45Z" fill="#7fd48a"/>
+  <path d="M43 31 62.5 18.5Q59 37 44 45Z" fill="#7fd48a"/>
+  <path d="M19 34 8 26.5Q10.5 37 19 41.5Z" fill="#4a9d5a"/>
+  <path d="M45 34 56 26.5Q53.5 37 45 41.5Z" fill="#4a9d5a"/>
+  <path d="M26.5 19.5Q30 9 41 7.5Q35.5 12 37.5 19.5Z" fill="#7fd48a"/>
+  <circle cx="32" cy="36" r="18" fill="#7fd48a"/>
+  <rect x="12" y="42" width="40" height="14" fill="#4a9d5a" clip-path="url(#head)"/>
+  <rect x="17.5" y="27.5" width="29" height="17" rx="8.5" fill="#05080b"/>
+  <g fill="#5ef2c4" opacity=".7" filter="url(#eye-glow)"><circle cx="25.5" cy="36" r="4.5"/><circle cx="38.5" cy="36" r="4.5"/></g>
+  <g fill="#d8fbea"><circle cx="25.5" cy="36" r="4"/><circle cx="38.5" cy="36" r="4"/></g>
+</svg>

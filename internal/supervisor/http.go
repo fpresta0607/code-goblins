@@ -100,6 +100,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/voice" && r.Method == "POST":
 		h.voice(w, r)
+	case r.URL.Path == "/api/alive" && r.Method == "GET":
+		// Liveness for goblins and its status and stop: the supervisor's own
+		// pid, answered without building the fleet's snapshot, which can
+		// take longer than any launcher waits.
+		respond(w, 200, map[string]int{"pid": os.Getpid()})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
 		snapshot, err := h.Service.Snapshot()
 		if err != nil {
@@ -162,9 +167,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" {
 			http.NotFound(w, r)
 			return
+		}
+		if r.URL.Path == "/manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json")
 		}
 		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")

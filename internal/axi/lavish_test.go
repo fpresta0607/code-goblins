@@ -2,6 +2,7 @@ package axi
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,12 @@ const (
 		"  ended_by: user\r\n" +
 		"prompts[1]{id,text}:\r\n" +
 		"  p1,\"Ship option B, but keep the status: line short\"\r\n" +
+		"next_step: \"Apply the feedback.\"\r\n"
+	lavishTwoPrompts = "session:\r\n" +
+		"  status: feedback\r\n" +
+		"prompts[2]{uid,prompt,selector,tag,text}:\r\n" +
+		"  \"\",LOVE EVERY BIT OF IT,\"\",message,Freeform message\r\n" +
+		"  u7,\"Make it bigger, then \\\"ship\\\" it\",h1,element,Heading\r\n" +
 		"next_step: \"Apply the feedback.\"\r\n"
 	lavishEndedByAgent = "session:\n" +
 		"  file: \"C:\\\\work\\\\.lavish\\\\plan.html\"\n" +
@@ -66,6 +73,31 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 				t.Fatalf("Poll = %+v, %v; want status %q, ended %v by %q and the whole output", poll, err, test.status, test.ended, test.endedBy)
 			}
 			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
+		})
+	}
+}
+
+// A poll's prompts are what the Overlord wrote on the page, read from the
+// prompt column of lavish-axi's prompt table, quoted or not, so a board can
+// say what he answered; a table without that column, or prompts given as a
+// list, read as none, and the whole output is still kept.
+func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
+	for name, test := range map[string]struct {
+		output string
+		want   []string
+	}{
+		"two prompts, one quoted": {lavishTwoPrompts, []string{"LOVE EVERY BIT OF IT", `Make it bigger, then "ship" it`}},
+		"no prompt column":        {lavishFeedbackEnded, nil},
+		"no prompts":              {lavishWaiting, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
+
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, time.Second)
+
+			if err != nil || !slices.Equal(poll.Prompts, test.want) {
+				t.Fatalf("Poll = %+v, %v; want prompts %q", poll, err, test.want)
+			}
 		})
 	}
 }
