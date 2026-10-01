@@ -776,7 +776,7 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 			t.Fatalf("hold = %q, want both keys a --force does answer: the task and the pid its kill needs", hold)
 		}
 		if strings.Contains(hold, "act on it") {
-			t.Fatalf("hold = %q, want no promise that the sweep acts, because the agent refusal stands whatever is forced", hold)
+			t.Fatalf("hold = %q, want no promise that the sweep acts, because the evidence refusal stands whatever is forced", hold)
 		}
 		if !strings.Contains(hold, "resolve it rather than overriding it") {
 			t.Fatalf("hold = %q, want it to say the evidence has to be resolved rather than forced", hold)

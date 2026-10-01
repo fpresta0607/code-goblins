@@ -221,11 +221,11 @@ func TestCleanupRefusals(t *testing.T) {
 		{
 			name: "incomplete metadata",
 			setup: func(f *cleanupFixture) {
-				if err := state.WriteMeta(filepath.Join(f.stateDir, "g1.meta"), map[string]string{"backend": "native", "project": f.project}); err != nil {
+				if err := state.WriteMeta(filepath.Join(f.stateDir, "g1.meta"), map[string]string{"backend": "native", "worktree": f.worktree}); err != nil {
 					t.Fatal(err)
 				}
 			},
-			want: "missing worktree",
+			want: "missing project",
 		},
 		{
 			// This build cannot read a Herdr pane, so it cannot prove one
