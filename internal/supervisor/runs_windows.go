@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
@@ -38,7 +38,7 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 	if err := fsx.AtomicWriteFile(args[len(args)-1], runner); err != nil {
 		return RunStarted{}, err
 	}
-	cmd := exec.Command(shell, args...)
+	cmd := execx.Command(shell, args...)
 	flags := uint32(createNewConsole)
 	if l.Admin {
 		helper, err := runShellPath("powershell", exec.LookPath, exists, systemRoot)
@@ -49,11 +49,13 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 		if err := fsx.AtomicWriteFile(elevate, elevateScript(shell, args, filepath.Join(l.Dir, "declined.txt"))); err != nil {
 			return RunStarted{}, err
 		}
-		cmd = exec.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
+		cmd = execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
 		flags = createNoWindow
 	}
 	cmd.Dir = l.Cwd
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
+	// CREATE_NEW_CONSOLE outranks the CREATE_NO_WINDOW execx may have set, so
+	// the run's window shows even from a supervisor with no console.
+	cmd.SysProcAttr.CreationFlags |= flags
 	if err := cmd.Start(); err != nil {
 		return RunStarted{}, err
 	}

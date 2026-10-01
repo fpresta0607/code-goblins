@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -74,7 +75,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 func (Git) run(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...)...)
+	cmd := execx.CommandContext(ctx, "git", append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...)...)
 	cmd.Dir = dir
 	// Optional locks are what let git status rewrite the index, and these
 	// reads run every minute inside worktrees a goblin is using.
