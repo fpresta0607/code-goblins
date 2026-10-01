@@ -488,8 +488,8 @@ Every surface wears SIQstack's glass from SIQshift's brand stylesheet: a 135-deg
 The tokens live once, in `frontend/src/styles.css` `:root`, under SIQshift's and SIQstack's own names.
 A selected card has a solid green edge and glow, and keyboard focus is SIQstack's 3 px blue ring, so a focused control never reads as selected.
 The active tab of a pill switch carries SIQstack's green, blue and purple ring; primary buttons are SIQshift's solid green pill.
-The goblins' dialogue boxes keep their lantern-and-leather look and add a green glass hairline that follows their stepped frame.
-Status colors keep their meaning in every theme: working blue, waiting and next amber, failed red, merged purple, done mint.
+The goblins' dialogue boxes keep their lantern-and-leather look and add a green glass hairline that follows their stepped frame, with a faint green glow around it.
+The board has one dark theme, and status colors keep their meaning in it: working blue, waiting and next amber, failed red, merged purple, done mint.
 
 ## Deliberate CFO questions
 
