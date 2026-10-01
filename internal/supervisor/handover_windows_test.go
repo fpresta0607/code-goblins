@@ -30,11 +30,22 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 		t.Fatal(err)
 	}
 	// Not t.TempDir: a process just ended can keep its image open for a
-	// moment, so the copy is removed with a retry once the process is gone.
+	// moment. This cleanup is registered first so it runs last, once the
+	// process below has ended; it retries, and reports a removal that still
+	// fails rather than hiding it.
 	dir, err := os.MkdirTemp("", "cfo-stand-in-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		err := os.RemoveAll(dir)
+		for deadline := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(deadline); err = os.RemoveAll(dir) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil {
+			t.Errorf("remove the stand-in's copy: %v", err)
+		}
+	})
 	path := filepath.Join(dir, program)
 	copyExecutable(t, self, path)
 	cmd := exec.Command(path, arguments...)
@@ -51,9 +62,6 @@ func startStandIn(t *testing.T, stateDir, mode, program string, arguments ...str
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		<-stand.exited
-		for deadline := time.Now().Add(10 * time.Second); os.RemoveAll(dir) != nil && time.Now().Before(deadline); {
-			time.Sleep(100 * time.Millisecond)
-		}
 	})
 	if mode != "idle" {
 		for deadline := time.Now().Add(15 * time.Second); !lock.HeldByNamed(stateDir, watchLock, stand.pid); time.Sleep(20 * time.Millisecond) {
