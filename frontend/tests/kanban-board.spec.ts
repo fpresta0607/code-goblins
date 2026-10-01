@@ -94,3 +94,24 @@ test("when In progress pages, its paused tasks still show on the board", async (
   const paused = (await inProgress(page).getByRole("region", { name: "Paused", exact: true }).boundingBox())!;
   expect(paused.y + paused.height).toBeLessThanOrEqual(canvas.y + canvas.height);
 });
+
+// A task paused from a page not shown brings the divider under the page
+// shown, and the page gives it room, so it shows without scrolling the board.
+test("a task paused from a page not shown still shows on the board", async ({ page }) => {
+  await page.setViewportSize({ width: 2400, height: 1100 });
+  const working = Array.from({ length: 12 }, (_, index) => task("working-" + (index + 1), "working"));
+  await open(page, working);
+  await expect(inProgress(page).locator(".pager")).toBeVisible();
+  await expect(inProgress(page).locator("[data-sort-id='working-1']")).toBeVisible();
+  await expect(inProgress(page).locator("[data-sort-id='working-12']")).toHaveCount(0);
+  const paused = { healthy: true, instance: "fixture", cfo_runs: true, revision: 2, attention: [], tasks: [...working.slice(0, 11), task("working-12", "paused")] };
+  await page.route("**/api/events", (route) => route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(paused)}\n\n` }));
+  const section = inProgress(page).getByRole("region", { name: "Paused", exact: true });
+  await expect(section.getByRole("button", { name: "Resume working-12" })).toBeVisible();
+  await expect(inProgress(page).locator("[data-sort-id='working-1']")).toBeVisible();
+  await expect.poll(async () => {
+    const canvas = (await page.locator(".canvas-region").boundingBox())!;
+    const box = (await section.boundingBox())!;
+    return box.y + box.height <= canvas.y + canvas.height;
+  }).toBe(true);
+});
