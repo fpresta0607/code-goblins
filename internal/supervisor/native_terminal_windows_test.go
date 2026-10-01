@@ -114,17 +114,19 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("registered " + described)
-		case strings.HasPrefix(line, "orphaned "):
+		case strings.HasPrefix(line, "orphaned "), strings.HasPrefix(line, "orphaned-in-herdr "):
 			// Git Bash runs an MSYS program such as timeout by replacing its own
 			// Windows process, so whatever timeout starts has a parent that
 			// already exited: a relay starts this program on the one line and
-			// exits at once.
+			// exits at once. orphaned-in-herdr also gives it a Herdr pane's
+			// variable, as a Herdr server started from this terminal would.
+			where, rest, _ := strings.Cut(line, " ")
 			input := filepath.Join(filepath.Dir(args[1]), "orphaned.txt")
-			if err := os.WriteFile(input, []byte(strings.TrimPrefix(line, "orphaned ")+"\nexit 0\n"), 0o600); err != nil {
+			if err := os.WriteFile(input, []byte(rest+"\nexit 0\n"), 0o600); err != nil {
 				record("orphan error: " + err.Error())
 				continue
 			}
-			if err := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalRelay$", "--", "native-terminal-relay", input, args[1], args[2]).Run(); err != nil {
+			if err := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalRelay$", "--", "native-terminal-relay", input, args[1], args[2], where).Run(); err != nil {
 				record("orphan error: " + err.Error())
 			}
 		case line == "size":
@@ -171,7 +173,7 @@ const orphanOf = "NATIVE_TERMINAL_ORPHAN_OF"
 // process that has exited, as Git Bash leaves what timeout runs.
 func TestNativeTerminalRelay(t *testing.T) {
 	args := flag.Args()
-	if len(args) != 4 || args[0] != "native-terminal-relay" {
+	if len(args) != 5 || args[0] != "native-terminal-relay" {
 		t.Skip("runs only as a native terminal test's relay")
 	}
 	input, err := os.Open(args[1])
@@ -181,6 +183,9 @@ func TestNativeTerminalRelay(t *testing.T) {
 	program := exec.Command(os.Args[0], "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", args[2], args[3])
 	program.Stdin = input
 	program.Env = append(os.Environ(), orphanOf+"="+strconv.Itoa(os.Getpid()))
+	if args[4] == "orphaned-in-herdr" {
+		program.Env = append(program.Env, "HERDR_PANE_ID=w9:p9")
+	}
 	// The MSYS runtime starts its programs outside the terminal's job, which
 	// lets a process break away, so the relay's program leaves it too.
 	program.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB}

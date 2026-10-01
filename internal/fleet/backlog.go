@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -59,7 +60,7 @@ type BacklogRow struct {
 func ReadBacklog(h home.Home) (BacklogRows, error) {
 	path := filepath.Join(h.Data, "backlog.md")
 	result := BacklogRows{Path: path, Queued: []BacklogRow{}, Parked: []BacklogRow{}, Done: []BacklogRow{}}
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
 	}

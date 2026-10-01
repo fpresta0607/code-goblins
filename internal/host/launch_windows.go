@@ -7,11 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -38,7 +39,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		return Record{}, err
 	}
 	logPath := filepath.Join(stateDir, "hosts", spec.ID+".log")
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return Record{}, err
 	}
@@ -47,10 +48,10 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		"--cols", strconv.Itoa(spec.Cols), "--rows", strconv.Itoa(spec.Rows), "--")
 	args = append(args, spec.Args...)
 	start := func(flags uint32) (*exec.Cmd, error) {
-		cmd := exec.Command(command[0], args...)
+		cmd := execx.Command(command[0], args...)
 		cmd.Env = env
 		cmd.Stdout, cmd.Stderr = log, log
-		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
+		cmd.SysProcAttr.CreationFlags |= flags
 		return cmd, cmd.Start()
 	}
 	// A hidden console of its own, so nothing the host runs opens a window.

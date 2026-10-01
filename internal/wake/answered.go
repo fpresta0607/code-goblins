@@ -49,7 +49,7 @@ func MarkAnswered(dir string, seq int, by, answer string) error {
 // was its only writer.
 func attachAnswers(dir string, records []Record) ([]Record, error) {
 	for i := range records {
-		data, err := os.ReadFile(filepath.Join(dir, answeredDir, strconv.Itoa(records[i].Seq)))
+		data, err := fsx.ReadFile(filepath.Join(dir, answeredDir, strconv.Itoa(records[i].Seq)))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

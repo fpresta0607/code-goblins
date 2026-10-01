@@ -23,6 +23,8 @@ const DONE_MS = 750;
 // "You're all done" shows this long before the Command Center closes.
 const ALL_DONE_MS = 1600;
 
+// A focus opens its item; one without a key opens the first item waiting on
+// the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
@@ -93,7 +95,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    if (focus) { setOpen(true); show(focus.key); setInbox(false); }
+    const key = focus?.key || waiting[0]?.key;
+    if (focus && key) { setOpen(true); show(key); setInbox(false); }
+    else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
   // or "You're all done" when nothing else waits.
@@ -122,6 +126,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
+  const shownKey = item?.key || "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -145,11 +150,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (showing && !element.open) {
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
-      // Start on the question itself, not the close button.
-      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus();
+      // Start on the question itself, not the close button, with the
+      // Command Center at its top however it was left.
+      element.scrollTop = 0;
+      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus({ preventScroll: true });
     }
     if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
   }, [showing]);
+  // Each item shows from its top; within one item the scroll stays where he
+  // puts it.
+  useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false);
