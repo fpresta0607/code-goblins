@@ -3,10 +3,12 @@
 package wake
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -287,8 +289,8 @@ func AckThrough(dir string, seq int) error {
 // it displayed. If a future change filters the listing again, the tool
 // withholds the ack line instead of printing one that overreaches.
 //
-// Apart from that withheld-ack line, which the loop below keeps unreachable,
-// Render prints one of four output shapes: an empty queue with no pending
+// Apart from that withheld-ack line, which only RenderWithin's bounded
+// listing reaches, Render prints one of four output shapes: an empty queue with no pending
 // episode (nothing further); an empty queue with a pending episode; a
 // non-empty queue with a pending episode (the full listing plus a
 // generation-qualified ack command); and a non-empty queue with NO pending
@@ -301,54 +303,81 @@ func AckThrough(dir string, seq int) error {
 // --recovery-generation 0: acking generation 0 against a home that never had
 // an episode would fabricate one (see AckEpisode's guard).
 func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
+	_, err := RenderWithin(w, records, ep, now, math.MaxInt)
+	return err
+}
+
+// RenderWithin is Render for a reader with room for only so many bytes: a
+// hook's output reaches a session whole only up to a limit, and a listing the
+// harness cut off would still have printed its ack line into the part nobody
+// was handed. It prints the records that fit, oldest first and each one
+// whole, and reports whether that was all of them. A listing that is not
+// withholds the ack line and says how many records it left out, because the
+// ack command retires every record at or below its sequence.
+func RenderWithin(w io.Writer, records []Record, ep Episode, now time.Time, room int) (bool, error) {
 	if len(records) == 0 && !ep.Pending {
 		_, err := fmt.Fprintln(w, "WAKE QUEUE: empty")
-		return err
+		return true, err
 	}
 
-	if _, err := fmt.Fprintf(w, "WAKE QUEUE: %d pending\n", len(records)); err != nil {
-		return err
+	header := fmt.Sprintf("WAKE QUEUE: %d pending\n", len(records))
+	if _, err := io.WriteString(w, header); err != nil {
+		return false, err
 	}
+	withheld := func(left int) string {
+		return fmt.Sprintf("WAKE_ACK_WITHHELD: %d of the %d records are not listed above; run \"cfo drain\" to read every record and get the ack command, because acking from this listing would retire records nobody has read\n", left, len(records))
+	}
+	used := len(header) + len(withheld(len(records)))
 	displayed := make([]Record, 0, len(records))
 	for _, rec := range records {
-		if verb, question, options, ok := decision(rec); ok {
-			if err := renderDecision(w, rec, verb, question, options, now); err != nil {
-				return err
-			}
-			displayed = append(displayed, rec)
-			continue
+		var row bytes.Buffer
+		if err := renderRecord(&row, rec, now); err != nil {
+			return false, err
 		}
-		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
-		if rec.Key != rec.Kind {
-			line += terminalText(rec.Key) + ": "
+		if row.Len() > room-used {
+			break
 		}
-		line += terminalText(rec.Detail)
-		if _, err := fmt.Fprintln(w, line); err != nil {
-			return err
+		used += row.Len()
+		if _, err := w.Write(row.Bytes()); err != nil {
+			return false, err
 		}
 		displayed = append(displayed, rec)
 	}
 
+	// The ack sequence comes from the rows written out, never from the full
+	// set: an ack line covering records nobody read is a silent failure.
+	// TestAckSequenceRefusesToOutrunTheListing asserts the premise by driving
+	// ackSequence with a narrowed listing.
 	maxSeq, complete := ackSequence(records, displayed)
-	// Unreachable today by construction: the loop above appends every row it
-	// prints, so displayed always accounts for records. It is kept because the
-	// failure it guards is silent - a filtered listing would print an ack line
-	// covering records nobody read. TestAckSequenceRefusesToOutrunTheListing
-	// asserts the premise by driving ackSequence with a narrowed listing.
 	if !complete {
-		_, err := fmt.Fprintln(w, "WAKE_ACK_WITHHELD: the listing above does not account for every unacknowledged record; acking now would retire records nobody has read")
-		return err
+		_, err := io.WriteString(w, withheld(len(records)-len(displayed)))
+		return false, err
 	}
 
 	if !ep.Pending {
 		_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
-		return err
+		return true, err
 	}
 
 	if _, err := fmt.Fprintf(w, "RECOVERY EPISODE: pending, generation %d\n", ep.Gen); err != nil {
-		return err
+		return false, err
 	}
 	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
+	return true, err
+}
+
+// renderRecord prints one record: a decision as its block, anything else as
+// one line.
+func renderRecord(w io.Writer, rec Record, now time.Time) error {
+	if verb, question, options, ok := decision(rec); ok {
+		return renderDecision(w, rec, verb, question, options, now)
+	}
+	line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
+	if rec.Key != rec.Kind {
+		line += terminalText(rec.Key) + ": "
+	}
+	line += terminalText(rec.Detail)
+	_, err := fmt.Fprintln(w, line)
 	return err
 }
 

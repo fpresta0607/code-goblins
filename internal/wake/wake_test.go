@@ -193,6 +193,82 @@ func TestAckSequenceRefusesToOutrunTheListing(t *testing.T) {
 	}
 }
 
+// A hook's output reaches a session whole only up to a limit, so its listing
+// is bounded. One with room for every record is Render's; one without prints
+// the oldest records that fit, each whole, and no ack line: that line retires
+// every record at or below its sequence, and the reader was not shown them
+// all.
+func TestRenderWithinListsWholeRecordsAndWithholdsAnAckItCannotBack(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	records := []Record{
+		{Seq: 11, Time: now, Kind: "stale", Key: "cg-one", Detail: "turn ended with nothing running"},
+		{Seq: 12, Time: now.Add(-time.Hour), Kind: "notify", Key: "cg-two",
+			Detail: "blocked: merge or hold? options: merge now | hold for review"},
+		{Seq: 13, Time: now, Kind: "stale", Key: "cg-three", Detail: "turn ended with nothing running"},
+	}
+	var first, decision, bare bytes.Buffer
+	if err := renderRecord(&first, records[0], now); err != nil {
+		t.Fatal(err)
+	}
+	if err := renderRecord(&decision, records[1], now); err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Count(decision.String(), "\n"); lines < 3 {
+		t.Fatalf("the fixture's decision is %d lines, so no room can end inside it", lines)
+	}
+	// With no room at all the listing is its count and its withheld line,
+	// which is what any partial listing spends before its first record.
+	if _, err := RenderWithin(&bare, records, Episode{}, now, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name       string
+		room       int
+		isWhole    bool
+		wantListed []string
+		wantAbsent []string
+		wantLine   string
+	}{
+		{"room for every record", 4096, true, []string{"  11  stale", decision.String(), "  13  stale"}, []string{"WAKE_ACK_WITHHELD"}, "WAKE_ACK_REQUIRED: cfo drain --ack-through 13\n"},
+		{"room that ends inside the decision", bare.Len() + first.Len() + decision.Len()/2, false, []string{"  11  stale"}, []string{"DECISION", "question:", "  13  stale", "WAKE_ACK_REQUIRED"}, "WAKE_ACK_WITHHELD: 2 of the 3 records are not listed above"},
+		{"no room for any record", 0, false, nil, []string{"  11  stale", "DECISION", "WAKE_ACK_REQUIRED"}, "WAKE_ACK_WITHHELD: 3 of the 3 records are not listed above"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var out bytes.Buffer
+
+			isWhole, err := RenderWithin(&out, records, Episode{}, now, test.room)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := out.String()
+			if isWhole != test.isWhole {
+				t.Errorf("RenderWithin reported whole = %v, want %v:\n%s", isWhole, test.isWhole, got)
+			}
+			if !strings.HasPrefix(got, "WAKE QUEUE: 3 pending\n") {
+				t.Errorf("the listing does not count every pending record:\n%s", got)
+			}
+			for _, want := range append(test.wantListed, test.wantLine) {
+				if !strings.Contains(got, want) {
+					t.Errorf("the listing is missing %q:\n%s", want, got)
+				}
+			}
+			for _, absent := range test.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("the listing holds %q, which it had no room or no right to print:\n%s", absent, got)
+				}
+			}
+			if !test.isWhole && !strings.Contains(got, "cfo drain") {
+				t.Errorf("a partial listing does not say how to read the rest:\n%s", got)
+			}
+			if test.room > 0 && out.Len() > test.room {
+				t.Errorf("the listing is %d bytes, over its room of %d", out.Len(), test.room)
+			}
+		})
+	}
+}
+
 // The field that was missing. On 2026-09-18 two goblins waited 8h47m on a CFO
 // decision and the Overlord noticed before the fleet did, because the question
 // read as one more status line. An outstanding decision is rendered as a
