@@ -28,9 +28,13 @@ func TestRunRequestCommandRefusesBeforeRecordingAnything(t *testing.T) {
 		exit int
 		says string
 	}{
-		"no command file":  {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell"}, 2, "--command-file is required"},
-		"a stray argument": {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command, "extra"}, 2, ""},
-		"no supervisor":    {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command}, 1, "the supervisor is not running"},
+		"no command file":                   {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell"}, 2, "--command-file is required"},
+		"a stray argument":                  {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command, "extra"}, 2, ""},
+		"no supervisor":                     {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command}, 1, "the supervisor is not running"},
+		"a withdrawal without a reason":     {[]string{"--withdraw", "install-tool"}, 2, "--withdraw needs --reason"},
+		"a withdrawal with an item's flags": {[]string{"--withdraw", "install-tool", "--reason", "not needed", "--command-file", command}, 2, "--withdraw takes only --reason"},
+		"a reason without a withdrawal":     {[]string{"--id", "install-tool", "--title", "Install it", "--shell", "powershell", "--command-file", command, "--reason", "not needed"}, 2, "--reason goes with --withdraw"},
+		"a withdrawal with no supervisor":   {[]string{"--withdraw", "install-tool", "--reason", "not needed"}, 1, "the supervisor is not running"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if exit := runRunRequest(c.args, &stdout, &stderr, runtime); exit != c.exit || !strings.Contains(stderr.String(), c.says) {
