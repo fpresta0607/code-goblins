@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -58,6 +59,12 @@ type Service struct {
 	// asks again, and DecisionAskMax is the ceiling that interval widens to.
 	DecisionAskAfter time.Duration
 	DecisionAskMax   time.Duration
+	// IdleAfter is how long a goblin sits at its prompt with nothing running,
+	// nothing asked and nothing reported before it wakes the CFO as
+	// goblin_idle, and IdleWakeGap the least time between two such wakes of
+	// one goblin.
+	IdleAfter   time.Duration
+	IdleWakeGap time.Duration
 }
 
 type ScanResult struct {
@@ -110,6 +117,8 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if err != nil {
 		return ScanResult{}, err
 	}
+	tally := readTallyForScan(s.StateDir, now)
+	live := map[string]bool{}
 	for _, entry := range entries {
 		extension := filepath.Ext(entry.Name())
 		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
@@ -123,6 +132,7 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 		if err != nil || (meta.Backend != "herdr" && meta.Backend != "native") {
 			continue
 		}
+		live[id] = true
 		if lifecycle, lifecycleErr := state.ReadLifecycle(s.StateDir, id); lifecycleErr == nil {
 			if lifecycle.Generation == meta.SpawnGen && lifecycle.SuppressesMonitoring(s.StateDir) {
 				health := HealthParked
@@ -195,10 +205,14 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
-		observation := s.classify(ctx, meta, prior, now)
+		observation, sample := s.classify(ctx, meta, prior, now, &tally)
+		observation = s.idleAtPrompt(ctx, meta, sample, observation, led, now)
 		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
+		}
+		if raised := observation.PendingEvent; raised != nil && (prior.PendingEvent == nil || *prior.PendingEvent != *raised) {
+			tally.raise(*raised)
 		}
 		result.Observations = append(result.Observations, observation)
 		if result.Event == nil && observation.PendingEvent != nil {
@@ -230,6 +244,10 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 	if err := s.flagPrivatePoll(ctx, &polls, &result, entries); err != nil {
 		return ScanResult{}, err
 	}
+	tally.forget(live)
+	if err := writeTally(s.StateDir, tally); err != nil {
+		return ScanResult{}, err
+	}
 	if !heartbeatCorrupt {
 		if err := WriteHeartbeat(s.StateDir, heartbeat); err != nil {
 			return ScanResult{}, err
@@ -256,7 +274,10 @@ func (s Service) Publish(event Event) (wake.Record, error) {
 	return record, nil
 }
 
-func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time) Observation {
+// classify reads meta's terminal and returns the observation it makes of it,
+// with the sample it read. Each stale wake it holds back on the evidence that
+// the goblin is working is counted in tally.
+func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observation, now time.Time, tally *Tally) (Observation, EndpointSample) {
 	observation := prior
 	observation.Schema = Schema
 	observation.TaskID = meta.ID
@@ -264,11 +285,11 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	observation.LastObserved = now
 
 	if s.Probe == nil {
-		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now)
+		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now), EndpointSample{}
 	}
 	sample, err := s.Probe.Inspect(ctx, meta)
 	if err != nil {
-		return unknownObservation(observation, EndpointUnknown, err.Error(), now)
+		return unknownObservation(observation, EndpointUnknown, err.Error(), now), sample
 	}
 	// A native task publishes its metadata before its host starts, and the
 	// harness then shows the trust dialog and its composer before the brief is
@@ -277,14 +298,26 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// goblin has already been seen alive.
 	if meta.Backend == "native" && sample.Status != herdr.AgentWorking && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
 		if _, _, refused := routing.Detect(string(sample.Capture)); !refused {
-			return launchingObservation(observation, now)
+			return launchingObservation(observation, now), sample
 		}
+	}
+	// A screen read attaches a process of its own to the terminal's console
+	// and can fail while the goblin works on, so one failed read keeps the
+	// last reading and is read again on the next scan; only a second failure
+	// in a row is an unknown endpoint.
+	if sample.ReadFailed && prior.Health != "" && prior.ScreenUnreadSince == nil {
+		observation.ScreenUnreadSince = timePointer(now)
+		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one screen read failed and is read again next scan: "+sample.Detail, now)
+		return observation, sample
+	}
+	if !sample.ReadFailed {
+		observation.ScreenUnreadSince = nil
 	}
 	if sample.Verdict == ProbeMissing {
 		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && verb == "paused" && line > observation.ConsumedVerbLine {
-			return s.pausedMissingObservation(observation, sample.Detail, now)
+			return s.pausedMissingObservation(observation, sample.Detail, now), sample
 		}
-		return unknownObservation(observation, EndpointMissing, sample.Detail, now)
+		return unknownObservation(observation, EndpointMissing, sample.Detail, now), sample
 	}
 	if sample.Verdict != ProbePresent || !validSample(meta, sample) {
 		detail := sample.Detail
@@ -297,9 +330,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// whose agent registers and dies before it is ever observed alive must
 		// not stay "launching" forever, so past the budget it wakes as death.
 		if sample.Verdict == ProbePresent && sample.Agent == herdr.AgentDead && prior.LastSeen.IsZero() && now.Before(s.launchDeadline(meta)) {
-			return launchingObservation(observation, now)
+			return launchingObservation(observation, now), sample
 		}
-		return unknownObservation(observation, EndpointUnknown, detail, now)
+		return unknownObservation(observation, EndpointUnknown, detail, now), sample
 	}
 
 	observation.EndpointVerdict = ProbePresent
@@ -313,7 +346,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	// from pane text, so routing.Detect takes a rate limit only on a line
 	// shaped like the provider's refusal, never from a goblin's own prose.
 	if fault, detail, found := routing.Detect(string(sample.Capture)); found {
-		return erroringObservation(observation, digest, fault, detail, now)
+		return erroringObservation(observation, digest, fault, detail, now), sample
 	}
 
 	observation.Digest = digest
@@ -339,48 +372,102 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// working indefinitely, and it once did so for six hours. Past the
 		// busy-turn budget the pane's own word is no longer enough: consult
 		// the gate and the goblin's own progress evidence, and wake only if
-		// nothing underneath is actually moving.
+		// nothing underneath is actually moving. A pane that shows work
+		// running is evidence that something is, so it holds back every wake
+		// but the gate's own until nothing has moved for twice the budget: a
+		// gate step active past the budget is the gate's evidence of a wedge,
+		// whatever the pane shows.
 		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
 			if kind, detail := s.busyOverAge(ctx, meta, sample, &observation, now); kind != "" {
-				return s.busyOverAgeObservation(observation, kind, detail, now)
+				if running, ok := paneRunning(sample); ok && !strings.HasPrefix(kind, gateStepKind) {
+					if quietSince(observation, *observation.BusySince, now) < 2*s.busyTurnMax() {
+						tally.suppress(meta.ID, BusyTurnOverAge, observation.BusySince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+						return workingObservation(observation, sample, now), sample
+					}
+					detail += "; its pane still shows work running: " + running
+				}
+				return s.busyOverAgeObservation(observation, kind, detail, now), sample
 			}
 		}
-		return workingObservation(observation, sample, now)
+		return workingObservation(observation, sample, now), sample
 	case herdr.AgentDone, herdr.AgentBlocked:
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
-			return gated
+			return gated, sample
 		}
 		detail := "agent turn ended; waiting on input"
-		if sample.Status == herdr.AgentDone && observation.Reason != AwaitingAnswer {
-			// A goblin that ended its turn with a background job or a monitor
-			// still running resumes by itself when that work reports back, so
-			// nobody owes it an answer yet. A blocked one is parked on a
-			// dialog and cannot resume by itself, so it wakes as before.
-			waiting, lingering := s.ownWork(ctx, meta, sample, &observation, now)
-			if waiting {
-				return ownWorkObservation(observation, now)
-			}
-			if lingering != "" {
+		if sample.Status == herdr.AgentDone {
+			// A turn that ended with a background shell or a tool its pane
+			// still shows running resumes by itself when that work reports
+			// back, so nobody owes it an answer while that work moves.
+			if running, ok := paneRunning(sample); ok && observation.Reason != AwaitingAnswer {
+				moving, lingering := s.paneWork(ctx, meta, sample, &observation, running, now)
+				if moving {
+					if observation.Reason != GoblinIdle {
+						tally.suppress(meta.ID, AwaitingAnswer, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+					}
+					return ownWorkObservation(observation, now), sample
+				}
 				detail += "; " + lingering
+			} else if observation.Health == HealthStale && observation.Reason == GoblinIdle {
+				// A goblin already woken as idle at its prompt stays that
+				// one wake until it works again.
+				observation.LastSeen = now
+				return observation, sample
+			} else if observation.Reason != AwaitingAnswer {
+				// A goblin that ended its turn with a background job or a
+				// monitor still running resumes by itself when that work
+				// reports back, so nobody owes it an answer yet. A blocked
+				// one is parked on a dialog and cannot resume by itself, so
+				// it wakes as before.
+				waiting, lingering := s.ownWork(ctx, meta, sample, &observation, now)
+				if waiting {
+					return ownWorkObservation(observation, now), sample
+				}
+				if lingering != "" {
+					detail += "; " + lingering
+				}
 			}
 		}
-		return awaitingInputObservation(observation, detail, now)
+		if tail := screenTail(sample.Capture, idleScreenRows); tail != "" {
+			detail += "; its screen ends: " + tail
+		}
+		return awaitingInputObservation(observation, detail, now), sample
 	case herdr.AgentIdle:
 		// Between turns: liveness comes from the agent's own counters and the
 		// status log. No movement for the stall window = genuinely wedged.
-		return s.idleClassification(ctx, meta, observation, sample, now)
+		return s.idleClassification(ctx, meta, observation, sample, now, tally), sample
 	case herdr.AgentUnknown:
 		// A registered agent whose activity is momentarily indeterminate is
 		// not an endpoint failure. Treat it like idle: it stays quiet unless
 		// its counters and status log both freeze for the stall window.
-		return s.idleClassification(ctx, meta, observation, sample, now)
+		return s.idleClassification(ctx, meta, observation, sample, now, tally), sample
 	default:
-		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now)
+		return unknownObservation(observation, EndpointUnknown, "endpoint activity is unknown", now), sample
 	}
 }
+
+// gateStepKind starts the kind busyOverAge gives a gate step active past the
+// budget, the one busy wake a pane showing work running does not hold back.
+const gateStepKind = "gate step "
+
+// paneRunning returns the row of the pane's last rows that shows a tool, a
+// turn or a background job running, whichever harness drew it. Only the rows
+// a harness redraws are read, so a row left in the scrollback is not taken
+// for work running now.
+func paneRunning(sample EndpointSample) (string, bool) {
+	rows := strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n")
+	if len(rows) > paneRunningRows {
+		rows = rows[len(rows)-paneRunningRows:]
+	}
+	return harness.RunningWork(rows)
+}
+
+// paneRunningRows is how many of a pane's last rows show what runs now: a
+// harness's composer, footer, spinner and the tool it runs.
+const paneRunningRows = 40
 
 func (s Service) staleObservation(observation Observation, reason Reason, lingering string, now time.Time) Observation {
 	observation.Health = HealthStale
@@ -459,7 +546,7 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 			if gate.Step == "ci" && gate.NoCI {
 				detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
 			}
-			return "gate step " + gate.Step, detail
+			return gateStepKind + gate.Step, detail
 		}
 	}
 	if s.Progress == nil {
@@ -530,6 +617,7 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	if err != nil {
 		return nil, false, err
 	}
+	observation.ProgressReadAt, observation.Jobs = timePointer(now), progress.Jobs
 	if len(progress.Jobs) == 0 {
 		observation.JobCPU = 0
 		observation.JobSampledAt = nil
@@ -579,6 +667,42 @@ func (s Service) ownWork(ctx context.Context, meta state.TaskMeta, sample Endpoi
 		return true, ""
 	}
 	return false, noProgressFor(now.Sub(last)) + " and " + stalledJobs(jobs, min(now.Sub(*observation.JobSampledSince), now.Sub(last)))
+}
+
+// paneWork decides whether the work that running, a row of the goblin's pane,
+// shows is still moving now that its turn has ended. It is by the rule
+// ownWork applies to the goblin's own background jobs: while the goblin has
+// shown progress evidence within the busy budget of its turn ending, or before
+// its own processes' processor use has been read across a whole stall
+// interval. Otherwise the second result names the row and how long nothing
+// has moved, for the wake.
+func (s Service) paneWork(ctx context.Context, meta state.TaskMeta, sample EndpointSample, observation *Observation, running string, now time.Time) (bool, string) {
+	if observation.IdleSince == nil {
+		observation.IdleSince = timePointer(now)
+	}
+	var jobs []string
+	measured, unreadable := false, ""
+	if s.Progress != nil {
+		var err error
+		jobs, measured, err = s.sampleProgress(ctx, meta, sample, observation, *observation.IdleSince, now)
+		if err != nil {
+			unreadable = "; progress evidence unreadable (" + err.Error() + ")"
+		}
+	}
+	quiet := quietSince(*observation, *observation.IdleSince, now)
+	if quiet < s.busyTurnMax() || len(jobs) > 0 && !measured {
+		return true, ""
+	}
+	return false, "its pane still shows work running (" + running + ") and " + noProgressFor(quiet) + unreadable
+}
+
+// quietSince is how long the goblin has shown no progress evidence since
+// stretch began.
+func quietSince(observation Observation, stretch, now time.Time) time.Duration {
+	if observation.EvidenceAt != nil && observation.EvidenceAt.After(stretch) {
+		return now.Sub(*observation.EvidenceAt)
+	}
+	return now.Sub(stretch)
 }
 
 // busyOverAgeObservation wakes once for a wedged working goblin and then
@@ -667,7 +791,7 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 // idleClassification handles agent_status idle. Rising state_change_seq or
 // revision (or a status-log write) is liveness: the goblin is working. Only a
 // pane with no counter movement for the stall window is genuinely wedged.
-func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time) Observation {
+func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time, tally *Tally) Observation {
 	id := meta.ID
 	if gated, ok := s.statusVerbObservation(observation, id, now, sample); ok {
 		return gated
@@ -696,21 +820,29 @@ func (s Service) idleClassification(ctx context.Context, meta state.TaskMeta, ob
 	if observation.Health == HealthStale {
 		return s.staleObservation(observation, observation.Reason, "", now)
 	}
-	return s.idleObservation(ctx, meta, observation, sample, now)
+	return s.idleObservation(ctx, meta, observation, sample, now, tally)
 }
 
 // idleObservation classifies an idle-and-unchanged pane behind a substantial
 // grace period. A goblin legitimately thinking or running a quiet subprocess
 // can sit at an unchanged pane for minutes; it is only stale once it has been
 // genuinely idle (no counter or status-log movement) for the idle threshold,
-// and not waiting on a background job or monitor of its own that is moving.
-func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time) Observation {
+// and neither work its pane shows running nor a background job or monitor of
+// its own is moving.
+func (s Service) idleObservation(ctx context.Context, meta state.TaskMeta, observation Observation, sample EndpointSample, now time.Time, tally *Tally) Observation {
 	if observation.IdleSince == nil {
 		observation.IdleSince = timePointer(now)
 	}
 	waiting, lingering := false, ""
 	if now.Sub(*observation.IdleSince) >= s.stallAfter() {
-		waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
+		if running, ok := paneRunning(sample); ok {
+			waiting, lingering = s.paneWork(ctx, meta, sample, &observation, running, now)
+			if waiting {
+				tally.suppress(meta.ID, UnchangedIdle, observation.IdleSince.UTC().Format(time.RFC3339Nano), "the pane shows work running: "+running, now)
+			}
+		} else {
+			waiting, lingering = s.ownWork(ctx, meta, sample, &observation, now)
+		}
 	}
 	if now.Sub(*observation.IdleSince) < s.stallAfter() || waiting {
 		observation.Health = HealthIdle
@@ -861,7 +993,12 @@ func erroringObservation(observation Observation, digest string, fault routing.F
 	return observation
 }
 
+// unknownObservation records a goblin whose terminal cannot be seen. It wakes
+// once as it enters the state, or when the reason changes; while the same
+// reason holds, the heartbeat keeps it in front of the CFO instead of a wake
+// on every scan.
 func unknownObservation(observation Observation, reason Reason, detail string, now time.Time) Observation {
+	entering := observation.Health != HealthUnknown || observation.Reason != reason
 	observation.LastObserved = now
 	observation.EndpointVerdict = ProbeUnknown
 	if reason == EndpointMissing {
@@ -874,7 +1011,7 @@ func unknownObservation(observation Observation, reason Reason, detail string, n
 	observation.NextPauseResurface = nil
 	observation.Escalation = 0
 	observation.DemandDeepInspection = false
-	if observation.PendingEvent == nil {
+	if entering && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, reason, detail)
 		observation.PendingEvent = &event
 	}
@@ -1352,6 +1489,20 @@ func (s Service) decisionAskAfter() time.Duration {
 		return s.DecisionAskAfter
 	}
 	return 5 * time.Minute
+}
+
+func (s Service) idleAfter() time.Duration {
+	if s.IdleAfter > 0 {
+		return s.IdleAfter
+	}
+	return 3 * time.Minute
+}
+
+func (s Service) idleWakeGap() time.Duration {
+	if s.IdleWakeGap > 0 {
+		return s.IdleWakeGap
+	}
+	return 15 * time.Minute
 }
 
 func (s Service) decisionAskMax() time.Duration {
