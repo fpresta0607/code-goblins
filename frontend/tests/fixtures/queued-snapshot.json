@@ -8,7 +8,11 @@
                    "next":  5368709120,
                    "floor":  4294967296,
                    "total":  34359738368,
-                   "available":  6442450944
+                   "available":  6442450944,
+                   "commit_limit":  51539607552,
+                   "commit_available":  21474836480,
+                   "paged_pool":  536870912,
+                   "nonpaged_pool":  322122547
                },
     "tasks":  [
                   {

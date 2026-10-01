@@ -974,8 +974,16 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	s.starts.Unlock()
 	if dispatch := s.Options.Dispatch; dispatch != nil {
-		if available, total, err := dispatch.Memory(); err == nil {
-			out.Memory = &Memory{Available: available, Total: total, Floor: memoryFloor, Next: memoryNext}
+		if memory, err := dispatch.Memory(); err == nil {
+			memory.Floor, memory.Next = memoryFloor, memoryNext
+			// Naming who holds commit reads every process, so it is done
+			// only while commit is what the meter shows.
+			if memory.CommitAvailable < memory.Available {
+				if holders, err := dispatch.CommitHolders(); err == nil {
+					memory.Holders = holders
+				}
+			}
+			out.Memory = &memory
 		}
 	}
 	for _, done := range history {
