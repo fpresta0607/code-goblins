@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1,
   // The tests load the board and their fixture pages from a build, which
   // tests/site.ts answers from files: there is no web server, and baseURL is
-  // only the origin the pages are given, a name that resolves nowhere.
+  // only the origin the pages are given, on a port nothing is fetched from.
   globalSetup: "./tests/build-site.ts",
   use: {
     baseURL: ORIGIN,
