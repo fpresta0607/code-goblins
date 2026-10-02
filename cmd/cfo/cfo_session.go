@@ -57,13 +57,14 @@ func cfoHarness(stateDir string) (string, error) {
 	return name, nil
 }
 
-// warnNoWakePath says what a CFO that is not Claude Code goes without: only
+// noWakePath says what a CFO that is not Claude Code goes without: only
 // Claude Code's Stop hook wakes the CFO when a goblin reports, so a Codex or
 // pi CFO learns of reports only when it looks.
-func warnNoWakePath(stdout io.Writer, harness string) {
-	if harness != "claude" {
-		fmt.Fprintf(stdout, "A %s CFO has no wake path: only Claude Code's Stop hook wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain.\n", harness)
+func noWakePath(harness string) []string {
+	if harness == "claude" {
+		return nil
 	}
+	return []string{fmt.Sprintf("A %s CFO has no wake path: only Claude Code's Stop hook wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain.", harness)}
 }
 
 // startCFOInHerdr starts the CFO as harness in the fleet's own Herdr session,

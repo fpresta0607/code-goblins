@@ -34,13 +34,15 @@ type Screens struct {
 // the option that starts with Accept, then confirming that option with Enter.
 // A dialog without Accept is never answered: it stops the spawn. Summary marks
 // a dialog whose answer leaves untrusted what it lists: the row it matches says
-// how much, and the spawn reports it.
+// how much, and the spawn reports it. PlainFocus is the mark the harness draws
+// in place of Focus in a console that does not announce Unicode.
 type Dialog struct {
-	Name    string
-	Markers []string
-	Focus   string
-	Accept  string
-	Summary *regexp.Regexp
+	Name       string
+	Markers    []string
+	Focus      string
+	PlainFocus string
+	Accept     string
+	Summary    *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -53,8 +55,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				Name:    "the workspace trust dialog",
 				Markers: []string{"Is this a project you created or one you trust?", "Do you trust the files in this folder?"},
 				// It focuses "No, exit" first, so a bare Enter quits Claude.
-				Focus:  "❯",
-				Accept: "Yes, I trust this folder",
+				// Claude Code 2.1.287 drew the focus as ">" in a console with
+				// no WT_SESSION, such as the one a desktop shortcut opens.
+				Focus:      "❯",
+				PlainFocus: ">",
+				Accept:     "Yes, I trust this folder",
 			}},
 			// A goblin runs with permission checks bypassed, which the
 			// composer's footer says while it waits.
@@ -177,16 +182,21 @@ func (d Dialog) Chosen(focused string) bool {
 }
 
 // Focused returns the text of the focused option: the one row that starts
-// with the dialog's focus glyph, after it. More or fewer than one such row
-// means the focus cannot be read.
+// with the dialog's focus glyph, or the plain mark the harness draws in its
+// place, after it. More or fewer than one such row means the focus cannot be
+// read.
 func (d Dialog) Focused(screen []string) (string, bool) {
 	var focused []string
 	for _, row := range screen {
-		if option, found := strings.CutPrefix(strings.TrimSpace(row), d.Focus); found {
-			focused = append(focused, strings.TrimSpace(option))
+		row = strings.TrimSpace(row)
+		for _, mark := range []string{d.Focus, d.PlainFocus} {
+			if option, found := strings.CutPrefix(row, mark); found && mark != "" {
+				focused = append(focused, strings.TrimSpace(option))
+				break
+			}
 		}
 	}
-	if d.Focus == "" || len(focused) != 1 {
+	if len(focused) != 1 {
 		return "", false
 	}
 	return focused[0], true

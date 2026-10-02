@@ -23,11 +23,21 @@ type keyEvent struct {
 	Control    uint32
 }
 
-// ChooseConsole shows a menu in this process's console and reads its keys as
+// ConsoleWidth is the width in columns of this process's console window, or
+// 0 when its output is not a console.
+func ConsoleWidth() int {
+	var info windows.ConsoleScreenBufferInfo
+	if windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info) != nil {
+		return 0
+	}
+	return int(info.Window.Right-info.Window.Left) + 1
+}
+
+// AskConsole shows a step in this process's console and reads its keys as
 // Windows key events, so Escape and the arrows are told apart with no timing.
 // The console's modes are put back when it returns. Without a console it
 // returns ErrNoConsole and accepts nothing.
-func ChooseConsole(output io.Writer, title string, choices []Choice, selected int) (int, error) {
+func AskConsole(output io.Writer, step Step) (int, error) {
 	input, screen := windows.Handle(os.Stdin.Fd()), windows.Handle(os.Stdout.Fd())
 	var inputMode, screenMode uint32
 	if windows.GetConsoleMode(input, &inputMode) != nil || windows.GetConsoleMode(screen, &screenMode) != nil {
@@ -41,14 +51,7 @@ func ChooseConsole(output io.Writer, title string, choices []Choice, selected in
 		return 0, err
 	}
 	defer windows.SetConsoleMode(screen, screenMode)
-	width := func() int {
-		var info windows.ConsoleScreenBufferInfo
-		if windows.GetConsoleScreenBufferInfo(screen, &info) != nil {
-			return 0
-		}
-		return int(info.Window.Right-info.Window.Left) + 1
-	}
-	menu := Menu{Output: output, Width: width, ReadKey: func() (Key, error) {
+	menu := Menu{Output: output, Width: ConsoleWidth, ReadKey: func() (Key, error) {
 		for {
 			var event keyEvent
 			var count uint32
@@ -66,6 +69,10 @@ func ChooseConsole(output io.Writer, title string, choices []Choice, selected in
 				return KeyUp, nil
 			case windows.VK_DOWN:
 				return KeyDown, nil
+			case windows.VK_LEFT:
+				return KeyLeft, nil
+			case windows.VK_RIGHT:
+				return KeyRight, nil
 			case windows.VK_ESCAPE:
 				return KeyEscape, nil
 			}
@@ -78,5 +85,5 @@ func ChooseConsole(output io.Writer, title string, choices []Choice, selected in
 			}
 		}
 	}}
-	return menu.Choose(title, choices, selected)
+	return menu.Ask(step)
 }

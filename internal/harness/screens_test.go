@@ -30,6 +30,55 @@ func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 	}
 }
 
+// In a console that does not announce Unicode, Claude Code draws the focus as
+// a plain ">", as it did on 2.1.287 in a console with no WT_SESSION: the
+// dialog is read all the same, and still answered only on Yes. A screen with
+// two such rows shows no one focus, so it is not read.
+func TestClaudesTrustDialogIsReadWithAPlainFocusMark(t *testing.T) {
+	screens, _ := NativeScreens(Claude)
+	captured := []string{
+		" Accessing workspace:",
+		" C:\\Users\\someone\\AppData\\Local\\CodeGoblins",
+		" Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
+		" project, or work from your team). If not, take a moment to review what's in this folder first.",
+		" Claude Code'll be able to read, edit, and execute files here.",
+		" Security guide",
+		" > No, exit",
+		"   Yes, I trust this folder",
+		" Enter to confirm · Esc to cancel",
+	}
+	moved := append([]string(nil), captured...)
+	moved[6], moved[7] = "   No, exit", " > Yes, I trust this folder"
+	both := append([]string(nil), captured...)
+	both[7] = " > Yes, I trust this folder"
+	for name, test := range map[string]struct {
+		screen  []string
+		focused string
+		read    bool
+		answer  bool
+	}{
+		"as first shown, on No":  {captured, "No, exit", true, false},
+		"moved down, on Yes":     {moved, "Yes, I trust this folder", true, true},
+		"two rows with the mark": {both, "", false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dialog, found := screens.Dialog(test.screen)
+			if !found {
+				t.Fatalf("Dialog(%q) found none, want the trust dialog", test.screen)
+			}
+
+			// Act
+			focused, ok := dialog.Focused(test.screen)
+
+			// Assert
+			if focused != test.focused || ok != test.read || (ok && dialog.Chosen(focused)) != test.answer {
+				t.Errorf("Focused = %q, %v, answered %v; want %q, %v, answered %v", focused, ok, ok && dialog.Chosen(focused), test.focused, test.read, test.answer)
+			}
+		})
+	}
+}
+
 // Codex's update prompt is answered with Skip, never Update now or Skip until
 // next version, and its hook review prompt only with Continue without
 // trusting, never Review hooks or Trust all, its summary row saying how many

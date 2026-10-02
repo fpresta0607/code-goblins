@@ -158,7 +158,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		nativeTerminalRuns: func(_, id string) bool {
 			return f.cfoTerminalRuns && id == supervisor.NativeCFOTerminal
 		},
-		setupAgent: func(ctx context.Context, stateDir, chosen string, rerun bool, _, _ io.Writer) (string, error) {
+		setupAgent: func(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, _, _ io.Writer) (string, error) {
 			f.setups = append(f.setups, agentSetup{chosen, rerun})
 			if f.setupErr != nil {
 				return "", f.setupErr
@@ -172,17 +172,19 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 				},
 				// The choice is answered with agent; a step for an agent that is
 				// not ready is cancelled, as Escape at the choice would be.
-				Choose: func(title string, _ []string, _ int) (int, error) {
-					if strings.HasPrefix(title, "Choose the agent") {
+				Ask: func(step onboarding.Step) (int, error) {
+					if strings.HasPrefix(step.Title, "Choose the agent") {
 						return slices.Index(onboarding.Agents, f.agent), nil
 					}
 					return 0, onboarding.ErrCancelled
 				},
+				Done: list.Done,
+				Undo: list.Clear,
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
-		choose: func(_ io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
-			f.screens = append(f.screens, finalScreen{title, choices, selected})
+		choose: func(_ io.Writer, step onboarding.Step) (int, error) {
+			f.screens = append(f.screens, finalScreen{step.Title + "\n" + step.Detail, step.Choices, step.Selected})
 			return f.answer, nil
 		},
 	}
@@ -224,8 +226,8 @@ func TestGoblinsFindsTheRunningSupervisorAndOnlyPrintsItsLink(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you"); stdout != want {
-		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
+	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you"); !strings.HasPrefix(stdout, want) || !strings.Contains(stdout, "Supervisor already running\n") {
+		t.Fatalf("stdout =\n%s\nwant it to start\n%s\nand say the supervisor already runs", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
 		t.Fatalf("starts=%d opened=%q, want neither", f.starts, f.opened)
@@ -255,8 +257,8 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)"); stdout != want {
-		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
+	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)"); !strings.HasPrefix(stdout, want) || !strings.Contains(stdout, "Supervisor already running\n") {
+		t.Fatalf("stdout =\n%s\nwant it to start\n%s\nand say the supervisor already runs", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
 		t.Fatalf("starts=%d opened=%q, want neither", f.starts, f.opened)

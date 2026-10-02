@@ -85,7 +85,7 @@ func TestANewCFOsKnownStartupDialogsAreAnsweredAndOthersLeftToThePerson(t *testi
 			"Claude Code's own first-run screen", "claude",
 			[]scriptedScreen{{rows: themePicker}},
 			nil,
-			[]string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: choose Yes with Up, then press Enter."},
+			[]string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter."},
 		},
 		{
 			"Codex's directory trust and hook review", "codex",
