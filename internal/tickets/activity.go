@@ -3,6 +3,9 @@
 // without knowing it: open issues, open and draft pull requests with the files
 // they change, branches pushed recently by anyone but the Overlord, and where
 // any of it overlaps the area a brief names.
+//
+// It also keeps a ticket, a GitHub issue, for each fleet task in such a
+// repository, so teammates see what the fleet has under way: see Apply.
 package tickets
 
 import "time"
