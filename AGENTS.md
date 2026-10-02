@@ -257,7 +257,7 @@ It is the one-step replacement for quitting, WIP-committing, cleaning up, and re
 
 - Nothing is torn down: the task id, worktree, branch, and any open PR all survive, which is why it is safe on work in progress; the new harness starts in a new native terminal under the same id.
 - A dirty worktree is refused, except when a goblin whose terminal has ended is resumed in place (see docs/native-board.md). Commit first, or pass `--force-dirty` when the mess is deliberate - the handoff then tells the new harness so, and not to tidy it.
-- Same harness, new model or effort: where the harness has a resume path it is used - claude and kimi continue with `--continue`, codex with `resume --last`. Pi advertises no resume, so even a same-harness pi change restarts it cold with the handoff below.
+- Same harness, new model or effort: where the harness has a resume path it is used - claude continues with `--continue`, codex with `resume --last`. Pi advertises no resume, so even a same-harness pi change restarts it cold with the handoff below.
 - Different harness: context cannot cross, so a handoff note is written into the task's tasktmp with the brief path, branch, commits, uncommitted state, and the previous goblin's last status lines. The new harness is told to read it first.
 - `cfo send` follows the new harness immediately: the switch records it before the new harness starts, and a send reaches the task's terminal through that record.
 
