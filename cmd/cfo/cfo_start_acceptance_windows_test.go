@@ -20,7 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken is the
+// TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack is the
 // end-to-end proof that a real Codex and a real pi CFO, started the way
 // goblins and the first-run page start one, work: the command line and the
 // first prompt are the product's own, the terminal opens in the home, and
@@ -33,13 +33,18 @@ import (
 // back, with the arguments goblins brings a closed CFO back with, on the
 // conversation it registered with.
 //
+// A Claude Code CFO, which its SessionStart hook registers and its Stop hook
+// wakes, runs the closing and coming back alone: it is given one line to
+// answer, so it has a conversation, and the line must be on its screen once
+// it is back.
+//
 // It runs real harnesses on the Overlord's subscriptions, so it runs only
 // when asked:
 //
 //	CFO_START_REAL=1 CFO_START_BINARY=<cfo.exe built from this tree>
-//	CFO_START_RESULTS=<a directory for the record> [CFO_START_ONLY=codex|pi]
+//	CFO_START_RESULTS=<a directory for the record> [CFO_START_ONLY=claude|codex|pi]
 //	[CFO_START_CODEX_MODEL=<a model to name when the configured one is refused>]
-func TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken(t *testing.T) {
+func TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack(t *testing.T) {
 	if os.Getenv("CFO_START_REAL") != "1" {
 		t.Skip("set CFO_START_REAL=1 with CFO_START_BINARY and CFO_START_RESULTS to prove the CFO's start with real harnesses")
 	}
@@ -54,7 +59,7 @@ func TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, agent := range []string{"codex", "pi"} {
+	for i, agent := range []string{"codex", "pi", "claude"} {
 		if only := os.Getenv("CFO_START_ONLY"); only != "" && only != agent {
 			continue
 		}
@@ -108,6 +113,9 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	if model := os.Getenv("CFO_START_CODEX_MODEL"); model != "" && p.cfo == "codex" {
 		named = []string{"-m", model}
 	}
+	if p.cfo == "claude" {
+		named = p.claudeArguments(t)
+	}
 	start := func(args []string) host.Record {
 		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, args)...)
 		if err != nil {
@@ -149,17 +157,26 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		t.Errorf("the board does not say a CFO runs: %s", setup)
 	}
 
-	// The wake is queued once the CFO's first turn has ended, so that only
-	// the typed line can tell it.
 	p.await(t, "the CFO's first turn to end", 10*time.Minute, func() bool { return p.idle(launched) })
 	screen(launched, "once its first turn ended")
-	record, err := wake.Append(p.home.State, "notify", "scratch-proof", "done: a test report from the scratch-home proof of the CFO's start; nothing to do but acknowledge it")
-	if err != nil {
-		t.Fatal(err)
+	// said is on the screen of a Claude Code CFO that came back on its
+	// conversation: the one line it was given before its terminal closed.
+	const said = "scratch-proof-7421"
+	if supervisor.CFOWakeFor(p.cfo) == supervisor.CFOWakeTyped {
+		// The wake is queued once the CFO's first turn has ended, so that
+		// only the typed line can tell it.
+		record, err := wake.Append(p.home.State, "notify", "scratch-proof", "done: a test report from the scratch-home proof of the CFO's start; nothing to do but acknowledge it")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.say("queued wake %d %s %s: %s", record.Seq, record.Kind, record.Key, record.Detail)
+		p.expectAcked(t, record)
+		screen(launched, "after it acknowledged the wake")
+	} else {
+		p.typeLine(t, launched, "Reply with the single word "+said+" and end your turn. Run no command and change no file.")
+		p.await(t, "the CFO to answer its one line", 5*time.Minute, func() bool { return p.shows(launched, said, 2) && p.idle(launched) })
+		screen(launched, "after it answered its one line")
 	}
-	p.say("queued wake %d %s %s: %s", record.Seq, record.Kind, record.Key, record.Detail)
-	p.expectAcked(t, record)
-	screen(launched, "after it acknowledged the wake")
 
 	// A closed CFO comes back as goblins brings one back: on the conversation
 	// its registration recorded, where the table says its harness resumes.
@@ -196,9 +213,39 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	})
 	p.say("the reopened CFO registered with: %+v", after)
 	screen(reopened, "once it registered again")
-	if after.Session != before.Session || after.Harness != p.cfo {
-		t.Fatalf("the reopened CFO registered with %+v, want the conversation it had, %s", after, before.Session)
+	if after.Harness != p.cfo {
+		t.Fatalf("the reopened CFO registered as %+v, want %s", after, p.cfo)
 	}
+	if supervisor.CFOWakeFor(p.cfo) == supervisor.CFOWakeTyped {
+		if after.Session != before.Session {
+			t.Fatalf("the reopened CFO registered with %+v, want the conversation it had, %s", after, before.Session)
+		}
+		return
+	}
+	p.await(t, "the reopened CFO to show the conversation it had", time.Minute, func() bool { return p.shows(reopened, said, 1) })
+	screen(reopened, "showing the conversation it had")
+}
+
+// typeLine types text into the CFO's terminal and submits it.
+func (p *wakeProof) typeLine(t *testing.T, record host.Record, text string) {
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if err := client.Input([]byte("\r")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// shows reports whether the CFO's screen holds text at least times times.
+func (p *wakeProof) shows(record host.Record, text string, times int) bool {
+	screen, err := host.ReadScreen(record)
+	return err == nil && strings.Count(strings.Join(screen, "\n"), text) >= times
 }
 
 // idle reports whether the CFO's harness sits at its composer, in five reads
