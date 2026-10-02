@@ -160,7 +160,7 @@ func writeCompleteMarker(stateDir string, ownerPID int) error {
 // The read-once contract comes before the sections it speaks for, so those
 // are composed first: the contract names the files they actually printed.
 func composeLong(h home.Home, ew *werr) {
-	writeWakeQueue(h.State, math.MaxInt, ew)
+	writeWakeQueue(h.State, math.MaxInt, math.MaxInt, ew)
 	writeSupervisionInstructions(h.Data, false, ew)
 
 	statusTail := claudehook.Int("CFO_SESSION_START_STATUS_TAIL", 5, 0, 1000000)
@@ -225,10 +225,12 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
 	room := Budget - lockSection.Len() - instructions.Len() - len(tail(false, false))
-	wholeFleet, _ := briefFleet(h.State, room)
+	fleetTable, isWholeFleet := briefFleet(h.State, room)
 	var wakeQueue bytes.Buffer
-	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(wholeFleet)), &werr{w: &wakeQueue})
-	fleetTable, isWholeFleet := briefFleet(h.State, room-wakeQueue.Len())
+	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
+	if wakeQueue.Len() > room-len(fleetTable) {
+		fleetTable, isWholeFleet = briefFleet(h.State, max(0, room-wakeQueue.Len()))
+	}
 
 	ew := &werr{w: w}
 	ew.write(lockSection.Bytes())
@@ -254,7 +256,7 @@ func briefFleet(stateDir string, room int) ([]byte, bool) {
 	ew.println("== FLEET ==")
 	scan, err := state.ScanIDs(stateDir)
 	if err != nil {
-		ew.printf("state\\: UNREADABLE (%s)\n", err)
+		ew.printf("state\\: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
 	}
 	if len(scan.MetaIDs) == 0 {
 		ew.println("(no goblins in flight)")
@@ -278,10 +280,23 @@ func briefFleet(stateDir string, room int) ([]byte, bool) {
 // table shows.
 const fleetStatusWidth = 80
 
+// briefErrorWidth is how many bytes of a read failure's text the brief
+// prints inline: an error can quote the whole of what it could not read.
+const briefErrorWidth = 200
+
+// cutError is err's text, cut to width bytes.
+func cutError(err error, width int) string {
+	text := err.Error()
+	if len(text) <= width {
+		return text
+	}
+	return strings.ToValidUTF8(text[:width], "") + "..."
+}
+
 func fleetLine(stateDir, id string) string {
 	meta, err := state.ReadMeta(filepath.Join(stateDir, id+".meta"))
 	if err != nil {
-		return fmt.Sprintf("%s  UNREADABLE (%s)\n", id, err)
+		return fmt.Sprintf("%s  UNREADABLE (%s)\n", id, cutError(err, briefErrorWidth))
 	}
 	status := "no status yet"
 	if tail, err := state.TailStatus(stateDir, id, 1); err != nil {
@@ -375,18 +390,19 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 //
 // The section stays within room bytes, and the result is whether it listed
 // the whole queue: one too long for room keeps its first records and
-// withholds the ack line (see wake.RenderWithin).
-func writeWakeQueue(stateDir string, room int, ew *werr) bool {
+// withholds the ack line (see wake.RenderWithin). A read failure's text is
+// cut to errorWidth bytes, because it can quote a whole corrupt queue line.
+func writeWakeQueue(stateDir string, room, errorWidth int, ew *werr) bool {
 	const header = "== WAKE QUEUE =="
 	ew.println(header)
 	records, err := wake.Pending(stateDir)
 	if err != nil {
-		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", err)
+		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", cutError(err, errorWidth))
 		return false
 	}
 	episode, err := wake.ReadEpisode(stateDir)
 	if err != nil {
-		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", err)
+		ew.printf("WAKE QUEUE: UNREADABLE (%s)\n", cutError(err, errorWidth))
 		return false
 	}
 	if ew.err != nil {

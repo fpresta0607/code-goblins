@@ -269,6 +269,56 @@ func TestTheBriefListsEveryGoblinInOneLineOrCountsTheRest(t *testing.T) {
 	}
 }
 
+// The fleet gives up its room only to a wake queue that needs it: a fleet
+// that fits is listed whole beside a queue cut short, and the contract says
+// which of the two the session has read all of.
+func TestASmallFleetStaysWholeBesideAWakeQueueCutShort(t *testing.T) {
+	h := bigHome(t, 2, 300)
+
+	out := composeBrief(t, h)
+
+	if !strings.Contains(out, "WAKE_ACK_WITHHELD") {
+		t.Fatalf("the wake queue was not cut short, so this proves nothing:\n%s", out)
+	}
+	fleet := out[strings.Index(out, "== FLEET =="):strings.Index(out, "== READ THIS NEXT ==")]
+	if listed := strings.Count(fleet, "cg-goblin-"); listed != 2 || strings.Contains(fleet, "more goblins") {
+		t.Errorf("the fleet section lists %d of 2 goblins:\n%s", listed, fleet)
+	}
+	if !strings.Contains(out, "only the first lines of the wake queue and one line for every goblin") {
+		t.Errorf("the contract does not say the queue is cut short and the fleet whole:\n%s", out)
+	}
+	if len(out) > Budget {
+		t.Errorf("the brief digest is %d bytes, over its %d budget", len(out), Budget)
+	}
+}
+
+// A wake queue that cannot be read is reported by its error, and the error
+// quotes the line it could not parse. However long that line is, the brief
+// stays within its budget and offers no ack for a queue nobody was shown.
+func TestABriefStaysWithinItsBudgetWhenTheWakeQueueIsUnreadable(t *testing.T) {
+	h := bigHome(t, 2, 0)
+	corrupt := `{"seq":1,"kind":"notify","detail":"` + strings.Repeat("a blocked goblin's question ", 500) + "\n"
+	if err := os.WriteFile(filepath.Join(h.State, ".wake-queue"), []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := composeBrief(t, h)
+
+	if len(out) > Budget {
+		t.Errorf("the brief digest is %d bytes, over its %d budget", len(out), Budget)
+	}
+	if !strings.Contains(out, "WAKE QUEUE: UNREADABLE (wake: corrupt queue line") {
+		t.Errorf("the brief does not say the wake queue is unreadable:\n%s", out)
+	}
+	if strings.Contains(out, "WAKE_ACK_REQUIRED: cfo drain --ack-through") {
+		t.Errorf("the brief offers an ack for a queue it could not read:\n%s", out)
+	}
+	fleet := out[strings.Index(out, "== FLEET =="):strings.Index(out, "== READ THIS NEXT ==")]
+	if listed := strings.Count(fleet, "cg-goblin-"); listed != 2 {
+		t.Errorf("the fleet section lists %d of 2 goblins beside an unreadable queue:\n%s", listed, fleet)
+	}
+}
+
 // A session that does not hold the home changes nothing in it: no long
 // digest is written, and the brief says how to print one instead.
 func TestABriefForASessionThatDoesNotHoldTheHomeWritesNothing(t *testing.T) {
