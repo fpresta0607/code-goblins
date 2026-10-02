@@ -96,6 +96,45 @@ func Decisions(entries []Entry) []Entry {
 	return decisions
 }
 
+// Section is one heading of the report with the decisions under it.
+type Section struct {
+	Title   string  `json:"title"`
+	Entries []Entry `json:"entries"`
+}
+
+// Sections sorts the report's decisions under its headings, in the order the
+// report lists them. A heading the report always shows is there with nothing
+// under it; the others are there only when they hold something. The CFO's
+// text and the board's page are both written from these.
+func (r Report) Sections() []Section {
+	var sections []Section
+	decided := func(title string, keep func(Entry) bool, always bool) {
+		entries := []Entry{}
+		for _, entry := range r.Decisions {
+			if keep(entry) {
+				entries = append(entries, entry)
+			}
+		}
+		if len(entries) > 0 || always {
+			sections = append(sections, Section{Title: title, Entries: entries})
+		}
+	}
+	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
+	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
+	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
+	decided("Deployed", kind(KindDeploy), true)
+	decided("Migrations applied", kind(KindMigration), true)
+	decided("Installed", kind(KindInstall), true)
+	decided("Answered for goblins", kind(KindAnswer), true)
+	decided("Other decisions", kind(KindOther), false)
+	return sections
+}
+
+// Lasted says how long the stretch lasted, to the minute.
+func (r Report) Lasted() string {
+	return span(r.Ended.Sub(r.Since))
+}
+
 // number writes a reading without the digits a float adds: 40, or 47.5.
 func number(value float64) string {
 	return strconv.FormatFloat(math.Round(value*10)/10, 'f', -1, 64)
@@ -169,21 +208,12 @@ func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
 	say("AFK MODE REPORT")
-	say("AFK mode was on from %s to %s (%s): turned on from %s, off from %s.", at(r.Since), at(r.Ended), span(r.Ended.Sub(r.Since)), r.From, r.EndedFrom)
+	say("AFK mode was on from %s to %s (%s): turned on from %s, off from %s.", at(r.Since), at(r.Ended), r.Lasted(), r.From, r.EndedFrom)
 
-	decided := func(heading string, keep func(Entry) bool, always bool) {
-		var entries []Entry
-		for _, entry := range r.Decisions {
-			if keep(entry) {
-				entries = append(entries, entry)
-			}
-		}
-		if len(entries) == 0 && !always {
-			return
-		}
+	for _, section := range r.Sections() {
 		say("")
-		say("%s (%d)", heading, len(entries))
-		for _, entry := range entries {
+		say("%s (%d)", section.Title, len(section.Entries))
+		for _, entry := range section.Entries {
 			line := "- "
 			if entry.Task != "" {
 				line += entry.Task + ": "
@@ -202,14 +232,6 @@ func Render(w io.Writer, r Report) error {
 			say("  Evidence: %s", entry.Evidence)
 		}
 	}
-	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
-	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
-	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
-	decided("Deployed", kind(KindDeploy), true)
-	decided("Migrations applied", kind(KindMigration), true)
-	decided("Installed", kind(KindInstall), true)
-	decided("Answered for goblins", kind(KindAnswer), true)
-	decided("Other decisions", kind(KindOther), false)
 
 	say("")
 	say("Goblins finished (%d)", len(r.Finished))
