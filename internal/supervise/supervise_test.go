@@ -157,7 +157,7 @@ func TestWatcherProblemNamesWhatIsWrong(t *testing.T) {
 		arrange func(t *testing.T, dir string)
 		want    string
 	}{
-		"no lock record":        {func(*testing.T, string) {}, "no process holds"},
+		"no lock record":         {func(*testing.T, string) {}, "no process holds"},
 		"a record being written": {func(t *testing.T, dir string) { touchFile(t, filepath.Join(dir, ".watch.lock")) }, "cannot be read"},
 		"a holder that ended": {func(t *testing.T, dir string) {
 			writeDeadLock(t, dir, ".watch.lock", deadPID(t))
