@@ -150,6 +150,39 @@ for (const way of WAYS) {
   });
 }
 
+// The Overlord works in the desktop window: the board in WebView2, maximized
+// on his 2560 by 1600 screen at 150 percent, which is 1707 CSS pixels wide at
+// device scale 1.5, with the CFO's panel open beside the board.
+test.describe("in the desktop window's size, with the CFO's panel open", () => {
+  test.use({ viewport: { width: 1707, height: 1000 }, deviceScaleFactor: 1.5 });
+
+  test("a question he answers leaves its alert, the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {
+    // Arrange
+    await standInStream(context);
+    await announcer(context);
+    const supervisor = await actions(context);
+    await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      socket.send(Buffer.from("READY\r\n"));
+    });
+    await boardAsked(page, { questions: [question] }, ASKS);
+    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    await openCard(page, ASKS);
+    await card(page).getByText("Merge it", { exact: true }).click();
+    await testInfo.attach("the question, before he answers", { body: await page.screenshot(), contentType: "image/png" });
+
+    // Act
+    const shown = await clickAndLook(page, "dialog.question-modal .send-decision");
+
+    // Assert
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: "Sent" });
+    await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
+    await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
+    await expectGone(page, ASKS);
+  });
+});
+
 test("a snapshot taken before his answer and arriving after it does not bring the item back", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
