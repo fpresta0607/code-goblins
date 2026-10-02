@@ -1,10 +1,15 @@
-// A list past ten cards shows as many as fit the space it has, one page at a
-// time, with a pager and a sideways swipe for the rest, so the board never
-// becomes a long scroll. These are the pure steps of paging.
+// A paged list past ten cards shows as many as fit the space it has, and never
+// fewer than five, one page at a time, with a pager and a sideways swipe for
+// the rest. These are the pure steps of paging.
 
 // Up to this many cards a list shows whole, with no pager, and the board
 // scrolls when they run past the screen.
 const PAGING_STARTS_PAST = 10;
+
+// A page holds at least this many cards while the list has them, however
+// little room there is, and the board scrolls: on 2026-10-02 the memory meter
+// and tall cards left a page of Tasks room for two of its 19.
+const PAGE_HOLDS_AT_LEAST = 5;
 
 // Where each page of a list starts: one page for up to PAGING_STARTS_PAST
 // cards however tall, and past that the pages pageStarts fills.
@@ -15,20 +20,21 @@ export function listPageStarts(heights: number[], available: number, gap: number
 // Where each page starts: from the first card on, a page takes rows of cards,
 // gap apart and each as tall as its tallest card, while they fit in available
 // pixels, and the next page starts at the first row that does not. A page
-// holds at least one row. Each page is sized by its own cards, and every
-// start follows from the cards before it, so the pages never depend on which
-// one is shown.
+// holds at least PAGE_HOLDS_AT_LEAST cards whether or not they fit. Each page
+// is sized by its own cards, and every start follows from the cards before
+// it, so the pages never depend on which one is shown.
 export function pageStarts(heights: number[], available: number, gap: number, columns: number): number[] {
   const perRow = Math.max(1, columns);
   const starts = [0];
   let used = 0;
   for (let at = 0; at < heights.length; at += perRow) {
     const row = Math.max(...heights.slice(at, at + perRow));
-    if (used > 0 && used + gap + row > available) {
+    const held = at - starts[starts.length - 1];
+    if (held >= PAGE_HOLDS_AT_LEAST && used + gap + row > available) {
       starts.push(at);
       used = row;
     } else {
-      used = used > 0 ? used + gap + row : row;
+      used = held > 0 ? used + gap + row : row;
     }
   }
   return starts;

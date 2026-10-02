@@ -329,7 +329,7 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 	}
 }
 
-// Working, and waiting on another task, CI or a deploy, are status for the
+// Working, and waiting on another task, CI, a deploy or memory, are status for the
 // board and wake nobody; waiting on the Overlord wakes the CFO like a
 // question, and a wait needs a valid target and a reason.
 func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
@@ -360,6 +360,8 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 	}{
 		{[]string{"g1", "--working", "fixing the lint step"}, "working: fixing the lint step"},
 		{[]string{"g1", "--waiting-on", "ci", "PR 45 checks"}, "waiting on ci: PR 45 checks"},
+		// memory_ready names a goblin by this very line.
+		{[]string{"g1", "--waiting-on", "memory", "the build needs 4 GB"}, "waiting on memory: the build needs 4 GB"},
 		{[]string{"g1", "--waiting-on", "board-ui", "its API contract"}, "waiting on board-ui: its API contract"},
 	} {
 		var stdout, stderr bytes.Buffer
