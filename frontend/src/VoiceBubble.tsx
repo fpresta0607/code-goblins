@@ -2,19 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { spoken } from "./dictation";
 import { Icon } from "./Icon";
 import type { Voice } from "./useVoice";
-import type { SiqspeakState } from "./voice";
 
 const HINT_KEY = "cfo-voice-hint-v1";
 const BARS = 9;
 // While listening, a bar takes the microphone's level this often.
 const SAMPLE_MS = 70;
-
-const STATUS: Record<SiqspeakState, string> = {
-  running: "SIQspeak running",
-  stopped: "SIQspeak is not running",
-  missing: "SIQspeak was not found",
-  unreadable: "SIQspeak could not be read",
-};
 
 function hintDismissed(): boolean {
   try { return localStorage.getItem(HINT_KEY) === "dismissed"; } catch { return false; }
@@ -23,11 +15,9 @@ function hintDismissed(): boolean {
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
 // A terminal's voice bubble, always in the pane's bottom-right corner: idle,
-// a small microphone that names SIQspeak's state in its tip and opens the
-// pane's recent messages,
-// SIQspeak's transcriptions beside the board's own dictations, each with
-// Copy and Paste into this terminal; recording, it shows the microphone's
-// level as bars. The first visit explains the shortcut once.
+// a small microphone that opens the pane's recent dictations, each with Copy
+// and Paste into this terminal; recording, it shows the microphone's level as
+// bars. The first visit explains the shortcut once.
 export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice; listening: boolean; level: () => number; onPaste: (text: string) => void }) {
   const [open, setOpen] = useState(false);
   // Read on every render, so a hint dismissed in one pane stays away in the
@@ -69,10 +59,8 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     if (open) { setOpen(false); return; }
     dismiss();
     setOpen(true);
-    void voice.refresh();
   };
-  const status = voice.state ? STATUS[voice.state] : "";
-  const tip = listening ? "Listening · release Ctrl+Shift+Space to type" : status || "Hold Ctrl+Shift+Space to dictate";
+  const tip = listening ? "Listening · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // A page served over plain HTTP, such as across the tailnet, has no clipboard.
   const clipboard = !!navigator.clipboard;
   // Escape closes the list from the bubble or from inside it.
@@ -85,14 +73,11 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     </div>}
     {open && <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
       <p className="voice-card-title">Recent messages</p>
-      {status && <p className={"voice-status " + voice.state}><span className="status-dot" />{status}</p>}
       <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
-      {voice.state === "stopped" && <p className="voice-help">Open SIQspeak from its desktop shortcut. Until it runs, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
-      {voice.state === "missing" && <p className="voice-help">Install SIQspeak on this computer to dictate locally. Until then, holding Ctrl+Shift+Space here uses the browser's speech recognition.</p>}
       {voice.messages.length ? <ul>{voice.messages.map((message, index) => {
-        const key = message.source + ":" + message.at + ":" + index;
+        const key = message.at + ":" + index;
         return <li key={key}>
-          <span className="voice-meta">{[clock(message.at), message.source === "board" ? "Board" : "SIQspeak"].filter(Boolean).join(" · ")}</span>
+          {message.at > 0 && <span className="voice-meta">{clock(message.at)}</span>}
           <p className="voice-text">{message.text}</p>
           <span className="voice-actions">
             {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"} data-tip-align="end"
@@ -104,8 +89,8 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
       })}</ul> : <p className="voice-empty">Nothing dictated yet.</p>}
       <p className="voice-footer">Hold Ctrl+Shift+Space, speak, release.</p>
     </section>}
-    <button ref={bubble} className={"voice-bubble" + (voice.state ? " " + voice.state : "") + (listening ? " recording terminal-listening" : "")}
-      aria-label={listening ? "Listening" : "Recent messages" + (status ? ". " + status : "")} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
+    <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
+      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
       {listening ? <><span className="voice-dot" aria-hidden="true" /><span className="voice-bars" aria-hidden="true">{Array.from({ length: BARS }, (_, index) => <span key={index} ref={(bar) => { bars.current[index] = bar; }} />)}</span></> : <Icon name="mic" />}
     </button>
     {listening && <span className="sr-only" role="status">Listening</span>}

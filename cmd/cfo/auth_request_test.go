@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -82,7 +84,7 @@ func TestAuthRequestNamesTheRepositoryItsScopeIsFor(t *testing.T) {
 	runtime := commandRuntime{projectsRoot: func() (string, error) { return root, nil }}
 	request := func(project string) (string, string) {
 		t.Helper()
-		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", []string{"STRIPE_SECRET_KEY"})
+		filed, err := credentialRequest(runtime, project, "", "Charge test cards", "", "", []string{"STRIPE_SECRET_KEY"})
 		if err != nil {
 			t.Fatalf("credentialRequest(%q) = %v", project, err)
 		}
@@ -172,5 +174,55 @@ func TestAuthRequestFromNeitherTheCFONorTheGoblinIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "state", "credential-requests-inbox")); !os.IsNotExist(err) {
 		t.Fatal("a refused request reached the inbox")
+	}
+}
+
+// A request that names an env file is checked with git before anything is
+// filed: one git would commit, or one with no checkout, is refused saying
+// why, and an ignored, untracked one goes on to be filed.
+func TestAuthRequestChecksItsEnvFileBeforeFiling(t *testing.T) {
+	// Arrange
+	useScratchHome(t)
+	root := t.TempDir()
+	checkout := filepath.Join(root, "acme-shop")
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", checkout}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q", "--initial-branch=main")
+	git("config", "user.email", "t@t")
+	git("config", "user.name", "t")
+	for name, content := range map[string]string{".gitignore": ".env*\n!.env.example\n", ".env.example": "DATABASE_URL=\n"} {
+		if err := os.WriteFile(filepath.Join(checkout, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", ".gitignore", ".env.example")
+	git("commit", "-q", "-m", "start")
+	runtime := commandRuntime{projectsRoot: func() (string, error) { return root, nil }}
+	for _, test := range []struct {
+		name, project, file, want string
+		code                      int
+	}{
+		{"a tracked file", "acme-shop", ".env.example", "tracked", 2},
+		{"no checkout", "elsewhere", ".env.local", "checkout", 2},
+		{"an ignored, untracked file", "acme-shop", ".env.local", "registered CFO", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			code := runAuthRequest([]string{"--project", test.project, "--env-file", test.file, "--why", "Local database for docker compose", "DATABASE_URL"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if code != test.code || !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("exit %d, stderr %q; want exit %d saying %q", code, stderr.String(), test.code, test.want)
+			}
+		})
 	}
 }
