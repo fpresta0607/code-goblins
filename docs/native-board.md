@@ -542,7 +542,7 @@ No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
 For a CFO in a native terminal, a publisher whose chain of parents stops short of the CFO is proven instead by the terminal's proof value, as for a goblin's question.
-The Command Center shows one item at a time as a stack, a question, a review item or a run item, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
+The Command Center shows one item at a time as a stack, a question, a review item, a run item or a credential request, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
 A card's own action row holds everything: Back, its place such as 2 of 4, and Next on the left while more than one item waits, and its answer on the right; closing keeps every item for later.
 Each card sends only its own answer.
 The moment the Overlord sends from a card, an answer, a review answer or a Clear, its check draws with Sent (or Opened, Downloaded or Cleared) and three quarters of a second later the next open item follows, passing over any sent in this sitting, while the action is delivered in the background; CFO received or Delivered to <goblin> joins the check if delivery lands while it shows, and with nothing left it shows You're all done and the Command Center closes.
@@ -669,7 +669,7 @@ The Overlord can instead answer it (`review_answer`): his text goes once to the 
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
-The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin blocked on its own question, which its task reads as Waiting on the CFO, does not alert, since the question it raises does.
+The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item or credential request, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin blocked on its own question, which its task reads as Waiting on the CFO, does not alert, since the question it raises does.
 Each alert stands for one event and shows once, in one tab of the board, however often a snapshot, a supervisor restart or a reload brings it back.
 Before the board shows an alert, sends its Windows notification or opens the Command Center by itself on a new question, it claims the event through `POST /api/announce` (`keys` for items, `news` for a goblin's news) and announces only what the answer's `claimed` names.
 The supervisor hands each key to the first request that asks and keeps the record in its state (`announced`, for thirty days, at most 2048 keys), so another tab, another browser, a reload, a reconnect or a supervisor restart never announces the same item again; a goblin's news may be claimed again once five minutes have passed, the rule below.
@@ -781,6 +781,13 @@ A project's `auth.json` may declare format hints, which the request carries for 
 
 A name in `names` is exact or ends in `*` to match every name starting with what comes before it, and the first matching format applies.
 
+A request may also name a local env file with `--env-file <file>`, such as `.env.docker.local` for a project's docker compose setup: each saved value then also sets its `NAME=` line in that file, beside the credential scope.
+The file must be an env file name (`.env`, `.env.<name>` or `<name>.env`) at the root of the project's main checkout, never a goblin's worktree; a plain file or one not made yet; ignored by git (`git check-ignore`) and not tracked (`git ls-files`), so a value written there can never be committed.
+`cfo auth request` checks it before filing, the board checks it when it takes the request and again before each write, and a goblin's request may name an env file only in its own task's checkout.
+The board rewrites the file in place and never replaces it, because goblin worktrees share a project's env files as hardlinks to the same file: every line that sets the name changes, keeping an `export` prefix, and nothing else does; it never writes through a link, and a file swapped for one between the check and the write is refused.
+A value is written as it is when it is plain and in single quotes otherwise, which docker compose and the board's own env reader both read literally; a value with a single quote, a line break or another control character stays in the scope only, and the card and the CFO say why.
+A value typed in the card's terminal reaches the file the same way, read back from the scope for each name the terminal provably stored.
+
 The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name the Overlord filled, and the names he confirmed replacing.
 It is the one board endpoint that takes a secret value.
 Every other endpoint that changes anything still refuses one, as the connection repairs always have: each reads a fixed request shape and refuses a body that carries a value, secret, password, token or credential field, as text, an object or a list, before it reads anything else, and `internal/supervisor/value_guard_test.go` reads the board's route table and fails the moment any other endpoint starts reading such a field.
@@ -796,7 +803,7 @@ The board holds at most 64 requests, never drops an open one to make room, and p
 A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
 The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
 A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
-The value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
+Beside that, and the env file a request names, the value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
@@ -804,6 +811,28 @@ The terminal fallback is `cfo auth store --project <project> <NAME>` on this mac
 It takes the save's checks (this machine only, the open request and its generation) and opens one window at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
 When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
 A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
+
+On the board each open request is a card in the Command Center, announced like any new item by an alert and, while the board is out of sight, a Windows notification.
+The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, the env file the request names, shown as `File .env.docker.local · gitignored, checked · local dev`, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
+A field never holds its value: what is pasted or typed is taken from the edit before it reaches the field and kept by the card in the page's memory, and the field is given one dot for each character, so copying out of it copies dots.
+Pasting those dots back into a field is refused: the field stays as it was and a note under it says to copy the value again from where it came from.
+It is a plain text field with no name or id and with autocomplete and spell check off, not a password field, because a browser keeps, or offers to keep, what a field held.
+Edge and Chrome offer to save what a password field held, whatever its autocomplete says: with one, Edge showed **Save your password?** after a save on the card and named the Microsoft account it would go to.
+Edge also keeps what any other text field held, even one drawn as dots with autocomplete off, in its profile's `Web Data`.
+With only dots in the field, neither browser offers anything or stores anything.
+Nothing blocks pasting into a field, and its value is in neither the field nor the page's markup; **Save** sends it once from the card's memory.
+Every field empties once a save is answered, taken or refused, except while the card asks **Replace a stored credential?** about a name the scope holds: **Cancel** sends nothing and keeps the pasted value, and **Replace and save** sends the same values with that name confirmed.
+A value that does not start the way its format hint expects, or starts the way a hint warns about, shows the hint's warning under its field, and **Save** still takes it.
+Below the table the exact `cfo auth store` lines have **Copy** and **Run**: Run opens the terminal for the names the scope does not hold, and asks the same question before a terminal that would type a stored one; while that terminal is open the card says so, and Save and Run wait for it to end.
+A board opened from anywhere but 127.0.0.1, localhost or ::1, such as through `tailscale serve`, shows the card read-only: no field, no Save and no Run, only the commands to copy, which a page without the clipboard selects for Ctrl+C.
+A request that closes while its card is open stays on screen with a check on each saved row, how it was stored (pasted on the card or typed in the terminal, saved or replaced), where it went and who was told, and History lists it as saved or expired.
+
+`tests/acceptance/credential_canary_windows.ps1 -Binary <cfo.exe>` proves the path end to end on a scratch home, with a random canary under a throwaway credential scope it deletes at its end.
+A stand-in goblin files the request from its own terminal, a browser on a throwaway profile enters the canary on the real card, and the proof counts the files that hold it: none in the browser's profile, `state/`, `data/`, the logs, the snapshot, the event stream or the agent transcripts it is given, and one, the goblin's owner-only `auth.ps1`, which `cfo cleanup` then removes.
+A fresh browser profile is not isolation: Edge signs a new profile in to the Windows account by itself and syncs it, which pulls that account's saved entries into the profile and sends up what is typed.
+So the proof starts the browser with sync and automatic sign-in switched off on a profile that disallows sign-in, reads the browser's own sign-in state before it opens the board, and fails with nothing typed if an account shows or the state cannot be read; at the end it checks that the profile stayed signed out and holds no saved form entry it did not type.
+It also fills a plain sign-in form with values it makes up, which a browser does keep and does offer to save, so a clean result cannot come from a search or a probe that sees nothing.
+`-Visible` runs it in a window, where a browser shows its offer to save a password, and checks that none follows the card's save; `-Browser` names another browser, such as Chrome.
 
 ## Nonblocking presentation notices
 
