@@ -697,8 +697,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .voice-bubble:hover { background: transparent; transform: none; }
 .voice-bubble:hover::before { background: #2e241b; }
 .voice-bubble .icon { width: 22px; height: 22px; }
-.voice-bubble.stopped, .voice-bubble.missing, .voice-bubble.unreadable { color: var(--bone-dim); }
-.voice-bubble.stopped::before, .voice-bubble.missing::before, .voice-bubble.unreadable::before { box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-bubble.recording { min-width: 112px; }
 .voice-bubble.recording::before { box-shadow: inset 0 0 0 2px var(--moss); }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
@@ -710,10 +708,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .voice-card-title { padding-right: 48px; color: var(--bone); font: 400 1.1875rem/1.3 var(--font-display); }
 .voice-card .voice-close { position: absolute; top: 12px; right: 12px; }
 .voice-hint p:not(.voice-card-title) { color: var(--bone-dim); }
-.voice-status { display: flex; align-items: center; gap: 8px; margin-top: -6px !important; color: var(--bone-dim); }
-.voice-status .status-dot { background: var(--bone-dim); }
-.voice-status.running .status-dot { background: var(--moss); }
-.voice-help { color: var(--bone-dim); }
 .voice-recent ul { display: grid; list-style: none; margin: 0; padding: 0; }
 .voice-recent li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; padding: 12px 0; border-top: 1px solid var(--edge); }
 .voice-meta { grid-column: 1; color: var(--bone-dim); font-size: .9375rem; }
