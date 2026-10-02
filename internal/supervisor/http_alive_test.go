@@ -13,6 +13,8 @@ import (
 // /api/alive is how goblins, its status and its stop tell a live supervisor
 // from a stale record without building the fleet's snapshot: it answers this
 // supervisor's own pid, and only on the board's own host, like every route.
+// Its home tells a goblins that finds the board's address in use whose fleet
+// holds it.
 func TestTheAliveRouteAnswersTheSupervisorsPidOnlyOnItsOwnHost(t *testing.T) {
 	_, h := testStore(t)
 	s, err := Start(context.Background(), h, Options{})
@@ -41,10 +43,14 @@ func TestTheAliveRouteAnswersTheSupervisorsPidOnlyOnItsOwnHost(t *testing.T) {
 
 	response := get(handler.Host)
 	var alive struct {
-		PID int `json:"pid"`
+		PID  int    `json:"pid"`
+		Home string `json:"home"`
 	}
 	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&alive) != nil || alive.PID != os.Getpid() {
 		t.Fatalf("GET /api/alive = HTTP %d pid %d, want 200 naming this supervisor's pid %d", response.StatusCode, alive.PID, os.Getpid())
+	}
+	if alive.Home != h.Root {
+		t.Errorf("GET /api/alive names the home %q, want this supervisor's home %q", alive.Home, h.Root)
 	}
 
 	if untrusted := get("evil.example:4310"); untrusted.StatusCode != http.StatusForbidden {

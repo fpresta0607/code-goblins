@@ -284,7 +284,7 @@ func (s *Service) ingestCredentialRequests() error {
 			return err
 		} else if info.Size() > 16<<10 {
 			invalid = errors.New("the request exceeds its size limit")
-		} else if data, err := os.ReadFile(path); err != nil {
+		} else if data, err := fsx.ReadFile(path); err != nil {
 			return err
 		} else if json.Unmarshal(data, &r) != nil {
 			invalid = errors.New("the request is not valid JSON")

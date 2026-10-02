@@ -147,15 +147,30 @@ func (b *credentialBoard) stored() CredentialRequest {
 	return CredentialRequest{}
 }
 
-// filesHolding names every file under root whose content holds text.
+// filesHolding names every file under root whose content holds text. The
+// board removes its transient lock files once it is done with them, so a file
+// listed a moment ago may be gone, or on its way out, when it is read: while
+// Windows deletes a file a read of it is refused as denied or in use. A read
+// that fails is tried again for up to a second; a file that is then gone holds
+// nothing, and a file that stays unreadable fails the test.
 func filesHolding(t *testing.T, root, text string) []string {
 	t.Helper()
 	var found []string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil || entry.IsDir() {
 			return err
 		}
 		data, err := os.ReadFile(path)
+		for try := 0; err != nil && !errors.Is(err, fs.ErrNotExist) && try < 40; try++ {
+			time.Sleep(25 * time.Millisecond)
+			data, err = os.ReadFile(path)
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
