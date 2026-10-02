@@ -20,7 +20,8 @@ var errFromInbox = errors.New("an item that speaks for the CFO reaches the board
 // alive, its Herdr pane or native terminal still holds it, and the process
 // was already running when it connected. The item must also carry the
 // identity that proof yields, and be the CFO's own kind: a question or review
-// item with no task, or a clear.
+// item with no task, or a clear. A decision logged under AFK mode carries no
+// identity: the proof is what makes it the CFO's.
 func (s *Service) acceptCFOItem(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
 	if s.Options.CFO == nil {
 		return errors.New("this supervisor cannot verify the CFO")

@@ -225,7 +225,7 @@ func writeWakeQueue(stateDir string, ew *werr) {
 }
 
 // writeSupervisionInstructions prints the fixed operating-instructions
-// block: v1 cuts (AFK gate, gate-agent refusal, network stage, *.check.sh
+// block: v1 cuts (gate-agent refusal, network stage, *.check.sh
 // sweeps, pane/window staleness, procevent sources, X-mode) mean this text
 // stays short relative to upstream's equivalent. It names the memory folder
 // by its full path, because a CFO often runs in a project rather than in the

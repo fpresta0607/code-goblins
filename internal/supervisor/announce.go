@@ -11,6 +11,8 @@ import (
 // only for a key it claimed here first. The record is the supervisor's, so a
 // reload, a second tab, a reconnect or a supervisor restart never announces
 // the same item again (the Overlord, 2026-10-01: "no double fire or display").
+// While AFK mode is on the board is handed nothing at all, and what it asked
+// about then stays recorded, so it is not announced once he is back either.
 const (
 	// announcedFor is how long an announcement is remembered; an item open
 	// that long was announced long ago.

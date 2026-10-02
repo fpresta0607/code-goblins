@@ -675,6 +675,7 @@ The board alerts on what needs the Overlord or finished, comparing each snapshot
 Each alert stands for one event and shows once, in one tab of the board, however often a snapshot, a supervisor restart or a reload brings it back.
 Before the board shows an alert, sends its Windows notification or opens the Command Center by itself on a new question, it claims the event through `POST /api/announce` (`keys` for items, `news` for a goblin's news) and announces only what the answer's `claimed` names.
 The supervisor hands each key to the first request that asks and keeps the record in its state (`announced`, for thirty days, at most 2048 keys), so another tab, another browser, a reload, a reconnect or a supervisor restart never announces the same item again; a goblin's news may be claimed again once five minutes have passed, the rule below.
+While [AFK mode](#afk-mode) is on it hands out nothing, and records what was asked about, so nothing is announced while the Overlord is away or once he is back.
 A tab that is hidden waits a second and a half before it asks, so a tab the Overlord is looking at claims first and shows the alert and the Command Center where he sees them; with no tab in view the hidden one claims after the wait and still sends its Windows notification.
 An alert is claimed as `alert:<key>` cut to 160 characters, so a goblin's long reason fits the endpoint's 512 byte bound per key and two long reasons that start alike are one event for five minutes; the Command Center's own opening is claimed as `open:<question key>`.
 A board that cannot reach the supervisor falls back on what its browser remembers.
@@ -806,6 +807,44 @@ The terminal fallback is `cfo auth store --project <project> <NAME>` on this mac
 It takes the save's checks (this machine only, the open request and its generation) and opens one window at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
 When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
 A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
+
+## AFK mode
+
+AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides what his authority covers and logs each decision, what stays his alone is held for him, and nothing on the board prompts him.
+`AGENTS.md` holds its terms; this is how the supervisor keeps them.
+
+The supervisor is the only writer of AFK mode's three files in `state/`:
+
+| File | What it holds |
+| --- | --- |
+| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. |
+| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch. |
+| `afk-report.json` | The report of the last stretch that ended. |
+
+`cfo afk on` and `cfo afk off` send `afk-on` or `afk-off` over the supervisor's pipe, the one a run item travels over, and need `cfo serve` running.
+The supervisor makes the switch only for a process it proves runs in a terminal of the Overlord's own, read from the process at the other end of the pipe: its ancestry, each parent created no later than its child, and its environment.
+It refuses, in this order, a process whose environment carries `CFO_ROLE=goblin` or `NO_MISTAKES_GATE`, one whose ancestry reaches the registered CFO, one whose environment names a native terminal (`CFO_HOST_ID`) or a Herdr pane (`HERDR_PANE_ID`), where the fleet runs an agent, and one with an agent harness among its ancestors (`claude`, `codex`, `pi`, `kimi` or `node`, by executable name).
+A process it cannot read, or one that started after the request, is refused too, never taken for his.
+What it accepts is recorded with the shell the command was typed in, such as `his own terminal (powershell.exe pid 4242)`.
+Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so AFK mode is never off without one, and the notice tells the CFO to write it into its terminal.
+The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
+A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
+
+`cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
+A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
+A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
+
+While AFK mode is on, `POST /api/announce` records every key it is asked about and claims none, so the board shows no alert, sends no Windows notification and never opens the Command Center by itself.
+Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
+It marks the keys the board would announce each one under (`alert:<kind>:<id>`, and `open:question:<id>` for a question) as announced, so a held item is not announced once he is back either; a test pins those names to the board's own source.
+An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
+
+A switch that cannot be read is never taken for on or off.
+The board announces as usual and the recovery cycle reports the unreadable switch, the digest and `cfo drain` say `AFK MODE: UNREADABLE`, and `cfo pr merge` refuses to merge.
+
+The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
+A held question the CFO answered is a decision, so the report lists it there and not as held.
+What could not be read, a log line or an allowance, is named in the report rather than left out.
 
 ## Nonblocking presentation notices
 
