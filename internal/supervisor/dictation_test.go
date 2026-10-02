@@ -155,7 +155,7 @@ func TestDictationTakesSoundOnlyFromTheBoardsOwnPageOnThisMachine(t *testing.T) 
 		"a request through a proxy":  {header("X-Forwarded-For", "100.101.102.103"), http.StatusForbidden},
 		"no board token":             {func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
 		"another site's page":        {header("Origin", "https://example.test"), http.StatusForbidden},
-		"a body that is not a sound": {header("Content-Type", "application/json"), http.StatusUnsupportedMediaType},
+		"a body that is not a sound": {header("Content-Type", "application/json"), http.StatusBadRequest},
 	} {
 		speech := &fakeSpeech{text: "never typed"}
 		response := dictate(dictationBoard(t, speech), []byte("RIFF-sound"), test.change)

@@ -132,19 +132,21 @@ func (h *HTTP) dictationStatus(w http.ResponseWriter) {
 
 // dictate returns the words in the sound the board's page recorded. It takes
 // a sound only from the board's own page on this machine, so what is said
-// never leaves it, and runs one engine at a time.
+// never leaves it, and runs one engine at a time. A body that is not a WAV
+// sound is a bad request before anything of it is read, as every board
+// endpoint refuses a body it does not take.
 func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
-	speech := h.Service.Options.Dictation
-	if speech == nil {
-		apiError(w, http.StatusServiceUnavailable, "Dictation is not set up in this supervisor; cfo doctor says why.")
-		return
-	}
 	if offMachine(r, h.Host) != "" {
 		apiError(w, http.StatusForbidden, "The board dictates only on the PC it runs on, from its own page at 127.0.0.1, so what you say never leaves that PC.")
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "audio/wav") {
-		apiError(w, http.StatusUnsupportedMediaType, "A WAV sound is required")
+		apiError(w, http.StatusBadRequest, "A WAV sound is required")
+		return
+	}
+	speech := h.Service.Options.Dictation
+	if speech == nil {
+		apiError(w, http.StatusServiceUnavailable, "Dictation is not set up in this supervisor; cfo doctor says why.")
 		return
 	}
 	sound, err := io.ReadAll(http.MaxBytesReader(w, r.Body, dictationLimit))
