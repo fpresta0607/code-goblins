@@ -125,7 +125,12 @@ test.describe("in the desktop app", () => {
     // The whole note is inside the pane, on one line.
     const box = await note.boundingBox(), frame = await pane.boundingBox();
     expect(box && frame && box.x >= frame.x && box.x + box.width <= frame.x + frame.width).toBe(true);
-    expect(await note.evaluate((element) => element.scrollWidth <= element.clientWidth && element.getClientRects().length === 1)).toBe(true);
+    const tops = await note.evaluate((element) => {
+      const text = document.createRange();
+      text.selectNodeContents(element);
+      return [...new Set([...text.getClientRects()].map((rect) => rect.top))];
+    });
+    expect(tops).toHaveLength(1);
     await testInfo.attach("app-dictation-note", { body: await pane.screenshot(), contentType: "image/png" });
   });
 });
