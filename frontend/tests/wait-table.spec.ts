@@ -68,6 +68,27 @@ test("a value still copies with one click on a page that has no clipboard", asyn
   await expect(page.locator("textarea")).toHaveCount(0);
 });
 
+// The last row's Copy label opens below its button, past the table's edge. A
+// table that scrolled its own overflow grew a scrollbar and cut the label off.
+test("a wait's table never scrolls inside itself, so its last row's copy label shows whole", async ({ page }) => {
+  // Arrange
+  await page.goto("/tests/fixtures/wait-table.html");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const button = dialog.getByRole("button", { name: "Copy 2a09:8280:1::4f:2c1a" });
+
+  // Act
+  await button.hover();
+  const scrolled = await dialog.locator(".message-table").evaluate((box) => {
+    box.scrollTop = 100;
+    return box.scrollTop;
+  });
+
+  // Assert
+  await expect(button).toHaveAttribute("data-tip", "Copy");
+  expect(scrolled).toBe(0);
+});
+
 test("a wait's row in the menu reads the goblin's words alone, on one line", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/wait-table.html");
