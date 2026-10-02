@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
+import { useItemState } from "./use-item-state";
 import { Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
 import { Orchestration } from "./Orchestration";
@@ -56,7 +57,10 @@ const BOARD_LAYOUT_KEY = "cfo-board-layout";
 const KANBAN_NEEDS_OVER = 960;
 
 export function App() {
-  const { snapshot, connection, error } = useRuntimeStream();
+  const { snapshot: received, connection, error } = useRuntimeStream();
+  // What the board draws holds closed every item it knows to be closed, so
+  // nothing he acted on waits for the next snapshot to leave.
+  const { snapshot, sent } = useItemState(received);
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
@@ -248,7 +252,7 @@ export function App() {
           ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} onSent={sent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
