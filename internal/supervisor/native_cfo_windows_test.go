@@ -193,23 +193,7 @@ func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			stateDir := t.TempDir()
-			t.Setenv("HERDR_PANE_ID", "")
-			program, err := os.Executable()
-			if err != nil {
-				t.Fatal(err)
-			}
-			shims := t.TempDir()
-			typed := filepath.Join(t.TempDir(), "typed.txt")
-			shim := fmt.Sprintf("@\"%s\" \"-test.run=^TestNativeTerminalProgram$\" -- native-terminal-program \"%s\" \"%s\"\r\n", program, typed, stateDir)
-			if err := os.WriteFile(filepath.Join(shims, name+".cmd"), []byte(shim), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-			cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
-			record, err := host.ReadRecord(stateDir, "cfo")
-			if err != nil {
-				t.Fatal(err)
-			}
+			cfo, record := shimTerminal(t, stateDir, name)
 
 			cfo.typeLine(t, "register by program")
 
@@ -218,6 +202,66 @@ func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 			}
 			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != want {
 				t.Fatalf("the program recorded %q, want %q", lines, want)
+			}
+		})
+	}
+}
+
+// shimTerminal runs name, an npm script shim on PATH, in native terminal cfo
+// of stateDir through cmd /c, as a native terminal runs Codex and pi.
+func shimTerminal(t *testing.T, stateDir, name string) (hostedTerminal, host.Record) {
+	t.Helper()
+	t.Setenv("HERDR_PANE_ID", "")
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shims := t.TempDir()
+	typed := filepath.Join(t.TempDir(), "typed.txt")
+	shim := fmt.Sprintf("@\"%s\" \"-test.run=^TestNativeTerminalProgram$\" -- native-terminal-program \"%s\" \"%s\"\r\n", program, typed, stateDir)
+	if err := os.WriteFile(filepath.Join(shims, name+".cmd"), []byte(shim), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
+	record, err := host.ReadRecord(stateDir, "cfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfo, record
+}
+
+// Plain cfo register names no session, and it is how a Codex CFO that goblins
+// starts registers, by its first prompt. Codex gives every command it runs
+// its thread, so the registration records that as the CFO's conversation, and
+// a closed Codex CFO comes back on it. No other harness takes the thread for
+// its own: a pi CFO started from inside a Codex session inherits the variable.
+func TestACodexCFORegisteredByHandRecordsItsThreadAsItsConversation(t *testing.T) {
+	const thread = "019a2b3c-4d5e-7f60-8a9b-thread"
+	for name, want := range map[string]string{"codex": thread, "pi": ""} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			t.Setenv("CODEX_THREAD_ID", thread)
+			cfo, record := shimTerminal(t, stateDir, name)
+
+			// Act
+			cfo.typeLine(t, "register by hand")
+
+			// Assert
+			registered := fmt.Sprintf("registered %s pid %d in native terminal cfo", name, record.ChildPID)
+			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != registered {
+				t.Fatalf("the program recorded %q, want %q", lines, registered)
+			}
+			conversation, err := ReadCFOConversation(stateDir)
+			if want == "" {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("a %s CFO recorded the conversation %+v, %v; want none, since the thread is Codex's", name, conversation, err)
+				}
+				return
+			}
+			if err != nil || conversation.Harness != name || conversation.Session != want || conversation.Host != "cfo" || conversation.PID != record.ChildPID {
+				t.Fatalf("conversation = %+v, %v; want the Codex thread %s recorded for native terminal cfo", conversation, err, want)
 			}
 		})
 	}

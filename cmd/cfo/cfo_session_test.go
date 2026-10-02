@@ -106,7 +106,7 @@ func TestGoblinsReportsACFOThatCannotStart(t *testing.T) {
 	herdrStart.runtime.startCFO = func(context.Context, string, string) (bool, error) {
 		return false, errors.New("herdr is not installed")
 	}
-	nativeStart.runtime.startNativeCFO = func(home.Home, string, string) error { return errors.New("claude is not on PATH") }
+	nativeStart.runtime.startNativeCFO = func(home.Home, string, string, []string) error { return errors.New("claude is not on PATH") }
 
 	// Act
 	herdrExit, _, herdrErr := herdrStart.launch()
