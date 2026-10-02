@@ -31,7 +31,7 @@ const back = (page: Page) => page.getByRole("button", { name: "Back to the CFO",
 const close = (page: Page) => page.getByRole("button", { name: "Close panel", exact: true });
 const pill = (page: Page, view: "Task" | "Terminal") => page.locator(".panel-pill").getByRole("button", { name: view, exact: true });
 
-test.use({ viewport: { width: 1707, height: 1067 } });
+test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
 for (const id of ["queued-one", "working-one", "paused-one", "done-one"]) {
   test(`the panel of ${id} has Back in place of Close, and Back shows the CFO's panel`, async ({ page }) => {
