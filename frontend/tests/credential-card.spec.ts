@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { expect, servePages, test, type Locator, type Page, type Route } from "./site";
 
 // The credential card in the Command Center: the Overlord pastes each value,
 // and the board stores it in the project's credential scope. A value travels
@@ -308,12 +308,14 @@ test("while the request's terminal is open the card says so and takes no save or
 });
 
 test("a board opened from another machine shows no value field and no Run, only the commands to copy", async ({ page }) => {
-  // Arrange: Chromium sends board.localhost to this machine, and the board
-  // takes values only under 127.0.0.1, localhost or ::1.
+  // Arrange: the board takes values only under 127.0.0.1, localhost or ::1,
+  // and this origin is none of them.
+  const elsewhere = "https://board.test";
+  await servePages(page.context(), elsewhere);
   await answer(page);
 
   // Act
-  const card = await openCard(page, "http://board.localhost:5188");
+  const card = await openCard(page, elsewhere);
 
   // Assert
   await expect(card).toContainText("Values can only be typed on the board on your PC");
