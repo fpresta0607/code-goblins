@@ -170,7 +170,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		// Its startup dialogs are answered before the line says it started.
 		notes := runtime.settleCFO(ctx, h.State, agent)
 		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
-		for _, note := range append(noWakePath(agent), notes...) {
+		for _, note := range append(wakePath(agent, true), notes...) {
 			list.Note(note)
 		}
 		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
@@ -184,7 +184,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
 	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
-	for _, note := range append(noWakePath(agent), unreached(agent, nil)...) {
+	for _, note := range append(wakePath(agent, false), unreached(agent, nil)...) {
 		list.Note(note)
 	}
 	return cfoSession{herdr: herdrSession()}, true, nil

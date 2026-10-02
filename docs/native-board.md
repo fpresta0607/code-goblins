@@ -391,6 +391,7 @@ Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` m
 A CFO can also run in a native terminal, a `cfo host` that tells the program it starts which terminal it is through `CFO_HOST_ID`.
 Outside a Herdr pane, registration there needs the terminal's program, named by its host's record, to be one of the caller's own ancestors, or the caller to carry the terminal's proof value (see [Goblin questions](#goblin-questions)), and the host to answer on its pipe, since a host that was killed leaves its record behind.
 The registration then names that terminal instead of a pane, and it stays valid while the host's record names the registered process as the terminal's program.
+Plain `cfo register` names the harness from that program: `claude.exe` is Claude Code, and the `cmd /c codex` or `cmd /c pi` a native terminal runs an npm script shim through is named by the name cmd runs, read from cmd's own command line; any other program is refused.
 A message for a native CFO is typed into its terminal once, then Enter submits it, over a delivery connection of its own: the host acknowledges each part once it has written it into the terminal's input, and it is never typed again.
 The board shows it delivered only once the CFO's own prompt hook, which names the native terminal its harness runs in, reports taking it.
 A screen turning to work is no proof, since Enter may have chosen a dialog's option instead.
@@ -408,7 +409,11 @@ Its environment starts, as a native goblin's does, from the one Windows gives a 
 The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
 A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
-A CFO already running keeps its harness, and goblins says the choice applies to the next start; a Codex or pi CFO is told it has no wake path, because only Claude Code's Stop hook wakes the CFO.
+A CFO already running keeps its harness, and goblins says the choice applies to the next start.
+A Claude Code CFO is woken by its own Stop hook, which waits on the wake queue.
+A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
+The line is proved taken as `cfo send` proves a send, and one that nothing proves taken is reported and not typed again.
+A Codex or pi CFO in Herdr has no wake path and is told so when it starts: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
 The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.

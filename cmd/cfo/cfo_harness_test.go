@@ -18,8 +18,9 @@ import (
 
 // goblins --harness chooses the harness the CFO starts as, and the home
 // remembers it: a later goblins, in Herdr or native, starts that harness
-// until another is chosen. A CFO that is not Claude Code is told it has no
-// wake path.
+// until another is chosen. A CFO that is not Claude Code is told how it is
+// woken: in Herdr not at all, and in a native terminal by a typed line once
+// it has registered.
 func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	f := newSessionFixture(t)
 	harnessesOnPath(t, "codex", "pi")
@@ -38,12 +39,15 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A Codex CFO has no wake path") {
-			t.Errorf("stdout = %q, want the codex start and its missing wake path", out)
+		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A Codex CFO has no wake path in Herdr") {
+			t.Errorf("stdout = %q, want the codex start and its missing wake path in Herdr", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "CFO        started as pi in "+f.home.Root+", in native terminal cfo\n") || !strings.Contains(nativeOut, "A pi CFO has no wake path") {
-		t.Errorf("stdout = %q, want the native pi start and its missing wake path", nativeOut)
+	if !strings.Contains(nativeOut, "CFO        started as pi in "+f.home.Root+", in native terminal cfo\n") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
+		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
+	}
+	if strings.Contains(nativeOut, "no wake path") {
+		t.Errorf("stdout = %q, want no missing wake path for a native pi CFO", nativeOut)
 	}
 	if data, err := os.ReadFile(cfoHarnessPath(f.home.State)); err != nil || strings.TrimSpace(string(data)) != "pi" {
 		t.Errorf("remembered harness = %q, %v; want pi", data, err)

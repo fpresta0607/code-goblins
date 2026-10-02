@@ -7,15 +7,20 @@ import (
 
 // Claude's trust dialog focuses "No, exit" first. Only the focus on "Yes, I
 // trust this folder" is its answer, and the dialog is recognized however its
-// sentence wraps.
+// sentence wraps. Claude Code marks the focus with ❯ in a terminal it knows
+// draws Unicode and with > in any other, as in a native terminal, whose
+// environment names no such terminal: live on 2026-10-01, Claude Code 2.1.287
+// in a native goblin's terminal drew "> No, exit".
 func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 	screens, _ := NativeScreens(Claude)
 	for name, test := range map[string]struct {
 		screen []string
 		answer bool
 	}{
-		"focus on No, exit": {[]string{" Quick safety check: Is this a project you created or one you", "trust? (Like your own code, a", " ❯ No, exit", "   Yes, I trust this folder"}, false},
-		"focus on Yes":      {[]string{" Quick safety check: Is this a project you created or one you trust?", "   No, exit", " ❯ Yes, I trust this folder"}, true},
+		"focus on No, exit":       {[]string{" Quick safety check: Is this a project you created or one you", "trust? (Like your own code, a", " ❯ No, exit", "   Yes, I trust this folder"}, false},
+		"focus on Yes":            {[]string{" Quick safety check: Is this a project you created or one you trust?", "   No, exit", " ❯ Yes, I trust this folder"}, true},
+		"ASCII focus on No, exit": {[]string{" Do you trust the files in this folder?", " Claude Code'll be able to read, edit, and execute files here.", " Security guide", " > No, exit", "   Yes, I trust this folder", " Enter to confirm · Esc to cancel"}, false},
+		"ASCII focus on Yes":      {[]string{" Do you trust the files in this folder?", " Security guide", "   No, exit", " > Yes, I trust this folder", " Enter to confirm · Esc to cancel"}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dialog, found := screens.Dialog(test.screen)
@@ -23,57 +28,11 @@ func TestClaudesTrustDialogIsAnsweredOnlyOnYes(t *testing.T) {
 				t.Fatalf("Dialog(%q) found none, want the trust dialog", test.screen)
 			}
 			focused, ok := dialog.Focused(test.screen)
-			if answer := ok && dialog.Chosen(focused); answer != test.answer {
+			if !ok {
+				t.Fatalf("Focused(%q) cannot read the focus, want the focused option", test.screen)
+			}
+			if answer := dialog.Chosen(focused); answer != test.answer {
 				t.Errorf("focused %q (%v): answer = %v, want %v", focused, ok, answer, test.answer)
-			}
-		})
-	}
-}
-
-// In a console that does not announce Unicode, Claude Code draws the focus as
-// a plain ">", as it did on 2.1.287 in a console with no WT_SESSION: the
-// dialog is read all the same, and still answered only on Yes. A screen with
-// two such rows shows no one focus, so it is not read.
-func TestClaudesTrustDialogIsReadWithAPlainFocusMark(t *testing.T) {
-	screens, _ := NativeScreens(Claude)
-	captured := []string{
-		" Accessing workspace:",
-		" C:\\Users\\someone\\AppData\\Local\\CodeGoblins",
-		" Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source",
-		" project, or work from your team). If not, take a moment to review what's in this folder first.",
-		" Claude Code'll be able to read, edit, and execute files here.",
-		" Security guide",
-		" > No, exit",
-		"   Yes, I trust this folder",
-		" Enter to confirm · Esc to cancel",
-	}
-	moved := append([]string(nil), captured...)
-	moved[6], moved[7] = "   No, exit", " > Yes, I trust this folder"
-	both := append([]string(nil), captured...)
-	both[7] = " > Yes, I trust this folder"
-	for name, test := range map[string]struct {
-		screen  []string
-		focused string
-		read    bool
-		answer  bool
-	}{
-		"as first shown, on No":  {captured, "No, exit", true, false},
-		"moved down, on Yes":     {moved, "Yes, I trust this folder", true, true},
-		"two rows with the mark": {both, "", false, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			dialog, found := screens.Dialog(test.screen)
-			if !found {
-				t.Fatalf("Dialog(%q) found none, want the trust dialog", test.screen)
-			}
-
-			// Act
-			focused, ok := dialog.Focused(test.screen)
-
-			// Assert
-			if focused != test.focused || ok != test.read || (ok && dialog.Chosen(focused)) != test.answer {
-				t.Errorf("Focused = %q, %v, answered %v; want %q, %v, answered %v", focused, ok, ok && dialog.Chosen(focused), test.focused, test.read, test.answer)
 			}
 		})
 	}
@@ -265,6 +224,35 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 	} {
 		if running, ok := RunningWork(screen); ok {
 			t.Errorf("%s: RunningWork = %q, want nothing running", name, running)
+		}
+	}
+}
+
+// Text is typed into a CFO's composer only while it holds nothing, so a line
+// somebody left unsent is never typed over: Codex shows its placeholder only
+// while its composer is empty, and pi's editor is the rows between its last
+// two rules. A harness whose empty composer is not known never reads empty.
+func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	footer := "↑7.8k ↓895 R31k CH94.9% $0.003 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		empty  bool
+	}{
+		"codex placeholder":        {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
+		"codex follow-up":          {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
+		"codex text typed":         {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
+		"pi empty editor":          {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
+		"pi text typed":            {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
+		"pi two lines typed":       {Pi, []string{rule, "first", "second", rule, footer}, false},
+		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
+		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
+		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+	} {
+		screens, _ := NativeScreens(test.kind)
+		if got := screens.ComposerEmpty(test.screen); got != test.empty {
+			t.Errorf("%s: ComposerEmpty = %v, want %v", name, got, test.empty)
 		}
 	}
 }
