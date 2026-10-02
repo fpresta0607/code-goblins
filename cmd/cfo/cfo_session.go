@@ -60,18 +60,34 @@ func cfoHarness(stateDir string) (string, error) {
 }
 
 // wakePath says how a CFO that is not Claude Code learns a goblin reported.
-// Claude Code's own Stop hook wakes it, and needs no word. A Codex or pi CFO
-// is woken by a line the supervisor types into its native terminal while it
-// sits idle, once it has registered; one in Herdr learns of reports only when
-// it looks.
-func wakePath(harness string, native bool) []string {
-	switch wake := supervisor.CFOWakeFor(harness); {
-	case wake == supervisor.CFOWakeTyped && native:
-		return []string{fmt.Sprintf("A %s CFO is woken by one line typed into this terminal while it sits idle at an empty prompt, once it has run cfo register in this terminal.", onboarding.Name(harness))}
-	case wake == supervisor.CFOWakeTyped:
-		return []string{fmt.Sprintf("A %s CFO has no wake path in Herdr: a wake is typed only into a native terminal (goblins --native), so here it sees reports only when it checks the board or runs cfo drain.", onboarding.Name(harness))}
+// Claude Code's own Stop hook wakes it, and needs no word. A Codex or pi CFO,
+// which goblins starts in a native terminal for this, is woken by a line the
+// supervisor types into that terminal while it sits idle, once its first
+// prompt has registered it.
+func wakePath(harness string) []string {
+	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
+		return nil
 	}
-	return nil
+	return []string{fmt.Sprintf("A %s CFO is woken by one line typed into this terminal while it sits idle at an empty prompt, once its first prompt has run cfo register.", onboarding.Name(harness))}
+}
+
+// recommendedCFOAgent is the agent the table of what is proved recommends for
+// the CFO, and cfoAgentNotes the few words it says of each.
+func recommendedCFOAgent() string {
+	for _, capability := range supervisor.CFOCapabilities() {
+		if capability.Recommended {
+			return capability.Agent
+		}
+	}
+	return ""
+}
+
+func cfoAgentNotes() map[string]string {
+	notes := map[string]string{}
+	for _, capability := range supervisor.CFOCapabilities() {
+		notes[capability.Agent] = capability.Note
+	}
+	return notes
 }
 
 // startCFOInHerdr starts the CFO as harness in the fleet's own Herdr session,

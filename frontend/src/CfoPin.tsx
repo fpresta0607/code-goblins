@@ -18,7 +18,9 @@ import "./cfo-pin.css";
 // Command Center appears on it and glows, with how many wait, and that is the
 // whole signal. With no CFO running, which he sees only after choosing the
 // board without one, its button leads back to the first-run page to start
-// one. A CFO still starting waits in its terminal for Claude Code's sign-in.
+// one. A CFO still starting has not registered yet: Claude Code registers
+// through its SessionStart hook after onboarding and sign-in, and a Codex or
+// pi CFO when its first prompt runs cfo register.
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip. While AFK
 // mode is on nothing glows: the bar says since when and how much was decided
@@ -27,7 +29,7 @@ import "./cfo-pin.css";
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
   const absent = !snapshot.cfo_runs;
-  const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: sign in to Claude Code in its terminal." : line;
+  const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : line;
   const terminal = "Open the CFO's terminal";
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";

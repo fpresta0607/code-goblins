@@ -157,8 +157,9 @@ export function App() {
     setSwitchFocus((prior) => prior + 1);
   };
   if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
-  // A CFO starting in its terminal waits there for Claude Code's sign-in, so
-  // the board opens that terminal by itself, once.
+  // A CFO starting in its terminal has not registered yet and may be asking
+  // something there, such as Claude Code's sign-in, so the board opens that
+  // terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
   // A task the Overlord started opens on its terminal once its session is up;
   // a start that failed shows why on its card instead.
