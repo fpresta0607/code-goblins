@@ -20,8 +20,9 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	t.Setenv("HERDR_SESSION", "fleet-session")
 
 	deps := defaultCommandRuntime()
-	deps.speedHint = nil // keep stdout deterministic; the hint has its own tests
-	deps.quota = nil     // no quota-axi call from a unit test; the check has its own tests
+	deps.speedHint = nil    // keep stdout deterministic; the hint has its own tests
+	deps.quota = nil        // no quota-axi call from a unit test; the check has its own tests
+	deps.repoActivity = nil // no git or GitHub read from a unit test; the overlap check has its own tests
 	brief := briefFile(t)
 	var gotHome home.Home
 	var gotRequest spawn.Request

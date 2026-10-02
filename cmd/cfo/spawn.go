@@ -50,6 +50,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
 	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude, pi and codex and herdr for kimi")
+	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -95,6 +96,17 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	briefText, err := fsx.ReadFile(*brief)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// A dispatch never waits on GitHub: a read that fails starts the task
+	// unchecked and says so.
+	overlap, err := teammateOverlap(context.Background(), runtime, h, args[0], checkout, string(briefText), time.Now())
+	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
+	case hasOverlap && strings.TrimSpace(*overlapOK) == "":
+		refuseOverlap(stderr, overlap)
 		return 1
 	}
 	assessment := routing.Classify(string(briefText))
@@ -230,6 +242,11 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if hasOverlap {
+		if err := recordOverlapAccepted(h, args[0], strings.TrimSpace(*overlapOK), overlap); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: the task started, but the accepted overlap could not be recorded: %v\n", err)
+		}
 	}
 	fmt.Fprintln(stdout, result.Output)
 	fmt.Fprintln(stdout, route)

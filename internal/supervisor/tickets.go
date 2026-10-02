@@ -223,6 +223,16 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 		k.noteOf(record)
 		return
 	}
+	// cfo spawn keeps the CFO's reason for starting a task beside a
+	// teammate's work; the keeper, the tickets' only writer, puts it on the
+	// ticket.
+	overlap, err := tickets.ReadOverlapNote(k.home.State, id)
+	if err != nil {
+		k.note("task:"+id, fmt.Sprintf("The overlap accepted for %s cannot be read: %v", id, err))
+	}
+	if ticket.Overlap = overlap; overlap == "" && record != nil {
+		ticket.Overlap = record.Overlap
+	}
 	k.move(ctx, id, record, ticket, wasQueuedBefore, now)
 }
 
@@ -248,7 +258,7 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			k.noteOf(&record)
 			continue
 		}
-		ticket := tickets.Ticket{TaskID: record.TaskID, Title: record.Title, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest)}
+		ticket := tickets.Ticket{TaskID: record.TaskID, Title: record.Title, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest), Overlap: record.Overlap}
 		if ticket.PullRequest.Number == 0 {
 			ticket.State, ticket.Reason = tickets.Closed, tickets.LeftTheFleet
 		} else {

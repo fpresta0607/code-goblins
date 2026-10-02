@@ -81,7 +81,7 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--overlap-ok "<why>"] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--native]   change a running goblin's harness/model/effort in place, or with --native alone move a Herdr goblin into a native terminal
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
