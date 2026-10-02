@@ -68,8 +68,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
-  const voice = useVoice(instance, task?.id || "cfo", shown);
-  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); }, voice.defers);
+  const voice = useVoice(task?.id || "cfo");
+  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); });
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
