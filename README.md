@@ -169,7 +169,7 @@ When this home's supervisor, or its supervisor and its CFO, already run, it says
 It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
-It starts in its remembered harness in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
+It starts in its remembered harness, a Codex or pi CFO always in a native terminal (see the [quick start](#quick-start)) and a Claude Code one in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
 A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again, with or without `--native`: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
 A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
@@ -196,11 +196,15 @@ Every step shows its default marked, with Enter to continue, the arrows to choos
 The agents are one row of tabs, each with its own mark, moved with Left and Right, with the marked agent's state under the row.
 A step you have answered leaves one line, a tick with the step's name and its answer, in place of its screen, so the window never fills with the steps before; installers and sign-ins run on the console's other screen and leave nothing behind.
 The agent you end on is remembered, so later runs skip what is already set up and go straight to the last screen; `goblins setup` asks again, and `goblins --harness codex` names the agent instead of asking.
-Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it, which the choice of agent and the start both say.
+A CFO in any of the three is woken when a goblin finishes or asks: Claude Code by its own Stop hook, and Codex or pi by one line the supervisor types into the CFO's terminal while it sits idle at an empty prompt.
+So a Codex or pi CFO always starts in a native terminal, and the first prompt goblins gives it has it run `cfo register` and then what AGENTS.md says a CFO does at the start of a session.
+It has none of the hooks a Claude Code CFO has: nothing gives it the session digest, nothing guards its turns, and a closed pi CFO starts a new conversation.
+Claude Code is the recommended one, the choice of agent says in a few words what each gets, and `cfo doctor` lists what the home's CFO goes without.
+Each starts on the model its own configuration names, so a Codex whose configured model the signed-in account cannot use fails its first turn and never registers: change the model with Codex's `/model`, then tell it to run `cfo register`.
 Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
 It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
 The folder that holds your projects is optional there.
-The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
+The page starts any of the three this machine has installed, with the same few words on what a CFO in each gets.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.
@@ -232,7 +236,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
-It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+Its source is `cmd/goblins-window` in this repository; no release of this repository ships it yet, and a built one is published as a release by [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository.
 That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
 The window is unsigned, and its install says so.
 Dictation with **Ctrl+Shift+Space** works in the window as in a browser tab: both hand what you say to the speech model the supervisor runs on this PC.
@@ -475,7 +479,7 @@ While it is on:
   They are never decided for you.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
-  The desktop app is the exception: while its window runs, AFK mode does not silence the window's own Windows notifications for what newly waits on you, until the window ships a fix.
+  The desktop app is quiet too: its window claims what it would notify from the supervisor first, which hands out nothing in AFK mode.
 
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the report of the stretch: what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
@@ -509,7 +513,7 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The toggle on the board, the Held for you list and the report page are not built yet, and neither are silence in the desktop app and the pauses at an allowance floor and at the memory floor.
+The toggle on the board, the Held for you list and the report page are not built yet, and neither are the pauses at an allowance floor and at the memory floor.
 
 ### Open in VS Code
 

@@ -103,17 +103,23 @@ func (v *Voice) fetch(ctx context.Context, part Part, progress func(part string,
 	return os.Rename(unpacked, v.folder(part))
 }
 
+// redirect follows a download sent on only to another https address, and no
+// further than ten times.
+func redirect(next *http.Request, via []*http.Request) error {
+	if next.URL.Scheme != "https" {
+		return fmt.Errorf("the download was sent on to %s, which is not https", next.URL.Redacted())
+	}
+	if len(via) >= 10 {
+		return errors.New("the download was sent on more than 10 times")
+	}
+	return nil
+}
+
 // download writes the part's archive to file, telling progress as it arrives.
-// It follows a redirect only to another https address.
 func (v *Voice) download(ctx context.Context, part Part, file string, progress func(part string, done, total int64)) error {
 	client := v.Client
 	if client == nil {
-		client = &http.Client{CheckRedirect: func(next *http.Request, _ []*http.Request) error {
-			if next.URL.Scheme != "https" {
-				return fmt.Errorf("the download was sent on to %s, which is not https", next.URL.Redacted())
-			}
-			return nil
-		}}
+		client = &http.Client{CheckRedirect: redirect}
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, part.URL, nil)
 	if err != nil {

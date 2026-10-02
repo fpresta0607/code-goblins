@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,17 +192,17 @@ func TestTheFirstDictationFetchesTheModelOnceAndSaysSo(t *testing.T) {
 	handler := dictationBoard(t, speech)
 	response := dictate(handler, []byte("RIFF-sound"), nil)
 	_, _, problem := answer(t, response)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being downloaded") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being set up") {
 		t.Fatalf("the first dictation answered %d %s", response.Code, response.Body)
 	}
 	// While it downloads, another dictation starts no second download and
 	// the status says how far it is.
 	<-speech.started
 	response = dictate(handler, []byte("RIFF-sound"), nil)
-	if _, _, problem = answer(t, response); !strings.Contains(problem, "45 of 103 MB") {
+	if _, _, problem = answer(t, response); !strings.Contains(problem, "downloading model, 45 of 103 MB") {
 		t.Fatalf("a dictation during the download answered %s", response.Body)
 	}
-	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "45 of 103 MB") {
+	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "downloading model, 45 of 103 MB") {
 		t.Fatalf("the status reads %s %q", state, note)
 	}
 	close(speech.fetching)
@@ -240,6 +242,21 @@ func TestADownloadThatStallsIsGivenUpSoTheNextDictationCanTryAgain(t *testing.T)
 	handler.dictationWork.Wait()
 	if _, state, note := dictationStatus(t, handler); state != "missing" || !strings.Contains(note, "was given up") {
 		t.Fatalf("after a stalled download the status reads %s %q", state, note)
+	}
+}
+
+func TestANetworkTimeoutInsideTheLimitKeepsTheFetchsOwnWords(t *testing.T) {
+	_, timeout := net.DialTimeout("tcp", "127.0.0.1:1", time.Nanosecond)
+	if !errors.Is(timeout, context.DeadlineExceeded) {
+		t.Fatalf("the premise does not hold: the dial answered %v, which is not read as a deadline", timeout)
+	}
+	speech := &fakeSpeech{missing: errors.New("model 1 is not fetched"), fetchErr: fmt.Errorf("model 1 could not be downloaded: %w. Download https://example.test/m.tar.bz2 yourself and save it as m.tar.bz2", timeout)}
+	handler := dictationBoard(t, speech)
+	dictate(handler, []byte("RIFF-sound"), nil)
+	handler.dictationWork.Wait()
+	_, state, note := dictationStatus(t, handler)
+	if state != "missing" || !strings.Contains(note, "save it as m.tar.bz2") || strings.Contains(note, "was given up") {
+		t.Fatalf("after a network timeout inside the limit the status reads %s %q", state, note)
 	}
 }
 

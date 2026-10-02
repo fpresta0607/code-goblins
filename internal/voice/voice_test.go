@@ -121,7 +121,7 @@ func entries(t *testing.T, dir string) []string {
 func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 	valid := `{"engine":{"name":"engine","version":"1","url":"https://example.test/e.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["bin/e.exe"]},
 "model":{"name":"model","version":"2","url":"https://example.test/m.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["tokens.txt"]},
-"program":"e.exe","args":["--tokens={model}/tokens.txt"],"threads":2}`
+"program":"e.exe","args":["--num-threads=2","--tokens={model}/tokens.txt"]}`
 	path := filepath.Join(t.TempDir(), "voice.json")
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Model.Name != "model" || settings.Engine.Files[0] != "bin/e.exe" || settings.Threads != 2 || settings.Program != "e.exe" {
+	if settings.Model.Name != "model" || settings.Engine.Files[0] != "bin/e.exe" || settings.Args[0] != "--num-threads=2" || settings.Program != "e.exe" {
 		t.Fatalf("settings read as %+v", settings)
 	}
 	for name, change := range map[string][2]string{
@@ -139,7 +139,7 @@ func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 		"a part with no files":           {`"files":["tokens.txt"]`, `"files":[]`},
 		"a file that leaves its folder":  {`"files":["tokens.txt"]`, `"files":["../tokens.txt"]`},
 		"an archive that is not tar.bz2": {"https://example.test/m.tar.bz2", "https://example.test/m.zip"},
-		"a field it does not know":       {`"threads":2`, `"threads":2,"cloud":true`},
+		"a field it does not know":       {`"program":"e.exe"`, `"program":"e.exe","cloud":true`},
 		"a program that is not a file":   {`"program":"e.exe"`, `"program":"bin/e.exe"`},
 	} {
 		if !strings.Contains(valid, change[0]) {
@@ -216,6 +216,30 @@ func TestAnArchiveWhoseEntriesStartWithADotFolderIsUnpackedTheSame(t *testing.T)
 	}
 	if got, want := strings.Join(entries(t, dir), " "), "model-1.0/library.txt model-1.0/program.txt model-1.0/tokens.txt model-1.0/verified.json"; got != want {
 		t.Fatalf("the folder holds %s, want %s", got, want)
+	}
+}
+
+func TestADownloadIsSentOnOnlyToHTTPSAndNoMoreThanTenTimes(t *testing.T) {
+	for name, test := range map[string]struct {
+		next    string
+		hops    int
+		refused string
+	}{
+		"a tenth hop to https":    {"https://example.test/part.tar.bz2", 9, ""},
+		"a hop that is not https": {"http://example.test/part.tar.bz2", 1, "not https"},
+		"an eleventh hop":         {"https://example.test/part.tar.bz2", 10, "more than 10 times"},
+	} {
+		next, err := http.NewRequest(http.MethodGet, test.next, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = redirect(next, make([]*http.Request, test.hops))
+		if test.refused == "" && err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+		if test.refused != "" && (err == nil || !strings.Contains(err.Error(), test.refused)) {
+			t.Errorf("%s answered %v, want a refusal saying %q", name, err, test.refused)
+		}
 	}
 }
 
@@ -314,7 +338,7 @@ func engine(t *testing.T, role string, free uint64) (*Voice, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: filepath.Base(self), Args: []string{"--tokens={model}/tokens.txt", "--model-type=test"}, Threads: 2}
+	settings := Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: filepath.Base(self), Args: []string{"--num-threads=2", "--tokens={model}/tokens.txt", "--model-type=test"}}
 	voice := &Voice{Settings: settings, Dir: dir, Client: server.Client(), Memory: func() (uint64, uint64, error) { return free, free, nil }}
 	if err := voice.Fetch(context.Background(), quiet); err != nil {
 		t.Fatal(err)
