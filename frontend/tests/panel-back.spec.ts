@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
 
 // The panel of anything but the CFO has Back where Close was: a button with
 // its arrow and its name, which returns the panel to the CFO's panel on the
@@ -15,10 +15,9 @@ const BOARD = [
 
 async function open(page: Page) {
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks: BOARD };
+  await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
-    else if (path === "/api/workspace") await route.fulfill({ json: { repository: "code-goblins", root: "C:/work/code-goblins", harness: "codex", notes: [] } });
+    if (new URL(route.request().url()).pathname === "/api/workspace") await route.fulfill({ json: { repository: "code-goblins", root: "C:/work/code-goblins", harness: "codex", notes: [] } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");

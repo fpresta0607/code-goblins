@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { expect, holdStream, test, type Locator, type Page } from "./site";
 
 // Every tip on the board holds its whole text on a solid surface, stays
 // inside the window and is cut off by nothing, wherever its part is: a card,
@@ -29,11 +29,9 @@ const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the boar
 // so only the Command Center's own walk has one.
 async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = []) {
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions };
-  await page.route("**/api/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
-    else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
-  });
+  // The walks point at one part after another, so the board must hold still.
+  await holdStream(page, snapshot);
+  await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
