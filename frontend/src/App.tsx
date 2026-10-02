@@ -208,9 +208,10 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {/* A board too narrow for columns side by side is stacked whatever the
-            layout, so there the button changes nothing and says why. */}
-        {!firstRun && view === "Board" && (boardNarrow
+        {/* A kanban board too narrow for columns side by side is stacked, so
+            there the button changes nothing and says why; a board stacked by
+            choice keeps its way back, since the panel yields to a kanban. */}
+        {!firstRun && view === "Board" && (boardNarrow && boardLayout === "kanban"
           ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}

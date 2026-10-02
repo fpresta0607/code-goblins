@@ -124,6 +124,12 @@ test.describe("in a window 1707 px wide", () => {
     const board = await page.locator(".canvas-region").evaluate((canvas) => canvas.getBoundingClientRect().width);
     const pane = await page.locator(".context-pane").evaluate((panel) => panel.getBoundingClientRect().width);
     expect(Math.abs(board - pane)).toBeLessThanOrEqual(1);
+    // The board is now under 961 px, yet the way back to the kanban stays.
+    const kanban = page.getByRole("button", { name: "Kanban layout" });
+    await expect(kanban).toBeVisible();
+    await expect(kanban).not.toHaveAttribute("aria-disabled", "true");
+    await kanban.click();
+    expect(await columns(page)).toBe(3);
   });
 
   test("a panel width the Overlord dragged still wins", async ({ page }) => {

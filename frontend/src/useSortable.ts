@@ -113,16 +113,6 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       if (same(moved, shown.current)) place();
       else setPreview(moved);
     };
-    // Scrolls the list a step each frame while the card is held at an edge
-    // and there is more to scroll, and asks for no frame once there is not.
-    const scroll = () => {
-      scrolling = 0;
-      const { top, bottom } = edgesOf(scroller), before = scroller.scrollTop;
-      scroller.scrollTop += edgeScroll(dragged.pointer.y, top, bottom);
-      if (scroller.scrollTop === before) return;
-      settle();
-      scrolling = requestAnimationFrame(scroll);
-    };
     // The page arrow the pointer is on: -1 for earlier, 1 for next, 0 for none.
     const arrow = (): -1 | 0 | 1 => {
       for (const button of live.current.pages.pager.current?.querySelectorAll<HTMLButtonElement>("[data-turn]") ?? []) {
@@ -140,6 +130,27 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       if (taken !== null) setPreview(moveTo(shown.current, id, taken));
       turning = window.setTimeout(turn, ARROW_HOLD);
     };
+    // Starts the wait on a page arrow the pointer has come onto, whether the
+    // pointer moved there or the list scrolled the arrow under it, and ends
+    // the wait on one it has left.
+    const rest = () => {
+      const over = arrow();
+      if (over === held) return;
+      clearTimeout(turning);
+      held = over;
+      if (over) turning = window.setTimeout(turn, ARROW_HOLD);
+    };
+    // Scrolls the list a step each frame while the card is held at an edge
+    // and there is more to scroll, and asks for no frame once there is not.
+    const scroll = () => {
+      scrolling = 0;
+      const { top, bottom } = edgesOf(scroller), before = scroller.scrollTop;
+      scroller.scrollTop += edgeScroll(dragged.pointer.y, top, bottom);
+      if (scroller.scrollTop === before) return;
+      settle();
+      rest();
+      scrolling = requestAnimationFrame(scroll);
+    };
     const move = (next: globalThis.PointerEvent) => {
       dragged.pointer = { x: next.clientX, y: next.clientY };
       if (!dragged.moved) {
@@ -150,12 +161,9 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       }
       next.preventDefault();
       settle();
-      if (!scrolling) scrolling = requestAnimationFrame(scroll);
-      const over = arrow();
-      if (over === held) return;
-      clearTimeout(turning);
-      held = over;
-      if (over) turning = window.setTimeout(turn, ARROW_HOLD);
+      const { top, bottom } = edgesOf(scroller);
+      if (!scrolling && edgeScroll(dragged.pointer.y, top, bottom)) scrolling = requestAnimationFrame(scroll);
+      rest();
     };
     const detach = () => {
       window.removeEventListener("pointermove", move);
