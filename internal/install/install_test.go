@@ -408,6 +408,34 @@ func TestUninstallRemovesTheStartMenuShortcut(t *testing.T) {
 	}
 }
 
+// Where the home held the desktop window, the install script put Code Goblins
+// Window beside the Code Goblins shortcut, and an uninstall removes it too. A
+// home that never had the window says nothing about it.
+func TestUninstallRemovesTheWindowsStartMenuShortcut(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	programs := t.TempDir()
+	shortcut, window := filepath.Join(programs, "Code Goblins.lnk"), filepath.Join(programs, "Code Goblins Window.lnk")
+	for _, path := range []string{shortcut, window} {
+		if err := os.WriteFile(path, []byte("shortcut"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.StartMenuShortcut = shortcut
+	f.install()
+
+	output := f.uninstall()
+
+	if !strings.Contains(output, "removed "+window) {
+		t.Errorf("the uninstall output does not report the window's shortcut removed:\n%s", output)
+	}
+	if _, err := os.Stat(window); !os.IsNotExist(err) {
+		t.Errorf("%s survived the uninstall: %v", window, err)
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") || strings.Contains(output, window) {
+		t.Errorf("a second uninstall mentions a window's shortcut that is not there:\n%s", output)
+	}
+}
+
 // The script and the uninstall agree on where the shortcut lives: the
 // Start-menu programs under APPDATA, and nowhere when APPDATA is not set.
 func TestStartMenuShortcutPathFollowsAppData(t *testing.T) {

@@ -17,15 +17,18 @@ config/
 !/config/pipeline.json
 !/config/verify.json
 /cfo.exe
-# install.cmd -Dev builds both names and moves a copy still running aside.
+# install.cmd -Dev builds both names and the desktop window, and moves a copy
+# still running aside.
 /goblins.exe
 # The desktop window built in the clone, and the picture of its notifications,
 # which it writes beside itself at each start.
 /goblins-window.exe
 /goblins-window.png
 /cfo.exe.new
+/goblins-window.exe.new
 /cfo.exe.*.old
 /goblins.exe.*.old
+/goblins-window.exe.*.old
 /frontend/node_modules/
 /frontend/test-results/
 /frontend/test-results-*.txt

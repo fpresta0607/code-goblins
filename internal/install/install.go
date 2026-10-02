@@ -60,6 +60,14 @@ type Service struct {
 	// StartMenuShortcut is the Code Goblins shortcut the install script puts
 	// in the Start menu, which an uninstall removes.
 	StartMenuShortcut string
+	// StartAtLoginKey is the key under HKEY_CURRENT_USER holding the
+	// programs Windows starts at login. An uninstall clears it of the desktop
+	// window's entry for this home, and an install makes that entry start
+	// this home where it started an earlier copy of the window.
+	StartAtLoginKey string
+	// EarlierWindow is the folder an earlier install kept the desktop window
+	// in, on its own. An install whose home holds the window takes its place.
+	EarlierWindow string
 }
 
 // Install wires the CFO into the machine and reports every change and every
@@ -111,6 +119,9 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.setProjectsRoot(report); err != nil {
 		return err
 	}
+	if err := s.adoptEarlierWindow(report); err != nil {
+		return err
+	}
 	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
 		return err
 	}
@@ -148,6 +159,9 @@ func (s Service) Uninstall(out io.Writer) error {
 		return err
 	}
 	if err := s.removeStartMenuShortcut(report); err != nil {
+		return err
+	}
+	if err := s.removeStartAtLogin(report); err != nil {
 		return err
 	}
 	if s.Contract != nil {
@@ -193,21 +207,31 @@ func (s Service) removeNativeHooks(report *reporter) error {
 	return nil
 }
 
-// removeStartMenuShortcut removes the Start-menu shortcut the install script
-// made, when there is one.
+// windowShortcutName is the shortcut the desktop window had in the Start menu
+// while it was installed on its own; Code Goblins opens the window now.
+const windowShortcutName = "Code Goblins Window.lnk"
+
+// removeStartMenuShortcut removes the Start-menu shortcuts an install made,
+// when there are any: Code Goblins, and the one the desktop window once had.
 func (s Service) removeStartMenuShortcut(report *reporter) error {
 	if s.StartMenuShortcut == "" {
 		return nil
 	}
-	err := os.Remove(s.StartMenuShortcut)
-	if errors.Is(err, fs.ErrNotExist) {
-		report.same("start menu", "no shortcut at "+s.StartMenuShortcut)
-		return nil
+	window := filepath.Join(filepath.Dir(s.StartMenuShortcut), windowShortcutName)
+	for _, shortcut := range []string{s.StartMenuShortcut, window} {
+		err := os.Remove(shortcut)
+		if errors.Is(err, fs.ErrNotExist) {
+			// Only an earlier install made the window's own shortcut.
+			if shortcut == s.StartMenuShortcut {
+				report.same("start menu", "no shortcut at "+shortcut)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("install: remove the Start-menu shortcut %s: %w", shortcut, err)
+		}
+		report.change("start menu", "removed "+shortcut)
 	}
-	if err != nil {
-		return fmt.Errorf("install: remove the Start-menu shortcut %s: %w", s.StartMenuShortcut, err)
-	}
-	report.change("start menu", "removed "+s.StartMenuShortcut)
 	return nil
 }
 
@@ -220,6 +244,17 @@ func StartMenuShortcutPath() string {
 		return ""
 	}
 	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Code Goblins.lnk")
+}
+
+// EarlierWindowDir is the folder an earlier install kept the desktop window
+// in: CodeGoblinsWindow under LOCALAPPDATA, or nothing when LOCALAPPDATA is
+// not set.
+func EarlierWindowDir() string {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return ""
+	}
+	return filepath.Join(local, "CodeGoblinsWindow")
 }
 
 // finish publishes the environment change once, at the end, rather than
