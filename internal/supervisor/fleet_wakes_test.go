@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -682,6 +683,31 @@ func TestCIUnreadableShowsAtEveryRecoveryCycle(t *testing.T) {
 		if !strings.Contains(shown, "list the push runs of "+project) {
 			t.Fatalf("a recovery cycle showed %q, want the named error of %s", shown, project)
 		}
+	}
+}
+
+// The line stays up between recovery cycles too: a cycle an event started,
+// which publishes because the fleet changed, still shows it.
+func TestCIUnreadableStaysUpThroughAnEventCycle(t *testing.T) {
+	// Arrange
+	s, h, _, project := unreadableForge(t)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
+	s.cycle(context.Background(), true)
+	before := s.Store.Snapshot().Revision
+	if err := nativehook.Spool(h.State, event(t, h, "SessionStart", "native-start", "", time.Now())); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.cycle(context.Background(), false)
+
+	// Assert
+	if s.Store.Snapshot().Revision == before {
+		t.Fatal("the event cycle saw no change, so it published nothing and proves nothing")
+	}
+	if !strings.Contains(s.lastError, "list the push runs of "+project) {
+		t.Fatalf("an event cycle showed %q, want the named error of %s", s.lastError, project)
 	}
 }
 
