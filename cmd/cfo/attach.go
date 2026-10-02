@@ -220,11 +220,27 @@ func detachAt(keys []byte) int {
 	return -1
 }
 
+// cfoFirstPrompt is what a CFO whose harness has no session-start hook to
+// register it starts with. Registering is what lets the board deliver to the
+// CFO and the supervisor type its wakes, so it comes first; the rest of a
+// session's start is the contract's, which the harness reads from AGENTS.md.
+const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session, and wait for the Overlord."
+
+// cfoStartArguments are the arguments a CFO's harness starts with: args, such
+// as the ones that resume a conversation, and for a harness the supervisor
+// wakes by typing, the first prompt that registers it, last.
+func cfoStartArguments(harness string, args []string) []string {
+	if supervisor.CFOWakeFor(harness) != supervisor.CFOWakeTyped {
+		return args
+	}
+	return append(slices.Clone(args), cfoFirstPrompt)
+}
+
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
 // in project, in a host of its own that outlives this console, with args,
 // such as the arguments that resume a conversation.
 func startNativeCFO(h home.Home, project, harness string, args []string) error {
-	program, err := nativeCFOProgram(harness, args...)
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, args)...)
 	if err != nil {
 		return err
 	}

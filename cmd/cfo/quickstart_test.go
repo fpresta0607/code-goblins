@@ -259,31 +259,44 @@ func TestCancelledAgentStepsLeaveTheRememberedAgentAlone(t *testing.T) {
 	}
 }
 
-// A CFO started in Herdr has nothing watching its startup dialogs, so goblins
-// says what to choose at each: Claude Code's trust dialog focuses No, which
-// exits, and Codex's hook review is the person's own decision.
-func TestGoblinsSaysWhatToChooseAtTheDialogsOfACFOStartedInHerdr(t *testing.T) {
-	for _, c := range []struct {
-		agent string
-		want  string
-	}{
-		{"claude", "If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter.\n"},
-		{"codex", "If Codex asks you to review hooks, Continue without trusting keeps them off; trusting them is your own decision.\n"},
-	} {
-		t.Run(c.agent, func(t *testing.T) {
+// A CFO started in Herdr, which only a Claude Code one is, has nothing
+// watching its startup dialogs, so goblins says what to choose there: Claude
+// Code's trust dialog focuses No, which exits.
+func TestGoblinsSaysWhatToChooseAtTheDialogOfACFOStartedInHerdr(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.agent = "claude"
+
+	// Act
+	exit, stdout, stderr := f.launch()
+
+	// Assert
+	if exit != 0 || !slices.Equal(f.cfoStarts, []string{f.home.Root}) {
+		t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want the CFO started in Herdr", exit, f.cfoStarts, stderr)
+	}
+	if want := "If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter.\n"; !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q, want the guidance %q", stdout, want)
+	}
+}
+
+// A Codex or pi CFO starts in a native terminal whether or not --native is
+// given: the supervisor wakes it by typing, which it can do only there.
+func TestACFOWokenByTypingStartsInANativeTerminal(t *testing.T) {
+	for _, agent := range []string{"codex", "pi"} {
+		t.Run(agent, func(t *testing.T) {
 			// Arrange
 			f := newSessionFixture(t)
-			f.agent = c.agent
+			f.agent = agent
 
 			// Act
 			exit, stdout, stderr := f.launch()
 
 			// Assert
-			if exit != 0 || !slices.Equal(f.cfoStarts, []string{f.home.Root}) {
-				t.Fatalf("exit=%d cfoStarts=%q stderr=%q, want the CFO started in Herdr", exit, f.cfoStarts, stderr)
+			if exit != 0 || len(f.cfoStarts) != 0 || !slices.Equal(f.nativeStarts, []string{f.home.Root}) || !slices.Equal(f.harnesses, []string{agent}) {
+				t.Fatalf("exit=%d cfoStarts=%q nativeStarts=%q harnesses=%q stderr=%q, want one native start of %s in the home", exit, f.cfoStarts, f.nativeStarts, f.harnesses, stderr, agent)
 			}
-			if !strings.Contains(stdout, c.want) {
-				t.Errorf("stdout = %q, want the guidance %q", stdout, c.want)
+			if !strings.Contains(stdout, "is woken by one line typed into this terminal while it sits idle at an empty prompt, once its first prompt has run cfo register.") {
+				t.Errorf("stdout = %q, want it to say how the CFO is woken", stdout)
 			}
 		})
 	}

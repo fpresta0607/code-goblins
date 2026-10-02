@@ -69,23 +69,26 @@ type Setup struct {
 	CFORuns      bool         `json:"cfo_runs"`
 }
 
-// SetupAgent is one agent the first-run page shows: whether this machine
-// has it on PATH and a sign-in saved for it, and why Start cannot pick it
-// when it cannot.
+// SetupAgent is one agent the first-run page shows: its name, whether it is
+// the recommended one and the few words on what a CFO in it gets, all from
+// the table of what is proved; whether this machine has it on PATH and a
+// sign-in saved for it; and why Start cannot pick it when it cannot.
 type SetupAgent struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Installed bool   `json:"installed"`
-	SignedIn  bool   `json:"signed_in"`
-	Reason    string `json:"reason,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Recommended bool   `json:"recommended"`
+	Note        string `json:"note,omitempty"`
+	Installed   bool   `json:"installed"`
+	SignedIn    bool   `json:"signed_in"`
+	Reason      string `json:"reason,omitempty"`
 }
 
-// firstRunAgents are the agents a CFO could run on, with the program each
-// starts as and the file under the home folder its sign-in is saved in.
-var firstRunAgents = []struct{ id, name, program, signIn string }{
-	{"claude", "Claude Code", "claude", ".claude/.credentials.json"},
-	{"codex", "Codex", "codex", ".codex/auth.json"},
-	{"pi", "Pi", "pi", ".pi/agent/auth.json"},
+// firstRunSignIn is the file under the home folder each agent's sign-in is
+// saved in.
+var firstRunSignIn = map[string]string{
+	"claude": ".claude/.credentials.json",
+	"codex":  ".codex/auth.json",
+	"pi":     ".pi/agent/auth.json",
 }
 
 // ProjectCheckouts is every git checkout directly under root, the projects
@@ -124,18 +127,20 @@ func (f *FirstRun) Setup(root string) Setup {
 	if root != "" && setup.Problem == "" {
 		setup.Checkouts, setup.Problem = projectNames(root)
 	}
-	for _, agent := range firstRunAgents {
-		path, err := f.LookPath(agent.program)
-		info, statErr := os.Stat(filepath.Join(f.Home, filepath.FromSlash(agent.signIn)))
-		shown := SetupAgent{ID: agent.id, Name: agent.name, Installed: err == nil, SignedIn: statErr == nil && info.Mode().IsRegular() && info.Size() > 0}
+	// Every harness the table of what is proved names can be the CFO, and
+	// none is refused that the fleet can wake.
+	for _, agent := range CFOCapabilities() {
+		path, err := f.LookPath(agent.Agent)
+		info, statErr := os.Stat(filepath.Join(f.Home, filepath.FromSlash(firstRunSignIn[agent.Agent])))
+		shown := SetupAgent{ID: agent.Agent, Name: agent.Name, Recommended: agent.Recommended, Note: agent.Note, Installed: err == nil, SignedIn: statErr == nil && info.Mode().IsRegular() && info.Size() > 0}
 		switch {
-		case agent.id != "claude":
-			shown.Reason = "Goblins can wake only a Claude Code CFO today"
+		case agent.Wake == CFOWakeNone:
+			shown.Reason = "Goblins cannot wake a " + agent.Name + " CFO"
 		case !shown.Installed:
-			shown.Reason = "Install Claude Code to start the CFO"
-		case !strings.EqualFold(filepath.Ext(path), ".exe"):
-			// A native terminal starts a program itself, with no shell to
-			// run a script shim.
+			shown.Reason = "Install " + agent.Name + " to start the CFO"
+		case agent.Agent == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe"):
+			// A native terminal starts Claude Code itself, with no shell to
+			// run a script shim; Codex and pi start through theirs.
 			shown.Reason = "The CFO starts from the native build of Claude Code, claude.exe"
 		}
 		setup.Agents = append(setup.Agents, shown)
@@ -166,8 +171,8 @@ func projectNames(root string) ([]string, string) {
 	return names, ""
 }
 
-// Start starts the CFO with agent, which only Claude Code can be today, in
-// the Code Goblins home, as goblins does, and remembers the agent as goblins
+// Start starts the CFO with agent, any harness the fleet can wake, in the
+// Code Goblins home, as goblins does, and remembers the agent as goblins
 // would. Remembering is part of the start: an agent that cannot be remembered
 // refuses it with nothing started, and a start that fails puts back what the
 // home remembered before, so every error means no CFO runs. It asks for no
@@ -188,7 +193,7 @@ func (f *FirstRun) Start(root, agent string) error {
 	chosen := slices.IndexFunc(setup.Agents, func(shown SetupAgent) bool { return shown.ID == agent })
 	switch {
 	case chosen < 0:
-		return StartRefusal{Reason: "Pick Claude Code to start the CFO"}
+		return StartRefusal{Reason: "Pick one of the agents this page offers to start the CFO"}
 	case setup.Agents[chosen].Reason != "":
 		return StartRefusal{Reason: setup.Agents[chosen].Reason}
 	case root != "" && setup.Problem != "":

@@ -200,6 +200,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .agent-recommended { padding: 1px 8px; border: 1px solid var(--accent-green); border-radius: 999px; color: var(--accent-green); font-size: .8125rem; }
 .agent-panel { display: grid; gap: 4px; min-width: 0; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .agent-panel small { color: var(--amber); font-size: .9375rem; }
+.agent-note { color: var(--muted); font-size: .9375rem; }
+.agent-note::first-letter { text-transform: uppercase; }
 .agent-state { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: .9375rem; }
 .agent-state > span { display: inline-flex; align-items: center; gap: 5px; }
 .agent-state .icon { width: 16px; height: 16px; }
