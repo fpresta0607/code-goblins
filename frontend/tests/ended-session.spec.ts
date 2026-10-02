@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
@@ -353,9 +353,6 @@ for (const backend of ["native", "herdr"] as const) {
     await publish({ ...snapshot, revision: 3, tasks: [{ ...snapshot.tasks[0], generation: "s3-a17c", phase: "working", runtime: { state: "busy", reason: "", at: "2026-09-30T10:02:00Z" }, lifecycle: undefined, action_error: "" }] });
 
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-    // The development App runs in StrictMode, which mounts a new terminal twice.
-    const panes = await connections();
-    expect(panes.filter((pane) => pane.generation !== "s3-a17c")).toEqual([]);
-    expect(panes.filter((pane) => pane.open)).toEqual([{ task: "input-proof", generation: "s3-a17c", open: true }]);
+    expect(await connections()).toEqual([{ task: "input-proof", generation: "s3-a17c", open: true }]);
   });
 }

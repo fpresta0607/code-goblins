@@ -144,8 +144,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	} else {
 		firstRun = firstRunOn(h, userHome, *example, install.SetMachineProjectsRoot)
 	}
+	// The example board shows made-up tasks, which must never reach GitHub.
+	var ticketKeeping *supervisor.Tickets
+	if !*example {
+		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Example:          *example,
+		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
 		Gate:             pipeline.Reader{Root: root, Commands: execx.OSRunner{}},
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),

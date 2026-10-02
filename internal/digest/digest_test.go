@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 
 func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
 	var out bytes.Buffer
-	writeSupervisionInstructions(`C:\home\data`, &werr{w: &out})
+	writeSupervisionInstructions(`C:\home\data`, false, &werr{w: &out})
 	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CFO"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("primary context omitted %q", want)
@@ -264,8 +265,10 @@ func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) 
 			t.Errorf("SUPERVISION does not point the CFO at its home memory (missing %q):\n%s", want, supervision)
 		}
 	}
-	if !strings.Contains(out, `data\memory\MEMORY.md in full`) {
-		t.Errorf("READ-ONCE CONTRACT does not name the memory index as printed:\n%s", out)
+	// The contract names what was printed: the index and overlord.md, and
+	// not projects.md, which this home does not have.
+	if got, want := printedInFull(t, out), []string{`data\overlord.md`, `data\memory\MEMORY.md`}; !slices.Equal(got, want) {
+		t.Errorf("READ-ONCE CONTRACT names %q as printed in full, want %q:\n%s", got, want, out)
 	}
 }
 
@@ -430,7 +433,7 @@ func TestComposeSectionBodies(t *testing.T) {
 	readOnceFacts := []string{
 		"first 20 queued rows (not the full backlog)",
 		"last 5 status lines (not the full log)",
-		"Do not re-read anything shown above in full this turn",
+		"Do not re-read a file named on the PRINTED IN FULL line this turn",
 	}
 	for _, fact := range readOnceFacts {
 		if !strings.Contains(out, fact) {

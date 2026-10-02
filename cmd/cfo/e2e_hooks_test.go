@@ -733,7 +733,7 @@ func mergeEnv(maps ...map[string]string) map[string]string {
 
 var sevenDigestHeaders = []string{
 	"== SESSION LOCK ==", "== WAKE QUEUE ==", "== SUPERVISION OPERATING INSTRUCTIONS ==",
-	"== READ-ONCE CONTRACT ==", "== FLEET STATE ==", "== CONTEXT ==", "== NEXT STEP ==",
+	"== FLEET ==", "== READ THIS NEXT ==", "== READ-ONCE CONTRACT ==", "== NEXT STEP ==",
 }
 
 func assertHasHeaders(t *testing.T, stdout, context string) {

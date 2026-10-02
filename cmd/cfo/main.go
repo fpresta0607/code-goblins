@@ -68,7 +68,7 @@ commands:
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
   cfo auth <project> [--check|--fix] [--env]   preflight a project's services; --fix repairs what needs no human
   cfo auth store [--project <p>] <NAME> [value]   store one credential in a project's scope, or the shared scope without --project (omit the value to read it from stdin, hidden when typed at a console)
-  cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] NAME [NAME...]   ask the Overlord for credential values by name; he pastes them on the board
+  cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--env-file <file>] NAME [NAME...]   ask the Overlord for credential values by name; he pastes them on the board
   cfo auth list [--project <p>]        list stored credential keys, never values
   cfo auth copy <NAME> --to <project> [--from <project>]   copy a stored value into a project's scope; the source is left in place
   cfo auth refresh <task-id>        regenerate a task's auth.ps1 from its project scope; storing or copying into a project scope does this for every live task of that project automatically
@@ -82,13 +82,14 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
-  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--native]   change a running goblin's harness/model/effort in place, or with --native alone move a Herdr goblin into a native terminal
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
+  cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
@@ -178,6 +179,9 @@ type commandRuntime struct {
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
+	// repositoryOf names the GitHub repository a checkout's origin is, for
+	// cfo tickets --allow-public-tickets.
+	repositoryOf func(ctx context.Context, checkout string) (string, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -191,13 +195,11 @@ func defaultCommandRuntime() commandRuntime {
 		resolveHome: home.Resolve,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.Result{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -211,13 +213,11 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.SwitchResult{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -258,7 +258,7 @@ func defaultCommandRuntime() commandRuntime {
 			return spawn.AuthRefresher{
 				StateDir: h.State,
 				DataDir:  h.Data,
-				Panes:    spawn.BackendLiveness{StateDir: h.State, Herdr: spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}}},
+				Panes:    spawn.NativeLiveness{StateDir: h.State},
 			}
 		},
 		peek: peekTerminal,
@@ -299,6 +299,7 @@ func defaultCommandRuntime() commandRuntime {
 		setupAgent:         setupAgent,
 		choose:             onboarding.ChooseConsole,
 		repoActivity:       readRepositoryActivity,
+		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
 	}
 }
 

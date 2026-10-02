@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The Overlord, 2026-10-02, after the board's first-run page started his CFO
 // in a project: "the default repo should always be code goblins; it should
