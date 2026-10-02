@@ -527,7 +527,7 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 | merged | closed as completed, with a comment naming the pull request |
 | was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
 
-A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
+A ticket carries the task's title, its state, who is on it, its pull request and the reason you gave `cfo spawn --overlap-ok` when it was started beside a teammate's work, and nothing else: never the brief, a path on your machine, a secret or a note.
 Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
