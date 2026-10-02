@@ -124,11 +124,23 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .view-switch button:hover { color: #edf4f3; }
 .view-switch button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 .topbar-controls { display: flex; justify-content: flex-end; align-items: center; gap: 18px; min-width: 0; }
+/* The layout button while the board is too narrow for either layout to differ. */
+.topbar-controls [aria-disabled="true"] { cursor: not-allowed; }
+.topbar-controls [aria-disabled="true"] .icon { opacity: .5; }
 .connection { display: flex; align-items: center; gap: 9px; color: #b8cbda; font-size: .9375rem; }
 .live-dot, .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); flex: none; }
 .live-dot.offline { background: var(--amber); }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; gap: 10px; }
 .workspace.with-pane { grid-template-columns: minmax(0, 1fr) 10px minmax(420px, 1fr); column-gap: 0; }
+/* Beside a kanban board the panel yields: the board keeps 980 px, the 961 its
+   three columns need (the 960 px container rule on .task-board) with 2 px for
+   the canvas's border and up to 17 px for its scroll bar, whenever the
+   workspace is wider than 1410 px, which holds that, the divider and the
+   panel's own 420 px. A workspace no wider cannot show the columns beside a
+   panel at all, so the clamp gives the board no minimum there and the half
+   split stays. A width the Overlord dragged is an inline style and wins, as
+   an open Changes section does below. */
+.workspace.with-pane.kanban { grid-template-columns: minmax(clamp(0px, (100% - 1410px) * 9999, 980px), 1fr) 10px minmax(420px, 1fr); }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: inset 0 2px 18px #0009; background: linear-gradient(rgba(3, 5, 10, 0.4), rgba(3, 5, 10, 0.4)), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 /* The board is a kanban: Tasks, In progress and Completed side by side, with
@@ -891,9 +903,10 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* A board list of up to ten cards shows them all; past ten it shows as many
-   as fit the visible board, and a pager under it turns to the rest; a
-   sideways swipe does the same. */
+/* In progress shows every card. Any other board list shows up to ten whole;
+   past ten it shows a page, as many as fit the visible board and never fewer
+   than five, and a pager under it turns to the rest; a sideways swipe does
+   the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
 /* Cards not measured yet are laid out here, on the list's grid, to learn their
    heights; it takes no room and shows nothing. */
