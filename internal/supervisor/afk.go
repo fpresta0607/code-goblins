@@ -85,9 +85,11 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 	}
 	ancestry, env, err := inspect(pid)
 	// A process that started after the request took the PID of the one that
-	// sent it, and proves nothing.
+	// sent it, and proves nothing. A terminal run as administrator is one the
+	// supervisor cannot read, and it is the Overlord who meets that, so the
+	// refusal says so.
 	if err != nil || len(ancestry) == 0 || ancestry[0].Start.After(connected) {
-		return "", errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not read the process that asked for it, so nothing says it is his" + his)
+		return "", errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + his)
 	}
 	refuse := func(where string) (string, error) {
 		return "", errors.New("AFK mode is the Supreme Overlord's switch, and this command runs " + where + his)

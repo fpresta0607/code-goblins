@@ -113,7 +113,9 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		// among its ancestors; what its harness put in its environment remains.
 		{name: "under Claude Code with its parents cut off", ancestry: shell()[:1], env: []string{"CLAUDECODE=1"}, refusal: "an agent harness (its environment carries CLAUDECODE)"},
 		{name: "an agent's environment with its parents cut off", ancestry: shell()[:1], env: []string{"AI_AGENT=claude-code"}, refusal: "an agent harness (its environment carries AI_AGENT)"},
-		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process"},
+		// A terminal run as administrator is one the supervisor cannot read, and
+		// it is the Overlord himself who meets this refusal, so it names the way out.
+		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process that asked for it, as it cannot one run as administrator"},
 		{name: "a process that is gone", refusal: "could not read the process"},
 		{name: "a process that started after the request", ancestry: late, refusal: "could not read the process"},
 	} {

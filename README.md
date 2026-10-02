@@ -423,6 +423,7 @@ A command the CFO needs you to run arrives as a run card with its shell, an **Ad
 AFK mode runs the fleet while you are away.
 Turn it on with `cfo afk on` in a terminal of your own, and off with `cfo afk off`.
 It is your switch: the same command is refused in a goblin's or the CFO's terminal.
+Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 
 While it is on:
 
