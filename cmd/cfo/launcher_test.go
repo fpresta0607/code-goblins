@@ -85,6 +85,12 @@ type launcherFixture struct {
 	// resumeEnds makes a CFO started to resume a conversation end at once.
 	nativeArgs []string
 	resumeEnds bool
+	// restarts counts goblins resume's restarts of a running CFO, which end
+	// with restartErr, or else restart it on restartSession; with neither,
+	// no CFO runs to restart.
+	restarts       int
+	restartErr     error
+	restartSession string
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -191,6 +197,17 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
+		restartCFO: func(home.Home) (string, error) {
+			f.restarts++
+			if f.restartErr != nil {
+				return "", f.restartErr
+			}
+			if f.restartSession == "" {
+				return "", errNoRunningCFO
+			}
+			f.cfoTerminalRuns = true
+			return f.restartSession, nil
+		},
 		choose: func(_ io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
 			f.screens = append(f.screens, finalScreen{title, choices, selected})
 			return f.answer, nil

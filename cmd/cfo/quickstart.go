@@ -30,8 +30,9 @@ import (
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
 // with --harness. native starts a new CFO in a native terminal rather than in
-// Herdr.
-func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native bool, harness string) int {
+// Herdr. restart, which goblins resume sets, first restarts a CFO running in
+// native terminal cfo on its conversation, as for a CFO whose screen froze.
+func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native, restart bool, harness string) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -41,6 +42,20 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	board, _, ok := launchBoard(ctx, runtime, h, stdout, stderr)
 	if !ok {
 		return 1
+	}
+	restarted := false
+	if restart {
+		session, err := runtime.restartCFO(h)
+		switch {
+		case err == nil:
+			fmt.Fprintf(stdout, "\nThe CFO restarts in native terminal %s on its conversation %s. Its current response was interrupted; goblins keep running.\n", supervisor.NativeCFOTerminal, session)
+			restarted = true
+		case errors.Is(err, errNoRunningCFO):
+			// A CFO that is not running comes back below, as goblins brings it.
+		default:
+			fmt.Fprintf(stderr, "goblins: %v\n", err)
+			return 1
+		}
 	}
 	agent := ""
 	if rerun || harness != "" || !cfoRuns(runtime, h.State) {
@@ -58,7 +73,7 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 		fmt.Fprintf(stdout, "\nThe CFO already runs, and keeps its harness; %s is the harness goblins starts the next CFO as.\n", agent)
 	}
 	heading := "Your CFO is running"
-	if started {
+	if started || restarted {
 		heading = "Your CFO is starting"
 	}
 	link := board
