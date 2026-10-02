@@ -59,8 +59,6 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
-	// snapshot builds the board's snapshot, which reads the fleet from disk.
-	snapshot func() (Snapshot, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -71,7 +69,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, snapshot: s.Snapshot, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +106,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Home string `json:"home"`
 		}{os.Getpid(), h.Service.Store.Home.Root})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
-		snapshot, err := h.snapshot()
+		snapshot, err := h.Service.SnapshotSince(h.Service.Revision())
 		if err != nil {
 			apiError(w, 503, err.Error())
 			return
@@ -240,8 +238,6 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	ch, unsubscribe := h.Service.subscribe()
 	defer unsubscribe()
-	ping := time.NewTicker(15 * time.Second)
-	defer ping.Stop()
 	send := func(format string, args ...any) error {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := fmt.Fprintf(w, format, args...); err != nil {
@@ -251,28 +247,30 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	// A snapshot reads the fleet from disk, which can take seconds, so each
-	// is built away from this loop, one at a time, while the loop goes on
+	// is waited for away from this loop, one at a time, while the loop goes on
 	// sending the Command Center's items the moment the store changes: what
 	// the Overlord or the CFO answered leaves every board at once, whatever a
-	// build takes. stale says the fleet changed while a build ran, so another
-	// follows it.
+	// build takes. Every stream shares the build (see SnapshotSince). stale
+	// says the fleet changed while this stream waited for one, so it asks for
+	// another. The service publishes at least every snapshotRefresh, so a
+	// stream needs no clock of its own.
 	type build struct {
 		snapshot Snapshot
 		err      error
 	}
 	built := make(chan build, 1)
 	building, stale := false, false
-	begin := func() {
+	begin := func(need uint64) {
 		building, stale = true, false
 		go func() {
-			snapshot, err := h.snapshot()
+			snapshot, err := h.Service.SnapshotSince(need)
 			built <- build{snapshot, err}
 		}()
 	}
 	// sent is the items the board has, as they were last sent to it; nil
 	// before its first snapshot, which the items go on.
 	var sent []byte
-	begin()
+	begin(h.Service.Revision())
 	for {
 		select {
 		case <-r.Context().Done():
@@ -302,7 +300,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if stale {
-				begin()
+				begin(revision)
 			}
 		case <-ch:
 			items, revision := h.Service.Items()
@@ -320,11 +318,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			if building {
 				stale = true
 			} else {
-				begin()
-			}
-		case <-ping.C:
-			if !building {
-				begin()
+				begin(revision)
 			}
 		}
 	}

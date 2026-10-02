@@ -142,7 +142,15 @@ type Service struct {
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
+	// snapshots shares each build of the board's snapshot between its
+	// readers, and buildSnapshot stands in for Snapshot in a test of that.
+	snapshots     sharedSnapshots
+	buildSnapshot func() (Snapshot, error)
 }
+
+// snapshotRefresh is how often every board gets a fresh snapshot with nothing
+// published: a goblin's status file changes without the store changing.
+const snapshotRefresh = 15 * time.Second
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
 // state. The browser, hook writers, and competing serve invocations cannot
@@ -324,11 +332,15 @@ func (s *Service) run(ctx context.Context) {
 	defer reconcile.Stop()
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
+	refresh := time.NewTicker(snapshotRefresh)
+	defer refresh.Stop()
 	s.cycle(ctx, true)
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-refresh.C:
+			s.notify()
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
