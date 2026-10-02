@@ -25,7 +25,7 @@ Otherwise it starts `serve` detached from its terminal, in a hidden console of i
 Two `goblins` started at once each start a `serve`: the one whose start finds `serve.log` held by the other's, or whose `serve` exits finding the other taking the lock over or holding it, waits for the other's board instead of failing.
 The detached `serve` listens on the board's address, which is the same every time: `127.0.0.1:4310`, or the numeric loopback address the `CFO_BOARD_ADDRESS` environment variable names (port 0 there asks the OS for a free port, as a scratch home or a test does; the record holds the real address).
 An address already in use is never replaced with another: `goblins` starts nothing and says who holds it.
-It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, and says "another program" for anything else.
+It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, an older supervisor, which answers with no home, by its pid alone, and says "another program" for anything else.
 Only this home's own supervisor, started a moment ago by another `goblins` and not yet recorded, is waited for instead.
 This home's own supervisor that holds the address but records no board within that wait is named by its pid, with the PowerShell line that ends it (`Stop-Process -Id <pid>`), since `goblins stop` decides from the record that is missing.
 `cfo serve` without `--listen` uses the same address.
