@@ -94,6 +94,9 @@ test("the board never names SIQspeak and never asks for it: holding the shortcut
   await page.waitForTimeout(500);
   await holdShortcut(page, 300);
   await expect(bubble).toHaveClass(/recording/);
+  // The recorder starts once the microphone has opened, which takes a busy
+  // machine longer than the hold.
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("ship the voice bubble");
   await bubble.click();
