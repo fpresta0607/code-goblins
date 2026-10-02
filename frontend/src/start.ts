@@ -10,9 +10,10 @@ export function freeGigabytes(bytes: number): string {
 
 // A start needs both free memory and free commit (memory plus page file) to
 // reach the marks, so the meter shows whichever is shorter, memory on a tie:
-// how much of it is free, and out of how much.
+// how much of it is free, and out of how much. A machine that reports no
+// commit limit has not reported commit, so memory alone decides.
 export function tighter(memory: Memory): { isCommit: boolean; free: number; total: number } {
-  return memory.commit_available < memory.available
+  return memory.commit_limit > 0 && memory.commit_available < memory.available
     ? { isCommit: true, free: memory.commit_available, total: memory.commit_limit }
     : { isCommit: false, free: memory.available, total: memory.total };
 }

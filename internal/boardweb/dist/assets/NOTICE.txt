@@ -37,4 +37,5 @@ Nunito, Copyright 2014 The Nunito Project Authors (https://github.com/googlefont
 JetBrains Mono, Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono). License: /assets/fonts/jetbrains-mono-OFL.txt
 The terminal renderer loads only when a goblin panel first shows its Terminal view.
 
-The goblin workshop canvas background was generated for this project and approved by the user on 2026-09-23.
+The goblin workshop canvas background was generated for this project and approved by the user on 2026-09-23, then regenerated from that image in the SIQstack palette with Codex's built-in image generation and approved by the user on 2026-09-30; the earlier image is kept at docs/evidence/cg-board-theme/goblin-workshop-before.png.
+The goblin mark (/favicon.svg) was drawn for this project after the approved app icon, and the PNG icons under /assets/icons/ are rendered from it; both were approved by the user on 2026-09-30.
