@@ -171,11 +171,10 @@ func projectNames(root string) ([]string, string) {
 // would. Remembering is part of the start: an agent that cannot be remembered
 // refuses it with nothing started, and a start that fails puts back what the
 // home remembered before, so every error means no CFO runs. It asks for no
-// project: the CFO works across every project from
-// its home. root, when one is entered, is recorded as the projects folder
-// when it is not already; with none the CFO starts all the same. A start it
-// cannot make is a StartRefusal; one runs at a time, so a second press finds
-// the first CFO running.
+// project: the CFO works across every project from its home. root, when one
+// is entered, is recorded as the projects folder when it is not already; with
+// none the CFO starts all the same. A start it cannot make is a StartRefusal;
+// one runs at a time, so a second press finds the first CFO running.
 func (f *FirstRun) Start(root, agent string) error {
 	if root != "" && !filepath.IsAbs(root) {
 		return StartRefusal{Reason: notAbsolute}
