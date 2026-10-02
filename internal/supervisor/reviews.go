@@ -103,18 +103,18 @@ func validReview(r Review) error {
 	}
 	if r.Lavish != "" {
 		if problem := presentationURLProblem(r.Lavish); problem != "" {
-			return errors.New("a review's Lavish link " + problem)
+			return errors.New("a review's Scrawl link " + problem)
 		}
 	}
 	if r.LavishPage != "" {
 		extension := strings.ToLower(filepath.Ext(r.LavishPage))
 		if r.Lavish == "" || !filepath.IsAbs(r.LavishPage) || filepath.Clean(r.LavishPage) != r.LavishPage || extension != ".html" && extension != ".htm" {
-			return errors.New("a review's Lavish page must be the absolute path of an HTML page, beside its link")
+			return errors.New("a review's Scrawl page must be the absolute path of an HTML page, beside its link")
 		}
 	}
 	if r.Document != nil {
 		if len(r.ImageSums) > 0 || r.Lavish != "" {
-			return errors.New("a document item carries no images or Lavish page")
+			return errors.New("a document item carries no images or Scrawl page")
 		}
 		return validDocument(*r.Document)
 	}
