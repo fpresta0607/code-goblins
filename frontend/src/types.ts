@@ -161,6 +161,24 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  afk: Afk;
+}
+// AfkHeld is an item held for the Overlord while AFK mode is on: its key in
+// the Command Center, its goblin (empty for the CFO's own), what it asks,
+// whether it still waits on him and what became of it, and what its goblin
+// reported meanwhile.
+export interface AfkHeld {
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string;
+}
+// Afk is AFK mode, the Overlord's switch for running the fleet while he is
+// away: on, off, or unreadable when the supervisor cannot read the switch.
+// While on it says since when and from where, how many decisions the CFO
+// logged and what is held for him; while off, report names the last stretch
+// that ended and ended says when, once its report is kept.
+export interface Afk {
+  state: "off" | "on" | "unreadable";
+  since: string; from: string; decided: number; held: AfkHeld[];
+  report: string; ended: string; problem: string;
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -370,9 +388,21 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }
+export function parseAfkHeld(value: unknown): AfkHeld {
+  const h = object(value);
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile) };
+}
+// A supervisor from before AFK mode reached the board sends none, which is off.
+function parseAfk(value: unknown): Afk {
+  const a = value == null ? {} : object(value);
+  const state = a.state == null ? "off" : string(a.state);
+  if (state !== "off" && state !== "on" && state !== "unreadable") throw new Error("Invalid AFK state");
+  return { state, since: string(a.since), from: string(a.from), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), report: string(a.report), ended: string(a.ended), problem: string(a.problem) };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
     started: string(v.started),
