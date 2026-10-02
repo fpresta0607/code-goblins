@@ -56,6 +56,9 @@ type Ticket struct {
 	Harness     string
 	PullRequest PullRequestLink
 	Reason      Reason
+	// Overlap is the CFO's reason for starting the task beside a teammate's
+	// work, when he did; he writes it for the ticket.
+	Overlap string
 }
 
 // Labels are the state label while the ticket is open and the label of the
@@ -98,6 +101,15 @@ func (t Ticket) StatusLine() string {
 
 func (t Ticket) onIt() string { return "goblin " + t.TaskID + " on " + t.Harness }
 
+// StatusComment is the status comment of an issue the task claimed: its
+// status line, and the overlap it was started beside when there was one.
+func (t Ticket) StatusComment() string {
+	if t.Overlap == "" {
+		return t.StatusLine()
+	}
+	return t.StatusLine() + "\nStarted beside other work: " + t.Overlap
+}
+
 // IsOpen reports whether the ticket's issue stays open.
 func (t Ticket) IsOpen() bool { return t.State != Merged && t.State != Closed }
 
@@ -125,6 +137,9 @@ func (t Ticket) Body() string {
 	}
 	if t.PullRequest.URL != "" {
 		fmt.Fprintf(&body, "**Pull request:** %s\n", t.PullRequest.URL)
+	}
+	if t.Overlap != "" {
+		fmt.Fprintf(&body, "**Started beside other work:** %s\n", t.Overlap)
 	}
 	body.WriteString("\nThe Code Goblins fleet opened this ticket for its task and keeps it current; its state follows the task.\n")
 	return body.String()

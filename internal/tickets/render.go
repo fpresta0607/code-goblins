@@ -88,22 +88,8 @@ func RenderText(w io.Writer, report Report) error {
 		if len(overlaps.Files) == 0 && len(overlaps.Issues) == 0 {
 			fmt.Fprintf(&b, "- none\n")
 		}
-		for _, overlap := range overlaps.Files {
-			what := "branch " + overlap.Branch
-			if overlap.PullRequest != 0 {
-				what = fmt.Sprintf("PR #%d", overlap.PullRequest)
-			}
-			fmt.Fprintf(&b, "- %s by %s changes %s\n", what, actorName(overlap.Author), strings.Join(overlap.Files, ", "))
-		}
-		for _, match := range overlaps.Issues {
-			var why []string
-			if len(match.Paths) > 0 {
-				why = append(why, "names "+strings.Join(match.Paths, ", "))
-			}
-			if len(match.Words) > 0 {
-				why = append(why, "shares the words "+strings.Join(match.Words, ", "))
-			}
-			fmt.Fprintf(&b, "- issue #%d by %s %s: %s\n", match.Number, actorName(match.Author), strings.Join(why, " and "), match.Title)
+		for _, line := range overlaps.Lines() {
+			fmt.Fprintf(&b, "- %s\n", line)
 		}
 	}
 	_, err := io.WriteString(w, b.String())

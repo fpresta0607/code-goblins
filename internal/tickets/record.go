@@ -26,6 +26,7 @@ type Record struct {
 	Status     string   `json:"status"`
 	Labels     []string `json:"labels"`
 	IsDone     bool     `json:"done,omitempty"`
+	Overlap    string   `json:"overlap,omitempty"`
 }
 
 // WriteRecord keeps a task's ticket record under directory/tickets.

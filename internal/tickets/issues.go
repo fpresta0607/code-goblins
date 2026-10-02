@@ -92,12 +92,13 @@ func (g GitHub) isGone(ctx context.Context, repository string, refused error) (b
 // move writes what changed between an issue's record and its ticket, and
 // returns the record it was given when a write fails.
 func (g GitHub) move(ctx context.Context, repository string, record *Record, ticket Ticket) (*Record, error) {
-	status, labels := ticket.StatusLine(), ticket.Labels()
+	status, comment, labels := ticket.StatusLine(), ticket.StatusComment(), ticket.Labels()
 	isReleased := record.IsClaimed && ticket.State == Closed
 	if isReleased {
 		status, labels = "Released: "+string(ticket.Reason), []string{}
+		comment = status
 	}
-	if status == record.Status && slices.Equal(labels, record.Labels) {
+	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap {
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)
@@ -126,7 +127,7 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 			return record, err
 		}
 	} else if commentID != 0 {
-		_, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/comments/%d", repository, commentID), "body="+status)
+		_, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/comments/%d", repository, commentID), "body="+comment)
 		if hasStatus(err, 404) {
 			commentID = 0
 		} else if err != nil {
@@ -140,7 +141,7 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	}
 	next := *record
 	if record.IsClaimed && commentID == 0 {
-		out, err := g.api(ctx, "POST", issue+"/comments", "body="+status)
+		out, err := g.api(ctx, "POST", issue+"/comments", "body="+comment)
 		if err != nil {
 			return record, err
 		}
@@ -156,7 +157,7 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 			return record, err
 		}
 	}
-	next.State, next.Status, next.Labels, next.IsDone = ticket.State, status, labels, !ticket.IsOpen()
+	next.State, next.Status, next.Labels, next.IsDone, next.Overlap = ticket.State, status, labels, !ticket.IsOpen(), ticket.Overlap
 	return &next, nil
 }
 
@@ -174,7 +175,7 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 	if err := json.Unmarshal(out, &opened); err != nil || opened.Number == 0 {
 		return nil, fmt.Errorf("read the issue GitHub opened in %s: %v", repository, err)
 	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels()}, nil
+	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Overlap: ticket.Overlap}, nil
 }
 
 // claim takes over issue number for a task: it labels the issue and gives it
