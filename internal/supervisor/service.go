@@ -46,6 +46,9 @@ type Options struct {
 	// or MERGED; without it a finished task whose merge no fleet history
 	// shows reads Finished.
 	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
+	// Tickets keeps a GitHub issue for each task in a repository other
+	// people work in; without it no ticket is kept.
+	Tickets *Tickets
 	// Runs opens run items' windows; without it no item can run.
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
@@ -121,6 +124,9 @@ type Service struct {
 	done     chan struct{}
 	work     chan struct{}
 	cancel   context.CancelFunc
+	// tickets keeps each task's GitHub issue where the task is; nil without
+	// Options.Tickets.
+	tickets *ticketKeeper
 }
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
@@ -146,6 +152,9 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), cancel: cancel}
+	if options.Tickets != nil {
+		s.tickets = newTicketKeeper(h, options.Tickets)
+	}
 	go s.run(ctx)
 	return s, nil
 }
@@ -261,6 +270,14 @@ func (s *Service) run(ctx context.Context) {
 		s.keepCFOAwake(ctx, cfoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
+	ticketsDone := make(chan struct{})
+	go func() {
+		defer close(ticketsDone)
+		if s.tickets != nil {
+			s.keepTickets(ctx, ticketRetry, ticketWatch)
+		}
+	}()
+	defer func() { s.cancel(); <-ticketsDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -869,6 +886,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
+	if s.tickets != nil {
+		out.Issues = append(slices.Clone(out.Issues), s.tickets.Issues()...)
+	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
 	// The registration problem comes from the same read as the rest, so the

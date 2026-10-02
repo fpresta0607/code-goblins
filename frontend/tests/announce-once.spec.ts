@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, servePages, test, type BrowserContext, type Page } from "./site";
 
 // The Overlord, 2026-10-01: "fix the issue of idempotent cleared notification
 // so no double fire or display happens from command center". One item is
@@ -130,6 +130,7 @@ test("a supervisor restart and a browser that remembers nothing bring no second 
   const before = record.requests();
   for (const name of ["restarting", "working", "asked"] as const) await step(page, name);
   const fresh = await browser.newContext();
+  await servePages(fresh);
   await record.serve(fresh);
   const elsewhere = await fresh.newPage();
   await open(elsewhere);

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 for (const mode of ["ranked", "history", "queued"]) {
   test(`${mode} rendering failures stay contained and can be retried`, async ({ page }) => {

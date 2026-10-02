@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // relay stands in for the board's relay: it records what the view sends and
 // sends the view the terminal's messages.
