@@ -23,6 +23,7 @@ import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 import { panelViews } from "./cards";
 import { startOutcome, type AcceptedStart } from "./start";
 import { useStart } from "./useStart";
+import { watchTips } from "./tips";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -60,6 +61,8 @@ export function App() {
   const [selected, setSelected] = useState<Selection | null>(null);
   // The CFO chosen by name, which the Board shows in the panel too.
   const [cfoOpen, setCfoOpen] = useState(false);
+  // The view the CFO's own panel last showed, which Back returns to.
+  const [cfoPanelView, setCfoPanelView] = useState<PanelView | null>(null);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
@@ -81,6 +84,7 @@ export function App() {
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
+  useEffect(watchTips, []);
   useEffect(() => {
     const query = matchMedia("(max-width: 40rem)");
     const changed = () => setCompact(query.matches);
@@ -159,10 +163,27 @@ export function App() {
   const shownView: PanelView = panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
   const terminalShown = showsPanel && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
+  if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizeView, maximizedChoice[maximizeView]);
   const panelWide = paneOpen && maximized && !compact;
+  // Back, on the panel of anything but the CFO, returns the panel to the
+  // CFO's on the view it last showed, still maximized if it was, and hands
+  // the keyboard back to where the panel was opened from, or to the panel
+  // when that is out of sight behind it.
+  const backShown = showsPanel && !!selected;
+  const back = () => {
+    const target = cfoPanelView ?? (view === "Board" ? "task" : "terminal");
+    if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(view, target)]: "true" }));
+    setSelected(null);
+    setCfoOpen(true);
+    setPanelView(target);
+    requestAnimationFrame(() => {
+      returnFocus.current?.focus();
+      if (document.activeElement !== returnFocus.current) pane.current?.focus({ preventScroll: true });
+    });
+  };
   const divided = paneOpen && !panelWide && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
@@ -180,10 +201,12 @@ export function App() {
     {shownWindow && <button className="icon-button" aria-label="Open in Windows Terminal" data-tip="Open in terminal" data-tip-align="end" onClick={() => void openWindow()}><Icon name="external" /></button>}
     {shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>}
     {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
-    <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+    {backShown
+      ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
+      : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>}
   </>;
   return <div className="app-shell" onKeyDown={(event) => {
-    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); close(); }
+    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
     <header className="topbar">
       <a className="brand" href="/" aria-label="Code Goblins home">
@@ -225,8 +248,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)}
-            leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined} />)}
+            onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
           <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
