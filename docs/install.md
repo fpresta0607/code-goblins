@@ -29,7 +29,8 @@ In order, it:
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
 8. Adds Code Goblins to your Start menu.
-   Where the home holds the desktop window it runs `goblins --window`, which finds or starts the supervisor and opens the board in that window; in a home with no window it runs `goblins`, the quick start, in a window of its own.
+   Where the home holds the desktop window it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
+   In a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
