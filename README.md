@@ -391,7 +391,8 @@ Several items stack up one card at a time, the CFO's first and then goblins in t
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
 An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
-An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
+An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
+An answer whose delivery failed or never arrived comes back on its card saying what to do.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
@@ -416,13 +417,14 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 1. User gives the CFO an objective and constraints.
 2. CFO resolves the project and writes explicit acceptance criteria.
 3. cfo auth preflights required project services.
-4. CFO spawns one or more goblins into isolated worktrees.
-5. Goblins implement, investigate, test, and report through the wake queue.
-6. CFO steers blocked work or switches harnesses when useful.
-7. no-mistakes performs bounded independent review and repair.
-8. Tests, lint, documentation and CI produce machine evidence.
-9. CFO presents the finished outcome or the smallest unresolved decision.
-10. Approved work is merged; unlanded work is never silently destroyed.
+4. cfo tickets shows what teammates have in flight in the same area.
+5. CFO spawns one or more goblins into isolated worktrees.
+6. Goblins implement, investigate, test, and report through the wake queue.
+7. CFO steers blocked work or switches harnesses when useful.
+8. no-mistakes performs bounded independent review and repair.
+9. Tests, lint, documentation and CI produce machine evidence.
+10. CFO presents the finished outcome or the smallest unresolved decision.
+11. Approved work is merged; unlanded work is never silently destroyed.
 ```
 
 ## Core commands
@@ -443,6 +445,7 @@ cfo send <target> <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
+cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
@@ -466,6 +469,20 @@ cfo run-request --withdraw <id> --reason "<why>"
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+### Working beside teammates
+
+In a repository other people work in, `cfo tickets <project>` reports what they have in flight before a goblin starts: who besides you worked there in the last 30 days (bots and old fork history do not count), every open issue and open or draft pull request with the files it changes, and the branches others pushed in the last 14 days.
+Add `--brief <file>` or `--files <paths>` and it names each pull request, branch and issue that touches the same area, so overlapping work is started knowingly or not at all.
+It only reads: one GraphQL query through `gh`, about three points of GitHub's hourly budget, and `--json` gives the same report with contributor avatars.
+
+```text
+you/northwind-api, read 2026-10-01 21:07Z
+Collaborative: 2 people besides you worked here in the last 30 days.
+...
+Overlaps with api/routes_orders.py, tasks/billing_sync.py
+- PR #412 by teammate changes api/routes_orders.py, tasks/billing_sync.py
+```
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
