@@ -2,6 +2,7 @@ package codegoblins
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,21 +64,32 @@ type goWorkflowJob struct {
 	Needs    []string `yaml:"needs"`
 	Strategy struct {
 		Matrix struct {
-			Include []struct {
-				Shard    string `yaml:"shard"`
-				Packages string `yaml:"packages"`
-				Except   string `yaml:"except"`
-			} `yaml:"include"`
+			Include []goWorkflowShard `yaml:"include"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
+}
+
+// goWorkflowShard is one job of the go job's matrix: the packages it tests,
+// or for the rest job the packages it leaves to the others, and the pattern
+// naming the tests it runs or skips when it shares a package.
+type goWorkflowShard struct {
+	Shard    string `yaml:"shard"`
+	Packages string `yaml:"packages"`
+	Except   string `yaml:"except"`
+	Run      string `yaml:"run"`
+	Skip     string `yaml:"skip"`
 }
 
 // The go workflow tests the slow packages in jobs of their own and every
 // other package in the rest job, which runs whatever its except does not
 // name. A package except names that no job of its own runs would be tested
-// nowhere, and the workflow would still pass: except names exactly the
-// packages the other jobs run, each a package with tests, and each once.
+// nowhere, and so would the tests of a package whose job runs only some of
+// them, and the workflow would still pass. So except names exactly the
+// packages the other jobs run, each a package with tests, and a job runs all
+// of its package's tests unless one other job runs the rest: one runs the
+// tests a pattern matches, and the other skips exactly those.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
 	if len(shards) == 0 {
@@ -85,31 +97,53 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	}
 
 	// Act
-	var own, except []string
+	jobs := map[string][]goWorkflowShard{}
+	var except []string
 	rest := 0
 	for _, shard := range shards {
-		if shard.Except != "" {
-			rest++
-			except = strings.Fields(shard.Except)
-		}
 		if (shard.Packages == "") == (shard.Except == "") {
 			t.Errorf("job %q names packages %q and except %q, want exactly one of them", shard.Shard, shard.Packages, shard.Except)
 		}
-		own = append(own, strings.Fields(shard.Packages)...)
+		if shard.Except != "" {
+			rest++
+			except = strings.Fields(shard.Except)
+			if shard.Run != "" || shard.Skip != "" {
+				t.Errorf("the rest job %q runs %q and skips %q, want it to run every test of its packages", shard.Shard, shard.Run, shard.Skip)
+			}
+		}
+		for _, dir := range strings.Fields(shard.Packages) {
+			jobs[dir] = append(jobs[dir], shard)
+		}
 	}
 
 	// Assert
 	if rest != 1 {
 		t.Fatalf("%d jobs run the packages no other job names, want one", rest)
 	}
-	slices.Sort(own)
+	own := slices.Sorted(maps.Keys(jobs))
 	slices.Sort(except)
 	if !slices.Equal(own, except) {
-		t.Errorf("the rest job leaves out %v, and the other jobs run %v: want the same packages, each once", except, own)
+		t.Errorf("the rest job leaves out %v, and the other jobs run %v: want the same packages", except, own)
 	}
 	for _, dir := range own {
 		if tests, err := filepath.Glob(filepath.Join(filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 			t.Errorf("%s has a job of its own and no tests (%v)", dir, err)
+		}
+		switch in := jobs[dir]; len(in) {
+		case 1:
+			if in[0].Run != "" || in[0].Skip != "" {
+				t.Errorf("job %q runs %q and skips %q of %s, and no other job runs its other tests", in[0].Shard, in[0].Run, in[0].Skip, dir)
+			}
+		case 2:
+			runs, skips := in[0], in[1]
+			if runs.Run == "" {
+				runs, skips = skips, runs
+			}
+			if runs.Run == "" || runs.Skip != "" || skips.Run != "" || skips.Skip != runs.Run {
+				t.Errorf("jobs %q (run %q, skip %q) and %q (run %q, skip %q) share %s: want one to run a pattern and the other to skip the same one", runs.Shard, runs.Run, runs.Skip, skips.Shard, skips.Run, skips.Skip, dir)
+			}
+		default:
+			t.Errorf("%d jobs test %s, want one, or two that split its tests by one pattern", len(in), dir)
 		}
 	}
 }
@@ -118,6 +152,7 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	jobs := goWorkflowJobs(t)
 	var others []string
@@ -145,6 +180,7 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 // that failed, was cancelled or was skipped fails it, and so does a check
 // that needs nothing.
 func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
+	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
@@ -162,6 +198,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 		"no job at all":       {`{}`, false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on
 			// an error.
 			script := filepath.Join(t.TempDir(), "step.ps1")
@@ -172,7 +209,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 			cmd.Env = append(os.Environ(), "RESULTS="+test.results)
 
 			// Act
-			out, err := cmd.CombinedOutput()
+			out, err := installtest.Run(cmd)
 
 			// Assert
 			if test.wantOK && err != nil {
@@ -189,6 +226,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 // 503 and failed the run: the install is tried again after a wait, and gives
 // up after its third attempt.
 func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
+	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
@@ -205,6 +243,7 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 		"a feed that stays down":         {-1, 3, false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange: choco says each attempt, fails as many times as
 			// asked, and then installs a sqlite3 beside itself.
 			choco := "@echo choco %*\r\n"
@@ -228,7 +267,7 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 			cmd, _, _ := installtest.StrippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
 
 			// Act
-			out, err := cmd.CombinedOutput()
+			out, err := installtest.Run(cmd)
 
 			// Assert
 			output := string(out)

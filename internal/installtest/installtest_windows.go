@@ -42,7 +42,12 @@ func OneLineShells(t *testing.T) []string {
 // gets folders of its own for every per-user location, a file standing in for
 // the user-scope environment, and a PATH with only Windows and the stand-ins
 // stubs names on it, each a .cmd with the given text, so nothing it could
-// reach installs onto this machine.
+// reach installs onto this machine. The module path is Windows PowerShell's
+// own modules alone: with none named, Windows PowerShell takes the machine's
+// from the registry, and a session whose profile is empty has no module
+// cache, so it reads every module on that path before its first command runs.
+// A GitHub runner has hundreds there, which cost each session about 20
+// seconds.
 func StrippedCommand(t *testing.T, base string, stubs map[string]string, name string, args ...string) (cmd *exec.Cmd, local, temp string) {
 	t.Helper()
 	local, temp, profile, bin := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
@@ -63,6 +68,7 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"ProgramFiles=" + os.Getenv("ProgramFiles"),
 		"ProgramData=" + os.Getenv("ProgramData"),
 		"PATH=" + bin + ";" + filepath.Join(system, "System32") + ";" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0"),
+		"PSModulePath=" + filepath.Join(system, "System32", "WindowsPowerShell", "v1.0", "Modules"),
 		"USERPROFILE=" + profile,
 		"APPDATA=" + filepath.Join(profile, "Roaming"),
 		"LOCALAPPDATA=" + local,
@@ -72,6 +78,20 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"CFO_USER_ENV_FILE=" + filepath.Join(local, userEnvFileName),
 	}
 	return cmd, local, temp
+}
+
+// sessions bounds how many commands Run has started and not yet seen end.
+var sessions = make(chan struct{}, 4)
+
+// Run runs cmd to its end and returns its combined output. The tests that
+// run installs run in parallel, since each is its own session in folders of
+// its own and spends its time waiting for PowerShell; Run lets four run at
+// once and no more, whatever the machine's processor count, because each is
+// a PowerShell session and everything it starts.
+func Run(cmd *exec.Cmd) ([]byte, error) {
+	sessions <- struct{}{}
+	defer func() { <-sessions }()
+	return cmd.CombinedOutput()
 }
 
 // ServeRelease serves a release holding binary and sums, or nothing at all.
