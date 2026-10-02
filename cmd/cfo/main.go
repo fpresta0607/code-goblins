@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -43,7 +44,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, it finds the supervisor or starts one in the background, prints the board's link and what the fleet is doing, opens the board when it started the supervisor, brings the live registered CFO to the front in Herdr or starts one, and attaches the terminal to Herdr. A CFO registered in a native terminal is shown in this terminal instead, and goblins --native starts a new CFO in a native terminal rather than in Herdr. goblins --harness claude|codex|pi chooses the harness the CFO starts as, remembered for later starts; a running CFO keeps its own. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs: in Herdr, or in a native terminal shown here with goblins --native. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
 
 commands:
   version   print the cfo version
@@ -52,6 +53,7 @@ commands:
   attach    show a native terminal in this console, the CFO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
+  setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
   update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
@@ -139,16 +141,13 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
-	// nativeCFO, liveCFO, focusCFO, gitTop, stdin, startCFO and attachHerdr
-	// are how the launcher finds a live registered CFO, in a native terminal
-	// or in Herdr, and brings it to the front, finds the project or asks for
-	// one, starts the CFO in Herdr and hands the terminal to herdr attached to
-	// a session.
+	// nativeCFO, liveCFO, focusCFO, startCFO and attachHerdr are how the
+	// launcher finds a live registered CFO, in a native terminal or in Herdr,
+	// and brings it to the front, starts the CFO in Herdr and hands the
+	// terminal to herdr attached to a session.
 	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
-	gitTop      func(context.Context) (string, error)
-	stdin       io.Reader
 	startCFO    func(ctx context.Context, project, harness string) (bool, error)
 	attachHerdr func(string) int
 	// startNativeCFO and attachNative start the CFO in a native terminal and
@@ -160,6 +159,14 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
+	// settleCFO answers the known startup dialogs of a CFO just started in
+	// native terminal cfo and returns what to tell the Overlord about them.
+	settleCFO func(ctx context.Context, stateDir, harness string) []string
+	// setupAgent runs the quick start's agent steps and returns the agent
+	// the CFO starts as, and choose shows one of its screens and returns the
+	// choice the person accepts.
+	setupAgent func(ctx context.Context, stateDir, chosen string, rerun bool, stdout, stderr io.Writer) (string, error)
+	choose     func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error)
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -283,8 +290,6 @@ func defaultCommandRuntime() commandRuntime {
 		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
-		gitTop:       gitTop,
-		stdin:        os.Stdin,
 		startCFO:     startCFOInHerdr,
 		attachHerdr:  attachHerdr,
 		killTree: func(pid int) error {
@@ -293,6 +298,9 @@ func defaultCommandRuntime() commandRuntime {
 		startNativeCFO:     startNativeCFO,
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
+		settleCFO:          settleNativeCFO,
+		setupAgent:         setupAgent,
+		choose:             onboarding.ChooseConsole,
 		repoActivity:       readRepositoryActivity,
 		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
 	}
@@ -308,6 +316,13 @@ func invokedAsGoblins() bool {
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
+	}
+	if runtime.goblins && len(args) > 0 && args[0] == "setup" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: goblins setup")
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, true, false, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
@@ -325,7 +340,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runLauncher(stdout, stderr, runtime, *native, *harness)
+		return runQuickstart(stdout, stderr, runtime, false, *native, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
