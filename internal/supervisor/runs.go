@@ -572,25 +572,31 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if r.By == "cfo" && !s.Store.cfoLive() {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
-	if delivery := s.tellCFO(ctx, text); delivery != nil {
+	delivery := s.tellCFO(ctx, text)
+	if r.By == "cfo" && errors.Is(delivery, ErrRejected) {
+		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
+	}
+	if delivery != nil {
 		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
-		if r.By == "cfo" {
-			err = errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
-		}
 	}
 	return err
 }
 
 // retellRuns tells the CFO, while one runs, how each of its items ended that
-// no CFO was told of.
+// no CFO was told of. A result stays untold only while nothing of it was
+// sent: one that may have reached the CFO is noted and never typed again.
 func (s *Service) retellRuns(ctx context.Context) error {
 	var errs error
 	for _, r := range s.Store.Snapshot().Runs {
 		if r.By != "cfo" || r.Untold == "" {
 			continue
 		}
-		if err := s.tellCFO(ctx, r.Untold); err != nil {
-			return errors.Join(errs, err)
+		delivery := s.tellCFO(ctx, r.Untold)
+		if errors.Is(delivery, ErrRejected) {
+			return errors.Join(errs, delivery)
+		}
+		if delivery != nil {
+			errs = errors.Join(errs, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
 		}
 		errs = errors.Join(errs, s.Store.untoldRun(r.ID, r.RunAction, ""))
 	}
@@ -599,19 +605,20 @@ func (s *Service) retellRuns(ctx context.Context) error {
 
 // tellCFO sends a run's result to the CFO registered now, which may have
 // restarted since it created the item. A result submitted behind the CFO's
-// turn is told: the CFO takes it when the turn ends.
+// turn is told: the CFO takes it when the turn ends. An error that is
+// ErrRejected sent nothing; any other may have reached the CFO.
 func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if s.Options.CFO == nil {
 		return errors.New("no CFO transport")
 	}
 	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
 	if err != nil {
-		return errors.New("no CFO is registered")
+		return fmt.Errorf("%w: no CFO is registered", ErrRejected)
 	}
 	_, identity, err := decodePrimary(file)
 	_ = file.Close()
 	if err != nil {
-		return errors.New("the CFO registration is unreadable")
+		return fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
 	if _, err = s.Options.CFO.Send(ctx, identity, text); errors.Is(err, fleet.ErrQueuedBehindTurn) {
 		return nil

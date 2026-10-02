@@ -437,3 +437,86 @@ func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
 		t.Errorf("the run item reads untold %q, reason %q, want it told with nothing noted", told.Untold, told.Reason)
 	}
 }
+
+// finishedRun is a run item of the CFO registered as identity whose command
+// has finished and that the supervisor has yet to end.
+func finishedRun(t *testing.T, s *Service, identity, id string) {
+	t.Helper()
+	r := readyRun(t, s.Store, identity, id, "powershell", false, time.Now().UTC())
+	pressRun(t, s, r, "run-"+id)
+	if err := os.WriteFile(filepath.Join(runDir(s.Store.Home.State, r), "exit.txt"), []byte("0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A run's result that was typed to the CFO before the send failed may have
+// reached it: it is noted on the item and never typed again.
+func TestARunResultThatFailedAfterItWasTypedIsNotTypedAgain(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, identity, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	finishedRun(t, s, identity, "cfo-run-0005")
+	runner.beforePrompt = func() { runner.offline = true }
+	ctx := context.Background()
+
+	// Act
+	finishErr := s.finishRuns(ctx)
+	runner.beforePrompt, runner.offline = nil, false
+	retellErr := errors.Join(s.retellRuns(ctx), s.retellRuns(ctx))
+
+	// Assert
+	if finishErr != nil || retellErr != nil {
+		t.Fatalf("finishing = %v, telling again = %v, want neither to fail", finishErr, retellErr)
+	}
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0005") {
+		t.Errorf("the CFO was sent %q, want the result typed once", runner.prompts)
+	}
+	if noted := store.Snapshot().Runs[0]; noted.Untold != "" || !strings.Contains(noted.Reason, "the CFO could not be told") {
+		t.Errorf("the run item reads untold %q, reason %q, want the uncertain delivery noted and nothing left to tell", noted.Untold, noted.Reason)
+	}
+}
+
+// A run's result refused before anything was typed, here with no CFO
+// registered, stays untold, and the CFO that registers next is told it once.
+func TestARunResultRefusedBeforeItWasTypedIsToldOnceTheCFORuns(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primary, identity, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	finishedRun(t, s, identity, "cfo-run-0006")
+	registration := filepath.Join(store.Home.State, "primary.json")
+	if err := os.Remove(registration); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := s.finishRuns(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refused := s.retellRuns(ctx)
+	waiting := store.Snapshot().Runs[0]
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registration, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	retellErr := errors.Join(s.retellRuns(ctx), s.retellRuns(ctx))
+
+	// Assert
+	if !errors.Is(refused, ErrRejected) || waiting.Untold == "" {
+		t.Errorf("with no CFO registered the tell = %v and the item's untold = %q, want it refused and still to tell", refused, waiting.Untold)
+	}
+	if retellErr != nil {
+		t.Fatal(retellErr)
+	}
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0006") {
+		t.Errorf("the CFO that registered was sent %q, want the result once", runner.prompts)
+	}
+	if told := store.Snapshot().Runs[0]; told.Untold != "" || told.Reason != "" {
+		t.Errorf("the run item reads untold %q, reason %q, want it told with nothing noted", told.Untold, told.Reason)
+	}
+}
