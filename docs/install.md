@@ -36,17 +36,24 @@ A supervisor still running the previous build keeps running it, since a running 
 
 ## The quick start
 
-`goblins` with no command is the quick start, from any folder, and it waits on you one screen at a time: each shows its default marked, Enter continues, Up and Down choose and Esc goes back.
+`goblins` with no command is the quick start, from any folder, and it waits on you one step at a time: each shows its default marked, Enter continues, the arrows choose and Esc goes back.
+A step you have answered takes its screen with it and leaves one line, a tick, the step's name and its answer, so the window holds what is done and the one step that waits, never the screens before it.
+Going back to the choice of agent takes the lines after it with it.
+The tick and each agent's mark are drawn in Unicode where the console says it can, as Windows Terminal does, and in marks every console font has elsewhere.
 
 1. It finds the supervisor, or starts it in the background, and prints the board's link; it never opens the board on its own.
-2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows each one's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
-   Claude Code is marked as recommended for the best experience, and Codex and pi as not woken by goblin reports yet.
+   Its first line says which: `Supervisor already running`, or `Supervisor started`.
+2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows them as one row of tabs, each with the agent's own mark, moved with Left and Right.
+   Under the row is the marked agent's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
+   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say goblin reports do not wake them yet.
 3. When the agent you choose is missing, Enter installs it the way the install script does: Claude Code's native build from <https://claude.ai/install.ps1>, Codex and pi with `npm install -g`, which needs Node.js.
    When npm's `claude.cmd` comes before Claude Code's native build on PATH, which a native terminal cannot start, it shows the uninstall command to run instead, on a line of its own, and Enter checks again once you have run it.
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
-5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native` in a native terminal of its own.
+   An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
+5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native` in a native terminal of its own, and says so in one line: `CFO started as claude in` the home, or `CFO already running` and where.
    In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
    For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
 6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes.
