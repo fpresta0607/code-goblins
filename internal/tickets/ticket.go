@@ -38,6 +38,7 @@ const (
 	StoppedOnFailure  Reason = "stopped on a failure"
 	StoppedByCFO      Reason = "stopped by the CFO"
 	FinishedUnmerged  Reason = "finished without a merge"
+	LeftTheFleet      Reason = "no longer in the fleet"
 )
 
 // PullRequestLink is the pull request a ticket links.

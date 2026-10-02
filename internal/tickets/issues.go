@@ -19,8 +19,8 @@ import (
 // Without a record it opens an issue for the task, or claims issue number
 // claim when the task names one, and opens nothing for a ticket that is
 // already closed. With one it writes only what changed: the labels that
-// differ, the body of an issue it opened or the status comment of one it
-// claimed, and the close. A claimed issue belongs to whoever filed it, so a
+// differ, the body of an issue it opened (and its title, when the task's
+// changed) or the status comment of one it claimed, and the close. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again. A status comment someone deleted is
 // posted again, and an issue that is deleted (410, or 404 while the
@@ -98,7 +98,8 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		status, labels = "Released: "+string(ticket.Reason), []string{}
 		comment = status
 	}
-	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap {
+	isRetitled := !record.IsClaimed && ticket.Title != "" && ticket.Title != record.Title
+	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap && !isRetitled {
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)
@@ -123,7 +124,11 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	}
 	commentID := record.CommentID
 	if !record.IsClaimed {
-		if _, err := g.api(ctx, "PATCH", issue, "body="+ticket.Body()); err != nil {
+		fields := []string{"body=" + ticket.Body()}
+		if isRetitled {
+			fields = append(fields, "title="+ticket.Title)
+		}
+		if _, err := g.api(ctx, "PATCH", issue, fields...); err != nil {
 			return record, err
 		}
 	} else if commentID != 0 {
@@ -158,6 +163,12 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		}
 	}
 	next.State, next.Status, next.Labels, next.IsDone, next.Overlap = ticket.State, status, labels, !ticket.IsOpen(), ticket.Overlap
+	if isRetitled {
+		next.Title = ticket.Title
+	}
+	if ticket.PullRequest.URL != "" {
+		next.PullRequest = ticket.PullRequest.URL
+	}
 	return &next, nil
 }
 
@@ -175,7 +186,7 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 	if err := json.Unmarshal(out, &opened); err != nil || opened.Number == 0 {
 		return nil, fmt.Errorf("read the issue GitHub opened in %s: %v", repository, err)
 	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Overlap: ticket.Overlap}, nil
+	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL, Overlap: ticket.Overlap}, nil
 }
 
 // claim takes over issue number for a task: it labels the issue and gives it

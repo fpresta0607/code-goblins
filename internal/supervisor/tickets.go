@@ -36,11 +36,16 @@ type Tickets struct {
 	EnsureLabels func(ctx context.Context, repository string) error
 	// Apply moves one task's issue to its ticket.
 	Apply func(ctx context.Context, repository string, record *tickets.Record, ticket tickets.Ticket, claim int) (*tickets.Record, error)
+	// PullRequestState asks GitHub whether a pull request is OPEN, CLOSED or
+	// MERGED, for a ticket whose task has left the board; without it such a
+	// ticket waits.
+	PullRequestState func(ctx context.Context, url string) (PullRequestInfo, error)
 }
 
 const (
-	// collaborationRefresh is how long an answer to "who works in this
-	// repository" stands; a failed read is asked again after ticketRetry.
+	// collaborationRefresh is how long an answer about a project's
+	// repository stands; a read GitHub did not answer is asked again after
+	// ticketRetry.
 	collaborationRefresh = time.Hour
 	ticketRetry          = 10 * time.Minute
 	// ticketBackOff is how long a repository waits after GitHub refused a
@@ -57,34 +62,47 @@ type ticketKeeper struct {
 	home   home.Home
 	writer *Tickets
 
-	mu           sync.Mutex
 	repositories map[string]repositoryAnswer
 	labelled     map[string]bool
-	backOff      map[string]time.Time
-	problems     map[string]string
+	backOff      map[string]repositoryWait
+	askPullAfter map[string]time.Time
+	// rowTitles and queuedIDs are the backlog as the pass under way read it.
+	rowTitles map[string]string
+	queuedIDs map[string]bool
+	// found are the problems the pass under way has met, by what they are
+	// about. A pass starts with none, so a line lasts only while its cause
+	// does.
+	found map[string]string
+
+	mu       sync.Mutex
+	problems []string
 }
 
-// repositoryAnswer is what one project's repository answered, and when.
+// repositoryAnswer is what one project's repository answered, and when it is
+// asked again.
 type repositoryAnswer struct {
 	tickets.Collaboration
-	err error
-	at  time.Time
+	isNotGitHub bool
+	err         error
+	again       time.Time
+}
+
+// repositoryWait is a repository GitHub asked the keeper to leave alone.
+type repositoryWait struct {
+	until time.Time
+	line  string
 }
 
 func newTicketKeeper(h home.Home, writer *Tickets) *ticketKeeper {
-	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]time.Time{}, problems: map[string]string{}}
+	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]repositoryWait{}, askPullAfter: map[string]time.Time{}}
 }
 
-// Issues are the lines the board shows for tickets that wait or failed.
+// Issues are the lines the board shows for tickets that wait or failed, as
+// the last pass found them.
 func (k *ticketKeeper) Issues() []string {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	issues := make([]string, 0, len(k.problems))
-	for _, problem := range k.problems {
-		issues = append(issues, problem)
-	}
-	slices.Sort(issues)
-	return issues
+	return slices.Clone(k.problems)
 }
 
 // keepTickets moves tickets away from the loop, as keepHistory rebuilds the
@@ -125,13 +143,16 @@ func ticketMark(tasks []Task) string {
 	return mark.String()
 }
 
-// reconcile moves every task's ticket to where the task is now.
+// reconcile moves every ticket to where its task is now: the tickets of the
+// tasks the board shows, then the open tickets of tasks that have left it.
 //
 // Work that was already queued when tickets were first kept here gets its
 // ticket when it starts, not now: a backlog of old queued work must not
 // arrive in a teammate's repository as a burst of issues. Work queued later
 // gets its ticket at once.
 func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Time) {
+	k.found = map[string]string{}
+	k.readBacklog()
 	var queued []string
 	for _, task := range tasks {
 		if task.Phase == "queued" {
@@ -141,9 +162,10 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 	queuedBefore, err := tickets.QueuedBefore(k.home.State, queued)
 	if err != nil {
 		k.note("keeping", fmt.Sprintf("Tickets wait: what the supervisor remembers about them cannot be read or saved: %v", err))
+		k.show()
 		return
 	}
-	k.clear("keeping")
+	onTheBoard := map[string]bool{}
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return
@@ -152,7 +174,36 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 		if state.ValidTaskID(id) != nil {
 			continue
 		}
+		onTheBoard[id] = true
 		k.reconcileTask(ctx, id, task, slices.Contains(queuedBefore, id), now)
+	}
+	k.reconcileGone(ctx, onTheBoard, now)
+	if ctx.Err() == nil {
+		k.show()
+	}
+}
+
+// readBacklog reads the titles the backlog gives tasks and which tasks it
+// still queues or parks. A backlog that cannot be read titles and queues
+// nothing for this pass.
+func (k *ticketKeeper) readBacklog() {
+	k.rowTitles, k.queuedIDs = map[string]string{}, map[string]bool{}
+	backlog, err := fleet.ReadBacklog(k.home)
+	if err != nil {
+		return
+	}
+	for _, row := range slices.Concat(backlog.Done, backlog.Parked, backlog.Queued) {
+		if row.Structured && row.Title != "" {
+			k.rowTitles[row.ID] = row.Title
+		}
+	}
+	for _, row := range slices.Concat(backlog.Parked, backlog.Queued) {
+		if row.Structured {
+			k.queuedIDs[row.ID] = true
+		}
+	}
+	for _, brief := range queuedBriefs(k.home) {
+		k.queuedIDs[brief.ID] = true
 	}
 }
 
@@ -167,10 +218,73 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if record != nil && record.IsDone {
 		return
 	}
-	ticket, ok := ticketFor(id, task, record)
+	ticket, ok := ticketFor(id, k.title(id, record), task, record)
 	if !ok {
+		k.noteOf(record)
 		return
 	}
+	k.move(ctx, id, record, ticket, wasQueuedBefore, now)
+}
+
+// reconcileGone moves the open tickets of tasks the board no longer shows.
+// A finished task leaves the board after a week, or once twenty newer ones
+// have finished, and its pull request may merge later; a queued task leaves
+// it when its brief or row is removed. A task the fleet still runs or queues
+// is only off the board's list, and its ticket stays as it is.
+func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]bool, now time.Time) {
+	records, err := tickets.ListRecords(k.home.State)
+	if err != nil {
+		k.note("records", fmt.Sprintf("The ticket records cannot be read: %v", err))
+		return
+	}
+	for _, record := range records {
+		if ctx.Err() != nil {
+			return
+		}
+		if record.IsDone || onTheBoard[record.TaskID] {
+			continue
+		}
+		if k.queuedIDs[record.TaskID] || exists(filepath.Join(k.home.State, record.TaskID+".meta")) {
+			k.noteOf(&record)
+			continue
+		}
+		ticket := tickets.Ticket{TaskID: record.TaskID, Title: record.Title, Harness: record.Harness(), PullRequest: pullRequestLink(record.PullRequest)}
+		if ticket.PullRequest.Number == 0 {
+			ticket.State, ticket.Reason = tickets.Closed, tickets.LeftTheFleet
+		} else {
+			switch k.pullRequestState(ctx, record, now) {
+			case "MERGED":
+				ticket.State = tickets.Merged
+			case "CLOSED":
+				ticket.State, ticket.Reason = tickets.Closed, tickets.FinishedUnmerged
+			default:
+				k.noteOf(&record)
+				continue
+			}
+		}
+		k.move(ctx, record.TaskID, &record, ticket, false, now)
+	}
+}
+
+// pullRequestState asks GitHub what became of a gone task's pull request,
+// once an hour while it is open and after ticketRetry when GitHub did not
+// answer; in between, and without a way to ask, it is "".
+func (k *ticketKeeper) pullRequestState(ctx context.Context, record tickets.Record, now time.Time) string {
+	if k.writer.PullRequestState == nil || now.Before(k.askPullAfter[record.TaskID]) {
+		return ""
+	}
+	answer, err := k.writer.PullRequestState(ctx, record.PullRequest)
+	if err != nil {
+		k.askPullAfter[record.TaskID] = now.Add(ticketRetry)
+		k.note("task:"+record.TaskID, fmt.Sprintf("The ticket for %s waits: its pull request could not be read: %v", record.TaskID, err))
+		return ""
+	}
+	k.askPullAfter[record.TaskID] = now.Add(collaborationRefresh)
+	return answer.State
+}
+
+// move writes a task's ticket through GitHub and keeps what it then holds.
+func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Record, ticket tickets.Ticket, wasQueuedBefore bool, now time.Time) {
 	repository, claim := "", 0
 	if record != nil {
 		repository = record.Repository
@@ -183,70 +297,72 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 		}
 		claim = k.claimedIssue(id, repository)
 	}
-	if until, isWaiting := k.backOff[repository]; isWaiting && now.Before(until) {
+	if wait, isWaiting := k.backOff[repository]; isWaiting && now.Before(wait.until) {
+		k.note("repository:"+repository, wait.line)
+		k.noteOf(record)
 		return
 	}
 	if !k.labelled[repository] {
 		if err := k.writer.EnsureLabels(ctx, repository); err != nil {
 			k.refused(id, repository, err, now)
+			k.noteOf(record)
 			return
 		}
 		k.labelled[repository] = true
 	}
 	next, err := k.writer.Apply(ctx, repository, record, ticket, claim)
+	var refusedClaim *tickets.ClaimRefused
+	if errors.As(err, &refusedClaim) && next != nil {
+		noted := *next
+		noted.Note = fmt.Sprintf("The ticket for %s: %v", id, err)
+		next, err = &noted, nil
+	}
 	if next != nil && next != record {
 		if writeErr := tickets.WriteRecord(k.home.State, *next); writeErr != nil {
 			k.note("task:"+id, fmt.Sprintf("The ticket record of %s cannot be saved: %v", id, writeErr))
 			return
 		}
 	}
-	var refusedClaim *tickets.ClaimRefused
-	switch {
-	case errors.As(err, &refusedClaim):
-		k.clear("task:" + id)
-		k.note("claim:"+id, fmt.Sprintf("The ticket for %s: %v", id, err))
-	case err != nil:
+	if err != nil {
 		k.refused(id, repository, err, now)
-	default:
-		k.clear("task:" + id)
-		k.clear("repository:" + repository)
 	}
+	k.noteOf(next)
 }
 
 // refused records a write GitHub did not take: the task's line on the board,
 // and an hour's wait for the whole repository when GitHub asked for one.
 func (k *ticketKeeper) refused(id, repository string, err error, now time.Time) {
 	if tickets.ShouldBackOff(err) {
-		k.backOff[repository] = now.Add(ticketBackOff)
-		k.note("repository:"+repository, fmt.Sprintf("GitHub refused a ticket write in %s, so its tickets wait until %s: %v", repository, now.Add(ticketBackOff).UTC().Format("15:04Z"), err))
+		wait := repositoryWait{until: now.Add(ticketBackOff)}
+		wait.line = fmt.Sprintf("GitHub refused a ticket write in %s, so its tickets wait until %s: %v", repository, wait.until.UTC().Format("15:04Z"), err)
+		k.backOff[repository] = wait
+		k.note("repository:"+repository, wait.line)
 		return
 	}
 	k.note("task:"+id, fmt.Sprintf("The ticket for %s could not be written and is tried again: %v", id, err))
 }
 
 // ticketedRepository names the repository a task without a ticket gets one
-// in, or "" when it gets none: its project is unknown, only the Overlord
-// works in its repository, or the repository is public and not allowed.
+// in, or "" when it gets none: its project is unknown or has no GitHub
+// repository, only the Overlord works in its repository, or the repository
+// is public and not allowed.
 func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now time.Time) string {
 	project := k.project(id)
 	if project == "" {
 		return ""
 	}
 	known, ok := k.repositories[project]
-	refresh := collaborationRefresh
-	if known.err != nil {
-		refresh = ticketRetry
-	}
-	if !ok || now.Sub(known.at) >= refresh {
+	if !ok || !now.Before(known.again) {
 		known = k.readRepository(ctx, project, now)
 		k.repositories[project] = known
 	}
-	if known.err != nil {
-		k.note("project:"+project, fmt.Sprintf("Tickets for %s wait: %v", filepath.Base(project), known.err))
+	switch {
+	case known.isNotGitHub:
 		return ""
-	}
-	k.clear("project:" + project)
-	if !known.IsCollaborative {
+	case known.err != nil:
+		k.note("project:"+project, fmt.Sprintf("Tickets for %s wait: %v", project, known.err))
+		return ""
+	case !known.IsCollaborative:
 		return ""
 	}
 	if !known.IsPrivate {
@@ -256,25 +372,37 @@ func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now ti
 			return ""
 		}
 		if !isAllowed {
-			k.note("public:"+known.Repository, fmt.Sprintf("Tickets in %s are held: it is public, and an issue there is public. Run cfo tickets %s --allow-public-tickets to keep them there.", known.Repository, filepath.Base(project)))
+			k.note("public:"+known.Repository, fmt.Sprintf("Tickets in %s are held: it is public, and an issue there is public. Run cfo tickets \"%s\" --allow-public-tickets to keep them there.", known.Repository, project))
 			return ""
 		}
 	}
-	k.clear("public:" + known.Repository)
 	return known.Repository
 }
 
+// readRepository asks what a project's repository is and who works in it.
+// A project with no GitHub repository never has tickets, which is not a
+// problem to show. An answer stands an hour; only a read GitHub itself did
+// not answer is asked again sooner.
 func (k *ticketKeeper) readRepository(ctx context.Context, project string, now time.Time) repositoryAnswer {
+	answer := repositoryAnswer{again: now.Add(collaborationRefresh)}
 	checkout, err := k.writer.Checkout(project)
 	if err != nil {
-		return repositoryAnswer{err: err, at: now}
+		answer.err = err
+		return answer
 	}
 	repository, err := k.writer.Repository(ctx, checkout)
-	if err != nil {
-		return repositoryAnswer{err: err, at: now}
+	if errors.Is(err, tickets.ErrNotGitHub) {
+		answer.isNotGitHub = true
+		return answer
 	}
-	collaboration, err := k.writer.Collaboration(ctx, repository, now)
-	return repositoryAnswer{Collaboration: collaboration, err: err, at: now}
+	if err != nil {
+		answer.err = err
+		return answer
+	}
+	if answer.Collaboration, answer.err = k.writer.Collaboration(ctx, repository, now); answer.err != nil {
+		answer.again = now.Add(ticketRetry)
+	}
+	return answer
 }
 
 // project is the project a task names: its task record's once it runs, else
@@ -292,6 +420,23 @@ func (k *ticketKeeper) project(id string) string {
 	return ""
 }
 
+// title is the title a task's ticket carries: the one it was dispatched
+// under, else its backlog row's, else the one its ticket already has, else
+// its id. The board's own title is never used: it falls back to the first
+// line of the brief, and a brief's text must not reach GitHub.
+func (k *ticketKeeper) title(id string, record *tickets.Record) string {
+	if meta, err := state.ReadTaskMeta(k.home.State, id); err == nil && meta.Title != "" {
+		return meta.Title
+	}
+	if title := k.rowTitles[id]; title != "" {
+		return title
+	}
+	if record != nil && record.Title != "" {
+		return record.Title
+	}
+	return id
+}
+
 // claimedIssue is the issue a task's brief, or its backlog row, names as
 // the one it is for, or 0.
 func (k *ticketKeeper) claimedIssue(id, repository string) int {
@@ -305,27 +450,41 @@ func (k *ticketKeeper) claimedIssue(id, repository string) int {
 	return number
 }
 
+// note records a problem the pass under way met.
 func (k *ticketKeeper) note(key, problem string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.problems[key] = bounded(problem, 400)
+	k.found[key] = bounded(problem, 400)
 }
 
-func (k *ticketKeeper) clear(key string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	delete(k.problems, key)
+// noteOf shows what an open ticket's record says about it, such as a claim
+// that was refused, for as long as the ticket is open.
+func (k *ticketKeeper) noteOf(record *tickets.Record) {
+	if record != nil && !record.IsDone && record.Note != "" {
+		k.note("note:"+record.TaskID, record.Note)
+	}
 }
 
-// ticketFor is the ticket a task's place on the board calls for, and false
-// when the board does not say enough to move it: a state between two others,
-// a merge with no pull request named, or work with no harness known.
+// show puts the finished pass's problems on the board.
+func (k *ticketKeeper) show() {
+	problems := make([]string, 0, len(k.found))
+	for _, problem := range k.found {
+		problems = append(problems, problem)
+	}
+	slices.Sort(problems)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.problems = problems
+}
+
+// ticketFor is the ticket a task's place on the board calls for, under the
+// title the keeper chose, and false when the board does not say enough to
+// move it: a state between two others, a merge with no pull request named,
+// or work with no harness known.
 //
 // Only the title, the state, who is on it and the pull request cross over.
 // A blocked task's question and a failed or stopped task's reason stay here:
-// the ticket says which of four fixed things happened, never why.
-func ticketFor(id string, task Task, record *tickets.Record) (tickets.Ticket, bool) {
-	ticket := tickets.Ticket{TaskID: id, Title: task.Title, Harness: task.Harness, PullRequest: pullRequestLink(task.PR)}
+// the ticket says which fixed thing happened, never why.
+func ticketFor(id, title string, task Task, record *tickets.Record) (tickets.Ticket, bool) {
+	ticket := tickets.Ticket{TaskID: id, Title: title, Harness: task.Harness, PullRequest: pullRequestLink(task.PR)}
 	if ticket.Harness == "" && record != nil {
 		ticket.Harness = record.Harness()
 	}
@@ -340,11 +499,11 @@ func ticketFor(id string, task Task, record *tickets.Record) (tickets.Ticket, bo
 		ticket.State, ticket.Reason = tickets.Closed, tickets.FinishedUnmerged
 	case task.Phase == "stopped":
 		ticket.State, ticket.Reason = tickets.Closed, tickets.StoppedByCFO
-	case task.Phase == "stopping":
+	case task.Phase == "stopping" || task.Phase == "pausing":
 		return ticket, false
 	case task.Phase == "queued":
 		ticket.State = tickets.Queued
-	case task.Phase == "paused" || task.Phase == "pausing":
+	case task.Phase == "paused":
 		ticket.State = tickets.Paused
 	case task.Phase == "blocked":
 		ticket.State, ticket.Reason = tickets.Blocked, tickets.WaitingOnDecision

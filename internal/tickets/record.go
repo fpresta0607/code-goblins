@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -26,7 +27,41 @@ type Record struct {
 	Status     string   `json:"status"`
 	Labels     []string `json:"labels"`
 	IsDone     bool     `json:"done,omitempty"`
-	Overlap    string   `json:"overlap,omitempty"`
+	// Title is the title last written to an issue the task opened.
+	Title string `json:"title,omitempty"`
+	// PullRequest is the task's pull request, kept once a ticket names it,
+	// so its merge can close the ticket after the task has left the board.
+	PullRequest string `json:"pull_request,omitempty"`
+	// Note is what the board says about the ticket while it is open, such
+	// as why the issue the task named was not claimed.
+	Note string `json:"note,omitempty"`
+	// Overlap is the reason the CFO gave for starting the task beside a
+	// teammate's work, as last written to the ticket.
+	Overlap string `json:"overlap,omitempty"`
+}
+
+// ListRecords reads every task's ticket record, in task order. A file that
+// is not a task's record is passed over.
+func ListRecords(directory string) ([]Record, error) {
+	entries, err := os.ReadDir(filepath.Join(directory, "tickets"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var records []Record
+	for _, entry := range entries {
+		taskID, isRecord := strings.CutSuffix(entry.Name(), ".json")
+		if !isRecord || entry.IsDir() {
+			continue
+		}
+		if record, err := ReadRecord(directory, taskID); err == nil {
+			records = append(records, record)
+		}
+	}
+	slices.SortFunc(records, func(a, b Record) int { return strings.Compare(a.TaskID, b.TaskID) })
+	return records, nil
 }
 
 // WriteRecord keeps a task's ticket record under directory/tickets.

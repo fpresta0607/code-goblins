@@ -44,11 +44,12 @@ func checkoutHas(checkout string) func(repositoryPath string) bool {
 func ticketWriter(commands execx.Runner, runtime commandRuntime) *supervisor.Tickets {
 	github := tickets.GitHub{Commands: commands}
 	return &supervisor.Tickets{
-		Checkout:      runtime.resolveProject,
-		Repository:    github.RepositoryOf,
-		Collaboration: github.Collaboration,
-		EnsureLabels:  github.EnsureLabels,
-		Apply:         github.Apply,
+		Checkout:         runtime.resolveProject,
+		Repository:       github.RepositoryOf,
+		Collaboration:    github.Collaboration,
+		EnsureLabels:     github.EnsureLabels,
+		Apply:            github.Apply,
+		PullRequestState: supervisor.GitHubPullRequestState(commands),
 	}
 }
 

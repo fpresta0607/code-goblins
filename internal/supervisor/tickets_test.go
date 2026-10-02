@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,16 +49,17 @@ func TestTicketForFollowsTheTaskLifecycle(t *testing.T) {
 		{name: "stopped", task: Task{Archived: true, Evaluation: Evaluation{Phase: "stopped", Reason: "The Overlord stopped it to free memory"}}, record: worked, want: tickets.Ticket{State: tickets.Closed, Harness: "codex", Reason: tickets.StoppedByCFO}, wantOK: true},
 		{name: "merged with no pull request known", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "merged"}}},
 		{name: "stopping, not stopped yet", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "stopping"}}},
+		{name: "pausing, not paused yet", task: Task{Harness: "claude", Evaluation: Evaluation{Phase: "pausing"}}},
 		{name: "working with no harness known", task: Task{Evaluation: Evaluation{Phase: "working"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			tc.task.Title = "Say why a billing sync fails"
-			tc.want.TaskID, tc.want.Title = "nw-sync", tc.task.Title
+			tc.task.Title = "The board's own title, which may come from the brief"
+			tc.want.TaskID, tc.want.Title = "nw-sync", "Say why a billing sync fails"
 
 			// Act
-			got, ok := ticketFor("nw-sync", tc.task, tc.record)
+			got, ok := ticketFor("nw-sync", "Say why a billing sync fails", tc.task, tc.record)
 
 			// Assert
 			if ok != tc.wantOK {
@@ -75,7 +77,14 @@ func TestTicketForFollowsTheTaskLifecycle(t *testing.T) {
 type fakeTicketWriter struct {
 	mu                 sync.Mutex
 	collaboration      tickets.Collaboration
+	collaborationErr   error
 	collaborationReads int
+	checkoutErr        error
+	checkoutReads      int
+	repositoryErr      error
+	repositoryReads    int
+	pulls              map[string]string
+	pullAsks           int
 	labelled           []string
 	applied            []appliedTicket
 	applyErr           error
@@ -91,18 +100,36 @@ type appliedTicket struct {
 
 func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 	return &Tickets{
-		Checkout: func(project string) (string, error) { return checkout, nil },
+		Checkout: func(project string) (string, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.checkoutReads++
+			return checkout, f.checkoutErr
+		},
 		Repository: func(_ context.Context, got string) (string, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.repositoryReads++
 			if got != checkout {
 				return "", errors.New("unexpected checkout " + got)
 			}
-			return ticketRepository, nil
+			return ticketRepository, f.repositoryErr
+		},
+		PullRequestState: func(_ context.Context, url string) (PullRequestInfo, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.pullAsks++
+			state, ok := f.pulls[url]
+			if !ok {
+				return PullRequestInfo{}, errors.New("no such pull request " + url)
+			}
+			return PullRequestInfo{State: state, Title: "a pull request"}, nil
 		},
 		Collaboration: func(context.Context, string, time.Time) (tickets.Collaboration, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.collaborationReads++
-			return f.collaboration, nil
+			return f.collaboration, f.collaborationErr
 		},
 		EnsureLabels: func(_ context.Context, repository string) error {
 			f.mu.Lock()
@@ -117,9 +144,16 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 			if f.applyErr != nil {
 				return record, f.applyErr
 			}
-			next := tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: 501, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), IsDone: !ticket.IsOpen()}
+			next := tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: 501}
 			if record != nil {
-				next.Number = record.Number
+				next = *record
+			}
+			next.State, next.Status, next.Labels, next.IsDone = ticket.State, ticket.StatusLine(), ticket.Labels(), !ticket.IsOpen()
+			if ticket.Title != "" {
+				next.Title = ticket.Title
+			}
+			if ticket.PullRequest.URL != "" {
+				next.PullRequest = ticket.PullRequest.URL
 			}
 			if f.refuseClaim && claim > 0 {
 				return &next, &tickets.ClaimRefused{Number: claim, Why: "it is closed"}
@@ -245,8 +279,8 @@ func TestKeeperHoldsTicketsInAPublicRepositoryUntilTheCFOAllowsThem(t *testing.T
 	keeper.reconcile(context.Background(), tasks, ticketNow.Add(time.Minute))
 
 	// Assert
-	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "--allow-public-tickets") {
-		t.Fatalf("applied %d, issues %v, want nothing opened and one line naming the repository and the command", held, heldIssues)
+	if held != 0 || len(heldIssues) != 1 || !strings.Contains(heldIssues[0], ticketRepository) || !strings.Contains(heldIssues[0], "cfo tickets \""+checkout+"\" --allow-public-tickets") {
+		t.Fatalf("applied %d, issues %v, want nothing opened and one line naming the repository and the command for the project as the task names it", held, heldIssues)
 	}
 	if len(github.applied) != 1 || len(keeper.Issues()) != 0 {
 		t.Fatalf("applied = %+v, issues = %v, want the ticket opened and the hold gone once allowed", github.applied, keeper.Issues())
@@ -324,13 +358,16 @@ func TestKeeperBacksOffARepositoryGitHubRefused(t *testing.T) {
 	// Act
 	keeper.reconcile(context.Background(), tasks, ticketNow)
 	keeper.reconcile(context.Background(), tasks, ticketNow.Add(30*time.Minute))
-	duringBackOff := len(github.applied)
+	duringBackOff, shownDuringBackOff := len(github.applied), keeper.Issues()
 	github.applyErr = nil
 	keeper.reconcile(context.Background(), tasks, ticketNow.Add(61*time.Minute))
 
 	// Assert
 	if duringBackOff != 1 {
 		t.Fatalf("writes within the hour after a 403 = %d, want 1: the repository waits", duringBackOff)
+	}
+	if len(shownDuringBackOff) != 1 || !strings.Contains(shownDuringBackOff[0], ticketRepository) || !strings.Contains(shownDuringBackOff[0], "wait until") {
+		t.Fatalf("issues during the wait = %v, want the board to keep saying the repository waits and until when", shownDuringBackOff)
 	}
 	if len(github.applied) != 2 || len(keeper.Issues()) != 0 {
 		t.Fatalf("applied = %d, issues = %v, want one retry after the hour", len(github.applied), keeper.Issues())
@@ -501,5 +538,309 @@ func TestKeeperRemembersTheWorkQueuedBeforeItAcrossARestart(t *testing.T) {
 	// Assert
 	if len(github.applied) != 0 {
 		t.Fatalf("applied = %+v, want the old queued work still without a ticket after a restart", github.applied)
+	}
+}
+
+func TestKeeperTitlesATicketFromTheBacklogOrTheTaskRecordNeverFromTheBoard(t *testing.T) {
+	// The board titles a task with no row from the first line of its brief,
+	// and a brief's text must never reach a teammate's repository.
+	fromTheBrief := "Diagnose the outage in the billing database of the paying customer"
+	cases := []struct {
+		name      string
+		arrange   func(t *testing.T, h home.Home, checkout string)
+		task      Task
+		wantTitle string
+	}{
+		{name: "the title the task was dispatched under", task: Task{ID: "nw-sync", Title: fromTheBrief, Harness: "claude", Evaluation: Evaluation{Phase: "working"}},
+			arrange: func(t *testing.T, h home.Home, checkout string) {
+				if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-sync", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s1", Title: "Say why a billing sync fails"}); err != nil {
+					t.Fatal(err)
+				}
+			}, wantTitle: "Say why a billing sync fails"},
+		{name: "its backlog row's title", task: Task{ID: "nw-queued", Title: fromTheBrief, Evaluation: Evaluation{Phase: "queued"}},
+			arrange: func(t *testing.T, h home.Home, checkout string) {
+				writeFile(t, filepath.Join(h.Data, "nw-queued", "brief.md"), "## Project\n\n"+checkout+"\n\n## Task\n\n"+fromTheBrief+".\n")
+			}, wantTitle: "Refund totals in the export"},
+		{name: "the task's id when nothing titles it", task: Task{ID: "nw-sync", Title: fromTheBrief, Harness: "claude", Evaluation: Evaluation{Phase: "working"}}, wantTitle: "nw-sync"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the keeper has already run once, with nothing queued.
+			h, checkout, github := ticketHome(t)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+			keeper.reconcile(context.Background(), nil, ticketNow)
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-queued - Refund totals in the export (repo: northwind-api)\n")
+			if tc.arrange != nil {
+				tc.arrange(t, h, checkout)
+			}
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow.Add(time.Minute))
+
+			// Assert
+			if len(github.applied) != 1 || github.applied[0].ticket.Title != tc.wantTitle {
+				t.Fatalf("applied = %+v, want one ticket titled %q", github.applied, tc.wantTitle)
+			}
+		})
+	}
+}
+
+func TestKeeperKeepsATicketsTitleWhenNothingTitlesTheTaskAnyMore(t *testing.T) {
+	// Arrange: the task was cleaned up; its ticket was opened under its
+	// dispatch title, which no record holds any more.
+	h, checkout, github := ticketHome(t)
+	if err := state.RemoveTaskMeta(h.State, "nw-sync"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails"}); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{{ID: "finished:nw-sync", Title: "fix(sync): say why", Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.Title != "Say why a billing sync fails" {
+		t.Fatalf("applied = %+v, want the ticket to keep the title it has rather than fall back to the task's id", github.applied)
+	}
+}
+
+func orphanRecord(pull string) tickets.Record {
+	record := tickets.Record{TaskID: "nw-gone", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-gone on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "Old work", PullRequest: pull}
+	if pull != "" {
+		record.State, record.Status, record.Labels = tickets.PROpen, "PR open: #412", []string{"cfo: pr open", "goblin: claude"}
+	}
+	return record
+}
+
+func TestKeeperMovesATicketWhoseTaskHasLeftTheBoard(t *testing.T) {
+	cases := []struct {
+		name       string
+		pull       string
+		answer     string
+		wantState  tickets.State
+		wantReason tickets.Reason
+		wantAsks   int
+	}{
+		{name: "its pull request merged", pull: ticketPull, answer: "MERGED", wantState: tickets.Merged, wantAsks: 1},
+		{name: "its pull request was closed unmerged", pull: ticketPull, answer: "CLOSED", wantState: tickets.Closed, wantReason: tickets.FinishedUnmerged, wantAsks: 1},
+		{name: "it never had a pull request", wantState: tickets.Closed, wantReason: tickets.LeftTheFleet},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: a ticket record for a task nothing in the fleet names.
+			h, checkout, github := ticketHome(t)
+			github.pulls = map[string]string{ticketPull: tc.answer}
+			if err := tickets.WriteRecord(h.State, orphanRecord(tc.pull)); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), nil, ticketNow)
+
+			// Assert
+			if len(github.applied) != 1 || github.applied[0].ticket.TaskID != "nw-gone" || github.applied[0].ticket.State != tc.wantState || github.applied[0].ticket.Reason != tc.wantReason {
+				t.Fatalf("applied = %+v, want the ticket moved to %s (%s)", github.applied, tc.wantState, tc.wantReason)
+			}
+			if applied := github.applied[0].ticket; applied.Harness != "claude" || applied.Title != "Old work" || (tc.pull != "" && applied.PullRequest.Number != 412) {
+				t.Fatalf("ticket = %+v, want who worked it, its title and its pull request from the record", applied)
+			}
+			if github.pullAsks != tc.wantAsks {
+				t.Fatalf("pull request asks = %d, want %d", github.pullAsks, tc.wantAsks)
+			}
+			if record, _ := tickets.ReadRecord(h.State, "nw-gone"); !record.IsDone {
+				t.Fatalf("record = %+v, want it done", record)
+			}
+		})
+	}
+}
+
+func TestKeeperAsksAboutAnOpenPullRequestOfAGoneTaskOnceAnHour(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	github.pulls = map[string]string{ticketPull: "OPEN"}
+	if err := tickets.WriteRecord(h.State, orphanRecord(ticketPull)); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), nil, ticketNow)
+	keeper.reconcile(context.Background(), nil, ticketNow.Add(30*time.Minute))
+	withinTheHour := github.pullAsks
+	keeper.reconcile(context.Background(), nil, ticketNow.Add(61*time.Minute))
+
+	// Assert
+	if withinTheHour != 1 || github.pullAsks != 2 || len(github.applied) != 0 {
+		t.Fatalf("asks = %d within the hour and %d after it, applied = %+v, want 1, 2 and nothing written while the pull request is open", withinTheHour, github.pullAsks, github.applied)
+	}
+}
+
+func TestKeeperLeavesATicketAloneWhileTheFleetStillNamesItsTask(t *testing.T) {
+	cases := []struct {
+		name    string
+		arrange func(t *testing.T, h home.Home, checkout string)
+	}{
+		{name: "it still runs", arrange: func(t *testing.T, h home.Home, checkout string) {
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "nw-gone", Project: checkout, Worktree: checkout, Harness: "claude", SpawnGen: "s1"}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "it still has its brief", arrange: func(t *testing.T, h home.Home, checkout string) {
+			writeFile(t, filepath.Join(h.Data, "nw-gone", "brief.md"), "## Task\n\nOld work.\n")
+		}},
+		{name: "it is still in the backlog", arrange: func(t *testing.T, h home.Home, checkout string) {
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-gone - Old work (repo: northwind-api)\n")
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the board's list misses the task, as it does past its
+			// size limit, but the fleet still has it.
+			h, checkout, github := ticketHome(t)
+			tc.arrange(t, h, checkout)
+			if err := tickets.WriteRecord(h.State, orphanRecord("")); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), nil, ticketNow)
+
+			// Assert
+			if len(github.applied) != 0 || github.pullAsks != 0 {
+				t.Fatalf("applied = %+v, asks = %d, want the ticket untouched", github.applied, github.pullAsks)
+			}
+		})
+	}
+}
+
+func TestKeeperSaysNothingAboutAProjectWithNoGitHubRepository(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	github.repositoryErr = fmt.Errorf("read the origin remote of %s: %w", checkout, tickets.ErrNotGitHub)
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	tasks := []Task{liveTask("working", "")}
+
+	// Act
+	keeper.reconcile(context.Background(), tasks, ticketNow)
+	keeper.reconcile(context.Background(), tasks, ticketNow.Add(30*time.Minute))
+	withinTheHour := github.repositoryReads
+	keeper.reconcile(context.Background(), tasks, ticketNow.Add(61*time.Minute))
+
+	// Assert
+	if issues := keeper.Issues(); len(issues) != 0 {
+		t.Fatalf("issues = %v, want none: a project with no GitHub repository never has tickets", issues)
+	}
+	if withinTheHour != 1 || github.repositoryReads != 2 || len(github.applied) != 0 {
+		t.Fatalf("origin reads = %d within the hour and %d after it, applied = %+v, want 1, 2 and no ticket", withinTheHour, github.repositoryReads, github.applied)
+	}
+}
+
+func TestKeeperShowsAProjectItCannotResolveAndAGitHubReadThatFailed(t *testing.T) {
+	cases := []struct {
+		name      string
+		change    func(*fakeTicketWriter)
+		want      string
+		wantRetry time.Duration
+	}{
+		{name: "the project's checkout cannot be found", change: func(f *fakeTicketWriter) { f.checkoutErr = errors.New("project \"northwind-api\" is not under the projects root") }, want: "not under the projects root", wantRetry: time.Hour},
+		{name: "GitHub did not answer who works there", change: func(f *fakeTicketWriter) { f.collaborationErr = errors.New("gh api graphql exited 1: HTTP 502") }, want: "HTTP 502", wantRetry: 10 * time.Minute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			tc.change(github)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+			tasks := []Task{liveTask("working", "")}
+
+			// Act
+			keeper.reconcile(context.Background(), tasks, ticketNow)
+			failed := keeper.Issues()
+			keeper.reconcile(context.Background(), tasks, ticketNow.Add(tc.wantRetry-time.Minute))
+			readsBeforeRetry := github.checkoutReads
+			github.checkoutErr, github.collaborationErr = nil, nil
+			keeper.reconcile(context.Background(), tasks, ticketNow.Add(tc.wantRetry+time.Minute))
+
+			// Assert
+			if len(failed) != 1 || !strings.Contains(failed[0], tc.want) {
+				t.Fatalf("issues = %v, want one line naming %q", failed, tc.want)
+			}
+			if readsBeforeRetry != 1 || github.checkoutReads != 2 {
+				t.Fatalf("project reads = %d before %s and %d after, want 1 and 2", readsBeforeRetry, tc.wantRetry, github.checkoutReads)
+			}
+			if len(github.applied) != 1 || len(keeper.Issues()) != 0 {
+				t.Fatalf("applied = %+v, issues = %v, want the ticket opened and the line gone once it works", github.applied, keeper.Issues())
+			}
+		})
+	}
+}
+
+func TestKeeperDropsALineOnceItsCauseIsGone(t *testing.T) {
+	cases := []struct {
+		name  string
+		first func(*fakeTicketWriter)
+		then  func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration)
+	}{
+		{name: "a failed open whose task then left the board", first: func(f *fakeTicketWriter) { f.applyErr = &tickets.APIError{Status: 502} },
+			then: func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration) { return nil, time.Minute }},
+		{name: "a held public repository only the Overlord works in now", first: func(f *fakeTicketWriter) { f.collaboration.IsPrivate = false },
+			then: func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration) {
+				f.collaboration.IsCollaborative = false
+				return []Task{liveTask("working", "")}, 61 * time.Minute
+			}},
+		{name: "a refused claim whose ticket is done", first: func(f *fakeTicketWriter) { f.refuseClaim = true },
+			then: func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration) {
+				return []Task{liveTask("merged", ticketPull)}, time.Minute
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			writeFile(t, filepath.Join(h.Data, "nw-sync", "brief.md"), "## Task\n\nResolve issue #415.\n")
+			tc.first(github)
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+			shown := keeper.Issues()
+			tasks, later := tc.then(t, h, github)
+			keeper.reconcile(context.Background(), tasks, ticketNow.Add(later))
+
+			// Assert
+			if len(shown) != 1 {
+				t.Fatalf("issues after the first pass = %v, want one line", shown)
+			}
+			if issues := keeper.Issues(); len(issues) != 0 {
+				t.Fatalf("issues = %v, want the line gone with its cause", issues)
+			}
+		})
+	}
+}
+
+func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStillOnDisk(t *testing.T) {
+	// Arrange: cleanup leaves a finished task's brief and status log behind
+	// until they are filed, so neither makes it a task the fleet still has.
+	h, checkout, github := ticketHome(t)
+	writeFile(t, filepath.Join(h.Data, "nw-gone", "brief.md"), "## Task\n\nOld work.\n")
+	if err := state.AppendStatus(h.State, "nw-gone", "done: PR "+ticketPull); err != nil {
+		t.Fatal(err)
+	}
+	github.pulls = map[string]string{ticketPull: "MERGED"}
+	if err := tickets.WriteRecord(h.State, orphanRecord(ticketPull)); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), nil, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.State != tickets.Merged {
+		t.Fatalf("applied = %+v, want the ticket closed by its merge", github.applied)
 	}
 }
