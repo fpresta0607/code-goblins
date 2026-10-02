@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test as base, type BrowserContext } from "@playwright/test";
+import { test as base, type BrowserContext, type Page } from "@playwright/test";
 
 export * from "@playwright/test";
 
@@ -25,6 +25,26 @@ export async function servePages(context: BrowserContext, origin = ORIGIN): Prom
     if (!pathname.startsWith("/api/") && existsSync(file)) return route.fulfill({ path: file });
     return route.fulfill({ status: pathname.startsWith("/api/") ? 502 : 404, body: "" });
   });
+}
+
+// holdStream gives a page the supervisor's stream as the supervisor serves
+// it: one snapshot, on a connection that stays open. A stream answered from a
+// route ends as soon as it is read, so the board reconnects for as long as the
+// test runs, and its lost-connection banner comes and goes above the board,
+// which moves every card under a pointer at rest. A test that points at parts
+// one after another, or holds a drag, uses this instead.
+export async function holdStream(page: Page, snapshot: unknown): Promise<void> {
+  await page.addInitScript((data) => {
+    class HeldStream extends EventTarget {
+      onerror: (() => void) | null = null;
+      constructor() {
+        super();
+        setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
+      }
+      close() {}
+    }
+    Object.defineProperty(window, "EventSource", { value: HeldStream });
+  }, JSON.stringify(snapshot));
 }
 
 // Outside CI a run shares this machine with the fleet. Windows takes about
