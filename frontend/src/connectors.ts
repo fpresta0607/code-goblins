@@ -49,7 +49,7 @@ export function connectorMark(name: string, kind: "mcp" | "credential"): Mark {
 }
 
 export function harnessMark(harness: string): Mark {
-  const marks: Record<string, Mark> = { claude: { brand: "claude" }, codex: { brand: "openai" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
+  const marks: Record<string, Mark> = { claude: { brand: "claude" }, codex: { glyph: "codex" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
   return marks[harness] || { glyph: "terminal" };
 }
 
