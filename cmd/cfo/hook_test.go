@@ -1622,6 +1622,44 @@ func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
 	assertEpochOutcome(t, state, "rewake")
 }
 
+// A session that starts, clears or compacts is handed the digest the hook
+// prints, so while AFK mode is on that digest says so before the wake queue,
+// with every line of its terms, within what a session is handed whole. The
+// digest package's own tests cannot see which digest the hook prints.
+func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
+	for _, source := range []string{"startup", "clear", "compact"} {
+		t.Run(source, func(t *testing.T) {
+			// Arrange
+			dir := newPrimaryHome(t)
+			setAncestorPID(t, os.Getpid())
+			state := filepath.Join(dir, "state")
+			if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
+
+			// Assert
+			out := stdout.String()
+			notice := afk.NoticeFor(state)
+			if exit != 0 || len(notice) < 2 || len(out) > digest.Limit {
+				t.Fatalf("exit=%d, %d lines of notice, %d bytes printed of the %d a session is handed whole; stderr=%s", exit, len(notice), len(out), digest.Limit, stderr.String())
+			}
+			lockAt, noticeAt, queueAt := strings.Index(out, "== SESSION LOCK =="), strings.Index(out, "== AFK MODE =="), strings.Index(out, "== WAKE QUEUE ==")
+			if lockAt < 0 || noticeAt < lockAt || queueAt < noticeAt {
+				t.Fatalf("the hook's digest does not say AFK mode is on between the session lock and the wake queue:\n%s", out)
+			}
+			for _, line := range notice {
+				if !strings.Contains(out, line) {
+					t.Errorf("the hook's digest leaves out this line of AFK mode's notice: %q", line)
+				}
+			}
+		})
+	}
+}
+
 // A resumed session gets the short nudge instead of the digest, so while AFK
 // mode is on the nudge carries its banner: every way a session starts tells
 // the CFO it is on.

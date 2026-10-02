@@ -181,10 +181,13 @@ func composeLong(h home.Home, ew *werr) {
 }
 
 // ComposeBrief writes the digest a session is handed whole: within Budget
-// however large the home is, in the order a CFO needs it. SESSION LOCK, WAKE
-// QUEUE with its ack line, SUPERVISION OPERATING INSTRUCTIONS, FLEET with one
-// line a goblin, READ THIS NEXT naming the file that holds the long digest,
-// READ-ONCE CONTRACT, NEXT STEP.
+// however large the home is, in the order a CFO needs it. SESSION LOCK, AFK
+// MODE while it is on, WAKE QUEUE with its ack line, SUPERVISION OPERATING
+// INSTRUCTIONS, FLEET with one line a goblin, READ THIS NEXT naming the file
+// that holds the long digest, READ-ONCE CONTRACT, NEXT STEP.
+//
+// AFK mode's notice is printed whole, as the long digest prints it: its terms
+// are what a session starting from this digest decides under.
 //
 // A wake queue or fleet too long for its share keeps its first lines and
 // says how many it left out; a wake queue cut short prints no ack line,
@@ -214,7 +217,8 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 		}
 	}
 
-	var instructions bytes.Buffer
+	var afkMode, instructions bytes.Buffer
+	writeAFKMode(h.State, &werr{w: &afkMode})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	tail := func(isWholeQueue, isWholeFleet bool) []byte {
 		var text bytes.Buffer
@@ -228,7 +232,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
-	room := Budget - lockSection.Len() - instructions.Len() - len(tail(false, false))
+	room := Budget - lockSection.Len() - afkMode.Len() - instructions.Len() - len(tail(false, false))
 	fleetTable, isWholeFleet := briefFleet(h.State, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
@@ -238,6 +242,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 
 	ew := &werr{w: w}
 	ew.write(lockSection.Bytes())
+	ew.write(afkMode.Bytes())
 	ew.write(wakeQueue.Bytes())
 	ew.write(instructions.Bytes())
 	ew.write(fleetTable)
