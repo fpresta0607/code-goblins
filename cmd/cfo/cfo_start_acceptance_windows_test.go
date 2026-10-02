@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,10 @@ import (
 // scratch home that holds this tree's AGENTS.md, under `cfo serve --example`.
 // The CFO must register itself as its harness, the board must say a CFO
 // runs, and a wake queued afterwards must reach it through the line the
-// supervisor types and be acknowledged by its own cfo drain.
+// supervisor types and be acknowledged by its own cfo drain. Its terminal is
+// then closed, and a harness the capability table says resumes must come
+// back, with the arguments goblins brings a closed CFO back with, on the
+// conversation it registered with.
 //
 // It runs real harnesses on the Overlord's subscriptions, so it runs only
 // when asked:
@@ -104,28 +108,32 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	if model := os.Getenv("CFO_START_CODEX_MODEL"); model != "" && p.cfo == "codex" {
 		named = []string{"-m", model}
 	}
-	program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, named)...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.say("the CFO's command line: %q", program)
-	launched, err := host.Launch(p.home.State, []string{p.binary, "host"}, p.env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: p.home.Root, Cols: 120, Rows: 40})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if process, err := os.FindProcess(launched.HostPID); err == nil {
-			_ = process.Kill()
+	start := func(args []string) host.Record {
+		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, args)...)
+		if err != nil {
+			t.Fatal(err)
 		}
-	})
-	p.cfoTerminal = &launched
-	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, launched.HostPID, launched.ChildPID)
-	screen := func(when string) {
-		lines, err := host.ReadScreen(launched)
+		p.say("the CFO's command line: %q", program)
+		launched, err := host.Launch(p.home.State, []string{p.binary, "host"}, p.env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: p.home.Root, Cols: 120, Rows: 40})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if process, err := os.FindProcess(launched.HostPID); err == nil {
+				_ = process.Kill()
+			}
+		})
+		p.cfoTerminal = &launched
+		p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, launched.HostPID, launched.ChildPID)
+		return launched
+	}
+	screen := func(terminal host.Record, when string) {
+		lines, err := host.ReadScreen(terminal)
 		p.say("the CFO's screen %s (read error %v):\n%s", when, err, host.ScreenTail(lines, 40))
 	}
+	launched := start(named)
 	p.settle(t, launched)
-	screen("once its startup settled")
+	screen(launched, "once its startup settled")
 
 	p.await(t, "the CFO to register itself", 5*time.Minute, func() bool {
 		primary, live := livePrimaryFile(p.home.State)
@@ -133,7 +141,7 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	})
 	primary, err := os.ReadFile(filepath.Join(p.home.State, "primary.json"))
 	p.say("the CFO registered (read error %v): %s", err, primary)
-	screen("once it registered")
+	screen(launched, "once it registered")
 
 	setup := p.boardSetup(t)
 	p.say("the board's first-run answer: %s", setup)
@@ -144,14 +152,53 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 	// The wake is queued once the CFO's first turn has ended, so that only
 	// the typed line can tell it.
 	p.await(t, "the CFO's first turn to end", 10*time.Minute, func() bool { return p.idle(launched) })
-	screen("once its first turn ended")
+	screen(launched, "once its first turn ended")
 	record, err := wake.Append(p.home.State, "notify", "scratch-proof", "done: a test report from the scratch-home proof of the CFO's start; nothing to do but acknowledge it")
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.say("queued wake %d %s %s: %s", record.Seq, record.Kind, record.Key, record.Detail)
 	p.expectAcked(t, record)
-	screen("after it acknowledged the wake")
+	screen(launched, "after it acknowledged the wake")
+
+	// A closed CFO comes back as goblins brings one back: on the conversation
+	// its registration recorded, where the table says its harness resumes.
+	capability, _ := supervisor.CFOCapabilityFor(p.cfo)
+	resume, why, _ := cfoResume(p.home, p.cfo)
+	p.say("goblins brings a closed %s CFO back with %q (%s)", p.cfo, resume, why)
+	if capability.Resumes != (len(resume) > 0) {
+		t.Fatalf("the table says a %s CFO resumes: %v, but goblins would bring it back with %q (%s)", p.cfo, capability.Resumes, resume, why)
+	}
+	if !capability.Resumes {
+		return
+	}
+	before, err := supervisor.ReadCFOConversation(p.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.say("the conversation it registered with: %+v", before)
+	p.await(t, "the CFO's turn to end before its terminal is closed", 5*time.Minute, func() bool { return p.idle(launched) })
+	// Ending the terminal's host ends the harness, as closing its window does.
+	if process, err := os.FindProcess(launched.HostPID); err == nil {
+		p.say("closing the CFO's terminal, host pid %d: %v", launched.HostPID, process.Kill())
+	}
+	p.await(t, "the closed CFO's terminal to end", time.Minute, func() bool {
+		_, err := host.ReadScreen(launched)
+		return err != nil
+	})
+	reopened := start(append(slices.Clone(named), resume...))
+	p.settle(t, reopened)
+	var after supervisor.CFOConversation
+	p.await(t, "the reopened CFO to register itself", 5*time.Minute, func() bool {
+		conversation, err := supervisor.ReadCFOConversation(p.home.State)
+		after = conversation
+		return err == nil && conversation.PID != before.PID
+	})
+	p.say("the reopened CFO registered with: %+v", after)
+	screen(reopened, "once it registered again")
+	if after.Session != before.Session || after.Harness != p.cfo {
+		t.Fatalf("the reopened CFO registered with %+v, want the conversation it had, %s", after, before.Session)
+	}
 }
 
 // idle reports whether the CFO's harness sits at its composer, in five reads

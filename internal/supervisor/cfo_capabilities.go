@@ -30,7 +30,8 @@ type CFOCapability struct {
 // prompt, since the fleet's hooks for those harnesses only report their
 // prompts: nothing gives them the session-start digest and nothing guards
 // their turns. Both were proved with real harnesses in scratch homes on
-// 2026-10-02 (TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken).
+// 2026-10-02, and a closed Codex CFO coming back on its conversation with
+// them (TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken).
 func CFOCapabilities() []CFOCapability {
 	typed := []string{
 		"it is woken only in a native terminal, where the wake line is typed while it sits idle at an empty prompt",
