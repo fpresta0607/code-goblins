@@ -86,7 +86,7 @@ func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []strin
 		if screens.IsWorking(screen) {
 			return append(notes, unreached(name, answered)...)
 		}
-		shown :=strings.TrimSpace(strings.Join(screen, "\n"))
+		shown := strings.TrimSpace(strings.Join(screen, "\n"))
 		switch {
 		case shown == "":
 		case shown != last:

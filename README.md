@@ -169,7 +169,7 @@ When this home's supervisor, or its supervisor and its CFO, already run, it says
 It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
-It starts in its remembered harness in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
+It starts in its remembered harness, a Codex or pi CFO always in a native terminal (see the [quick start](#quick-start)) and a Claude Code one in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
 A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again, with or without `--native`: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
 A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
@@ -204,7 +204,7 @@ Each starts on the model its own configuration names, so a Codex whose configure
 Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
 It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
 The folder that holds your projects is optional there.
-The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
+The page starts any of the three this machine has installed, with the same few words on what a CFO in each gets.
 
 Tell the CFO what outcome you want.
 It handles the fleet mechanics.
