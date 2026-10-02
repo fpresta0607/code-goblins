@@ -4,12 +4,12 @@ import type { Persona } from "./workflow";
 
 // A goblin, or the CFO, coming up to the Overlord with something to say, drawn
 // as a game dialogue box: the speaker's portrait, the speaker's name on a tab
-// coloured by what it is about (needs him, done, failed, or all quiet), what
+// coloured by what it is about (needs him, done or failed), what
 // it says, and what he can do about it. A box whose words already name the
 // speaker, such as an alert, has no tab. A portrait with an action is a
 // button; a badge, such as the mark of the harness the speaker runs, sits
 // beside it.
-export type DialogueTone = "needs" | "done" | "failed" | "quiet";
+export type DialogueTone = "needs" | "done" | "failed";
 
 export function DialogueBox({ persona, speaker, tone, label, portrait, badge, actions, children }: {
   persona: Persona; speaker?: string; tone: DialogueTone; label: string;

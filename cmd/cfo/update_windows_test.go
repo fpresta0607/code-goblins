@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -68,6 +69,9 @@ func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome
 	}
 	u.candidate = filepath.Join(root, "cfo.exe.held-candidate")
 	writeBuild(t, u.candidate, candidate)
+	// Registered before endAll, so it runs after it: the builds are ended,
+	// then the home is removed once Windows lets go of them.
+	standin.RemoveAtCleanup(t, root)
 	t.Cleanup(u.endAll)
 	return u
 }

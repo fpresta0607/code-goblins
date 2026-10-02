@@ -125,6 +125,8 @@ cd code-goblins
 ```
 
 Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and open the board; run either again at any time to update.
+no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
+Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
 
 `cfo.exe` is not code-signed yet.
 The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
@@ -182,7 +184,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: the CFO pinned above the columns, two numbered queued tasks with the memory meter and Start now, five goblins in progress, and the selected goblin's panel with its status, workspace, Connectors and Changes" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the columns, two numbered queued tasks under the memory meter, each with start, edit and delete buttons, five goblins in progress, and the selected goblin's panel with its status, workspace, Connections and Changes" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -195,6 +197,7 @@ cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
+In Chrome or Edge, **Install Code Goblins** in the address bar opens the board as its own app, in a window with the goblin icon and no browser bar; its title, like the tab's, counts what waits on you, such as (2) Code Goblins.
 A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor: a running watcher, the one the CFO's Stop hook hosts included, hands it the lock at once rather than holding it off ([docs/native-board.md](docs/native-board.md) has the details).
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
@@ -210,13 +213,13 @@ The header switches between two views, one at a time, each with a contextual pan
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
   Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.
-  The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises, and **Open Command Center** opens what waits; its terminal icon opens its terminal.
+  The CFO is pinned above the columns: its bar says what it needs from you, the first question or review waiting and how many more, or else how many goblins it supervises. At rest it is a plain bar with only its terminal icon; it lights up as the CFO's lantern box with **Open Command Center** only while something waits on you.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
   A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
-- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A brief pulse along a connector marks a real accepted message.
+- **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
-  <img src="docs/images/orchestration.webp" alt="Orchestration view: the CFO above five goblins in four repositories, with the selected goblin's live native terminal in the right panel" width="900" />
+  <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in four repositories, with the selected goblin's live native terminal in the right panel" width="900" />
 </p>
 
 Each card shows the task's short title and a muted line with its repo and status; the goblin's own words are in its panel.
@@ -372,7 +375,8 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
 Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
-Each event alerts once, however often the board reconnects or reloads, and a goblin's question alerts as that question alone.
+Each event alerts once, in one tab of the board, however often the board reconnects or reloads or the supervisor restarts, and a goblin's question alerts as that question alone.
+The Command Center opens by itself on a new question once, too: closing it means it stays closed for that question, in every tab and after a reload.
 An item alerts once by its own id, and the same words from the same goblin within five minutes are one event.
 A goblin's news, or a wait it files again, more than five minutes later alerts again.
 Your browser remembers the last 100 alerts it showed.
@@ -387,8 +391,9 @@ A goblin's item closes by itself once nobody waits on it: a wait when the goblin
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
-An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
-An answer whose delivery failed or went unconfirmed comes back on its card with its warning.
+An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and its row under **Waiting on you** reads **Not sent** with what went wrong.
+An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
+An item you acted on never comes back by itself: an answer whose delivery failed or never arrived reads in **History** with a warning and what to do.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of everything waiting on you, including a walkthrough a goblin asks you to watch, and a History of what you answered, cleared or ran; a goblin's own test runs stay off it.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
@@ -413,13 +418,14 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 1. User gives the CFO an objective and constraints.
 2. CFO resolves the project and writes explicit acceptance criteria.
 3. cfo auth preflights required project services.
-4. CFO spawns one or more goblins into isolated worktrees.
-5. Goblins implement, investigate, test, and report through the wake queue.
-6. CFO steers blocked work or switches harnesses when useful.
-7. no-mistakes performs bounded independent review and repair.
-8. Tests, lint, documentation and CI produce machine evidence.
-9. CFO presents the finished outcome or the smallest unresolved decision.
-10. Approved work is merged; unlanded work is never silently destroyed.
+4. cfo tickets shows what teammates have in flight in the same area.
+5. CFO spawns one or more goblins into isolated worktrees.
+6. Goblins implement, investigate, test, and report through the wake queue.
+7. CFO steers blocked work or switches harnesses when useful.
+8. no-mistakes performs bounded independent review and repair.
+9. Tests, lint, documentation and CI produce machine evidence.
+10. CFO presents the finished outcome or the smallest unresolved decision.
+11. Approved work is merged; unlanded work is never silently destroyed.
 ```
 
 ## Core commands
@@ -440,6 +446,7 @@ cfo send <target> <text...>
 cfo peek <target> [lines]
 cfo fleet-view [--json]
 cfo runtime [--json]
+cfo tickets <project> [--brief <file>] [--files <paths>] [--json]
 cfo pipeline migrate <id>
 cfo pipeline run <id> --intent <text>
 cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>]
@@ -463,6 +470,20 @@ cfo run-request --withdraw <id> --reason "<why>"
 ```
 
 Run `cfo doctor` after installation for the current dependency and harness health report.
+
+### Working beside teammates
+
+In a repository other people work in, `cfo tickets <project>` reports what they have in flight before a goblin starts: who besides you worked there in the last 30 days (bots and old fork history do not count), every open issue and open or draft pull request with the files it changes, and the branches others pushed in the last 14 days.
+Add `--brief <file>` or `--files <paths>` and it names each pull request, branch and issue that touches the same area, so overlapping work is started knowingly or not at all.
+It only reads: one GraphQL query through `gh`, about three points of GitHub's hourly budget, and `--json` gives the same report with contributor avatars.
+
+```text
+you/northwind-api, read 2026-10-01 21:07Z
+Collaborative: 2 people besides you worked here in the last 30 days.
+...
+Overlaps with api/routes_orders.py, tasks/billing_sync.py
+- PR #412 by teammate changes api/routes_orders.py, tasks/billing_sync.py
+```
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
