@@ -1,6 +1,7 @@
 import type { IconName } from "./Icon.tsx";
 import { object, string, type Action, type BoardActivity, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
+import { plainMessage } from "./messageText.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
 // question, a review item (images, a Lavish page, or a wait on him), or a
@@ -38,6 +39,10 @@ export const waitsOnOverlord = (review: Review) => !!review.task && review.id.st
 // The goblin's reason for a wait as it wrote it: the queue prefixes it with
 // "Waiting on you: " and a page's link, which the card opens instead.
 export const waitReason = (review: Review) => review.title.replace(/^Waiting on you:\s*/, "").replace(review.lavish ? " (page " + review.lavish + ")" : "", "");
+
+// A review item on one line, for a list row or a button's label: a wait as
+// the goblin's words alone, anything else as its title.
+export const reviewLine = (review: Review) => plainMessage(waitsOnOverlord(review) ? waitReason(review) : review.title);
 
 // What a wait points at, so its card says it plainly and opens it: the page
 // the goblin named, else its own newest question still waiting, else a file

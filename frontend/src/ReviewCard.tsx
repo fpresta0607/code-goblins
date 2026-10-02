@@ -39,13 +39,14 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
   const asked = review.question ? (snapshot.questions || []).find((question) => question.id === review.question) : undefined;
   const closedAt = review.window_closed_at ? new Date(review.window_closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   // The goblin's own words, formatted: its lead line heads the card, and the
-  // details, a table of values to enter, or a closing line follow it.
+  // details, a table of values to enter, or a closing line follow it. Words
+  // that open with a table have no lead line and are all body.
   const { lead, rest } = leadAndRest(status ? waitReason(review) : review.title);
   return <form className="question-card" aria-labelledby={"review-" + review.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={review.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> {status ? "is waiting on you" : "asks"} · waiting {age(review.created_at).replace(/ ago$/, "")}</span></p>
-    {asked ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked.text, copyValues)}</div>
+    {asked || !lead ? <div className="question-body" id={"review-" + review.id} tabIndex={-1}>{messageElements(asked ? asked.text : rest, copyValues)}</div>
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
-    {!asked && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
+    {!asked && lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
     {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + plainMessage(review.title)}>
       <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{plainMessage(waitReason(review))}</strong><span>Review page</span></span>

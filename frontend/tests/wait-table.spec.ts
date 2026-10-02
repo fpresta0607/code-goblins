@@ -42,3 +42,60 @@ test("an address only named in a wait's words is never offered as its link", asy
   await expect(dialog.getByRole("heading", { name: /check that https:\/\/mcp\.precisiondocs\.ai answers/ })).toBeVisible();
   await expect(dialog.getByRole("link", { name: "Open the link" })).toHaveCount(0);
 });
+
+// The board is opened across the tailnet over plain HTTP, where a page has no
+// navigator.clipboard, so a value is copied the older way instead.
+test("a value still copies with one click on a page that has no clipboard", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "clipboard", { value: undefined, configurable: true });
+    document.addEventListener("copy", () => {
+      const field = document.activeElement;
+      (window as unknown as { copiedValue: string }).copiedValue = field instanceof HTMLTextAreaElement ? field.value.slice(field.selectionStart, field.selectionEnd) : "";
+    });
+  });
+  await page.goto("/tests/fixtures/wait-table.html");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  const button = page.getByRole("dialog").getByRole("button", { name: "Copy 9fQe2kLx7Rm0aPz4Vb8Nw" });
+
+  // Act
+  await button.click();
+
+  // Assert
+  await expect(button).toHaveAttribute("data-tip", "Copied");
+  expect(await page.evaluate(() => (window as unknown as { copiedValue: string }).copiedValue)).toBe("9fQe2kLx7Rm0aPz4Vb8Nw");
+  await expect(button).toBeFocused();
+  await expect(page.locator("textarea")).toHaveCount(0);
+});
+
+test("a wait's row in the menu reads the goblin's words alone, on one line", async ({ page }) => {
+  // Arrange
+  await page.goto("/tests/fixtures/wait-table.html");
+
+  // Act
+  await page.getByLabel("Command Center, 3 waiting on you").click();
+
+  // Assert
+  await expect(page.locator(".inbox-summary")).toHaveText([
+    "Add these three DNS records in Cloudflare for precisiondocs.ai, then tell me So mcp.precisiondocs.ai serves the connector.",
+    "check that https://mcp.precisiondocs.ai answers, then tell me",
+    "Add this record, then tell me",
+  ]);
+});
+
+test("a wait that opens with its table shows the table, with no row of pipes as its heading", async ({ page }) => {
+  // Arrange
+  await page.goto("/tests/fixtures/wait-table.html");
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+
+  // Act
+  await dialog.getByRole("button", { name: "Next item" }).click();
+  await dialog.getByRole("button", { name: "Next item" }).click();
+
+  // Assert
+  await expect(dialog.getByRole("table").getByRole("columnheader")).toHaveText(["Type", "Name"]);
+  await expect(dialog.getByRole("table").getByRole("button", { name: "Copy mail" })).toBeVisible();
+  await expect(dialog.getByText("Add this record, then tell me")).toBeVisible();
+  await expect(dialog.getByText("|")).toHaveCount(0);
+});

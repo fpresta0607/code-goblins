@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { request } from "./api";
+import { copyText } from "./clipboard";
 import { object, string, type Run, type Task } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
@@ -42,7 +43,7 @@ export function RunCard({ run, goblin, connected, sending, error, onRun, pager }
   // The screen follows the newest output, as a terminal does.
   useEffect(() => { if (screen.current) screen.current.scrollTop = screen.current.scrollHeight; }, [output]);
   const mark = runMark(run);
-  const copy = () => navigator.clipboard.writeText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
+  const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className="run-card" aria-labelledby={"run-" + run.id}>
     {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{goblin?.title || run.task}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at).replace(/ ago$/, "") : "asked " + age(run.created_at)}</span></p>}
     <header className="run-head">
