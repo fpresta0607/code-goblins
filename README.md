@@ -484,6 +484,25 @@ Overlaps with api/routes_orders.py, tasks/billing_sync.py
 - PR #412 by teammate changes api/routes_orders.py, tasks/billing_sync.py
 ```
 
+In such a repository the supervisor also keeps a ticket, a GitHub issue, for each task, so your teammates see what the fleet has under way without asking.
+It opens the issue when the task is queued, or claims the one the task's brief names by its URL or as "issue #N", and moves it by itself as the task moves:
+
+| The task | Its ticket |
+|---|---|
+| is queued | open, labelled `cfo: queued` |
+| is worked by a goblin | `cfo: in progress` and `goblin: <harness>`; the body names the goblin |
+| has a pull request open | `cfo: pr open`, with the pull request linked |
+| is paused | `cfo: paused` |
+| is blocked on a decision, or stopped on a failure | `cfo: blocked`, saying which of the two and never the question itself |
+| merged | closed as completed, with a comment naming the pull request |
+| was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
+
+A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
+Only the supervisor writes tickets, and only when a state changes; no command and no goblin does.
+An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
+An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.
+The board says when tickets wait: for that consent, or for an hour after GitHub refused a write.
+
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
