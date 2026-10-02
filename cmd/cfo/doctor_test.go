@@ -266,3 +266,48 @@ func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
 		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
 	}
 }
+
+// cfo doctor says which harness this home starts the CFO as and what a CFO in
+// it gets, from the same table the quick start and the first-run page read:
+// a Codex or pi CFO names each thing it goes without, and Claude Code none.
+func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
+	for _, tc := range []struct {
+		name, remembered string
+		want             []string
+		lacks            int
+	}{
+		{"a home that remembers none starts Claude Code", "", []string{"cfo harness: Claude Code (the best experience); its SessionStart hook registers it\n"}, 0},
+		{"Codex", "codex", []string{"cfo harness: Codex (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
+		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest, guards or resume); its first prompt runs cfo register\n", "  goes without: a closed pi CFO starts a new conversation: it is not resumed\n"}, 4},
+		{"a harness no CFO runs in", "kimi", []string{"cfo harness: unreadable ("}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			t.Setenv("CFO_HOME", root)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.remembered != "" {
+				if err := os.WriteFile(filepath.Join(root, "state", "cfo-harness"), []byte(tc.remembered+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout bytes.Buffer
+
+			// Act
+			reportCFOHarness(&stdout)
+
+			// Assert
+			for _, want := range tc.want {
+				if !strings.Contains(stdout.String(), want) {
+					t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+				}
+			}
+			if got := strings.Count(stdout.String(), "  goes without: "); got != tc.lacks {
+				t.Errorf("doctor names %d things the CFO goes without, want %d\n%s", got, tc.lacks, stdout.String())
+			}
+		})
+	}
+}

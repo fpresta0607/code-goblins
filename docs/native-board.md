@@ -433,7 +433,7 @@ On 27 September 2026 the pulse kept the live board (five working goblins, 2560 b
 The CFO in that recording still runs in Herdr, so its first open shows Herdr's connecting state over an empty pane, which is not the native view.
 
 CFO transport reads the `state/primary.json` registration and binds each queued message to its fingerprint.
-The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and the Codex and Pi native SessionStart hooks do it for a session with no task.
+The primary CFO writes that registration itself: Claude's SessionStart hook does it after the digest settles custody, and a Codex or pi CFO runs `cfo register`, which the first prompt goblins starts it with tells it to do.
 `cfo register` refreshes it by hand.
 Registering the same process in the same pane again leaves the file byte-identical, so a compact, clear or resume keeps the fingerprint pending questions, reviews and answers are bound to.
 Registration trusts no variable alone: the Herdr pane named by `HERDR_PANE_ID` must have one of the caller's own process ancestors in its foreground, and that harness must hold the home's session lock, taking it only when no live session does.
@@ -459,13 +459,19 @@ Plain `cfo register` names no conversation, so a Codex CFO that registers with i
 A home whose CFO last ran in a native terminal brings a closed CFO back there, on that conversation when its harness is the one chosen: `claude --resume <session>` or `codex resume <session>`; a terminal that ends within three seconds, as a harness that cannot resume the conversation does, is started again on a new one, and so is a Claude Code conversation past 20 MB and any pi conversation.
 `goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; without it the quick start asks, starting on the remembered harness, or else on Claude Code, the one it recommends.
 The board's first-run page reads the same remembered harness, shows it as chosen, and remembers the one it starts, so the terminal and the board hold one answer.
-In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell.
+In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and goblins starts no Codex or pi CFO there.
 A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
+A Codex or pi CFO starts in a native terminal whether or not `--native` is given, since only there is it woken, and never in Herdr.
+Its command line ends with one first prompt, which has it run `cfo register` in that terminal and then do what AGENTS.md says a CFO does at the start of a session; Claude Code needs none, since its SessionStart hook registers it and prints the digest.
+What a CFO in each harness gets is one table, `supervisor.CFOCapabilities`: how it is woken, how it registers, whether a closed one comes back on its conversation, and what it goes without.
+The quick start's notes, the first-run page and `cfo doctor`, whose `cfo harness:` line names the remembered harness with a `goes without:` line for each thing it lacks, all read that table, so none says more than another.
+A real Codex CFO and a real pi CFO started this way were proved in scratch homes on 2026-10-02: each registered itself within 15 seconds of its terminal opening, ran `cfo session-start` and the other start-of-session checks, and acknowledged a queued wake within 12 seconds of the supervisor typing its line; the Codex CFO's terminal was then closed, and started again with `codex resume` and the same first prompt it registered again on the conversation it had (`TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack`, run only when asked).
+A harness starts on the model its own configuration names: a Codex whose configured model the signed-in account cannot use shows Codex's error in the terminal, runs no first turn and so never registers, until the model is changed and it is told to run `cfo register`.
 A CFO already running keeps its harness, and goblins says the choice applies to the next start.
 A Claude Code CFO is woken by its own Stop hook, which waits on the wake queue.
-A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
+A Codex or pi CFO in a native terminal is woken by the supervisor, once it has registered by running `cfo register` in that terminal, as its first prompt tells it to: while wakes it has not been told about are queued, the supervisor types one line into its terminal, `cfo watcher wake: N queued wakes (...); run cfo drain, ...`, only when two readings of its screen a second apart show it idle at an empty composer, so never mid-turn and never over text left unsent, at most one line every 30 seconds, and each queued record is covered by one line only.
 The line is proved taken as `cfo send` proves a send, and one that nothing proves taken is reported and not typed again.
-A Codex or pi CFO in Herdr has no wake path and is told so when it starts: it sees reports only when it checks the board or runs `cfo drain`.
+A Codex or pi CFO someone starts in Herdr by hand has no wake path: it sees reports only when it checks the board or runs `cfo drain`.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
 The panel's Open in terminal button, shown while it shows a terminal, opens that terminal in a new Windows Terminal window beside the board, through `POST /api/terminal/open`, which takes only what the view shows and runs the supervisor's own programs.
@@ -474,13 +480,14 @@ A goblin whose no-mistakes gate owns its task is refused with the gate's reason,
 A board without Windows Terminal, or a terminal it cannot prove, says why under the button.
 With no CFO registered, `goblins` and `cfo attach` show native terminal `cfo` while its host answers, since the CFO started there may not have registered yet; a CFO registered in Herdr always comes first.
 The board follows the same rule for the CFO's panel, so a CFO the first-run page started can be answered there, for example Claude Code asking whether to trust its folder, before it registers.
-Claude Code registers the CFO only after its onboarding and sign-in, so while native terminal `cfo` is up with no CFO registered the snapshot says `cfo_starting` and carries no registration problem, the board opens that terminal by itself once per page (a panel the Overlord closed is not reopened), and the CFO bar says "Starting: sign in to Claude Code in its terminal".
+A starting CFO has not registered yet: Claude Code registers through its SessionStart hook after its onboarding and sign-in, and a Codex or pi CFO when its first prompt runs `cfo register`.
+So while native terminal `cfo` is up with no CFO registered the snapshot says `cfo_starting` and carries no registration problem, the board opens that terminal by itself once per page (a panel the Overlord closed is not reopened), and the CFO bar says "Starting: answer anything it asks in its terminal."
 The board's root shows the first-run page whenever no CFO runs (the snapshot's `cfo_runs`: a CFO registered and running, or native terminal `cfo` up for one that is starting) and the normal board once one does, with no path of its own, so an installer or shortcut that opens the board's root lands on it.
 The page shows as done what the terminal quick start already knows, and asks for neither again: the Code Goblins home the CFO starts in, and the agent remembered in `state/cfo-harness` when there is one.
-It offers Claude Code, Codex and Pi as one row of icon tabs, moved with Left and Right, opening on the remembered agent or else on Claude Code, whose tab is marked Recommended; under the row is whether the marked agent is on PATH and has a saved sign-in (`~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.pi/agent/auth.json`).
+It offers Claude Code, Codex and pi as one row of icon tabs, moved with Left and Right, opening on the remembered agent or else on the recommended one, Claude Code, whose tab is marked Recommended; under the row is whether the marked agent is on PATH and has a saved sign-in (`~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.pi/agent/auth.json`), and the few words the table says on what a CFO in it gets.
 It asks for no project: Start starts the agent as the CFO in native terminal `cfo` in the home, as `goblins --native` does, and remembers the agent as goblins would.
 The projects folder, where goblins find a project by its name, is optional: the field opens on the recorded `CFO_PROJECTS_ROOT`, Look lists the git checkouts directly in a folder, and Start records a folder he looked at as the machine's projects root, as `cfo install --projects-root` does.
-Only Claude Code can start today, since goblins can wake only a Claude Code CFO, and a Claude Code the terminal cannot start itself (anything but `claude.exe`) says so.
+Start starts any of them this machine has, since the fleet wakes all three: an agent that is not installed says so and holds Start back until another is picked, and so does a Claude Code the terminal cannot start itself (anything but `claude.exe`).
 Start is refused, with the reason, while a CFO runs or is starting, for an agent it cannot start, and for a folder he looked at that is not a full path, cannot be read or holds no checkout; with no folder looked at it starts all the same. An example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
 After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open Command Center and its terminal icon, which leads back to the first-run page.
 Keys pass through raw, the terminal follows the console's size, taken back with the next key after another viewer resized it, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
@@ -561,10 +568,18 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 
 ### The desktop window
 
-A desktop window for the board, `goblins-window.exe`, is built in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository that publishes it as a release; the README's [The desktop app](../README.md#the-desktop-app) says where to get it.
-It shows the board in Microsoft's WebView2 and needs only what this repository's supervisor already provides: the board's address in `state\board.json`, the board's page, and `/api/snapshot`, which it reads every 3 seconds to notify what newly waits on the Overlord.
-It writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged; `goblins` here does not start it, so it is started from its own Start-menu entry.
-It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, opens the board's new-tab links in the default browser, and raises the board's alerts as Windows notifications.
+A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
+`go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
+This repository's install and releases do not carry it yet, and `goblins` does not start it; the README's [The desktop app](../README.md#the-desktop-app) says where to get a built one, which is started from its own Start-menu entry.
+It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
+It writes nothing into the CFO home, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
+It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
+It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's own alert is the signal, and nothing is claimed.
+What its own look finds it claims under the key the board's page uses, `alert:` and the item's key, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
+Each notification carries the goblin from `goblins-window.png`, which every start writes beside the program and names as `IconUri` under `HKCU\Software\Classes\AppUserModelId\Code Goblins`.
+A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
+A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
+**Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
 The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
@@ -944,8 +959,7 @@ While AFK mode is on, `POST /api/announce` records every key it is asked about a
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
 What a page asked about then stays recorded, so it is not announced once he is back either.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
-[The desktop window](#the-desktop-window) is not silenced yet: while it runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
-Its own reading of `/api/snapshot` raises a Windows notification for each thing that newly waits on the Overlord without passing through this endpoint; the fix is for the window to claim what it notifies here before it notifies, as the page does.
+[The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
