@@ -322,3 +322,52 @@ func TestGoblinsReportsEscapeAtTheChoiceAsACancel(t *testing.T) {
 		t.Errorf("exit=%d stderr=%q, want the cancel reported in the quick start's words", exit, stderr)
 	}
 }
+
+// goblins says first what it finds running for this home and that it started
+// nothing beside it: the supervisor and the CFO, or the supervisor alone,
+// whose CFO it then starts. A supervisor this run started is not said to
+// have been found.
+func TestGoblinsSaysWhatAlreadyRunsForItsHome(t *testing.T) {
+	const both, alone = "\nThe supervisor and the CFO of this home already run: nothing new was started.\n", "\nThe supervisor of this home already runs: it was not started again.\n"
+	board := fakeBoard(t, busySnapshot)
+	started := func(t *testing.T) *launcherFixture {
+		f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
+			if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
+				t.Fatal(err)
+			}
+			return make(chan struct{}), nil
+		})
+		f.cfoLive = false
+		return f
+	}
+	for _, c := range []struct {
+		name      string
+		fixture   func(t *testing.T) *launcherFixture
+		nativeCFO string
+		want      string
+		starts    int
+	}{
+		{"the supervisor and the CFO run", newSessionFixture, supervisor.NativeCFOTerminal, both, 0},
+		{"the supervisor runs alone", newSessionFixture, "", alone, 1},
+		{"this run started the supervisor", started, supervisor.NativeCFOTerminal, "", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			f := c.fixture(t)
+			f.nativeCFO = c.nativeCFO
+
+			// Act
+			exit, stdout, stderr := f.launch("--native")
+
+			// Assert
+			if exit != 0 || len(f.nativeStarts) != c.starts || len(f.cfoStarts) != 0 {
+				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q stderr=%q, want %d CFO started", exit, f.nativeStarts, f.cfoStarts, stderr, c.starts)
+			}
+			for _, line := range []string{both, alone} {
+				if strings.Contains(stdout, line) != (line == c.want) {
+					t.Errorf("stdout = %q; saying %q: %v, want %v", stdout, line, strings.Contains(stdout, line), line == c.want)
+				}
+			}
+		})
+	}
+}
