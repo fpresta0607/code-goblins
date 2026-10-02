@@ -92,21 +92,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return nil
 		},
 		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
-			if prior.GateRun != "" {
-				branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
-				if err != nil || branch.ExitCode != 0 {
-					return errors.New("cannot read the paused validation branch")
-				}
-				if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}); err != nil {
-					return err
-				}
-			}
-			handoff := ""
-			if prior.HandoffSaved {
-				handoff = prior.Handoff
-			}
-			_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
-			return err
+			return resumeTask(ctx, h, runtime, commands, gate, meta, prior)
 		},
 		IsRunning: func(_ context.Context, meta state.TaskMeta) (bool, error) {
 			if meta.Backend != "native" {
@@ -156,4 +142,25 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		},
 	}}
 	return service.Run(ctx, request)
+}
+
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle) error {
+	if meta.Backend != "native" {
+		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with cfo cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
+	}
+	if prior.GateRun != "" {
+		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
+		if err != nil || branch.ExitCode != 0 {
+			return errors.New("cannot read the paused validation branch")
+		}
+		if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}); err != nil {
+			return err
+		}
+	}
+	handoff := ""
+	if prior.HandoffSaved {
+		handoff = prior.Handoff
+	}
+	_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
+	return err
 }

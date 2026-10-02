@@ -55,7 +55,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
-	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Lavish page the Overlord answers on")
+	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
