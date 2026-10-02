@@ -253,7 +253,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 		setup.seed(local)
 	}
 
-	output, _ := Run(cmd)
+	output, _ := cmd.CombinedOutput()
 
 	recorded, err := os.ReadFile(record)
 	if err != nil && !os.IsNotExist(err) {
@@ -320,7 +320,6 @@ func assertUpdated(t *testing.T, run noMistakesInstall, pinned []byte) {
 // not depend on the shell, so Windows PowerShell alone runs it; the install
 // workflow installs the real release in both PowerShells on a clean runner.
 func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) {
-	t.Parallel()
 	program := standIn(t)
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", program), 2, publishedSums)
 
@@ -358,7 +357,6 @@ func TestOneLineInstallRetriesTheNoMistakesDownloadThatFailsTwice(t *testing.T) 
 // with a message that says what failed, and the rest of the install goes on
 // and names it among the installs that did not complete.
 func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T) {
-	t.Parallel()
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("never served")), 1000, publishedSums)
 
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
@@ -382,7 +380,6 @@ func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T
 // An archive that does not match the release's checksums.txt is refused, and
 // nothing is installed or started.
 func TestOneLineInstallRefusesANoMistakesArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
-	t.Parallel()
 	for name, sums := range map[string]func(string, [32]byte) string{
 		"another archive's checksum": func(archive string, _ [32]byte) string {
 			return fmt.Sprintf("%x  %s\n", sha256.Sum256([]byte("the archive the release published")), archive)
@@ -392,7 +389,6 @@ func TestOneLineInstallRefusesANoMistakesArchiveThatDoesNotMatchItsChecksum(t *t
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("a build the release did not publish")), 0, sums)
 
 			run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{})
@@ -479,7 +475,6 @@ func pinnedStandIn(t *testing.T) []byte {
 // install workflow installs the real release in both PowerShells on a clean
 // runner.
 func TestOneLineInstallUpdatesAnOlderNoMistakesToThePinnedRelease(t *testing.T) {
-	t.Parallel()
 	pinned := pinnedStandIn(t)
 	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinned), 0, publishedSums)
 	var older []byte
@@ -511,7 +506,6 @@ func TestOneLineInstallUpdatesAnOlderNoMistakesToThePinnedRelease(t *testing.T) 
 // then leaves the older no-mistakes exactly as it was and says to rerun it
 // once no gate runs.
 func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
-	t.Parallel()
 	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 	var older []byte
 
@@ -540,7 +534,6 @@ func TestOneLineInstallLeavesNoMistakesAloneWhileAGateRuns(t *testing.T) {
 // it, downloads nothing, leaves its daemon alone, and names no-mistakes among
 // the installs that did not complete, on every rerun alike.
 func TestOneLineInstallWarnsOfAnOlderNoMistakesItDidNotInstall(t *testing.T) {
-	t.Parallel()
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 
 	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{stubs: map[string]string{"no-mistakes": existingNoMistakes("1.0.0")}})
@@ -564,7 +557,6 @@ func TestOneLineInstallWarnsOfAnOlderNoMistakesItDidNotInstall(t *testing.T) {
 // A no-mistakes at the pinned release is left as it is: nothing is
 // downloaded and its daemon keeps running.
 func TestOneLineInstallKeepsANoMistakesAtThePin(t *testing.T) {
-	t.Parallel()
 	version := pinnedNoMistakes(t)
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", []byte("the pinned release")), 0, publishedSums)
 
@@ -587,7 +579,6 @@ func TestOneLineInstallKeepsANoMistakesAtThePin(t *testing.T) {
 // put on the PATH. An older one is updated, as the update test shows in such
 // a window.
 func TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee(t *testing.T) {
-	t.Parallel()
 	releases, requests := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", pinnedStandIn(t)), 0, publishedSums)
 	var newer []byte
 
@@ -619,7 +610,6 @@ func TestOneLineInstallKeepsANewerNoMistakesThatThisWindowCannotSee(t *testing.T
 // holds it is refused before anything changes: the older no-mistakes' daemon
 // keeps running and its program stays where it is.
 func TestOneLineInstallRefusesANoMistakesArchiveWithoutItsProgram(t *testing.T) {
-	t.Parallel()
 	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes/no-mistakes.exe", []byte("the program in a folder")), 0, publishedSums)
 	var older []byte
 

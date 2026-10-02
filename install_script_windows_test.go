@@ -68,7 +68,7 @@ func runPowerShellWith(t *testing.T, shell, base string, tools []string, args ..
 func runPowerShellWithStubs(t *testing.T, shell, base string, stubs map[string]string, args ...string) (output, local, temp string, err error) {
 	t.Helper()
 	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, shell, append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)...)
-	out, err := installtest.Run(cmd)
+	out, err := cmd.CombinedOutput()
 	return string(out), local, temp, err
 }
 
@@ -94,7 +94,7 @@ func runPin(t *testing.T, shell, repository, tag, publisher string) (destination
 		t.Fatal(err)
 	}
 	destination = filepath.Join(t.TempDir(), "release", "install.ps1")
-	out, err := installtest.Run(exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", repository, "-Tag", tag, "-Publisher", publisher, "-Destination", destination))
+	out, err := exec.Command(shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", pin, "-Repository", repository, "-Tag", tag, "-Publisher", publisher, "-Destination", destination).CombinedOutput()
 	return destination, string(out), err
 }
 
@@ -105,10 +105,8 @@ func runPin(t *testing.T, shell, repository, tag, publisher string) (destination
 // PowerShell alone checks it; the install workflow runs the whole install in
 // both PowerShells on a clean runner.
 func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
-	t.Parallel()
 	for _, repository := range []string{"fpresta0607/code-goblins", "fpresta0607/code-goblins-native"} {
 		t.Run(repository, func(t *testing.T) {
-			t.Parallel()
 			// Arrange
 			script, output, err := runPin(t, installtest.WindowsPowerShell(), repository, "v1.2.3", "Code Goblins Test Publisher")
 			if err != nil {
@@ -135,7 +133,6 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 // never publishes one that downloads or trusts something else. The pin runs
 // in one shell only, in release.yml, so one PowerShell checks its refusals.
 func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
-	t.Parallel()
 	for name, test := range map[string]struct{ repository, tag, publisher string }{
 		"a repository that is not owner/name": {"https://github.com/fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher"},
 		"a tag that is not a release's":       {"fpresta0607/code-goblins", "main", "Code Goblins Test Publisher"},
@@ -143,7 +140,6 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 		"a publisher outside ASCII":           {"fpresta0607/code-goblins", "v1.2.3", "Caf\u00e9 Goblins"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			// Act
 			script, output, err := runPin(t, installtest.WindowsPowerShell(), test.repository, test.tag, test.publisher)
 
@@ -162,11 +158,9 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 // it refuses a download that is not validly signed by that publisher, however
 // well it matches its sum.
 func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
-	t.Parallel()
 	binary := []byte("a build nobody signed")
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
-			t.Parallel()
 			// Arrange
 			script, output, err := runPin(t, shell, "fpresta0607/code-goblins", "v1.2.3", "Code Goblins Test Publisher")
 			if err != nil {
@@ -194,7 +188,6 @@ func TestAPublishedInstallRefusesADownloadItsPublisherDidNotSign(t *testing.T) {
 // both. The install workflow runs the whole install in both PowerShells on a
 // clean runner.
 func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *testing.T) {
-	t.Parallel()
 	binary := []byte("a build the release did not publish")
 	for name, test := range map[string]struct {
 		binary []byte
@@ -208,7 +201,6 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 	} {
 		for _, shell := range test.shells {
 			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
-				t.Parallel()
 				output, local, temp, err := runOneLineInstall(t, shell, installtest.ServeRelease(t, test.binary, test.sums))
 
 				if err == nil || !strings.Contains(output, test.want) {
@@ -228,7 +220,6 @@ func TestOneLineInstallRefusesADownloadThatDoesNotMatchTheReleaseChecksum(t *tes
 // the install workflow runs the whole install in both PowerShells on a clean
 // runner.
 func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) {
-	t.Parallel()
 	binary := []byte("not a program")
 	sum := sha256.Sum256(binary)
 	for name, sums := range map[string]string{
@@ -236,7 +227,6 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 		"in binary mode":           fmt.Sprintf("%X *cfo.exe\n", sum),
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			output, local, temp, err := runOneLineInstall(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, binary, sums))
 
 			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") || strings.Contains(output, "does not match") {
@@ -256,10 +246,8 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 // The one-line install runs in the caller's own session and leaves it exactly
 // as it was, even when it is refused.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
-	t.Parallel()
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
-			t.Parallel()
 			caller := "$InstallDir = 'mine'; $Dev = 'mine'; $ErrorActionPreference = 'SilentlyContinue'\n" +
 				"try { Get-Content -Raw -LiteralPath '" + installScript(t) + "' | Invoke-Expression } catch { Write-Output \"refused: $($_.Exception.Message)\" }\n" +
 				"Write-Output \"InstallDir=[$InstallDir] Dev=[$Dev] ErrorActionPreference=[$ErrorActionPreference]\""
@@ -284,7 +272,6 @@ func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
 // and answered with a script naming its URL, and the child records how it
 // was started and the file it was given.
 func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
-	t.Parallel()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +287,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	}
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
-			t.Parallel()
 			record := filepath.Join(t.TempDir(), "record.txt")
 			stubs := map[string]string{
 				"git":        "@exit /b 0\r\n",
@@ -317,7 +303,7 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 				internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
 			cmd.Env = append(cmd.Env, standInVariable+"=1")
 
-			output, _ := installtest.Run(cmd)
+			output, _ := cmd.CombinedOutput()
 
 			recorded, err := os.ReadFile(record)
 			if err != nil {
@@ -378,7 +364,6 @@ func fakeCheckout(t *testing.T) string {
 // PowerShell, so Windows PowerShell alone checks it; the install workflow runs
 // the whole install in both PowerShells on a clean runner.
 func TestACloneInstallsOnlyThroughDev(t *testing.T) {
-	t.Parallel()
 	for name, test := range map[string]struct {
 		folder func(t *testing.T) string
 		args   []string
@@ -398,7 +383,6 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 		}, []string{"-Dev"}, "-Dev builds Code Goblins from a clone"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			var requests atomic.Int32
 			release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
@@ -428,7 +412,6 @@ func TestACloneInstallsOnlyThroughDev(t *testing.T) {
 // it; the install workflow runs the whole install in both PowerShells on a
 // clean runner.
 func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
-	t.Parallel()
 	checkout := fakeCheckout(t)
 
 	output, _, _, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
@@ -444,7 +427,6 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 // install.cmd runs install.ps1 under an execution policy that refuses to run
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
-	t.Parallel()
 	checkout := fakeCheckout(t)
 	wrapper, err := os.ReadFile("install.cmd")
 	if err != nil {
@@ -460,13 +442,13 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	// The premise: this policy refuses install.ps1 run directly.
 	direct, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, powershell, "-NoProfile", "-NonInteractive", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 	direct.Env = append(direct.Env, "PSExecutionPolicyPreference=Restricted")
-	if out, err := installtest.Run(direct); err == nil || strings.Contains(string(out), "needs Go") {
+	if out, err := direct.CombinedOutput(); err == nil || strings.Contains(string(out), "needs Go") {
 		t.Fatalf("install.ps1 run directly = %v, want the Restricted policy to refuse it:\n%s", err, out)
 	}
 
 	wrapped, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, filepath.Join(system, "System32", "cmd.exe"), "/d", "/c", filepath.Join(checkout, "install.cmd"), "-Dev")
 	wrapped.Env = append(wrapped.Env, "PSExecutionPolicyPreference=Restricted")
-	out, err := installtest.Run(wrapped)
+	out, err := wrapped.CombinedOutput()
 
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 || !strings.Contains(string(out), "needs Go") {
@@ -480,7 +462,6 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 // as no-mistakes' own, lost New-TemporaryFile. install.cmd gives Windows
 // PowerShell its own module path.
 func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
-	t.Parallel()
 	checkout := t.TempDir()
 	wrapper, err := os.ReadFile("install.cmd")
 	if err != nil {
@@ -510,7 +491,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	run := func(name string, args ...string) (string, error) {
 		cmd, _, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), nil, name, args...)
 		cmd.Env = append(cmd.Env, inherited)
-		out, err := installtest.Run(cmd)
+		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
 
@@ -535,7 +516,6 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
 func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
-	t.Parallel()
 	checkout := fakeCheckout(t)
 	newBuild := filepath.Join(t.TempDir(), "built")
 	// A running cfo.exe: ping, copied under that name, needs no console and
@@ -608,10 +588,8 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 // PowerShell runs it, so Windows PowerShell alone checks it; the install
 // workflow runs the whole install in both PowerShells on a clean runner.
 func TestInstallStopsForWingetBeforeDownloadingAnything(t *testing.T) {
-	t.Parallel()
 	for want, tools := range map[string][]string{"git and gh": nil, "gh": {"git"}} {
 		t.Run("needing "+want, func(t *testing.T) {
-			t.Parallel()
 			var requests atomic.Int32
 			release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)

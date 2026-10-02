@@ -89,7 +89,6 @@ type goWorkflowShard struct {
 // of its package's tests unless one other job runs the rest: one runs the
 // tests a pattern matches, and the other skips exactly those.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
-	t.Parallel()
 	// Arrange
 	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
 	if len(shards) == 0 {
@@ -152,7 +151,6 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
-	t.Parallel()
 	// Arrange
 	jobs := goWorkflowJobs(t)
 	var others []string
@@ -180,7 +178,6 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 // that failed, was cancelled or was skipped fails it, and so does a check
 // that needs nothing.
 func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
-	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
@@ -198,7 +195,6 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 		"no job at all":       {`{}`, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on
 			// an error.
 			script := filepath.Join(t.TempDir(), "step.ps1")
@@ -209,7 +205,7 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 			cmd.Env = append(os.Environ(), "RESULTS="+test.results)
 
 			// Act
-			out, err := installtest.Run(cmd)
+			out, err := cmd.CombinedOutput()
 
 			// Assert
 			if test.wantOK && err != nil {
@@ -226,7 +222,6 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 // 503 and failed the run: the install is tried again after a wait, and gives
 // up after its third attempt.
 func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
-	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("the step runs in PowerShell 7, which is not installed")
@@ -243,7 +238,6 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 		"a feed that stays down":         {-1, 3, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			// Arrange: choco says each attempt, fails as many times as
 			// asked, and then installs a sqlite3 beside itself.
 			choco := "@echo choco %*\r\n"
@@ -267,7 +261,7 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 			cmd, _, _ := installtest.StrippedCommand(t, "", map[string]string{"choco": choco}, pwsh, "-NoProfile", "-NonInteractive", "-Command", ". '"+script+"'")
 
 			// Act
-			out, err := installtest.Run(cmd)
+			out, err := cmd.CombinedOutput()
 
 			// Assert
 			output := string(out)
