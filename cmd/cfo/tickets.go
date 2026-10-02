@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
@@ -122,7 +123,7 @@ func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	if *briefPath != "" || len(files) > 0 {
 		value := tickets.Area{}
 		if *briefPath != "" {
-			text, err := os.ReadFile(*briefPath)
+			text, err := fsx.ReadFile(*briefPath)
 			if err != nil {
 				fmt.Fprintf(stderr, "cfo tickets: read the brief: %v\n", err)
 				return 1
