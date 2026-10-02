@@ -111,12 +111,17 @@ export function watchTips(): () => void {
     if (part) changes.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-tip"] });
     show();
   };
-  const onOver = (event: PointerEvent) => point(event.target);
+  // A pressed mouse or pen shows no tip until it is released, so a card has
+  // none from the press that starts its drag; a finger shows one for as long
+  // as it is down.
+  const onPointer = (event: PointerEvent) => point(event.buttons && event.pointerType !== "touch" ? null : event.target);
   // The pointer left the window, or a finger lifted.
   const onOut = (event: PointerEvent) => { if (!event.relatedTarget) point(null); };
   const onFocus = (event: FocusEvent) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(event.target); };
   const onBlur = () => point(null);
-  document.addEventListener("pointerover", onOver);
+  document.addEventListener("pointerover", onPointer);
+  document.addEventListener("pointerdown", onPointer);
+  document.addEventListener("pointerup", onPointer);
   document.addEventListener("pointerout", onOut);
   document.addEventListener("focusin", onFocus);
   document.addEventListener("focusout", onBlur);
@@ -124,7 +129,9 @@ export function watchTips(): () => void {
   addEventListener("resize", show);
   return () => {
     point(null);
-    document.removeEventListener("pointerover", onOver);
+    document.removeEventListener("pointerover", onPointer);
+    document.removeEventListener("pointerdown", onPointer);
+    document.removeEventListener("pointerup", onPointer);
     document.removeEventListener("pointerout", onOut);
     document.removeEventListener("focusin", onFocus);
     document.removeEventListener("focusout", onBlur);

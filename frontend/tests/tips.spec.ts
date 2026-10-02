@@ -189,6 +189,26 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 820]] as cons
   });
 }
 
+// The tip of a shortened title goes with the press that starts the card's
+// drag, before the drag has moved any card.
+test("a card being dragged shows no tip", async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 900 });
+  await open(page, [{ ...TASKS[0], title: LONGEST }, ...TASKS.slice(1)]);
+  const card = page.locator("[data-sort-id='queued-one'] .task-card");
+  await card.hover();
+  const tip = page.getByRole("tooltip");
+  await expect(tip).toHaveText(LONGEST);
+  const box = (await card.boundingBox())!;
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 12, { steps: 4 });
+  await expect(page.locator("[data-sort-id='queued-one']")).toHaveClass(/dragging/);
+  await expect(tip).toHaveCount(0);
+  await page.mouse.up();
+  await expect(page.locator(".task-cards.sorting")).toHaveCount(0);
+});
+
 // A tip stands on a surface of its own that nothing shows through, with an
 // edge, whatever it floats over: a card, a terminal or the workshop picture.
 test("a tip's surface is solid, with an edge, and stands out from the card under it", async ({ page }) => {
