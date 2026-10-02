@@ -753,6 +753,7 @@ func setTinyAutoarmIntervals(t *testing.T) {
 	t.Setenv("CFO_HEARTBEAT", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "1")
+	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "0")
 }
 
 // startLiveForeignProcess spawns a throwaway child process that stays alive
@@ -1504,6 +1505,11 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "FAILED after 1 attempt(s)") {
 		t.Errorf("stderr = %q, want it to contain FAILED after 1 attempt(s) (proves the fault injection landed on the FAILURE arm, not a heartbeat close)", stderr.String())
+	}
+	// The banner says which look at the watcher failed, so a failure nobody
+	// can reproduce still names its cause.
+	if !strings.Contains(stderr.String(), `Watcher: state\.watch.lock cannot be read`) {
+		t.Errorf("stderr = %q, want it to say the watcher lock record cannot be read", stderr.String())
 	}
 	episode, err := wake.ReadEpisode(state)
 	if err != nil {

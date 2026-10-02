@@ -199,7 +199,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the columns, two numbered queued tasks under the memory meter, each with start, edit and delete buttons, five goblins in progress, and the selected goblin's panel with its status, workspace, Connections and Changes" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the columns, two numbered queued tasks under the memory meter, each with start, adjust and remove buttons, five goblins in progress, and the selected goblin's panel with its status, workspace, Connections and Changes" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -217,6 +217,15 @@ A tab left open across an install notices the newer board: a hidden tab reloads 
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor: a running watcher, the one the CFO's Stop hook hosts included, hands it the lock at once rather than holding it off ([docs/native-board.md](docs/native-board.md) has the details).
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
+
+### The desktop app
+
+The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
+It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
+It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
+The window is unsigned, and its install says so.
+Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
 
 ### Board and Orchestration
 
@@ -268,6 +277,8 @@ When a brief is missing, Start writes it from the queued task and tells the CFO 
 Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free), and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
+A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
+A task's panel carries its controls as labelled buttons, in one row under its header: **Remove** for a queued task, whose Start stays on its card, and **Pause** or **Resume** and **Stop** for one that has started.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
 Such processes remain listed as **Finishing Windows teardown** on the card and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
@@ -279,12 +290,11 @@ Paused state survives a supervisor restart or reboot and produces no stale-task 
 Stop opens a confirmation offering **Pause instead (Recommended)**, **Stop and delete** and **Cancel**, without typing.
 It ends the session and owned processes, then removes the worktree only when its work is safely preserved.
 Branches stay, and dirty or unpushed work keeps its worktree with the reason shown on the final card.
-Queued Stop removes the task from the queue and keeps its brief.
+Remove opens a confirmation offering **Remove from queue** and **Cancel**: the task leaves the queue and its brief is kept.
 The board uses the same paths as `cfo pause <id>`, `cfo resume <id>` and `cfo kill <id>`; `cfo stop` still stops the supervisor.
 
-Open a queued card's **Adjust** pencil icon to edit its title on the first line and its detail below.
-**Save changes** updates the task and any existing brief with an adjustment record.
-**Send to CFO** sends the text as a note about that task without changing it, and the note stays on its card until handled.
+A queued task's panel holds **Adjust this task** under its Remove, with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
+**Save changes**, under the text, updates the task and any existing brief with an adjustment record.
 
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
 The whole crew:
@@ -503,6 +513,9 @@ Run `cfo doctor` after installation for the current dependency and harness healt
 
 In a repository other people work in, `cfo tickets <project>` reports what they have in flight before a goblin starts: who besides you worked there in the last 30 days (bots and old fork history do not count), every open issue and open or draft pull request with the files it changes, and the branches others pushed in the last 14 days.
 Add `--brief <file>` or `--files <paths>` and it names each pull request, branch and issue that touches the same area, so overlapping work is started knowingly or not at all.
+`cfo spawn` runs the same check on the task's brief: where a teammate has work in flight it prints the overlap and starts nothing, until you repeat it with `--overlap-ok "<why>"`.
+Your reason is kept in the task's status log and shown on its ticket, and your own fleet's pull requests never stop a spawn.
+Neither does a bot's work, and a GitHub read that fails or takes longer than 30 seconds starts the task unchecked and says so.
 It only reads: one GraphQL query through `gh`, about three points of GitHub's hourly budget, and `--json` gives the same report with contributor avatars.
 
 ```text
@@ -526,7 +539,7 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 | merged | closed as completed, with a comment naming the pull request |
 | was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
 
-A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
+A ticket carries the task's title, its state, who is on it, its pull request and the reason you gave `cfo spawn --overlap-ok` when it was started beside a teammate's work, and nothing else: never the brief, a path on your machine, a secret or a note.
 Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
@@ -619,6 +632,7 @@ Code Goblins is becoming a native Windows desktop app.
 - **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts every goblin this way, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
+  Its first build, a desktop window for the board, exists outside this repository's releases: [The desktop app](#the-desktop-app).
 
 ## Development
 
