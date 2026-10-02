@@ -3,6 +3,7 @@ package tickets
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -78,6 +79,8 @@ func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return execx.Result{Stdout: []byte(`{"number":501,"html_url":"https://github.com/` + northwind + `/issues/501"}`)}, nil
 	case call.Method == "POST" && strings.HasSuffix(call.Path, "/comments"):
 		return execx.Result{Stdout: []byte(`{"id":9001}`)}, nil
+	case call.Method == "GET" && call.Path == "repos/"+northwind:
+		return execx.Result{Stdout: []byte(`{"full_name":"` + northwind + `"}`)}, nil
 	case call.Method == "GET":
 		var number int
 		if _, err := fmt.Sscanf(call.Path, "repos/"+northwind+"/issues/%d", &number); err == nil {
@@ -333,23 +336,59 @@ func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
 	}
 }
 
-func TestApplyRefusesToClaimWhatIsNotAnOpenIssue(t *testing.T) {
+func TestApplyOpensANewIssueWhenTheNamedOneCannotBeClaimed(t *testing.T) {
+	named := "repos/" + northwind + "/issues/415"
 	cases := []struct {
-		name  string
-		issue string
-		want  string
+		name         string
+		issues       map[int]string
+		wantWhy      string
+		wantRequests []string
 	}{
-		{name: "a pull request", issue: `{"number":415,"state":"open","pull_request":{"url":"x"}}`, want: "a pull request"},
-		{name: "a closed issue", issue: `{"number":415,"state":"closed"}`, want: "closed"},
+		{name: "a pull request", issues: map[int]string{415: `{"number":415,"state":"open","pull_request":{"url":"x"}}`}, wantWhy: "a pull request",
+			wantRequests: []string{"GET " + named, "POST repos/" + northwind + "/issues"}},
+		{name: "a closed issue", issues: map[int]string{415: `{"number":415,"state":"closed"}`}, wantWhy: "closed",
+			wantRequests: []string{"GET " + named, "POST repos/" + northwind + "/issues"}},
+		{name: "an issue that does not exist", wantWhy: "does not exist",
+			wantRequests: []string{"GET " + named, "GET repos/" + northwind, "POST repos/" + northwind + "/issues"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gh := &issueGitHub{issues: map[int]string{415: tc.issue}}
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, 415)
-			if err == nil || !strings.Contains(err.Error(), tc.want) || record != nil || len(gh.calls) != 1 {
-				t.Fatalf("record = %+v, err = %v, requests = %v, want a refusal naming %q after the read alone", record, err, gh.requests(), tc.want)
+			// Arrange
+			gh := &issueGitHub{issues: tc.issues}
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "pi"}, 415)
+
+			// Assert
+			var refused *ClaimRefused
+			if !errors.As(err, &refused) || refused.Number != 415 || !strings.Contains(err.Error(), tc.wantWhy) {
+				t.Fatalf("err = %v, want a claim refusal for #415 naming %q", err, tc.wantWhy)
+			}
+			if got := gh.requests(); !slices.Equal(got, tc.wantRequests) {
+				t.Fatalf("requests = %v, want %v: the named issue is never written to", got, tc.wantRequests)
+			}
+			if record == nil || record.Number != 501 || record.IsClaimed || record.State != InProgress {
+				t.Fatalf("record = %+v, want the issue opened instead, so no later pass tries the claim again", record)
 			}
 		})
+	}
+}
+
+func TestApplyClaimsAndOpensNothingWhileTheRepositoryIsNotVisible(t *testing.T) {
+	// Arrange: a 404 for the issue and for the repository itself is what gh
+	// gets when it has lost access, not what a deleted issue looks like.
+	gh := &issueGitHub{failures: map[string]int{"GET repos/" + northwind: 404}}
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, 415)
+
+	// Assert
+	var refused *ClaimRefused
+	if err == nil || errors.As(err, &refused) || !strings.Contains(err.Error(), "not visible") || record != nil {
+		t.Fatalf("record = %+v, err = %v, want an error naming the repository as not visible and nothing kept", record, err)
+	}
+	if got := gh.requests(); !slices.Equal(got, []string{"GET repos/" + northwind + "/issues/415", "GET repos/" + northwind}) {
+		t.Fatalf("requests = %v, want no issue opened", got)
 	}
 }
 
@@ -523,10 +562,31 @@ func TestApplyEndsATicketWhoseIssueIsGone(t *testing.T) {
 			if err != nil || record == nil || !record.IsDone {
 				t.Fatalf("record = %+v, err = %v, want the ticket done without an error", record, err)
 			}
+			if askedRepository := slices.Contains(gh.requests()[:firstPass], "GET repos/"+northwind); askedRepository != (status == 404) {
+				t.Fatalf("requests = %v, want the repository read only for a 404, which lost access also answers", gh.requests()[:firstPass])
+			}
 			if againErr != nil || again != record || len(gh.calls) != firstPass {
 				t.Fatalf("record = %+v, err = %v, requests = %v, want a gone issue left alone", again, againErr, gh.requests()[firstPass:])
 			}
 		})
+	}
+}
+
+func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
+	// Arrange
+	issue := "repos/" + northwind + "/issues/501"
+	gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: 404, "GET repos/" + northwind: 404}}
+	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+
+	// Act
+	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, 0)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "not visible") {
+		t.Fatalf("err = %v, want the repository named as not visible", err)
+	}
+	if record != from || record.IsDone {
+		t.Fatalf("record = %+v, want the ticket kept live so it moves again once gh can see the repository", record)
 	}
 }
 

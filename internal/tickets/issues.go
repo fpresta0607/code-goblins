@@ -24,7 +24,14 @@ import (
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again. A status comment someone deleted is
 // posted again, and an issue deleted or transferred ends the ticket: Apply
-// returns its record done, without an error.
+// returns its record done, without an error. An issue the task named that
+// cannot be claimed (missing, closed, or a pull request) is left alone and a
+// new one is opened, returned with a ClaimRefused.
+//
+// GitHub answers 404 both for an issue that is gone and for a repository gh
+// can no longer see, so a 404 ends or refuses nothing until the repository
+// itself still answers; while it does not, Apply returns an error and the
+// ticket waits.
 //
 // The caller keeps any record Apply returns, error or not: it is what the
 // issue then holds. When a write fails, that is the record Apply was given,
@@ -46,12 +53,35 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 		return record, nil
 	}
 	next, err := g.move(ctx, repository, record, ticket)
-	if hasStatus(err, 404) || hasStatus(err, 410) {
+	if err == nil {
+		return next, nil
+	}
+	isGone, goneErr := g.isGone(ctx, repository, err)
+	if goneErr != nil {
+		return record, goneErr
+	}
+	if isGone {
 		gone := *record
 		gone.IsDone = true
 		return &gone, nil
 	}
 	return next, err
+}
+
+// isGone reports whether a refused request means the issue it wrote to is
+// gone: GitHub answered 410, or 404 while the repository itself still
+// answers. A 404 from a repository gh cannot see is an error instead.
+func (g GitHub) isGone(ctx context.Context, repository string, refused error) (bool, error) {
+	if hasStatus(refused, 410) {
+		return true, nil
+	}
+	if !hasStatus(refused, 404) {
+		return false, nil
+	}
+	if _, err := g.api(ctx, "GET", "repos/"+repository); err != nil {
+		return false, fmt.Errorf("%s is not visible to gh, so its tickets wait: %w", repository, err)
+	}
+	return true, nil
 }
 
 // move writes what changed between an issue's record and its ticket, and
@@ -154,17 +184,24 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, num
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, number)
 	out, err := g.api(ctx, "GET", issue)
 	if err != nil {
-		return nil, err
+		isGone, goneErr := g.isGone(ctx, repository, err)
+		if goneErr != nil {
+			return nil, goneErr
+		}
+		if !isGone {
+			return nil, err
+		}
+		return g.openInstead(ctx, repository, ticket, number, "it does not exist")
 	}
 	var claimed githubIssue
 	if err := json.Unmarshal(out, &claimed); err != nil {
 		return nil, fmt.Errorf("read issue #%d in %s: %w", number, repository, err)
 	}
 	if claimed.PullRequest != nil {
-		return nil, fmt.Errorf("#%d in %s is a pull request, not an issue the task can claim", number, repository)
+		return g.openInstead(ctx, repository, ticket, number, "it is a pull request")
 	}
 	if claimed.State != "open" {
-		return nil, fmt.Errorf("issue #%d in %s is closed, so the task cannot claim it", number, repository)
+		return g.openInstead(ctx, repository, ticket, number, "it is closed")
 	}
 	labels := ticket.Labels()
 	if len(labels) > 0 {
@@ -178,6 +215,28 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, num
 	}
 	labelled := &Record{TaskID: ticket.TaskID, Repository: repository, Number: number, URL: claimed.URL, IsClaimed: true, State: ticket.State, Labels: labels}
 	return g.Apply(ctx, repository, labelled, ticket, 0)
+}
+
+// openInstead opens an issue for a task whose named issue cannot be claimed,
+// and returns it with the refusal.
+func (g GitHub) openInstead(ctx context.Context, repository string, ticket Ticket, number int, why string) (*Record, error) {
+	opened, err := g.open(ctx, repository, ticket)
+	if err != nil {
+		return nil, err
+	}
+	return opened, &ClaimRefused{Number: number, Why: why}
+}
+
+// ClaimRefused says why the issue a task named could not be claimed. Apply
+// returns it together with the record of the issue it opened instead, so the
+// refusal is reported once and no later pass tries the claim again.
+type ClaimRefused struct {
+	Number int
+	Why    string
+}
+
+func (e *ClaimRefused) Error() string {
+	return fmt.Sprintf("issue #%d was not claimed because %s; a new issue was opened for the task", e.Number, e.Why)
 }
 
 type githubIssue struct {
