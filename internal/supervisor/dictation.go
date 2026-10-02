@@ -87,7 +87,7 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		defer fetch.mu.Unlock()
 		fetch.running = false
 		switch {
-		case errors.Is(err, context.DeadlineExceeded):
+		case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
 			fetch.problem = "The speech model's download did not finish in time and was given up. Dictate again to start it over."
 		case err != nil:
 			fetch.problem = sentence(err.Error())
