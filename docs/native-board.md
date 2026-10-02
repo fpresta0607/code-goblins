@@ -576,7 +576,9 @@ Answers retain their question and CFO identity and enter the durable native CFO 
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
 Publish from the same registered primary shell, continue independent work or finish the turn awaiting the reply, and do not also open a native prompt tool: a normal message cannot answer a correlated native Codex/Pi prompt.
 Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.
-A replaced CFO's pending questions become superseded instead of reopening unanswerable modals.
+The CFO's work on the board follows the home's CFO, not one CFO process, so closing the CFO and opening it again strands nothing.
+Once another CFO process registers in the home, its open questions, its review items whose answer has not reached it, its run items not yet ended and the deliveries queued to any of them move to that CFO, and nothing of it is superseded.
+While no CFO runs, an answer or review on its way to the CFO waits queued instead of failing, and how a run item ended is kept on the item and told to the CFO once one runs again.
 The store bounds question history at 128 records, retires cleared and answered history first, and defers overflow when all questions remain pending.
 The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
 Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
@@ -613,7 +615,7 @@ The goblin receives `CFO: decision <seq>: <choice>. <note>` the way `cfo send` t
 Every answer, on the board or through `cfo answer`, is recorded on its question as `answered_option` (the choice; empty for a written answer), `answered_by` (`cfo` or `overlord`) and `answered_at`, so a closed question shows which option was chosen.
 An answer the Overlord gave somewhere else, such as in chat, closes its card once the registered CFO records it with `cfo answer <question-id> --option <choice> --record-only --in <where>`: the question reads `answered_by: overlord` and `answered_in` naming where, an open card finishes with the Answered check and "You answered in chat · recorded by the CFO", and nothing is sent to anyone.
 The CFO's own question takes only this form, since only the Overlord answers it, and `--in` is a few plain words.
-A question that closed without an answer, because its goblin restarted or ended or the CFO session that asked it changed, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question is never dropped, so an unanswered decision is never hidden.
+A question that closed without an answer, because its goblin restarted or ended, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question is never dropped, so an unanswered decision is never hidden.
 The Overlord dismisses a pending question he answered elsewhere or no longer needs with the close icon beside Send decision (tip: "Dismiss: answered elsewhere or no longer needed"), the same `question_clear`: it closes as dismissed, the card finishes with Dismissed, and the CFO is told, since it asked the question or holds the goblin's notify that did, which still waits for it; a question whose answer is on its way cannot be dismissed.
 
 ## Working and waiting reports
