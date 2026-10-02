@@ -1,21 +1,18 @@
 import type { Setup } from "./types.ts";
 
-// RECOMMENDED_AGENT is the agent the first-run page marks as recommended and
-// opens on when the quick start remembered none, as the terminal does.
-export const RECOMMENDED_AGENT = "claude";
-
 // startState is the agent the first-run page's Start uses and what Start
 // still needs, in plain words, or "" when it can start the CFO. The agent is
 // the tab he picked, or else the one the quick start remembered, or else the
-// recommended one, so the board never asks again what the terminal was told.
+// one the supervisor recommends, so the board never asks again what the
+// terminal was told.
 // Start needs no project and no projects folder: the CFO starts in its home.
 // Only a folder he looked at that offers no project holds Start back, since
 // Start would record it.
 export function startState(setup: Setup, picked: string, lookedAtFolder: boolean): { agent: string; blocked: string } {
   const known = (id: string) => setup.agents.some((agent) => agent.id === id);
-  const agent = known(picked) ? picked : known(setup.agent) ? setup.agent : RECOMMENDED_AGENT;
+  const agent = known(picked) ? picked : known(setup.agent) ? setup.agent : setup.agents.find((each) => each.recommended)?.id ?? "";
   const chosen = setup.agents.find((each) => each.id === agent);
-  const blocked = !chosen ? "This board cannot start Claude Code."
+  const blocked = !chosen ? "This board offers no agent to start the CFO as."
     : chosen.reason ? chosen.reason
       : lookedAtFolder ? setup.problem
         : "";

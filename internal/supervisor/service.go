@@ -61,6 +61,9 @@ type Options struct {
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
+	// Dictation is the speech engine the board dictates through on this
+	// machine; without it the board has no dictation of its own.
+	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
@@ -909,8 +912,8 @@ type Snapshot struct {
 	// terminal; without one the board shows its first-run page.
 	CFORuns bool `json:"cfo_runs"`
 	// CFOStarting says native terminal cfo is up for a CFO not registered
-	// yet; the board opens that terminal for its sign-in, and no registration
-	// problem is shown while it lasts.
+	// yet; the board opens that terminal for whatever it asks there, and no
+	// registration problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
