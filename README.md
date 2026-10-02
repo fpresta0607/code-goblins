@@ -621,6 +621,16 @@ The board says when tickets wait: for that consent, or for an hour after GitHub 
 A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
 A project with no GitHub repository simply has no tickets.
 
+The same supervisor poll watches the health of every open pull request in its watched repositories, including teammates' and fork pull requests.
+It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
+Each condition wakes once per head, survives a restart, and waits at least five minutes after that PR's previous health wake.
+A goblin's wake names its owner and the safe update: merge the default branch in with a merge commit, regenerate generated files, run CI once and never force-push.
+A teammate's wake reports the author and link; the fleet never pushes to their branch.
+The existing poll lists PRs once and batches all head comparisons in one additional GraphQL request per repository, every two minutes.
+GraphQL POST reads do not use conditional ETags.
+A 403, 429 or exhausted allowance pauses all GitHub reads in that poll for the affected repository across restarts, until its retry or reset time, or an hour when GitHub gives no usable time.
+Missing comparisons and a listing that reaches its 100-PR limit stay visible as unread evidence.
+
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 

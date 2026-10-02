@@ -24,8 +24,9 @@ import (
 // The fleet wakes are the ones the supervisor raises about the machine and
 // the forge rather than about one goblin's screen: memory come back while
 // work waits for it, and CI that finished on a goblin's pull request or went
-// red on main. They go through the wake queue like every other wake, so the
-// CFO hears them however it is woken and cfo drain shows them.
+// red on main, and pull requests that conflict or fall behind. They go
+// through the wake queue like every other wake, so the CFO hears them
+// however it is woken and cfo drain shows them.
 const (
 	fleetWakesSchema = "cfo-fleet-wakes.v1"
 	// fleetWatchEvery is how often memory is read for memory_ready, the
@@ -33,8 +34,8 @@ const (
 	fleetWatchEvery = time.Minute
 	// ciPollEvery is how often GitHub is asked about CI. Every call counts
 	// against the 5,000 an hour every goblin, gate and the CFO share (they
-	// ran out on 2026-09-23), and one poll costs two calls per watched
-	// repository and one more for each red run it reports.
+	// ran out on 2026-09-23). A poll lists PRs and main's runs once each,
+	// compares open PRs in one batch, and reads details for each red run.
 	ciPollEvery = 2 * time.Minute
 	// ciPollSlack is how far short of ciPollEvery a reading may land and
 	// still poll, since the readings come off a ticker whose jitter would
@@ -70,7 +71,9 @@ type fleetWakes struct {
 	MemorySpent bool `json:"memory_spent,omitempty"`
 	// Checks holds each goblin pull request's finished checks the CFO was
 	// woken for, so each completion wakes once.
-	Checks map[string]reportedChecks `json:"checks,omitempty"`
+	Checks  map[string]reportedChecks   `json:"checks,omitempty"`
+	Health  map[string]reportedPRHealth `json:"health,omitempty"`
+	BackOff map[string]time.Time        `json:"backoff,omitempty"`
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
@@ -329,7 +332,8 @@ type ciGoblin struct {
 // pollCI asks GitHub, every ciPollEvery, about the open pull requests of the
 // repositories live goblins work in and about their main's push CI, and
 // raises ci_finished for each goblin pull request whose checks have all
-// concluded since it was last reported, and for each red push run of main.
+// concluded since it was last reported, for each red push run of main, and
+// pr_health for each conflicting or behind pull request head.
 // A repository with no origin remote is a local one and is asked nothing.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
 // until a poll reads it again, and raises ci_unreadable. A poll the
@@ -343,6 +347,10 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	var errs error
 	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
+		if now.Before(w.BackOff[repo]) {
+			continue
+		}
+		delete(w.BackOff, repo)
 		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 		origin, err := runner.Run(probe, execx.Request{Dir: repo, Name: "git", Args: []string{"config", "--get", "remote.origin.url"}})
 		cancel()
@@ -363,8 +371,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 				mine = append(mine, goblin)
 			}
 		}
-		pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, s.Store.Home.State, w, repo, mine, now)
-		mainUnreadable, mainErr := pollMain(ctx, runner, s.Store.Home.State, w, repo, now)
+		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: now}
+		pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
+		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
@@ -373,6 +382,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
 			delete(w.Checks, url)
+		}
+	}
+	for url, health := range w.Health {
+		if now.Sub(health.At) >= ciRecordFor {
+			delete(w.Health, url)
 		}
 	}
 	for key, last := range w.Woke {
@@ -474,6 +488,7 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 			delete(w.Repos, repo)
 			delete(w.RedRuns, repo)
 			delete(w.Unreadable, repo)
+			delete(w.BackOff, repo)
 			continue
 		}
 		repos = append(repos, repo)
@@ -484,11 +499,17 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 
 // ghPullRequest is one open pull request as gh pr list reports it.
 type ghPullRequest struct {
-	Number      int       `json:"number"`
-	URL         string    `json:"url"`
-	HeadRefName string    `json:"headRefName"`
-	HeadRefOid  string    `json:"headRefOid"`
-	Checks      []ghCheck `json:"statusCheckRollup"`
+	Number            int       `json:"number"`
+	URL               string    `json:"url"`
+	HeadRefName       string    `json:"headRefName"`
+	HeadRefOid        string    `json:"headRefOid"`
+	Checks            []ghCheck `json:"statusCheckRollup"`
+	Mergeable         string    `json:"mergeable"`
+	BaseRefName       string    `json:"baseRefName"`
+	IsCrossRepository bool      `json:"isCrossRepository"`
+	Author            struct {
+		Login string `json:"login"`
+	} `json:"author"`
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a
@@ -545,10 +566,7 @@ func (c ghCheck) outcome() string {
 // returns why the pull requests could not be read, apart from what went
 // wrong raising a wake.
 func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (unreadable, err error) {
-	if len(goblins) == 0 {
-		return nil, nil
-	}
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup")
+	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup,mergeable,baseRefName,isCrossRepository,author")
 	if err != nil {
 		return fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
 	}
@@ -556,10 +574,18 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 	if err := json.Unmarshal([]byte(out), &open); err != nil {
 		return fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err), nil
 	}
+	if open == nil {
+		return fmt.Errorf("ci wakes: the open pull requests of %s were not read", repo), nil
+	}
+	for _, pr := range open {
+		if pr.Number <= 0 || pr.HeadRefOid == "" || !githubPullRequest.MatchString(pr.URL) {
+			return fmt.Errorf("ci wakes: an invalid pull request was listed for %s", repo), nil
+		}
+	}
 	var errs error
 	for _, goblin := range goblins {
 		for _, pr := range open {
-			if !slices.Contains(goblin.pullRequests, pr.URL) && (goblin.branch == "" || pr.HeadRefName != goblin.branch) {
+			if !slices.Contains(goblin.pullRequests, pr.URL) && (pr.IsCrossRepository || goblin.branch == "" || pr.HeadRefName != goblin.branch) {
 				continue
 			}
 			if reported, ok := w.Checks[pr.URL]; ok {
@@ -569,7 +595,29 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}
-	return nil, errs
+	comparisons, branch, unreadable := comparePullRequests(ctx, runner, repo, open)
+	if len(open) >= 100 {
+		unreadable = errors.Join(unreadable, fmt.Errorf("PR health: %s listed the first 100 open pull requests; any further pull requests were not read", repo))
+	}
+	for _, pr := range open {
+		var owner string
+		for _, goblin := range goblins {
+			if slices.Contains(goblin.pullRequests, pr.URL) || !pr.IsCrossRepository && goblin.branch != "" && pr.HeadRefName == goblin.branch {
+				owner = goblin.id
+				break
+			}
+		}
+		comparison := comparisons[pr.Number]
+		if comparison == nil && pr.Mergeable != "CONFLICTING" {
+			continue
+		}
+		behind := 0
+		if comparison != nil {
+			behind = *comparison.BehindBy
+		}
+		errs = errors.Join(errs, reportPRHealth(stateDir, w, owner, pr, branch, behind, now))
+	}
+	return unreadable, errs
 }
 
 // reportChecks raises ci_finished for pr once every check on it has
@@ -683,7 +731,8 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		if !run.red() || slices.Contains(w.RedRuns[repo], run.ID) || !w.due(key, ciWakeGap, now) {
 			continue
 		}
-		jobs := failedJobs(ctx, runner, repo, run.ID)
+		jobs, jobsErr := failedJobs(ctx, runner, repo, run.ID)
+		unreadable = errors.Join(unreadable, jobsErr)
 		head := run.HeadSHA
 		if len(head) > 7 {
 			head = head[:7]
@@ -701,11 +750,11 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		w.RedRuns[repo] = reported[max(0, len(reported)-20):]
 		w.woke(key, now)
 	}
-	return nil, errs
+	return unreadable, errs
 }
 
 // failedJobs names the jobs of run that failed, as the wake reads them.
-func failedJobs(ctx context.Context, runner execx.Runner, repo string, run int64) string {
+func failedJobs(ctx context.Context, runner execx.Runner, repo string, run int64) (string, error) {
 	out, err := runOutput(ctx, runner, repo, "gh", "run", "view", fmt.Sprint(run), "--json", "jobs")
 	var view struct {
 		Jobs []struct {
@@ -713,8 +762,11 @@ func failedJobs(ctx context.Context, runner execx.Runner, repo string, run int64
 			Conclusion string `json:"conclusion"`
 		} `json:"jobs"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &view) != nil {
-		return "its failing jobs unread"
+	if err != nil {
+		return "its failing jobs unread", fmt.Errorf("ci wakes: read the failing jobs of %s's run %d: %w", repo, run, err)
+	}
+	if err := json.Unmarshal([]byte(out), &view); err != nil {
+		return "its failing jobs unread", fmt.Errorf("ci wakes: cannot read the failing jobs of %s's run %d: %w", repo, run, err)
 	}
 	var failed []string
 	for _, job := range view.Jobs {
@@ -724,11 +776,11 @@ func failedJobs(ctx context.Context, runner execx.Runner, repo string, run int64
 	}
 	switch len(failed) {
 	case 0:
-		return "no job marked failed"
+		return "no job marked failed", nil
 	case 1:
-		return "job " + failed[0]
+		return "job " + failed[0], nil
 	}
-	return "jobs " + strings.Join(failed, ", ")
+	return "jobs " + strings.Join(failed, ", "), nil
 }
 
 // runOutput runs name with args in dir, bounded by ghCallTimeout, and returns
