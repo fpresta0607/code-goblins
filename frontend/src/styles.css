@@ -1001,6 +1001,12 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .task-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .task-controls .icon-button { width: 42px; height: 42px; min-height: 42px; border-radius: 50%; }
 .task-controls [aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+/* A button that says what it does: its icon, then its name. */
+.labelled-button { display: inline-flex; align-items: center; gap: 8px; padding-inline: 14px 18px; white-space: nowrap; }
+.labelled-button .icon { width: 18px; height: 18px; flex: none; }
+.labelled-button.danger { border-color: #fa727266; }
+/* On a phone a row of two still fits on one line. */
+@media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
 .queue-block { color: var(--amber); font-size: 1rem; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
@@ -1009,8 +1015,12 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .phase-stopped .status-dot, .phase-stopping .status-dot { background: #7891ad; }
 .task-action-problem { margin: 10px 0; color: var(--amber); overflow-wrap: anywhere; }
 .task-action-progress { margin: 8px 0; color: var(--mint); }
-.lifecycle-panel { display: grid; gap: 24px; }
-.lifecycle-panel > .task-controls { justify-content: flex-end; }
+.lifecycle-panel { display: grid; gap: 24px; padding-top: 24px; }
+/* What the action row says about itself sits close under it. */
+.lifecycle-panel > .task-notes { display: grid; gap: 6px; margin-top: -10px; }
+.lifecycle-panel > .task-notes > p { margin: 0; }
+/* A finished task has no action row, so its record needs no line over it. */
+.lifecycle-panel > .lifecycle-details:first-child { border-top: 0; padding-top: 0; }
 .lifecycle-details { display: grid; gap: 14px; border-top: 1px solid var(--glass-border); padding-top: 22px; }
 .lifecycle-details h3, .lifecycle-details p, .task-adjustment p { margin: 0; }
 .lifecycle-details ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
