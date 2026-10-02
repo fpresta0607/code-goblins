@@ -90,7 +90,7 @@ The production-proof layer is intentionally fail-closed: delivery evidence must 
 
 Projects declare the services they need. `cfo auth` probes them before dispatch, validates project identity where configured, and keeps credentials namespaced outside repositories. A blocking authentication failure prevents normal dispatch rather than stranding a worker halfway through a task.
 
-Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history.
+Pipe a credential with `Get-Clipboard | cfo auth store --project <project> <NAME>` to keep its value out of shell history, or run `cfo auth store --project <project> <NAME>` at a console and type or paste the value, which is read without being shown.
 For stdin, `cfo auth store` removes every consecutive leading byte-order mark, including mixed Windows PowerShell mojibake forms, then trailing line breaks, and reports how many marks it removed without exposing the value.
 All other content is preserved.
 
@@ -157,7 +157,10 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you.
+The board's address is the same every time: `http://127.0.0.1:4310`, or the loopback address you set in `CFO_BOARD_ADDRESS`.
+When that address is in use, `goblins` starts no board anywhere else: it says who holds it, the Code Goblins fleet of another home by its folder or another program, and what to do.
+It prints the banner, the board's link and one line on what the CFO and the goblins are doing and how much waits on you.
+When this home's supervisor, or its supervisor and its CFO, already run, it says so and starts nothing beside them.
 It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
@@ -202,7 +205,7 @@ Install the native lifecycle hooks once for each harness you use (the install do
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi
-cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
+cfo serve                  # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
@@ -331,9 +334,8 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
-When SIQspeak, the local dictation app, is running, the shortcut is left to it, so one press never starts two recorders; otherwise the board uses the browser's own speech recognition.
-Click the bubble for the pane's recent messages, SIQspeak's transcriptions and the board's own dictations, newest first, each with **Copy** and **Paste into this terminal**.
-The board reads SIQspeak's history without keeping it, keeps its own dictations in this browser only, and finds SIQspeak in a `SIQspeak` or `SIQspeak-main` folder under the projects root, or where `CFO_SIQSPEAK_DIR` points.
+The board uses the browser's own speech recognition, so nothing else needs to be installed or running.
+Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.
 **Ctrl+C** copies selected text; without a selection it interrupts the running program.
@@ -373,7 +375,7 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
   <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
 </p>
 
-When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal.
+When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal, unless you are typing on the board (a text field, a comment box or a terminal): then it waits under the badge with its alert and never takes your typing.
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
@@ -385,7 +387,8 @@ Other items, a plain link included, are answered in writing with **Send answer**
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
 Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
 Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
-Each event alerts once, however often the board reconnects or reloads, and a goblin's question alerts as that question alone.
+Each event alerts once, in one tab of the board, however often the board reconnects or reloads or the supervisor restarts, and a goblin's question alerts as that question alone.
+The Command Center opens by itself on a new question once, too: closing it means it stays closed for that question, in every tab and after a reload.
 An item alerts once by its own id, and the same words from the same goblin within five minutes are one event.
 A goblin's news, or a wait it files again, more than five minutes later alerts again.
 Your browser remembers the last 100 alerts it showed.
@@ -400,9 +403,9 @@ A goblin's item closes by itself once nobody waits on it: a wait when the goblin
 Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Next** on the left and its answer on the right, and you can swipe; closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 It always opens at the top of its item, and each next item starts at its top.
-An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again.
+An answer the board refused comes back on its card with what went wrong, and **Retry** sends it again; refused after you moved on or closed the Command Center, it opens nothing, and its row under **Waiting on you** reads **Not sent** with what went wrong.
 An answer typed for a CFO or goblin that is inside a turn reads sent, with one check, and delivered once it is read; it is never a warning by itself.
-An answer whose delivery failed or never arrived comes back on its card saying what to do.
+An item you acted on never comes back by itself: an answer whose delivery failed or never arrived reads in **History** with a warning and what to do.
 Clicking outside the Command Center, or outside its inbox, closes it.
 Nothing is preselected, drafts are kept, and the **Command Center** icon in the header, whose badge counts what is waiting on you, opens an inbox of what is waiting on you, the live pages (review pages and browser walkthroughs) and a History of what you answered, cleared or ran.
 A goblin waiting on you offers **Answer** in its panel, which opens the stack at its item.
@@ -470,7 +473,7 @@ cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
-cfo answer <question-id> --option <choice> [--note "<text>"] --record-only
+cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
