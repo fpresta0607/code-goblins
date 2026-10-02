@@ -39,6 +39,7 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
   const icons = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState({ shown: controls.length, hasWords: true });
   const count = controls.length;
+  const hasSwitch = !!view;
   useLayoutEffect(() => {
     const measure = () => {
       if (!row.current || !cornerBox.current) return;
@@ -53,7 +54,7 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     const observer = new ResizeObserver(() => flushSync(measure));
     for (const box of [row.current, cornerBox.current, words.current]) if (box) observer.observe(box);
     return () => observer.disconnect();
-  }, [count]);
+  }, [count, hasSwitch]);
   const kept = new Set([...controls].sort((a, b) => b.importance - a.importance).slice(0, fit.shown).map((control) => control.id));
   const pill = (hasWords: boolean, measured?: typeof words) => <div ref={measured} className={"panel-pill" + (hasWords ? "" : " icons")} role={measured ? undefined : "group"} aria-label={measured ? undefined : "Panel view"}>
     {VIEWS.map(({ id, name, icon }) => <button key={id} aria-pressed={view === id} {...(hasWords ? {} : { "aria-label": name, "data-tip": name })} onClick={() => onView?.(id)}><Icon name={icon} />{hasWords && name}</button>)}

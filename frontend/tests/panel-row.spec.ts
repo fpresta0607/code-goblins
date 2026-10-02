@@ -12,17 +12,29 @@ const BOARD = [
   task("working-one", "working", { harness: "codex", backend: "native" }),
 ];
 
+const snapshot = (tasks: object[], revision = 1) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision, attention: [], tasks });
+
 interface Posted { path: string }
 
 // Opens the board with the panel as wide as the Overlord dragged it, and the
 // terminal view beside the board, as his was, not over it.
-async function open(page: Page, width: number, posted: Posted[] = []) {
+async function open(page: Page, width: number, posted: Posted[] = [], tasks = BOARD) {
   await page.addInitScript((pane) => {
     if (localStorage.getItem("cfo-pane-width")) return;
     localStorage.setItem("cfo-pane-width", String(pane));
     localStorage.setItem("cfo-terminal-maximized", "false");
   }, width);
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: BOARD });
+  await holdStream(page, snapshot(tasks));
+  // A test sends the board a later snapshot down the same stream.
+  await page.addInitScript(() => {
+    class Stream extends window.EventSource {
+      constructor(url: string) {
+        super(url);
+        window.addEventListener("fixture-snapshot", (event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: event.detail })); });
+      }
+    }
+    Object.defineProperty(window, "EventSource", { value: Stream });
+  });
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "POST") {
@@ -162,6 +174,50 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await expect(more).toBeFocused();
       await expect(page.locator("#panel-title")).toHaveText("CFO");
       await expect(pane(page)).toBeVisible();
+    });
+
+    // A choice in More keeps the keyboard in the panel, so Escape still does
+    // what the corner button does: on More while it stays, and on the panel
+    // once the choice gave the row room for every control and More went.
+    test("a choice in More by keyboard leaves Escape closing the panel", async ({ page }) => {
+      const posted: Posted[] = [];
+      await open(page, 430, posted);
+      await page.keyboard.press("Control+Alt+1");
+      const row = pane(page).locator(".panel-top");
+      const more = row.getByRole("button", { name: "More", exact: true });
+      await more.focus();
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("ArrowDown");
+      await expect(row.getByRole("menuitem", { name: "Open in terminal", exact: true })).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect.poll(() => posted.map((request) => request.path)).toContain("/api/terminal/open");
+      await expect(row.getByRole("menuitem")).toHaveCount(0);
+      await expect(more).toBeFocused();
+
+      await page.keyboard.press("Enter");
+      await expect(row.getByRole("menuitem", { name: "Maximize", exact: true })).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page.locator(".canvas-region")).toBeHidden();
+      await expect(more).toHaveCount(0);
+      await expect(pane(page)).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(pane(page)).toBeHidden();
+    });
+
+    // A task that is pausing has no terminal and so no switch; paused, it has
+    // both. The row was fitted once, without the switch, and kept that fit.
+    test("at the narrowest width a switch that appears in an open panel is fitted", async ({ page }) => {
+      await open(page, 360, [], [task("pausing-one", "pausing", { harness: "codex", backend: "native" })]);
+      await page.locator(".task-board .task-card").filter({ hasText: "pausing-one" }).click();
+      await expect(page.locator("#panel-title")).toHaveText("pausing-one");
+      await expect(pane(page).locator(".panel-pill")).toHaveCount(0);
+      expect((await page.evaluate(rowReport)).problems).toEqual([]);
+
+      await page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })); }, JSON.stringify(snapshot([task("pausing-one", "paused", { harness: "codex", backend: "native" })], 2)));
+      await expect(pane(page).locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true })).toBeVisible();
+      const report = await page.evaluate(rowReport);
+      expect(report.problems).toEqual([]);
+      for (const essential of ["Task", "Terminal", "Back to the CFO"]) expect(report.shown).toContain(essential);
     });
 
     test("with room to spare the switch keeps its words and there is no More", async ({ page }) => {
