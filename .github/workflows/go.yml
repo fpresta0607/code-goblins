@@ -65,10 +65,10 @@ jobs:
       matrix:
         # A package slow enough to hold a run back gets jobs of its own. These
         # three spend their time waiting on real terminals and supervisors,
-        # which no faster runner shortens, so cmd/cfo and internal/spawn each
-        # get two: one runs the tests whose names match run, the other skips
-        # exactly those. The rest job runs every package that except does not
-        # name, so a new package is tested with no change here.
+        # which no faster runner shortens, so each gets two: one runs the
+        # tests whose names match run, the other skips exactly those. The
+        # rest job runs every package that except does not name, so a new
+        # package is tested with no change here.
         # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
         # names exactly the other jobs' packages, and a package in two jobs
         # is split by one pattern, run in one and skipped in the other.
@@ -85,8 +85,12 @@ jobs:
           - shard: spawn-2
             packages: ./internal/spawn
             skip: Spawn
-          - shard: supervisor
+          - shard: supervisor-1
             packages: ./internal/supervisor
+            run: ^Test[A-M]
+          - shard: supervisor-2
+            packages: ./internal/supervisor
+            skip: ^Test[A-M]
           - shard: rest
             except: ./cmd/cfo ./internal/spawn ./internal/supervisor
     steps:
@@ -128,7 +132,8 @@ jobs:
         # go test's default of 10 minutes a package left too little headroom
         # while one job ran every package at once: internal/spawn took 8
         # minutes there and the root package 11. With a runner to itself the
-        # slowest, internal/supervisor, takes 5, and the limit stays at 20.
+        # slowest, internal/supervisor, takes 5 whole, and the limit stays at
+        # 20.
         shell: pwsh
         run: |
           if ($env:PACKAGES) {
