@@ -416,7 +416,7 @@ The pin today is NVIDIA's Parakeet TDT 110M (CC BY 4.0) run by sherpa-onnx 1.13.
 `POST /api/dictation` takes a WAV sound of at most 8 MB and answers its words, and refuses any other body as a bad request before reading it, only from the board's own page on this PC, at 127.0.0.1 and through no proxy, so a board shared over a tailnet dictates nothing.
 The first dictation downloads what is missing into `caches/voice/` under the home and answers that it is being downloaded, with how far it is; `GET /api/dictation` says which model listens and whether it is ready, missing or being fetched.
 A download is kept only when it matches its SHA-256, holds every file named, and no program or library in it is linked against a Windows networking library; otherwise nothing of it is kept and the answer says why.
-Offline, the answer names the address to download and the file to save it as beside `caches/voice/`, where it is held to the same checksum.
+Offline, the answer names the address to download and the file to save it as in `caches/voice/`, where it is held to the same checksum.
 The engine is started for one dictation and exits, with the sound in a file in the user's temporary folder that is removed when it does, one dictation at a time.
 It needs 1 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's 4 GB floor on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
 `cfo doctor` names the model, its version, the engine and whether they are fetched.
