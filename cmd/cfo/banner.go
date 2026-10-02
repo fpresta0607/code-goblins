@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 )
 
 // The launcher's banner is board-ui's art (data/board-ui/banner): banner.txt
@@ -80,13 +82,17 @@ func renderBanner(color bool, url, status string) string {
 
 var setConsoleMode = syscall.NewLazyDLL("kernel32.dll").NewProc("SetConsoleMode")
 
-// bannerColor reports whether out takes the banner's colours: a console, with
-// no NO_COLOR set, that accepts ANSI sequences once asked to. Anything else,
-// a pipe or a file included, gets the plain banner.
+// bannerColor reports whether out takes the banner's colours: a console that
+// takes escape sequences, with no NO_COLOR set. Anything else, a pipe or a
+// file included, gets the plain banner.
 func bannerColor(out io.Writer) bool {
-	if _, set := os.LookupEnv("NO_COLOR"); set {
-		return false
-	}
+	return !onboarding.NoColor() && consoleTakesEscapes(out)
+}
+
+// consoleTakesEscapes reports whether out is a console that accepts ANSI
+// sequences once asked to, whatever NO_COLOR says: lines are erased and
+// replaced there, and never in a pipe or a file.
+func consoleTakesEscapes(out io.Writer) bool {
 	file, ok := out.(*os.File)
 	if !ok {
 		return false

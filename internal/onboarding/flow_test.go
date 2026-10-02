@@ -10,17 +10,22 @@ import (
 	"testing"
 )
 
-// screen is one screen a test's flow showed: the first line of its title,
-// its choices and its default.
+// screen is one screen a test's flow showed: its title, its choices and its
+// default, and for a row of tabs each choice's mark and note.
 type screen struct {
 	heading  string
 	choices  []string
 	selected int
+	tabs     bool
+	marks    []string
+	notes    []string
 }
 
 // machine is a test's agents by id, and a flow over them that records every
-// screen, install, sign-in and save. answer picks each screen's choice; with
-// none every screen's default is accepted, as Enter does.
+// screen, install, sign-in and save, and every finished line as "name:
+// answer", with "undo" where the lines were taken back. answer picks each
+// screen's choice; with none every screen's default is accepted, as Enter
+// does.
 type machine struct {
 	t       *testing.T
 	states  map[string]State
@@ -28,6 +33,27 @@ type machine struct {
 	screens []screen
 	actions []string
 	probes  []string
+	lines   []string
+}
+
+// titled is a step's title and the lines under it as one text.
+func titled(step Step) string {
+	if step.Detail == "" {
+		return step.Title
+	}
+	return step.Title + "\n" + step.Detail
+}
+
+// asked is an Ask that answers by a step's whole title, its choices' labels
+// and its default.
+func asked(answer func(title string, choices []string, selected int) (int, error)) func(Step) (int, error) {
+	return func(step Step) (int, error) {
+		labels := make([]string, len(step.Choices))
+		for index, choice := range step.Choices {
+			labels[index] = choice.Label
+		}
+		return answer(titled(step), labels, step.Selected)
+	}
 }
 
 func (m *machine) flow() Flow {
@@ -37,15 +63,22 @@ func (m *machine) flow() Flow {
 			reason := map[State]string{Missing: "Not installed", Shadowed: "npm's claude.cmd comes first on PATH", SignedOut: "Sign-in needed", Unverified: "Sign-in could not be verified"}[m.states[id]]
 			return Agent{ID: id, Name: agentNames[id], State: m.states[id], Reason: reason}
 		},
-		Choose: func(title string, choices []string, selected int) (int, error) {
-			heading, _, _ := strings.Cut(title, "\n")
-			shown := screen{heading, choices, selected}
+		Ask: func(step Step) (int, error) {
+			shown := screen{heading: step.Title, selected: step.Selected, tabs: step.Tabs}
+			for _, choice := range step.Choices {
+				shown.choices = append(shown.choices, choice.Label)
+				shown.marks = append(shown.marks, choice.Mark)
+				shown.notes = append(shown.notes, choice.Note)
+			}
 			m.screens = append(m.screens, shown)
 			if m.answer != nil {
 				return m.answer(shown)
 			}
-			return selected, nil
+			return step.Selected, nil
 		},
+		Done:  func(name, answer string) { m.lines = append(m.lines, name+": "+answer) },
+		Undo:  func() { m.lines = append(m.lines, "undo") },
+		Marks: MarksFor(true).Agents,
 		Install: func(id string) error {
 			m.actions = append(m.actions, "install "+id)
 			m.states[id] = SignedOut
@@ -131,10 +164,11 @@ func TestTheChoiceStartsOnTheRememberedAgentOrTheRecommendedOne(t *testing.T) {
 	}
 }
 
-// The choice names how ready each agent is, marks Claude Code as recommended
-// and the remembered agent as current, and says what a Codex or pi CFO goes
-// without.
-func TestTheChoiceSaysHowReadyEachAgentIsAndWhichIsRecommended(t *testing.T) {
+// The choice of agent is one control, a row of tabs: each agent's own mark
+// and name, Claude Code's tab marked as the recommended one, and under the
+// row how ready the marked agent is, whether it is the remembered one, and
+// what a Codex or pi CFO goes without.
+func TestTheChoiceIsOneRowOfTabsThatSaysHowReadyEachAgentIs(t *testing.T) {
 	// Arrange
 	m := &machine{t: t, states: map[string]State{"claude": Ready, "codex": SignedOut}, answer: func(screen) (int, error) { return 0, ErrCancelled }}
 
@@ -142,13 +176,83 @@ func TestTheChoiceSaysHowReadyEachAgentIsAndWhichIsRecommended(t *testing.T) {
 	_, _ = m.flow().Run(context.Background(), "codex", true)
 
 	// Assert
-	want := []string{
-		"Claude Code  Ready  (Recommended: the best experience)",
-		"Codex        Sign-in needed  (goblin reports do not wake it yet)  (Current)",
-		"pi           Not installed  (goblin reports do not wake it yet)",
+	if len(m.screens) != 1 || !m.screens[0].tabs {
+		t.Fatalf("the choice shows %+v, want one row of tabs", m.screens)
 	}
-	if len(m.screens) != 1 || !slices.Equal(m.screens[0].choices, want) {
-		t.Errorf("the choice shows %+v, want %q", m.screens, want)
+	shown := m.screens[0]
+	if want := []string{"Claude Code (recommended)", "Codex", "pi"}; !slices.Equal(shown.choices, want) {
+		t.Errorf("the tabs are %q, want %q", shown.choices, want)
+	}
+	if want := []string{"✻", ">_", "π"}; !slices.Equal(shown.marks, want) {
+		t.Errorf("the tabs' marks are %q, want each agent's own %q", shown.marks, want)
+	}
+	want := []string{
+		"Ready · the best experience",
+		"Sign-in needed · goblin reports do not wake it yet · current",
+		"Not installed · goblin reports do not wake it yet",
+	}
+	if !slices.Equal(shown.notes, want) {
+		t.Errorf("the tabs' notes are %q, want %q", shown.notes, want)
+	}
+}
+
+// Every step finished is one line, its name and its answer, so the screen
+// holds what was answered and the one step that waits: from nothing, the
+// agent, its install and its sign-in.
+func TestEveryFinishedStepIsOneLine(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		states map[string]State
+		saved  string
+		want   []string
+	}{
+		{"from nothing", map[string]State{}, "", []string{"undo", "Agent: Claude Code", "Install: Claude Code is installed", "Sign-in: Claude Code's own sign-in finished"}},
+		{"a remembered agent that is ready", map[string]State{"pi": Ready}, "pi", []string{"Agent: pi"}},
+		{"a remembered agent that is signed out", map[string]State{"codex": SignedOut}, "codex", []string{"Agent: Codex", "Sign-in: Codex's own sign-in finished"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			m := &machine{t: t, states: c.states}
+
+			// Act
+			_, err := m.flow().Run(context.Background(), c.saved, false)
+
+			// Assert
+			if err != nil || !slices.Equal(m.lines, c.want) {
+				t.Errorf("Run = %v with lines %q, want %q", err, m.lines, c.want)
+			}
+		})
+	}
+}
+
+// A step back to the choice takes the finished lines with it, so the agent
+// left behind is not still on the screen beside the one chosen next. A
+// sign-in continued without verifying says so.
+func TestAStepBackTakesTheFinishedLinesWithIt(t *testing.T) {
+	// Arrange
+	m := &machine{t: t, states: map[string]State{"codex": Unverified}}
+	m.answer = func(shown screen) (int, error) {
+		switch len(m.screens) {
+		case 1:
+			return 0, nil // Claude Code, which is not installed
+		case 2:
+			return 0, ErrBack
+		case 3:
+			return 1, nil // Codex
+		default:
+			return slices.Index(shown.choices, "Continue without verifying"), nil
+		}
+	}
+
+	// Act
+	agent, err := m.flow().Run(context.Background(), "", false)
+
+	// Assert
+	if err != nil || agent != "codex" {
+		t.Fatalf("Run = %q, %v; want codex", agent, err)
+	}
+	if want := []string{"undo", "Agent: Claude Code", "undo", "Agent: Codex", "Sign-in: not verified; continuing as you chose"}; !slices.Equal(m.lines, want) {
+		t.Errorf("lines = %q, want %q", m.lines, want)
 	}
 }
 
@@ -288,13 +392,13 @@ func TestAStepThatDoesNotFinishStaysOnItsScreenAndSaysWhy(t *testing.T) {
 				return c.fail
 			}
 			var titles []string
-			choose := flow.Choose
-			flow.Choose = func(title string, choices []string, selected int) (int, error) {
-				titles = append(titles, title)
+			ask := flow.Ask
+			flow.Ask = func(step Step) (int, error) {
+				titles = append(titles, titled(step))
 				if len(titles) == 2 {
 					return 0, ErrCancelled
 				}
-				return choose(title, choices, selected)
+				return ask(step)
 			}
 
 			// Act
@@ -346,8 +450,8 @@ func TestTheInstallScreenNamesWhatItRuns(t *testing.T) {
 			m := &machine{t: t, states: map[string]State{}}
 			flow := m.flow()
 			var title string
-			flow.Choose = func(shown string, _ []string, _ int) (int, error) {
-				title = shown
+			flow.Ask = func(step Step) (int, error) {
+				title = titled(step)
 				return 0, ErrCancelled
 			}
 
@@ -432,7 +536,7 @@ func TestTheUninstallCommandIsNeverFollowedByAnything(t *testing.T) {
 			var shown []string
 			flow := Flow{
 				Detect: detector.Detect,
-				Choose: func(title string, choices []string, selected int) (int, error) {
+				Ask: asked(func(title string, choices []string, selected int) (int, error) {
 					shown = append(shown, title)
 					shown = append(shown, choices...)
 					if strings.HasPrefix(title, "Choose the agent") {
@@ -442,7 +546,9 @@ func TestTheUninstallCommandIsNeverFollowedByAnything(t *testing.T) {
 						return 0, ErrCancelled
 					}
 					return 0, nil
-				},
+				}),
+				Done:    func(string, string) {},
+				Undo:    func() {},
 				Install: func(string) error { return nil },
 			}
 

@@ -98,7 +98,7 @@ func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []strin
 func unreached(name string, answered []string) []string {
 	switch {
 	case name == "claude" && !slices.Contains(answered, "the workspace trust dialog"):
-		return []string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: choose Yes with Up, then press Enter."}
+		return []string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter."}
 	case name == "codex" && !slices.Contains(answered, "the hook review prompt"):
 		return []string{"If Codex asks you to review hooks, Continue without trusting keeps them off; trusting them is your own decision."}
 	}
