@@ -381,6 +381,37 @@ func TestWhileAFKModeIsOnTheBoardIsHandedNothingToAnnounce(t *testing.T) {
 	}
 }
 
+// The board reads a refusal of its question as leave to announce. While AFK
+// mode is on, a record that cannot be saved, as on a full disk, still hands
+// the board nothing: a state directory that stopped taking writes prompts
+// nobody.
+func TestWhileAFKModeIsOnABoardWhoseQuestionCannotBeRecordedIsHandedNothing(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store, Instance: "test-instance"}
+	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// A directory where the store's file goes makes every save fail.
+	if err := os.Remove(store.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(store.path(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.save(); !errors.Is(err, ErrStorage) {
+		t.Fatalf("a save over a directory returned %v, want a storage failure, so this proves nothing", err)
+	}
+
+	// Act
+	claimed := askToAnnounce(t, s, `{"keys":["alert:question:q1","open:question:q1"],"news":["alert:task:a:g1:blocked"]}`)
+
+	// Assert
+	if len(claimed) != 0 {
+		t.Errorf("claimed while AFK mode is on and nothing can be recorded = %q, want nothing", claimed)
+	}
+}
+
 // A switch that cannot be read is not taken for on: the board announces as
 // usual, so nothing that needs him is hidden by a guess, and the recovery
 // cycle says the switch is unreadable.

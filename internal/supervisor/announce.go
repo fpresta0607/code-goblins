@@ -104,12 +104,16 @@ func (h *HTTP) announceItems(w http.ResponseWriter, r *http.Request) {
 	// waits on him is in the report.
 	away := h.Service.afkOn()
 	claimed, err := h.Service.Store.claimAnnounced(input.Keys, input.News, time.Now().UTC())
-	if err != nil {
+	switch {
+	case away:
+		// The board reads a refusal as leave to announce, so a record that
+		// could not be saved still hands it nothing while he is away. A key
+		// that was not recorded is asked about again, and the store reports
+		// its own failed saves.
+		claimed = []string{}
+	case err != nil:
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	if away {
-		claimed = []string{}
 	}
 	respond(w, http.StatusOK, struct {
 		Claimed []string `json:"claimed"`
