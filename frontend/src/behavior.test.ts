@@ -426,10 +426,29 @@ test("delivery reads as a mark, and only trouble spells itself out", () => {
   // A queued answer is on its way; "Queued" read as stuck.
   assert.deepEqual(mark("queued", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("failed", "review"), { icon: "close", label: "Could not deliver", trouble: true });
-  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Delivery unconfirmed. Inspect the CFO queue before sending again.", trouble: true });
-  assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Delivery unconfirmed. Inspect the terminal before sending again.", trouble: true });
+  assert.deepEqual(mark("uncertain", "review"), { icon: "warning", label: "Not confirmed. Check the CFO's terminal before sending it again.", trouble: true });
+  assert.deepEqual(mark("uncertain", "feedback"), { icon: "warning", label: "Not confirmed. Check the goblin's terminal before sending it again.", trouble: true });
   assert.deepEqual(mark("", "review"), { icon: "check", label: "Sending", trouble: false });
   assert.deepEqual(mark("succeeded", "review_clear"), { icon: "check", label: "Cleared", trouble: false });
+});
+
+// The Overlord, 2026-10-01, on answers that had all arrived: "Delivery
+// unconfirmed ... I get these command center blips and errors, fix".
+test("an answer typed for a busy CFO reads sent, then delivered, and warns only in words that say what to do", () => {
+  // Arrange
+  const sent = "Sent. The CFO reads it when its current turn ends.";
+  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
+  const answer = (fields: Record<string, unknown>) => deliveryMark(parseAction({ id: "a", kind: "cfo_answer", ...fields }));
+
+  // Act
+  const waiting = answer({ status: "running", message: sent, awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } });
+  const delivered = answer({ status: "succeeded", message: "Taken by the CFO in its terminal, as its hook reported." });
+  const lost = answer({ status: "uncertain", message: advice, advice });
+
+  // Assert
+  assert.deepEqual(waiting, { icon: "check", label: sent, trouble: false });
+  assert.deepEqual(delivered, { icon: "check-double", label: "CFO received", trouble: false });
+  assert.deepEqual(lost, { icon: "warning", label: advice, trouble: true });
 });
 
 test("the orchestration graph fills the canvas, capped so cards never get huge", () => {

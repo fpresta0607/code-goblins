@@ -67,6 +67,9 @@ type Evaluation struct {
 	// WaitingOn is what a waiting task waits on: another task's ID,
 	// overlord, ci or deploy.
 	WaitingOn string `json:"waiting_on,omitempty"`
+	// Awaiting is set by a delivery that was typed and submitted and now
+	// waits for its harness to report taking it; its action keeps it.
+	Awaiting *Awaiting `json:"-"`
 }
 
 type Action struct {
@@ -93,6 +96,12 @@ type Action struct {
 	Message     string    `json:"message,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Awaiting is set while the action's delivery, typed and submitted, waits
+	// for its harness to report taking it.
+	Awaiting *Awaiting `json:"awaiting,omitempty"`
+	// Advice is what the Overlord should do about a delivery that never
+	// arrived, in his words; the board shows it as written.
+	Advice string `json:"advice,omitempty"`
 }
 
 type Database struct {
@@ -155,7 +164,8 @@ func Open(h home.Home) (*Store, error) {
 		s.committed = cloneDatabase(s.db)
 		for i := range s.db.Actions {
 			a := &s.db.Actions[i]
-			if a.Status == "running" {
+			// A delivery already typed and submitted still awaits its hook.
+			if a.Status == "running" && a.Awaiting == nil {
 				if a.Kind == "evaluate" {
 					a.Status = "queued"
 					a.Message = "Recovered evaluation"
@@ -700,6 +710,14 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			prior := s.db.Tasks[a.TaskID]
 			s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: prior.Base, Generation: a.Generation, At: completed.UpdatedAt}
 		}
+	} else if result.Awaiting != nil {
+		// Typed and submitted, and its harness has yet to report taking it:
+		// it stays on its way until settleDeliveries hears.
+		awaiting := *result.Awaiting
+		if awaiting.QuietSince.IsZero() {
+			awaiting.QuietSince = awaiting.Since
+		}
+		completed.Awaiting, completed.Message = &awaiting, result.Reason
 	} else {
 		completed.Status = "succeeded"
 		completed.Message = result.Reason
@@ -707,6 +725,13 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			result.At = time.Now().UTC()
 			result.Generation = a.Generation
 			s.db.Tasks[a.TaskID] = result
+		}
+	}
+	// An answer closes the pages that carry its question once, when it is
+	// sent or taken: a delivery that settles later was sent first.
+	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
+		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
+			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
 		}
 	}
 	s.updateQuestionOutcomes()
@@ -721,7 +746,6 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
-				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -729,9 +753,6 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
-				}
-				if answered {
-					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}
