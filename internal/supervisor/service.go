@@ -598,8 +598,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)
 	}
-	// The CFO asked a dismissed question, or holds the goblin's notify that
-	// did, so it hears that the Overlord dismissed it.
+	// A clear closed its item when the board took it. The CFO asked a
+	// dismissed question, or holds the goblin's notify that did, so it hears
+	// here that the Overlord dismissed it.
 	tellDismissed := func(evaluation Evaluation, dismissed Question) Evaluation {
 		whose := "your question " + dismissed.ID
 		if dismissed.Task != "" {
@@ -610,22 +611,17 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 		return evaluation
 	}
-	if a.Kind == "review_clear" {
-		evaluation, dismissed, err := s.Store.clearReview(a.ReviewID, a.Generation, a.Text)
-		if err != nil {
-			return evaluation, err
+	if a.Kind == "review_clear" || a.Kind == "question_clear" {
+		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
+		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
+			evaluation.Reason = "Dismissed from the Command Center."
 		}
-		for _, q := range dismissed {
-			evaluation = tellDismissed(evaluation, q)
+		for _, q := range s.Store.Snapshot().Questions {
+			if slices.Contains(a.Dismissed, q.ID) {
+				evaluation = tellDismissed(evaluation, q)
+			}
 		}
 		return evaluation, nil
-	}
-	if a.Kind == "question_clear" {
-		evaluation, dismissed, err := s.Store.clearQuestion(a.QuestionID, a.Generation)
-		if err != nil || dismissed == nil {
-			return evaluation, err
-		}
-		return tellDismissed(evaluation, *dismissed), nil
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
