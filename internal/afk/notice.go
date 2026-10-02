@@ -1,6 +1,9 @@
 package afk
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // stamp is how the notice and the report write a time.
 const stamp = "2006-01-02 15:04 UTC"
@@ -36,4 +39,30 @@ func Banner(state State) string {
 		return ""
 	}
 	return "AFK mode is on since " + at(state.Since) + ": the Overlord is away, you decide under his authority and log each decision; cfo drain prints its terms and what stays his alone."
+}
+
+// NoticeFor is the notice for the home whose state directory is stateDir, as
+// the digest and cfo drain print it: nothing while AFK mode is off, and one
+// line saying so when its switch cannot be read, since leaving it out would
+// read as off.
+func NoticeFor(stateDir string) []string {
+	state, err := Read(stateDir)
+	if err != nil {
+		return []string{unreadable(err)}
+	}
+	return Notice(state)
+}
+
+// BannerFor is the banner for that home, the same way, on one line.
+func BannerFor(stateDir string) string {
+	state, err := Read(stateDir)
+	if err != nil {
+		return unreadable(err)
+	}
+	return Banner(state)
+}
+
+// unreadable says the switch cannot be read, on one line.
+func unreadable(err error) string {
+	return "AFK MODE: UNREADABLE (" + strings.Join(strings.Fields(err.Error()), " ") + "): whether the Overlord is away is unknown, so decide nothing under its authority until state/" + stateFile + " reads again."
 }

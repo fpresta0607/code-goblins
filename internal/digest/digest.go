@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -83,8 +84,9 @@ func (e *werr) printf(format string, a ...any) {
 }
 
 // Compose writes the full session-start digest to w, in this exact section
-// order: SESSION LOCK, WAKE QUEUE, SUPERVISION OPERATING INSTRUCTIONS,
-// READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT, NEXT STEP.
+// order: SESSION LOCK, AFK MODE while it is on, WAKE QUEUE, SUPERVISION
+// OPERATING INSTRUCTIONS, READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT,
+// NEXT STEP.
 //
 // A read failure anywhere below SESSION LOCK - a per-file read inside FLEET
 // STATE or CONTEXT (a path that exists but cannot be read as text, e.g. a
@@ -114,6 +116,7 @@ func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 
 	heldLock := writeSessionLock(h.State, ownerPID, session, ew)
 
+	writeAFKMode(h.State, ew)
 	writeWakeQueue(h.State, ew)
 	writeSupervisionInstructions(h.Data, ew)
 
@@ -172,6 +175,22 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 	ew.println(readOnlyBannerFooter)
 	ew.println(readOnlyBannerTop)
 	return false
+}
+
+// writeAFKMode prints AFK mode's notice while it is on, ahead of the wake
+// queue, so the CFO reads what it decides itself and what stays the
+// Overlord's alone before anything that waits on it: who turned it on, when
+// and from where, and its terms. It prints nothing while AFK mode is off, and
+// says so inline when its switch cannot be read.
+func writeAFKMode(stateDir string, ew *werr) {
+	lines := afk.NoticeFor(stateDir)
+	if len(lines) == 0 {
+		return
+	}
+	ew.println("== AFK MODE ==")
+	for _, line := range lines {
+		ew.println(line)
+	}
 }
 
 // writeWakeQueue reads the raw pending wake records and current episode,

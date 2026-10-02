@@ -1,6 +1,8 @@
 package afk
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,4 +73,45 @@ func TestTheBannerIsOneLineThatSaysItIsOnAndWhereTheTermsAre(t *testing.T) {
 	if strings.Contains(banner, "\n") || !strings.Contains(banner, "AFK mode is on") || !strings.Contains(banner, "2026-10-02 02:10 UTC") || !strings.Contains(banner, "cfo drain") {
 		t.Errorf("Banner = %q, want one line saying it is on, since when, and that cfo drain prints the terms", banner)
 	}
+}
+
+// The digest, cfo drain and the wake banners all read the switch through
+// these two, so what they print cannot drift: the notice or the banner while
+// it is on, nothing while it is off, and a switch that cannot be read said as
+// such rather than left out, which would read as off.
+func TestTheNoticeAndBannerForAHomeFollowItsSwitch(t *testing.T) {
+	t.Run("off", func(t *testing.T) {
+		dir := t.TempDir()
+
+		if lines, banner := NoticeFor(dir), BannerFor(dir); len(lines) != 0 || banner != "" {
+			t.Errorf("NoticeFor = %q, BannerFor = %q, want nothing", lines, banner)
+		}
+	})
+	t.Run("on", func(t *testing.T) {
+		dir, _ := turnedOn(t)
+
+		lines, banner := NoticeFor(dir), BannerFor(dir)
+
+		if len(lines) == 0 || !strings.HasPrefix(lines[0], "AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC") {
+			t.Errorf("NoticeFor = %q, want the notice", lines)
+		}
+		if !strings.Contains(banner, "AFK mode is on since 2026-10-02 02:10 UTC") {
+			t.Errorf("BannerFor = %q, want the banner", banner)
+		}
+	})
+	t.Run("unreadable", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		lines, banner := NoticeFor(dir), BannerFor(dir)
+
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "AFK MODE: UNREADABLE (") {
+			t.Errorf("NoticeFor = %q, want the unreadable switch said", lines)
+		}
+		if !strings.HasPrefix(banner, "AFK MODE: UNREADABLE (") || strings.Contains(banner, "\n") {
+			t.Errorf("BannerFor = %q, want the unreadable switch said on one line", banner)
+		}
+	})
 }

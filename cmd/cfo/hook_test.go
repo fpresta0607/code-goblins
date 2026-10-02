@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -1553,4 +1554,64 @@ func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q, want the CFO rewoken for the goblin's question", exit, stderr)
 	}
 	assertEpochOutcome(t, state, "rewake")
+}
+
+// A resumed session gets the short nudge instead of the digest, so while AFK
+// mode is on the nudge carries its banner: every way a session starts tells
+// the CFO it is on.
+func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
+	// Arrange
+	dir := newPrimaryHome(t)
+	state := filepath.Join(dir, "state")
+	foreign := startLiveForeignProcess(t)
+	ownerPID := foreign.Process.Pid
+	setAncestorPID(t, ownerPID)
+	if _, err := lock.AcquireOwner(state, ownerPID, "s0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, ".session-start-complete"), []byte(strconv.Itoa(ownerPID)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"resume"}`), &stdout, &stderr)
+
+	// Assert
+	banner := afk.BannerFor(state)
+	want := sessionStartNudge + banner + "\n"
+	if exit != 0 || banner == "" || stdout.String() != want {
+		t.Fatalf("exit=%d stdout=%q, want the nudge and then AFK mode's banner %q", exit, stdout.String(), want)
+	}
+}
+
+// The Stop hook's rewake is how a Claude Code CFO is woken, so while AFK mode
+// is on its banner says so on a line of its own.
+func TestAutoarmRewakeSaysAFKModeIsOn(t *testing.T) {
+	// Arrange
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+	if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	exit, stderr, _ := runAutoarm(t)
+
+	// Assert
+	banner := afk.BannerFor(state)
+	if exit != 2 || banner == "" || !strings.Contains(stderr, "cfo watcher wake") || !strings.Contains(stderr, "\n"+banner) {
+		t.Fatalf("exit=%d stderr=%q, want the rewake banner with AFK mode's banner on its own line", exit, stderr)
+	}
 }
