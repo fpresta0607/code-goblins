@@ -360,7 +360,7 @@ func runInConsole(stdout, stderr io.Writer, name string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.Command(program[0], program[1:]...)
+	command := execx.Command(program[0], program[1:]...)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, stdout, stderr
 	return command.Run()
 }
