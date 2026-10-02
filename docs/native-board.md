@@ -159,6 +159,7 @@ It also carries the kernel's paged and nonpaged pool sizes, read with `GetPerfor
 The meter shows whichever of free memory and free commit is the tighter, memory on a tie, labelled "Commit free (memory plus page file)" when it is commit and followed by one line naming those apps; Start's tooltip, the Next chip and Resume's tooltip follow the tighter one too, and one amber line warns when the paged pool passes 4 GB, since a driver is then leaking memory and a reboot frees it.
 A snapshot with no commit limit has not reported commit, so the meter shows memory rather than zero commit, and the labels under the bar give way toward the left so that neither leaves the box when a mark is at the end of the bar.
 Every queued card that is not blocked carries the same Start, a play button among its controls; a blocked card shows what it waits on instead.
+A queued task has not started, so nothing of it can be stopped: its card and its panel carry Remove where a started task has Stop, and Remove asks first, with Remove from queue and Cancel, then takes the task out of the queue and keeps its brief, through the same `POST /api/tasks/lifecycle` stop action a started task's Stop sends.
 The board starts nothing on its own: the CFO dispatches queued work in the Tasks order.
 Start on a queued card sends `POST /api/tasks/start` with the task's ID, guarded by the Host, Origin and token checks like every other change, and the supervisor dispatches it through `cfo spawn <id> --project <p> --brief <data/<id>/brief.md> --harness <h> [--model <m>] [--effort <e>] [--mode <m>]`, the same binary the CFO runs.
 The project is the brief's `## Project` line, or the backlog row's repo; harness, model, effort and mode are what the backlog row names, such as `(harness: codex, model: gpt-6-astra)`, then what the brief names on lines of their own, such as `mode: direct-PR` under its Delivery heading, then the fleet's defaults, `claude` on `claude-opus-5-5` at `xhigh` (the default model and effort apply to Claude Code only).
@@ -190,7 +191,7 @@ It is at most 320 px wide, kept on the screen, and gone the moment the pointer o
 While it shows it follows its card as the page scrolls or resizes, says what its part's tip says now, and goes when that part is replaced.
 Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
 A queued row with no brief, or a live task with neither a readable worktree nor a generation that records a time, gets no clock rather than a guessed one, and a completed card shows none.
-Each card carries the mark of the harness its goblin runs in its corner, under its controls: OpenAI's mark for Codex, Claude's for Claude Code, π for pi, Kimi's for Kimi and a terminal for any other harness; its tip names the harness, then the model and effort it runs, and a click on it selects the card.
+Each card carries the mark of the harness its goblin runs in its corner, under its controls: Codex's mark for Codex (a cloud holding a terminal prompt, drawn in the board's own icon set), Claude's for Claude Code, π for pi, Kimi's for Kimi and a terminal for any other harness; its tip names the harness, then the model and effort it runs, and a click on it selects the card.
 Under the clock, a card's pull request takes a row of its own that wraps within the card, and the card's controls sit beside its text or, on a card under 420 px wide, under it: every part of a card has its own place, so none is drawn over another, and the card's text is never smaller than 16 px.
 The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
 The status line and the pull request come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
@@ -207,6 +208,9 @@ The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, s
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
+The Task view opens with one action row under the header, the task's own controls as labelled buttons: Remove for a queued task, whose Start is on its card alone, and Pause or Resume, and Stop, for a task that has started.
+A queued task's Adjust this task form follows that row, always open, with Save changes under its text box; the Adjust pencil is on the card only, where it opens the panel.
+The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust` and a snapshot's task notes still show under the form, but nothing on the board files one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board opens a goblin on its Task view, or on its Terminal view from the terminal button on its card, and Orchestration opens on the Terminal view, which defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.
@@ -508,6 +512,14 @@ Its theme color is the #03050a base, so a browser that tints its bar, such as Ch
 The supervisor serves a web app manifest at `/manifest.webmanifest` as `application/manifest+json`: Code Goblins, standalone, in the base color, with 192 and 512 px icons and a maskable 512 px icon, so Chrome and Edge offer Install Code Goblins and open the board in a window of its own with no tabs or address bar.
 The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render them again from it whenever the mark changes.
 
+### The desktop window
+
+A desktop window for the board, `goblins-window.exe`, is built in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository that publishes it as a release; the README's [The desktop app](../README.md#the-desktop-app) says where to get it.
+It shows the board in Microsoft's WebView2 and needs only what this repository's supervisor already provides: the board's address in `state\board.json`, the board's page, and `/api/snapshot`, which it reads every 3 seconds to notify what newly waits on the Overlord.
+It writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged; `goblins` here does not start it, so it is started from its own Start-menu entry.
+It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, opens the board's new-tab links in the default browser, and raises the board's alerts as Windows notifications.
+The board's dictation does not work in it, because WebView2 has no speech recognition, and the board says so there.
+
 ### Interface rules
 
 These rules hold for every board surface, and new work follows them.
@@ -563,7 +575,9 @@ Answers retain their question and CFO identity and enter the durable native CFO 
 Claude Code, Codex and Pi primary-context guidance routes explicit user decisions through this command.
 Publish from the same registered primary shell, continue independent work or finish the turn awaiting the reply, and do not also open a native prompt tool: a normal message cannot answer a correlated native Codex/Pi prompt.
 Duplicate HTTP/SSE outcomes cannot cause a second delivery; interrupted delivery becomes uncertain.
-A replaced CFO's pending questions become superseded instead of reopening unanswerable modals.
+The CFO's work on the board follows the home's CFO, not one CFO process, so closing the CFO and opening it again strands nothing.
+Once another CFO process registers in the home, its open questions, its review items whose answer has not reached it, its run items not yet ended and the deliveries queued to any of them move to that CFO, and nothing of it is superseded.
+While no CFO runs, an answer or review on its way to the CFO waits queued instead of failing, and how a run item ended is kept on the item and told to the CFO once one runs again.
 The store bounds question history at 128 records, retires cleared and answered history first, and defers overflow when all questions remain pending.
 The bounded publication inbox is admitted in timestamp order, not hash-filename order, and rollover keeps its cutoff below the incoming timestamp so deferred and same-time questions are not discarded.
 Conflicting, corrupt or oversized inbox records leave bounded diagnostics and cannot stop unrelated native events.
@@ -600,7 +614,7 @@ The goblin receives `CFO: decision <seq>: <choice>. <note>` the way `cfo send` t
 Every answer, on the board or through `cfo answer`, is recorded on its question as `answered_option` (the choice; empty for a written answer), `answered_by` (`cfo` or `overlord`) and `answered_at`, so a closed question shows which option was chosen.
 An answer the Overlord gave somewhere else, such as in chat, closes its card once the registered CFO records it with `cfo answer <question-id> --option <choice> --record-only --in <where>`: the question reads `answered_by: overlord` and `answered_in` naming where, an open card finishes with the Answered check and "You answered in chat · recorded by the CFO", and nothing is sent to anyone.
 The CFO's own question takes only this form, since only the Overlord answers it, and `--in` is a few plain words.
-A question that closed without an answer, because its goblin restarted or ended or the CFO session that asked it changed, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question is never dropped, so an unanswered decision is never hidden.
+A question that closed without an answer, because its goblin restarted or ended, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question is never dropped, so an unanswered decision is never hidden.
 The Overlord dismisses a pending question he answered elsewhere or no longer needs with the close icon beside Send decision (tip: "Dismiss: answered elsewhere or no longer needed"), the same `question_clear`: it closes as dismissed, the card finishes with Dismissed, and the CFO is told, since it asked the question or holds the goblin's notify that did, which still waits for it; a question whose answer is on its way cannot be dismissed.
 
 ## Working and waiting reports
@@ -895,6 +909,7 @@ Vite generates `internal/boardweb/dist`; do not edit that output manually.
 Commit the regenerated assets with frontend source changes.
 `npm run test:browser` first builds the board and every page under `frontend/tests/fixtures`, bundled as the shipped board is, into a folder of that run's own under the system's temporary folder, and the browser tests read those files, answering each request themselves.
 No web server runs behind them: the pages are given the origin `http://127.0.0.1:1`, this machine as the board is really served, on a port the browser refuses to connect to, so no test waits on a port or opens a connection the machine can refuse, and a request a test does not answer itself fails at once.
+Outside CI every browser test waits, before it starts, while less than 5 GB of memory is free, and fails saying so after a minute: Windows takes about half a minute to release a test's browser process after the test ends, each still holding about 150 MB, so a fast run holds gigabytes on a machine the fleet shares; on a machine short of memory, run one spec at a time.
 One unit test, `src/dev-server.test.ts`, starts the dev server on a port the machine picks and loads the board's page and entry module from it, so development mode stays tested.
 The HTML input and embedded HTML/JavaScript/CSS outputs are pinned to LF in `.gitattributes`, because Vite preserves template newlines and Git checkout conversion otherwise reports rebuilt assets as modified on Windows.
 Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs: the release before it compiles Go, and CI in a job of its own beside the Go tests.
