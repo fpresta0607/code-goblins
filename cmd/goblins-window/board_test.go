@@ -100,20 +100,25 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 	}
 }
 
-// What waits on the Overlord is what the Command Center counts: a pending
-// question by its lead line, an open review item and a command ready or
-// running. The snapshot names the supervisor's instance beside them.
-func TestWaitingListsWhatTheCommandCenterCounts(t *testing.T) {
-	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending"},{"id":"q2","text":"old","status":"answered"}],
+// What waits on the Overlord is what the board's page alerts: a pending
+// question by its lead line unless it was asked from an open review page, an
+// open review item, a command ready or running unless a credential card
+// opened it, and an open request for credentials by its project, never by the
+// credential names. The snapshot names the supervisor's instance beside them.
+func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
+	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending"},{"id":"q2","text":"old","status":"answered"},
+			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1"}],
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open"},{"id":"r2","title":"done","state":"answered"}],
-		"runs":[{"id":"u1","title":"Install the tool","state":"ready"},{"id":"u2","title":"ran","state":"finished"}]}`
+		"runs":[{"id":"u1","title":"Install the tool","state":"ready"},{"id":"u2","title":"ran","state":"finished"},
+			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1"}],
+		"credentials":[{"id":"c1","project":"shop","state":"open","names":["API_KEY"]},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"]}]}`
 
 	instance, items, err := waiting([]byte(snapshot))
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Item{{"question:q1", "Which plan?"}, {"review:r1", "Pick a layout"}, {"run:u1", "Install the tool"}}
+	want := []Item{{"question:q1", "Which plan?"}, {"review:r1", "Pick a layout"}, {"run:u1", "Install the tool"}, {"credential:c1", "Credentials wanted for shop"}}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
 	}

@@ -148,29 +148,37 @@ type Item struct {
 	Text string
 }
 
-// waiting lists what a board snapshot holds for the Overlord, as the board's
-// Command Center counts it: a pending question, an open review item and a
-// command ready or running. It names the supervisor's instance too, which
-// every request to the board that changes something carries.
+// waiting lists what a board snapshot holds for the Overlord, which is what
+// the board's page alerts: a pending question that was not asked from an open
+// review page, whose item it is; an open review item; a command ready or
+// running that no credential card opened, since that terminal shows on its
+// card; and an open request for credentials, by its project alone, so the
+// credential names stay out of a Windows notification. It names the
+// supervisor's instance too, which every request to the board that changes
+// something carries.
 func waiting(snapshot []byte) (string, []Item, error) {
 	var view struct {
 		Instance  string `json:"instance"`
 		Questions []struct {
-			ID, Text, Status string
+			ID, Text, Status, Page string
 		} `json:"questions"`
 		Reviews []struct {
 			ID, Title, State string
 		} `json:"reviews"`
 		Runs []struct {
-			ID, Title, State string
+			ID, Title, State  string
+			CredentialRequest string `json:"credential_request"`
 		} `json:"runs"`
+		Credentials []struct {
+			ID, Project, State string
+		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
 		return "", nil, err
 	}
 	var items []Item
 	for _, q := range view.Questions {
-		if q.Status == "pending" {
+		if q.Status == "pending" && q.Page == "" {
 			lead, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
 			items = append(items, Item{ID: "question:" + q.ID, Text: lead})
 		}
@@ -181,8 +189,13 @@ func waiting(snapshot []byte) (string, []Item, error) {
 		}
 	}
 	for _, r := range view.Runs {
-		if r.State == "ready" || r.State == "running" {
+		if (r.State == "ready" || r.State == "running") && r.CredentialRequest == "" {
 			items = append(items, Item{ID: "run:" + r.ID, Text: r.Title})
+		}
+	}
+	for _, c := range view.Credentials {
+		if c.State == "open" {
+			items = append(items, Item{ID: "credential:" + c.ID, Text: "Credentials wanted for " + c.Project})
 		}
 	}
 	return view.Instance, items, nil
