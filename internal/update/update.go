@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Aliases are the names the home's one program is installed under.
@@ -99,7 +101,7 @@ func journalPath(stateDir string) string {
 
 // ReadJournal reads the home's last update, or fs.ErrNotExist when none ran.
 func ReadJournal(stateDir string) (Journal, error) {
-	data, err := os.ReadFile(journalPath(stateDir))
+	data, err := fsx.ReadFile(journalPath(stateDir))
 	if err != nil {
 		return Journal{}, err
 	}
@@ -170,7 +172,7 @@ func isAside(path, root, name string) bool {
 
 // HashFile is the SHA-256 of the file at path, in hex.
 func HashFile(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +191,7 @@ func hashOf(content io.Reader) (string, error) {
 // copyVerified copies from to to, durably, only once what it copies hashes
 // to want.
 func copyVerified(from, to, want string) error {
-	data, err := os.ReadFile(from)
+	data, err := fsx.ReadFile(from)
 	if err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func copyVerified(from, to, want string) error {
 	if got := hex.EncodeToString(sum[:]); got != want {
 		return fmt.Errorf("update: %s hashes to %s, not %s", from, got, want)
 	}
-	if current, err := os.ReadFile(to); err == nil && bytes.Equal(current, data) {
+	if current, err := fsx.ReadFile(to); err == nil && bytes.Equal(current, data) {
 		return nil
 	}
 	return writeSynced(to, data)
