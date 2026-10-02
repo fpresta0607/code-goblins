@@ -23,13 +23,6 @@ export function publication(item: Item): Publication {
 }
 const same = (a: Publication, b: Publication) => a.identity === b.identity && a.created_at === b.created_at;
 
-// republished is the keys of the items published under another publication
-// than the one last seen under the same key. A key seen for the first time is
-// not one of them.
-export function republished(seen: ReadonlyMap<string, Publication>, items: Item[]): string[] {
-  return items.filter((item) => { const last = seen.get(item.key); return !!last && !same(last, publication(item)); }).map((item) => item.key);
-}
-
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
 // snapshot, change nothing, and neither do items with no snapshot to go on.
