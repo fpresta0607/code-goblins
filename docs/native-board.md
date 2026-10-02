@@ -394,6 +394,18 @@ Clicking the bubble lists the pane's five most recent dictations, newest first, 
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
+The supervisor carries a speech engine of its own for dictation that never leaves this machine; the board's page does not use it yet and still dictates as above.
+`config/voice.json` is its one setting: the engine and the model, each a download pinned by its address and SHA-256, the files of it that are kept, and how the engine is started on the model.
+The build carries that setting, so an install of a newer build brings a newer pin; a home that keeps a `config/voice.json` of its own uses that one, and one that cannot be read leaves the supervisor without dictation rather than falling back.
+The pin today is NVIDIA's Parakeet TDT 110M (CC BY 4.0) run by sherpa-onnx 1.13.8 (Apache 2.0) on ONNX Runtime (MIT), both from the sherpa-onnx project's releases, about 126 MB to download.
+`POST /api/dictation` takes a WAV sound of at most 8 MB and answers its words, only from the board's own page on this PC, at 127.0.0.1 and through no proxy, so a board shared over a tailnet dictates nothing.
+The first dictation downloads what is missing into `caches/voice/` under the home and answers that it is being downloaded, with how far it is; `GET /api/dictation` says which model listens and whether it is ready, missing or being fetched.
+A download is kept only when it matches its SHA-256, holds every file named, and no program or library in it is linked against a Windows networking library; otherwise nothing of it is kept and the answer says why.
+Offline, the answer names the address to download and the file to save it as beside `caches/voice/`, where it is held to the same checksum.
+The engine is started for one dictation and exits, with the sound in a file in the user's temporary folder that is removed when it does, one dictation at a time.
+It needs 1 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's 4 GB floor on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
+`cfo doctor` names the model, its version, the engine and whether they are fetched.
+
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
 `tests/acceptance/terminal_checklist.mjs --url <board> --title <task> --fill <command>` opens a task's terminal from its card in headless Edge, runs the command in it once for history, and checks the terminal with real wheel and key input: the inset on each side at every size Ctrl+Plus and Ctrl+Minus reach, any scroll bar in sight, history on the wheel and the way back down, and typing in the history returning to the bottom.

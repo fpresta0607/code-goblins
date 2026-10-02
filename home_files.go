@@ -17,3 +17,10 @@ var Contract embed.FS
 //
 //go:embed config/pipeline.json data/routing.json
 var Policy embed.FS
+
+// Voice is the speech model and engine this build pins for dictation. It
+// stays the binary's, so an install of a newer build brings a newer pin; a
+// home that keeps a config/voice.json of its own uses that one instead.
+//
+//go:embed config/voice.json
+var Voice []byte

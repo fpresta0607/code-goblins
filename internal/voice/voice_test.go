@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -52,14 +53,29 @@ func standInEngine(role string, args []string) int {
 		fmt.Fprintln(os.Stderr, "Failed to read '"+sound+"'")
 		return 255
 	}
+	// As the engine does: what it says about the run on its standard error,
+	// here with a line no word may be read from, and the words on its
+	// standard output.
+	fmt.Fprintln(os.Stderr, `OfflineRecognizerConfig(model_config=OfflineModelConfig(tokens="tokens.txt"), "text": "from the log")`)
 	fmt.Fprintln(os.Stderr, "recognizer created in 0.882 s")
 	fmt.Fprintln(os.Stderr, "Started")
 	fmt.Fprintln(os.Stderr, "Done!")
 	fmt.Fprintln(os.Stderr, sound)
-	fmt.Fprintln(os.Stderr, `{"lang": "", "emotion": "", "event": "", "text": " Check the \"Vercel\" deployment.", "timestamps": [0.00, 0.32], "tokens":[" Check", " the"], "words": []}`)
+	fmt.Fprintln(os.Stdout, `{"lang": "", "emotion": "", "event": "", "text": " Check the \"Vercel\" deployment.", "timestamps": [0.00, 0.32], "tokens":[" Check", " the"], "words": []}`)
 	fmt.Fprintln(os.Stderr, "----")
 	fmt.Fprintln(os.Stderr, "num threads: 2")
 	return 0
+}
+
+// quiet is a progress nobody listens to.
+func quiet(string, int64, int64) {}
+
+// refusesEverything fails the test that sends a request through it.
+type refusesEverything struct{ t *testing.T }
+
+func (r refusesEverything) RoundTrip(request *http.Request) (*http.Response, error) {
+	r.t.Errorf("the network was asked for %s", request.URL)
+	return nil, errors.New("no network in this test")
 }
 
 func part(name, url string) Part {
@@ -142,12 +158,12 @@ func TestAFetchKeepsOnlyTheNamedFilesOfADownloadThatMatchesItsChecksum(t *testin
 	server, asked := served(t)
 	dir := t.TempDir()
 	var progress []int64
-	voice := &Voice{Dir: dir, Client: server.Client(), Progress: func(_ string, done, total int64) { progress = append(progress, done, total) }}
+	voice := &Voice{Dir: dir, Client: server.Client()}
 	wanted := part("engine", server.URL+"/part.tar.bz2")
 	if err := voice.ready(wanted); err == nil {
 		t.Fatal("a part that was never fetched reads ready")
 	}
-	if err := voice.fetch(context.Background(), wanted); err != nil {
+	if err := voice.fetch(context.Background(), wanted, func(_ string, done, total int64) { progress = append(progress, done, total) }); err != nil {
 		t.Fatal(err)
 	}
 	got := entries(t, dir)
@@ -182,13 +198,34 @@ func TestAFetchKeepsOnlyTheNamedFilesOfADownloadThatMatchesItsChecksum(t *testin
 	}
 }
 
+// The model's real archive names its entries ./folder/file, the engine's
+// folder/file; testdata/dotted.tar.bz2 is the fixture in the first shape.
+func TestAnArchiveWhoseEntriesStartWithADotFolderIsUnpackedTheSame(t *testing.T) {
+	archive, err := os.ReadFile(filepath.Join("testdata", "dotted.tar.bz2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
+	t.Cleanup(server.Close)
+	dir := t.TempDir()
+	voice := &Voice{Dir: dir, Client: server.Client()}
+	wanted := part("model", server.URL+"/dotted.tar.bz2")
+	wanted.SHA256 = "61a0b071b5a67cfaa02ea47e90c7648a106a8afc6172aff97b431c428270f80b"
+	if err := voice.fetch(context.Background(), wanted, quiet); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(entries(t, dir), " "), "model-1.0/library.txt model-1.0/program.txt model-1.0/tokens.txt model-1.0/verified.json"; got != want {
+		t.Fatalf("the folder holds %s, want %s", got, want)
+	}
+}
+
 func TestADownloadThatDoesNotMatchItsChecksumIsRefusedAndNothingIsKept(t *testing.T) {
 	server, _ := served(t)
 	dir := t.TempDir()
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	wrong := part("engine", server.URL+"/part.tar.bz2")
 	wrong.SHA256 = strings.Repeat("0", 64)
-	err := voice.fetch(context.Background(), wrong)
+	err := voice.fetch(context.Background(), wrong, quiet)
 	if err == nil {
 		t.Fatal("a download with the wrong checksum was accepted")
 	}
@@ -211,7 +248,7 @@ func TestADownloadWithoutAWantedFileIsRefusedAndNothingIsKept(t *testing.T) {
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	missing := part("engine", server.URL+"/part.tar.bz2")
 	missing.Files = append(missing.Files, "bin/absent.txt")
-	err := voice.fetch(context.Background(), missing)
+	err := voice.fetch(context.Background(), missing, quiet)
 	if err == nil || !strings.Contains(err.Error(), "bin/absent.txt") {
 		t.Fatalf("a download without bin/absent.txt answered %v", err)
 	}
@@ -228,7 +265,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	dir := t.TempDir()
 	voice := &Voice{Dir: dir, Client: client}
 	wanted := part("model", url)
-	err := voice.fetch(context.Background(), wanted)
+	err := voice.fetch(context.Background(), wanted, quiet)
 	if err == nil {
 		t.Fatal("a fetch with no network succeeded")
 	}
@@ -248,7 +285,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	if err := os.WriteFile(place, archive, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := voice.fetch(context.Background(), wanted); err != nil {
+	if err := voice.fetch(context.Background(), wanted, quiet); err != nil {
 		t.Fatalf("the file placed by hand was not used: %v", err)
 	}
 	if err := voice.ready(wanted); err != nil {
@@ -262,7 +299,7 @@ func TestOfflineTheFetchSaysWhatToDoAndAFilePlacedByHandIsUsedWithoutTheNetwork(
 	if err := os.WriteFile(filepath.Join(other, "part.tar.bz2"), append(archive, 0), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Voice{Dir: other, Client: client}).fetch(context.Background(), wanted); err == nil || !strings.Contains(err.Error(), "checksum") {
+	if err := (&Voice{Dir: other, Client: client}).fetch(context.Background(), wanted, quiet); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("a changed file placed by hand answered %v", err)
 	}
 }
@@ -279,9 +316,11 @@ func engine(t *testing.T, role string, free uint64) (*Voice, string) {
 	}
 	settings := Settings{Engine: part("engine", server.URL+"/engine.tar.bz2"), Model: part("model", server.URL+"/model.tar.bz2"), Program: filepath.Base(self), Args: []string{"--tokens={model}/tokens.txt", "--model-type=test"}, Threads: 2}
 	voice := &Voice{Settings: settings, Dir: dir, Client: server.Client(), Memory: func() (uint64, uint64, error) { return free, free, nil }}
-	if err := voice.Fetch(context.Background()); err != nil {
+	if err := voice.Fetch(context.Background(), quiet); err != nil {
 		t.Fatal(err)
 	}
+	// From here on the network answers nothing: recognising must not ask it.
+	voice.Client = &http.Client{Transport: refusesEverything{t}}
 	// The stand-in engine is this test binary, placed where the engine's
 	// program is looked for.
 	program, err := os.ReadFile(self)
@@ -362,7 +401,7 @@ func TestAFetchRefusesAProgramItCannotCheckForNetworking(t *testing.T) {
 	voice := &Voice{Dir: dir, Client: server.Client()}
 	// testdata/program.tar.bz2 holds part-1.0/bin/engine.exe, which is text.
 	wanted := Part{Name: "engine", Version: "1.0", URL: server.URL + "/program.tar.bz2", SHA256: programSHA256, Files: []string{"bin/engine.exe"}}
-	err = voice.fetch(context.Background(), wanted)
+	err = voice.fetch(context.Background(), wanted, quiet)
 	if err == nil || !strings.Contains(err.Error(), "engine.exe") {
 		t.Fatalf("a program that cannot be read answered %v", err)
 	}
@@ -398,5 +437,88 @@ func TestRecognizeSaysSoWhenTheModelWasNeverFetched(t *testing.T) {
 	_, err := voice.Recognize(context.Background(), []byte("RIFF-sound"))
 	if err == nil || !strings.Contains(err.Error(), "not fetched") {
 		t.Fatalf("an engine that was never fetched answered %v", err)
+	}
+}
+
+func TestTheShippedSettingsPinBothDownloads(t *testing.T) {
+	settings, err := Load(filepath.Join("..", "..", "config", "voice.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Model.Name != "parakeet-tdt-110m" || settings.Engine.Name != "sherpa-onnx" {
+		t.Fatalf("the shipped settings name %s on %s", settings.Model.Name, settings.Engine.Name)
+	}
+	if !strings.Contains(strings.Join(settings.Engine.Files, " "), "bin/"+settings.Program) {
+		t.Fatalf("the program %s is not one of the engine's files %v", settings.Program, settings.Engine.Files)
+	}
+	for _, arg := range settings.Args {
+		_, file, found := strings.Cut(arg, "{model}/")
+		if found && !strings.Contains(" "+strings.Join(settings.Model.Files, " ")+" ", " "+file+" ") {
+			t.Errorf("%s names %s, which is not one of the model's files %v", arg, file, settings.Model.Files)
+		}
+	}
+}
+
+func TestAHomeUsesItsOwnSettingsAndOtherwiseTheBuilds(t *testing.T) {
+	builtIn, err := os.ReadFile(filepath.Join("..", "..", "config", "voice.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	voice, err := For(root, builtIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if voice.Settings.Model.Name != "parakeet-tdt-110m" || voice.Dir != filepath.Join(root, "caches", "voice") {
+		t.Fatalf("a home with no settings of its own got %s in %s", voice.Settings.Model.Name, voice.Dir)
+	}
+	want := "parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + voice.Dir
+	if got := voice.Summary(); got != want {
+		t.Fatalf("summary %q, want %q", got, want)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	own := strings.Replace(string(builtIn), `"parakeet-tdt-110m"`, `"another-model"`, 1)
+	if err := os.WriteFile(filepath.Join(root, "config", "voice.json"), []byte(own), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if voice, err = For(root, builtIn); err != nil || voice.Settings.Model.Name != "another-model" {
+		t.Fatalf("a home with settings of its own got %+v, %v", voice, err)
+	}
+	// Settings the home keeps and that pin nothing are refused, not replaced
+	// by the build's.
+	if err := os.WriteFile(filepath.Join(root, "config", "voice.json"), []byte(`{"engine":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if voice, err = For(root, builtIn); err == nil {
+		t.Fatalf("a home whose settings pin nothing got %s", voice.Settings.Model.Name)
+	}
+}
+
+func TestSummarySaysWhenTheModelIsThere(t *testing.T) {
+	voice, _ := engine(t, "hears", 8<<30)
+	want := "model 1.0 on engine 1.0, ready in " + voice.Dir
+	if got := voice.Summary(); got != want {
+		t.Fatalf("summary %q, want %q", got, want)
+	}
+}
+
+// testdata/sherpa-onnx-1.13.8-stdout.txt is what the pinned engine printed
+// on its standard output for one spoken line, as it was captured.
+func TestTheWordsAreReadFromWhatThePinnedEnginePrints(t *testing.T) {
+	printed, err := os.ReadFile(filepath.Join("testdata", "sherpa-onnx-1.13.8-stdout.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := heard(printed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Check the Versal Deployment for the website and rebase the branch on main."; text != want {
+		t.Fatalf("heard %q, want %q", text, want)
+	}
+	if _, err := heard([]byte("Done!\n")); err == nil {
+		t.Fatal("an answer without words was read as words")
 	}
 }
