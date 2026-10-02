@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
+import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
 import { afkTime, decisionSays, parseAfkReport, safeLink, stillWaiting, yours, type AfkReport } from "./afk";
 import { useResource } from "./api";
@@ -51,10 +52,10 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
           const unmerged = entry.kind === "merge" && entry.outcome !== "merged";
           return <li key={entry.at + entry.kind + entry.what}>
             <span className={"delivery " + (unmerged ? "uncertain" : "succeeded")}><Icon name={unmerged ? "warning" : MARKS[entry.kind] || "check"} /></span>
-            <span className="inbox-text">
+            <div className="inbox-text">
               <strong>{says.href ? <a href={says.href} target="_blank" rel="noreferrer">{says.text}</a> : says.text}{says.outcome && ": " + says.outcome}</strong>
-              <span className="afk-evidence">{says.basis}</span>
-            </span>
+              <ShowMore text={says.basis} className="afk-evidence" />
+            </div>
             <time dateTime={entry.at}>{afkTime(entry.at, now)}</time>
           </li>;
         })}</ul>

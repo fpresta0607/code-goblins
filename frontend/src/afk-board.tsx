@@ -34,7 +34,9 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   useEffect(() => {
     if (!away) return;
     // Capture, on the window: a terminal and the Command Center keep their
-    // keys from bubbling, and he is back whichever of them he touches. A
+    // keys from bubbling, and he is back whichever of them he touches. The
+    // click or key still does what he meant by it, and the offer follows: a
+    // press that opened the offer under itself would land on the offer. A
     // press on the AFK switch itself is already his answer.
     const touched = (event: Event) => {
       const at = Date.now();
@@ -42,9 +44,9 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
       if (!onSwitch && offersOff(latest.current, lastTouch.current, at)) setOffering(true);
       lastTouch.current = at;
     };
-    window.addEventListener("pointerdown", touched, true);
+    window.addEventListener("click", touched, true);
     window.addEventListener("keydown", touched, true);
-    return () => { window.removeEventListener("pointerdown", touched, true); window.removeEventListener("keydown", touched, true); };
+    return () => { window.removeEventListener("click", touched, true); window.removeEventListener("keydown", touched, true); };
   }, [away]);
   const actions = useMemo(() => ({ openReport: () => setReporting(true), answer: (item: string) => command.current(item) }), []);
   return <AfkActionsContext.Provider value={actions}>

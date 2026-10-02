@@ -119,9 +119,9 @@ export const safeLink = (url: string): string => /^https:\/\/[^\s]+$/i.test(url)
 // link it opens, how it ended, and what it stood on. A pull request logged by
 // its link is named the way a person would say it. An answer is logged under
 // its question's id, which tells a reader nothing, so its goblin names it and
-// the question and the answer, which are its evidence, follow as they were
-// logged. A merge word with no outcome says so, since a word given is not a
-// merge made.
+// the question and the answer, which are its evidence, follow as two
+// sentences. A merge word with no outcome says so, since a word given is not
+// a merge made.
 export function decisionSays(entry: AfkDecision): { text: string; href: string; outcome: string; basis: string } {
   const answered = entry.kind === "answer" && entry.task !== "";
   const what = safeLink(entry.what) && /\/pull\/\d+/.test(entry.what) ? pullRequestLabel(entry.what) : entry.what;
@@ -129,7 +129,8 @@ export function decisionSays(entry: AfkDecision): { text: string; href: string; 
     text: answered ? entry.task : (entry.task ? entry.task + ": " : "") + what,
     href: safeLink(entry.link) || safeLink(entry.what),
     outcome: entry.kind === "merge" && !entry.outcome ? "no outcome was recorded" : entry.outcome,
-    basis: answered ? entry.evidence.charAt(0).toUpperCase() + entry.evidence.slice(1) : "Evidence: " + entry.evidence,
+    // The log words an answer as "asked: ... answered: ...".
+    basis: answered ? entry.evidence.replace(/^asked: /, "Asked: ").replace(" answered: ", " Answered: ") : "Evidence: " + entry.evidence,
   };
 }
 

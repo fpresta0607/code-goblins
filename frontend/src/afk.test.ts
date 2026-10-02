@@ -70,7 +70,7 @@ test("a decision says whose and what and what it stood on, names a pull request 
   assert.deepEqual(decisionSays(decision({ outcome: "" })).outcome, "no outcome was recorded");
   assert.deepEqual(decisionSays(decision({ kind: "deploy", what: "northwind-api to production", link: "https://northwind.example/deploys/88", outcome: "" })), { text: "northwind-api to production", href: "https://northwind.example/deploys/88", outcome: "", basis: "Evidence: gate run 41 passed" });
   assert.deepEqual(decisionSays(decision({ kind: "answer", what: "notify-pd-billing-admin-41", task: "pd-billing-admin", evidence: "asked: Which CSV dialect? answered: RFC 4180", outcome: "" })),
-    { text: "pd-billing-admin", href: "", outcome: "", basis: "Asked: Which CSV dialect? answered: RFC 4180" });
+    { text: "pd-billing-admin", href: "", outcome: "", basis: "Asked: Which CSV dialect? Answered: RFC 4180" });
   assert.equal(decisionSays(decision({ kind: "answer", what: "notify-41", outcome: "" })).text, "notify-41", "an answer with no goblin named keeps its id");
   for (const unsafe of ["javascript:alert(1)", "http://plain.example/x", "file:///C:/secret", "https://two words.example", ""]) assert.equal(safeLink(unsafe), "", unsafe);
   assert.equal(decisionSays(decision({ kind: "other", what: "note", link: "javascript:alert(1)" })).href, "");

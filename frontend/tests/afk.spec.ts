@@ -172,12 +172,12 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   await expect(page.locator(".toasts .dialogue")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
 });
 
-test("his first click after he has been gone offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
+test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
   await page.clock.install();
   const supervisor = await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 7, held: HELD }, 8 * HOURS) }));
   // Nothing opens by itself while he is away.
   await expect(offer(page)).toHaveCount(0);
-  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
   await expect(offer(page)).toContainText("The CFO decided 7 and holds 2 for you.");
   await expect(offer(page)).toContainText("turned on from your board.");
   // What he was typing when it opened presses neither button.
@@ -190,6 +190,8 @@ test("his first click after he has been gone offers to turn AFK off: keys typed 
 
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
   await expect(offer(page)).toHaveCount(0);
+  // The click that brought the offer opened the task he clicked.
+  await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
   // He is here now, so his next clicks offer nothing.
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await expect(side(page, "AFK on")).toHaveAttribute("aria-pressed", "true");
@@ -233,7 +235,7 @@ test("the report says how much of each thing the CFO did, each decision with its
   await expect(report(page).getByRole("region", { name: "Merge words with no merge recorded" })).toContainText("northwind-api #417: no outcome was recorded");
   const answered = report(page).getByRole("region", { name: "Answered for goblins" }).locator("li");
   await expect(answered.locator("strong")).toHaveText("nw-invoice-export");
-  await expect(answered).toContainText("Asked: Which CSV dialect? answered: RFC 4180");
+  await expect(answered).toContainText("Asked: Which CSV dialect? Answered: RFC 4180");
   // A link that is no web link is words, never something to open.
   const other = report(page).getByRole("region", { name: "Other decisions" });
   await expect(other).toContainText("Restarted the dev server");
