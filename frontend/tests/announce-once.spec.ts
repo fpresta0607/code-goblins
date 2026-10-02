@@ -139,6 +139,44 @@ test("an alert leaves the board when its item is answered elsewhere", async ({ p
   await expect(page.locator(".toasts")).toHaveCount(0, { timeout: 1500 });
 });
 
+test("two tabs behind another window send one Windows notification between them, and it closes with its item", async ({ page, context }) => {
+  // Arrange: a browser that allows notifications, with the board's windows
+  // behind another, records each notification it is asked to show.
+  await context.addInitScript(() => {
+    class Note {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      closed = false;
+      onclick: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor(public title: string, public options: { body: string; tag: string }) { (window as unknown as { notes: Note[] }).notes.push(this); }
+      close() { this.closed = true; this.onclose?.(); }
+    }
+    Object.assign(window, { notes: [], Notification: Note });
+    document.hasFocus = () => false;
+  });
+  const record = supervisor();
+  await record.serve(context);
+  const other = await context.newPage();
+  await open(page);
+  await open(other);
+  const notes = (tab: Page) => tab.evaluate(() => (window as unknown as { notes: { options: { tag: string }; closed: boolean }[] }).notes.map((note) => ({ tag: note.options.tag, closed: note.closed })));
+
+  // Act
+  await step(page, "asked");
+  await expect(toasts(page)).toHaveCount(1);
+  const before = record.requests();
+  await step(other, "asked");
+  await settled(other, record, before);
+  const sent = [...await notes(page), ...await notes(other)];
+  await step(page, "answered");
+  await expect(page.locator(".toasts")).toHaveCount(0, { timeout: 1500 });
+
+  // Assert
+  expect(sent).toEqual([{ tag: QUESTION, closed: false }]);
+  expect(await notes(page)).toEqual([{ tag: QUESTION, closed: true }]);
+});
+
 test("a notification for an item he already answered opens the list, never another item's card", async ({ page, context }) => {
   // Arrange
   const record = supervisor();
