@@ -58,7 +58,7 @@ async function open(page: Page, first: object, supervisor: Supervisor = { asked:
     const pathname = new URL(request.url()).pathname;
     if (pathname === "/api/afk" && request.method() === "POST") {
       supervisor.asked.push({ on: (request.postDataJSON() as { on: unknown }).on, token: request.headers()["x-cfo-token"] });
-      await route.fulfill(supervisor.refuses ? { status: 403, json: { error: REFUSAL } } : { json: { state: "on", changed: true, revision: 1 } });
+      await route.fulfill(supervisor.refuses ? { status: 403, json: { error: REFUSAL } } : { json: { state: "on" } });
     } else if (pathname === "/api/afk/report") await route.fulfill({ json: REPORT });
     else if (pathname === "/api/announce" && supervisor.announces) await route.fulfill({ json: { claimed: [] } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });

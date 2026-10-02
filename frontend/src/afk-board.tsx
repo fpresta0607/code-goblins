@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AfkActionsContext } from "./afk-actions";
 import { AfkOffer } from "./afk-offer";
-import { AfkReportPage } from "./afk-report";
 import { AFK_OFF, offersOff, turnedOff } from "./afk";
 import { useAfkSwitch } from "./useAfkSwitch";
 import type { Afk, Snapshot } from "./types";
+
+// The report is opened seldom, so its page arrives the first time it is shown.
+const AfkReportPage = lazy(() => import("./afk-report").then((module) => ({ default: module.AfkReportPage })));
 
 // AFK mode over the whole board, whatever view it shows: the report, which
 // opens when AFK mode turns off and again when the CFO's bar asks, and the
@@ -52,6 +54,6 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   return <AfkActionsContext.Provider value={actions}>
     {children}
     {offering && away && <AfkOffer afk={afk} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => { setOffering(false); clear(); }} />}
-    {reporting && snapshot && <AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} />}
+    {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} /></Suspense>}
   </AfkActionsContext.Provider>;
 }
