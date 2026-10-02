@@ -184,20 +184,13 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	// Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-	// execute the npm .cmd shim codex installs as; codex launches typed instead,
-	// the same way pi does.
-	launch.TypedLaunch = true
+	// Codex installs as an npm .cmd shim, which only cmd /c can start.
 	launch.Executable = "codex"
-	// Codex asks to trust a directory it has not seen; the trusting option is
-	// highlighted by default, so a bare Enter confirms it.
-	launch.ConfirmMarkers = []string{"Do you trust the contents of this directory?"}
-	launch.ConfirmKeys = []string{"enter"}
 	// Codex opens an "Update available!" prompt before its composer whenever
 	// a newer release is out, and a spawn's brief typed into that prompt
 	// leaves Codex. A goblin never needs the prompt, so it is never checked.
-	// Its animations are off: in a terminal that says it is an xterm, a Herdr
-	// pane's among them, idle Codex draws braille dots over every empty cell,
+	// Its animations are off: in a terminal that says it is an xterm, idle
+	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
 	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
 	// A goblin starts none of the operator's MCP servers, as claude's
