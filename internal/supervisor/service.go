@@ -146,6 +146,8 @@ type Service struct {
 	// readers, and buildSnapshot stands in for Snapshot in a test of that.
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
+	// reads is what the snapshot remembers of the fleet's files.
+	reads keptReads
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -932,9 +934,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
-			if meta, err := state.ReadTaskMeta(s.Store.Home.State, node.TaskID); err == nil {
+			if meta, err := s.taskMeta(node.TaskID); err == nil {
 				node.Runtime = s.runtimeEvidence(meta, node, out.At)
-				if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+				if record, err := s.lifecycle(meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 					node.Phase = record.Phase
 				}
 			}
@@ -957,7 +959,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			continue
 		}
 		id := strings.TrimSuffix(entry.Name(), ".meta")
-		meta, err := state.ReadTaskMeta(s.Store.Home.State, id)
+		meta, err := s.taskMeta(id)
 		if err != nil {
 			continue
 		}
@@ -967,7 +969,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
-		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
+		lines, _ := s.statusTail(id)
 		reportedAt, report := latestReport(lines, spawnTime(meta.SpawnGen))
 		decisions := out.Decisions
 		if supersedesQuestion(report) {
@@ -995,7 +997,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// since replaces no such report: once answered, the goblin stands on
 		// it again.
 		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
-		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
 		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
@@ -1026,7 +1028,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			return !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.ID == id })
 		})
 	}
-	backlog, err := fleet.ReadBacklog(s.Store.Home)
+	backlog, err := s.backlog()
 	if err != nil {
 		return out, err
 	}
@@ -1049,7 +1051,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: briefWritten(s.Store.Home, row.ID), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
-	for _, brief := range queuedBriefs(s.Store.Home) {
+	for _, brief := range queuedBriefs(s.Store.Home, s.briefProject) {
 		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
 		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
@@ -1060,7 +1062,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task := &out.Tasks[i]
 		task.Starting = task.ID == s.starting
 		if task.Phase == "queued" {
-			if queued, err := fleet.ReadQueuedTask(s.Store.Home, task.ID); err == nil {
+			if queued, err := s.queuedTask(task.ID); err == nil {
 				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
 				if queued.IsBriefOnly {
 					task.Title = queued.Row.Title
@@ -1074,10 +1076,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.StartError = s.startErrors[task.ID]
 		}
-		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
+		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
 		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
-			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
+			meta, err := s.taskMeta(task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
 		}
 		if lifecycleErr == nil {
@@ -1137,10 +1139,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task := &out.Tasks[i]
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
-			if file, err := openTaskHandoff(s.Store.Home, id, archived); err == nil {
-				task.Handoff = true
-				file.Close()
-			}
+			task.Handoff = s.hasHandoff(id, archived)
 		}
 	}
 	if len(out.Decisions) > 100 {

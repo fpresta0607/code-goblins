@@ -90,7 +90,7 @@ func (s *Service) orderQueued(order []string) error {
 		}
 	}
 	added := map[string]string{}
-	for _, brief := range queuedBriefs(h) {
+	for _, brief := range queuedBriefs(h, briefProject) {
 		listed := func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID }
 		if !slices.Contains(order, brief.ID) || slices.ContainsFunc(backlog.Queued, listed) || slices.ContainsFunc(backlog.Parked, listed) {
 			continue

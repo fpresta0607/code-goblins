@@ -213,7 +213,7 @@ func (k *ticketKeeper) readBacklog() {
 			k.queuedIDs[row.ID] = true
 		}
 	}
-	for _, brief := range queuedBriefs(k.home) {
+	for _, brief := range queuedBriefs(k.home, briefProject) {
 		k.queuedIDs[brief.ID] = true
 	}
 }

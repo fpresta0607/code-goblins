@@ -369,7 +369,7 @@ func supersedesQuestion(report string) bool {
 // on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CFO; any other wait lasts until the goblin reports again.
-func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
+func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
 	if what, found := strings.CutPrefix(report, "working: "); found {
 		return "working", what, "", true
 	}
@@ -392,7 +392,7 @@ func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Tim
 			return "", "", "", false
 		}
 	default:
-		lines, _ := state.TailStatus(stateDir, target, 200)
+		lines, _ := tail(target)
 		for i := len(lines) - 1; i >= 0; i-- {
 			stamp, event := state.SplitStatus(lines[i])
 			if stamp.Before(reportedAt) {
@@ -701,8 +701,9 @@ func newestHistory(tasks []Task) []Task {
 }
 
 // queuedBriefs are briefs nothing has started: no live task record, and no
-// status log or archive entry, which every dispatched task leaves.
-func queuedBriefs(h home.Home) []Task {
+// status log or archive entry, which every dispatched task leaves. project
+// reads the checkout a brief names, as briefProject does.
+func queuedBriefs(h home.Home, project func(brief string) string) []Task {
 	entries, err := os.ReadDir(h.Data)
 	if err != nil {
 		return nil
@@ -725,11 +726,11 @@ func queuedBriefs(h home.Home) []Task {
 			}
 		}
 		if !dispatched {
-			project := briefProject(filepath.Join(h.Data, id, "brief.md"))
-			if project != "" {
-				project = filepath.Base(project)
+			checkout := project(filepath.Join(h.Data, id, "brief.md"))
+			if checkout != "" {
+				checkout = filepath.Base(checkout)
 			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: project, Dependencies: []string{}, Since: briefWritten(h, id), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Dependencies: []string{}, Since: briefWritten(h, id), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks

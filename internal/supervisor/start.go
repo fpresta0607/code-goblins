@@ -281,7 +281,7 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
 		return startPlan{}, briefErr
-	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
+	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h, briefProject), func(task Task) bool { return task.ID == id }):
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
 	if len(row.BlockedByIDs) > 0 {
