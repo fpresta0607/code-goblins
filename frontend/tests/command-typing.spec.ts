@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // The Overlord, 2026-09-28: the Command Center must not "prevent input when
 // the editor has text annotation input", and decision 3596: it never opens

@@ -860,6 +860,9 @@ go build -o cfo.exe ./cmd/cfo
 
 Vite generates `internal/boardweb/dist`; do not edit that output manually.
 Commit the regenerated assets with frontend source changes.
+`npm run test:browser` first builds the board and every page under `frontend/tests/fixtures` into `frontend/test-site`, bundled as the shipped board is, and the browser tests read those files, answering each request themselves.
+No web server runs behind them, so no test waits on a port or opens a connection the machine can refuse, and an API request a test does not answer itself fails.
+One unit test, `src/dev-server.test.ts`, starts the dev server on a port the machine picks and loads the board's page and entry module from it, so development mode stays tested.
 The HTML input and embedded HTML/JavaScript/CSS outputs are pinned to LF in `.gitattributes`, because Vite preserves template newlines and Git checkout conversion otherwise reports rebuilt assets as modified on Windows.
 Both Windows CI and release workflows install from the lockfile, check the frontend, regenerate assets, and fail if the committed bundle differs before compiling Go.
 The runtime executable embeds those assets and requires no Node process.

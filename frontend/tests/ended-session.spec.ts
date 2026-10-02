@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./site";
 
 const LANTERN = "rgb(242, 180, 71)";
 
