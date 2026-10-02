@@ -556,10 +556,18 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 
 ### The desktop window
 
-A desktop window for the board, `goblins-window.exe`, is built in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository that publishes it as a release; the README's [The desktop app](../README.md#the-desktop-app) says where to get it.
-It shows the board in Microsoft's WebView2 and needs only what this repository's supervisor already provides: the board's address in `state\board.json`, the board's page, and `/api/snapshot`, which it reads every 3 seconds to notify what newly waits on the Overlord.
-It writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged; `goblins` here does not start it, so it is started from its own Start-menu entry.
-It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, opens the board's new-tab links in the default browser, and raises the board's alerts as Windows notifications.
+A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
+`go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
+This repository's install and releases do not carry it yet, and `goblins` does not start it; the README's [The desktop app](../README.md#the-desktop-app) says where to get a built one, which is started from its own Start-menu entry.
+It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
+It writes nothing into the CFO home, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
+It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
+It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's own alert is the signal, and nothing is claimed.
+What its own look finds it claims under the key the board's page uses, `alert:` and the item's key, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
+Each notification carries the goblin from `goblins-window.png`, which every start writes beside the program and names as `IconUri` under `HKCU\Software\Classes\AppUserModelId\Code Goblins`.
+A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
+A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
+**Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
 The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
@@ -939,8 +947,7 @@ While AFK mode is on, `POST /api/announce` records every key it is asked about a
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
 What a page asked about then stays recorded, so it is not announced once he is back either.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
-[The desktop window](#the-desktop-window) is not silenced yet: while it runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
-Its own reading of `/api/snapshot` raises a Windows notification for each thing that newly waits on the Overlord without passing through this endpoint; the fix is for the window to claim what it notifies here before it notifies, as the page does.
+[The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
