@@ -962,6 +962,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return out, err
 	}
+	untitled := map[string]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
 			continue
@@ -1019,6 +1020,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		title := meta.Title
 		if title == "" {
 			title = id
+			untitled[id] = true
 		}
 		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
@@ -1046,7 +1048,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		found := false
 		for i := range out.Tasks {
 			if out.Tasks[i].ID == row.ID {
-				out.Tasks[i].Title = row.Title
+				if untitled[row.ID] {
+					out.Tasks[i].Title = row.Title
+				}
 				out.Tasks[i].Dependencies = row.BlockedByIDs
 				found = true
 				break
