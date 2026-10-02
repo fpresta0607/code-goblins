@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // One event, one alert: a goblin's question reached the board on 2026-10-01
 // as two alerts that said the same thing, and opening one left the other.

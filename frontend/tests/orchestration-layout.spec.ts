@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // On 2026-10-01 pd-connect-quickstart's card covered cg-credential-requests',
 // which the Overlord had placed by hand where pd-connect-quickstart's arranged
