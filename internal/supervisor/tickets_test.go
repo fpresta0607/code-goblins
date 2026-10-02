@@ -331,7 +331,7 @@ func TestKeeperShowsAFailedWriteUntilItSucceeds(t *testing.T) {
 	h, checkout, github := ticketHome(t)
 	keeper := newTicketKeeper(h, github.writer(checkout))
 	tasks := []Task{liveTask("working", "")}
-	github.applyErr = &tickets.APIError{Status: 502}
+	github.applyErr = errors.New("gh api PATCH repos/fpresta0607/northwind-api/issues/501: Bad Gateway (HTTP 502)")
 
 	// Act
 	keeper.reconcile(context.Background(), tasks, ticketNow)
@@ -681,6 +681,90 @@ func TestKeeperAsksAboutAnOpenPullRequestOfAGoneTaskOnceAnHour(t *testing.T) {
 	}
 }
 
+func TestKeeperKeepsSayingAPullRequestCouldNotBeReadUntilItIsAskedAgain(t *testing.T) {
+	// Arrange: GitHub does not know the gone task's pull request.
+	h, checkout, github := ticketHome(t)
+	if err := tickets.WriteRecord(h.State, orphanRecord(ticketPull)); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), nil, ticketNow)
+	gone := ticketNow.Add(ticketGoneGrace)
+	keeper.reconcile(context.Background(), nil, gone)
+	atTheFailedRead := keeper.Issues()
+	keeper.reconcile(context.Background(), nil, gone.Add(ticketRetry-time.Minute))
+	duringTheWait, asksDuringTheWait := keeper.Issues(), github.pullAsks
+	github.pulls = map[string]string{ticketPull: "OPEN"}
+	keeper.reconcile(context.Background(), nil, gone.Add(ticketRetry))
+	afterTheAnswer := keeper.Issues()
+	keeper.reconcile(context.Background(), nil, gone.Add(ticketRetry+time.Minute))
+
+	// Assert
+	if len(atTheFailedRead) != 1 || !strings.Contains(atTheFailedRead[0], "nw-gone") || !strings.Contains(atTheFailedRead[0], "could not be read") {
+		t.Fatalf("issues at the failed read = %v, want one line naming the task", atTheFailedRead)
+	}
+	if !slices.Equal(duringTheWait, atTheFailedRead) || asksDuringTheWait != 1 {
+		t.Fatalf("issues during the wait = %v after %d asks, want the same line kept and GitHub not asked again", duringTheWait, asksDuringTheWait)
+	}
+	if len(afterTheAnswer) != 0 || len(keeper.Issues()) != 0 || github.pullAsks != 2 {
+		t.Fatalf("issues = %v then %v after %d asks, want no line once GitHub answered and none during the hourly wait", afterTheAnswer, keeper.Issues(), github.pullAsks)
+	}
+}
+
+func TestKeeperNeverMovesATicketBackToQueuedFromAStaleBacklogRow(t *testing.T) {
+	queuedRow := Task{ID: "nw-sync", Title: "Say why a billing sync fails", Evaluation: Evaluation{Phase: "queued"}}
+	finished := func(isMerged bool) Task {
+		return Task{ID: "finished:nw-sync", Title: "Say why a billing sync fails", Archived: true, Merged: isMerged, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}
+	}
+	cases := []struct {
+		name       string
+		tasks      []Task
+		wantStates []tickets.State
+		wantDone   bool
+	}{
+		{name: "the queued entry alone", tasks: []Task{queuedRow}},
+		{name: "the queued entry, then the finished one with its pull request open", tasks: []Task{queuedRow, finished(false)}, wantStates: []tickets.State{tickets.PROpen}},
+		{name: "the queued entry, then the finished one merged", tasks: []Task{queuedRow, finished(true)}, wantStates: []tickets.State{tickets.Merged}, wantDone: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the task opened a pull request and was cleaned up, and its
+			// backlog row is still under Queued.
+			h, checkout, github := ticketHome(t)
+			if err := state.RemoveTaskMeta(h.State, "nw-sync"); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] nw-sync - Say why a billing sync fails (repo: northwind-api)\n")
+			note := "The ticket for nw-sync: issue #415 was not claimed"
+			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}, Title: "Say why a billing sync fails", PullRequest: ticketPull, Note: note}); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), tc.tasks, ticketNow)
+
+			// Assert
+			var states []tickets.State
+			for _, applied := range github.applied {
+				states = append(states, applied.ticket.State)
+			}
+			if !slices.Equal(states, tc.wantStates) {
+				t.Fatalf("states applied = %v, want %v and never queued", states, tc.wantStates)
+			}
+			record, err := tickets.ReadRecord(h.State, "nw-sync")
+			if err != nil || record.IsDone != tc.wantDone || record.PullRequest != ticketPull || (!tc.wantDone && record.State != tickets.PROpen) {
+				t.Fatalf("record = %+v, %v, want it to keep its pull request and be done = %v", record, err, tc.wantDone)
+			}
+			if issues := keeper.Issues(); !tc.wantDone && !slices.Equal(issues, []string{note}) {
+				t.Fatalf("issues = %v, want the open ticket's note still shown", issues)
+			}
+		})
+	}
+}
+
 func TestKeeperLeavesATicketAloneUntilItsTaskHasBeenOffTheBoardForTheGracePeriod(t *testing.T) {
 	back := func(pull string) []Task {
 		phase := "working"
@@ -851,7 +935,7 @@ func TestKeeperDropsALineOnceItsCauseIsGone(t *testing.T) {
 		first func(*fakeTicketWriter)
 		then  func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration)
 	}{
-		{name: "a failed open whose task then left the board", first: func(f *fakeTicketWriter) { f.applyErr = &tickets.APIError{Status: 502} },
+		{name: "a failed open whose task then left the board", first: func(f *fakeTicketWriter) { f.applyErr = errors.New("Bad Gateway (HTTP 502)") },
 			then: func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration) { return nil, time.Minute }},
 		{name: "a held public repository only the Overlord works in now", first: func(f *fakeTicketWriter) { f.collaboration.IsPrivate = false },
 			then: func(t *testing.T, h home.Home, f *fakeTicketWriter) ([]Task, time.Duration) {
