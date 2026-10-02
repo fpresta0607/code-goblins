@@ -1636,6 +1636,15 @@ func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
 			if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
 				t.Fatal(err)
 			}
+			// A fleet large enough to take all the room the digest has, so a
+			// notice printed without its size counted runs past the limit.
+			for i := 1; i <= 100; i++ {
+				id := fmt.Sprintf("cg-goblin-%03d", i)
+				meta := "goblin_id=" + id + "\nharness=claude\nmodel=claude-opus-5-5\nkind=ship\n"
+				if err := os.WriteFile(filepath.Join(state, id+".meta"), []byte(meta), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var stdout, stderr bytes.Buffer
 
 			// Act
