@@ -284,6 +284,13 @@ func hasStatus(err error, status int) bool {
 	return errors.As(err, &refused) && refused.status == status
 }
 
+// ShouldBackOff reports whether GitHub refused a request in a way that asks
+// the caller to stop for a while: 403, which is how it answers both a rate
+// limit and a missing permission, or 429.
+func ShouldBackOff(err error) bool {
+	return hasStatus(err, 403) || hasStatus(err, 429)
+}
+
 func isExistingLabel(err error) bool {
 	var refused *apiError
 	return errors.As(err, &refused) && refused.status == 422 && strings.Contains(refused.answer, "already_exists")

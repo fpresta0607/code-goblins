@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -62,6 +63,17 @@ func ReadRecord(directory, taskID string) (Record, error) {
 		return Record{}, errors.New("ticket record task identity does not match")
 	}
 	return record, nil
+}
+
+// Harness is the harness the ticket's goblin runs on, as its label names it,
+// or empty for a ticket no goblin has worked.
+func (r Record) Harness() string {
+	for _, label := range r.Labels {
+		if name, ok := strings.CutPrefix(label, harnessLabel("")); ok {
+			return name
+		}
+	}
+	return ""
 }
 
 func recordPath(directory, taskID string) (string, error) {
