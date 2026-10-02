@@ -10,22 +10,17 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
 
-// cfo switch --native moves a task into a native terminal with no other
-// option, keeping its harness, model and effort; with no option at all there
-// is nothing to switch, and a change of harness, model or effort is a separate
-// switch after the move.
-func TestRunSwitchMovesATaskIntoANativeTerminal(t *testing.T) {
+// cfo switch changes a goblin's harness, model or effort and needs one of
+// them; it moves nothing out of Herdr any more, so --native is refused.
+func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 	for name, test := range map[string]struct {
 		args    []string
 		exit    int
-		native  bool
 		refusal string
 	}{
-		"native":              {[]string{"--native"}, 0, true, ""},
-		"no options":          {nil, 2, false, "--native"},
-		"native with harness": {[]string{"--native", "--harness", "claude"}, 2, false, "--native keeps the task's harness, model and effort"},
-		"native with model":   {[]string{"--native", "--model", "gpt-5"}, 2, false, "--native keeps the task's harness, model and effort"},
-		"native with effort":  {[]string{"--effort", "high", "--native"}, 2, false, "--native keeps the task's harness, model and effort"},
+		"a model":    {[]string{"--model", "gpt-5"}, 0, ""},
+		"no options": {nil, 2, "one of --harness, --model, or --effort is required"},
+		"--native":   {[]string{"--native"}, 2, "-native"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := testCommandRuntime(t)
@@ -45,8 +40,8 @@ func TestRunSwitchMovesATaskIntoANativeTerminal(t *testing.T) {
 			switch {
 			case test.exit != 0 && (got != nil || !strings.Contains(stderr.String(), test.refusal)):
 				t.Errorf("request = %+v, stderr = %q; want refused saying %q", got, stderr.String(), test.refusal)
-			case test.exit == 0 && (got == nil || got.Native != test.native || got.Harness != "" || got.Model != "" || got.Effort != ""):
-				t.Errorf("request = %+v, want Native with the harness, model and effort left as they are", got)
+			case test.exit == 0 && (got == nil || got.ID != "g4" || got.Model != "gpt-5"):
+				t.Errorf("request = %+v, want g4 switched to gpt-5", got)
 			}
 		})
 	}

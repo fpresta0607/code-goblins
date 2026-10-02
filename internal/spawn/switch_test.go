@@ -14,270 +14,134 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
-// switchRunner adds the two things a switch needs beyond a spawn: git, and an
-// agent that stops answering once the harness has been told to exit.
-type switchRunner struct {
-	*herdrRunner
-	gitStatus    string
-	gitLog       string
-	gitBranch    string
-	stopped      bool
-	restarted    bool
-	stopAfter    int // agent-get calls before the harness reports gone
-	agentGets    int
-	neverStops   bool
-	gitCalls     []execx.Request
-	herdrCalls   []execx.Request
-	resumeDialog string // pane text shown after the relaunch until an Enter lands
-	resumeReplay string // replayed conversation prepended to every post-relaunch read
-	statusReady  chan struct{}
-	statusResume chan struct{}
-	statusPaused bool
-	// agentUnreadable makes herdr answer agent get untrustworthily once the
-	// relaunch has run, so the failure path cannot tell alive from gone.
-	agentUnreadable bool
-	// agentGoneAfterStart empties the pane only once the relaunch has run, so
-	// the stop sequence beforehand still runs against a live harness.
-	agentGoneAfterStart bool
-	// exitMenu makes /exit open claude's background-work menu: the harness
-	// stays up until an Enter answers it, and an interrupt does nothing.
-	exitMenu     bool
-	exitPending  bool
-	menuShowing  bool
-	menuAnswered bool
-	interrupted  bool
-	// quitsOnSecondInterrupt never takes a typed stop command, and an
-	// interrupt first clears the composer holding it: the harness exits on
-	// the second.
-	quitsOnSecondInterrupt bool
-	interrupts             int
-	tabCloseFails          bool
+// switchGit answers a switch's git reads of the task's worktree, its status,
+// branch and history, and hands every other command to the fixture's runner.
+type switchGit struct {
+	next   execx.Runner
+	status string
+	branch string
+	log    string
 }
 
-func (r *switchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+func (g *switchGit) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
 	if req.Name == "git" {
-		r.gitCalls = append(r.gitCalls, req)
 		switch {
 		case len(req.Args) > 0 && req.Args[0] == "status":
-			if r.statusReady != nil && !r.statusPaused {
-				r.statusPaused = true
-				close(r.statusReady)
-				<-r.statusResume
-			}
-			return execx.Result{Stdout: []byte(r.gitStatus)}, nil
+			return execx.Result{Stdout: []byte(g.status)}, nil
 		case len(req.Args) > 1 && req.Args[0] == "rev-parse" && req.Args[1] == "--abbrev-ref":
-			return execx.Result{Stdout: []byte(r.gitBranch + "\n")}, nil
+			return execx.Result{Stdout: []byte(g.branch + "\n")}, nil
 		case len(req.Args) > 0 && req.Args[0] == "rev-parse":
 			return execx.Result{Stdout: []byte("abc1234def\n")}, nil
 		case len(req.Args) > 0 && req.Args[0] == "log":
-			return execx.Result{Stdout: []byte(r.gitLog)}, nil
-		}
-		return execx.Result{}, nil
-	}
-	if req.Name == "herdr" {
-		r.herdrCalls = append(r.herdrCalls, req)
-		// CFO registering an undetected replacement also gives the pane an
-		// agent again.
-		if len(req.Args) >= 2 && req.Args[0] == "pane" && req.Args[1] == "report-agent" {
-			r.restarted = true
-		}
-		if r.tabCloseFails && len(req.Args) >= 2 && req.Args[0] == "tab" && req.Args[1] == "close" {
-			return execx.Result{}, errors.New("herdr server unreachable")
+			return execx.Result{Stdout: []byte(g.log)}, nil
 		}
 	}
-	// A typed slash command is the harness being told to exit, so the fake
-	// agent becomes stoppable again - otherwise a second switch in one test
-	// would find an agent that can never die.
-	if r.quitsOnSecondInterrupt && req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-keys" && req.Args[3] == "ctrl+c" {
-		if r.interrupts++; r.interrupts == 2 {
-			r.neverStops, r.agentGets = false, r.stopAfter
-		}
-	}
-	if !r.quitsOnSecondInterrupt && req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-text" && strings.HasPrefix(req.Args[3], "/") {
-		r.restarted = false
-		r.agentGets = 0
-		r.exitPending = r.exitMenu && !r.menuAnswered
-	}
-	// The Enter that submits /exit opens the menu; only a later Enter answers
-	// it.
-	if req.Name == "herdr" && len(req.Args) >= 4 && req.Args[0] == "pane" && req.Args[1] == "send-keys" {
-		switch {
-		case r.exitPending && req.Args[3] == "enter":
-			r.exitPending, r.menuShowing, r.neverStops = false, true, true
-		case r.menuShowing && req.Args[3] == "enter":
-			r.menuShowing, r.menuAnswered, r.neverStops, r.agentGets = false, true, false, r.stopAfter
-		case r.menuShowing && req.Args[3] == "ctrl+c":
-			r.interrupted = true
-		}
-	}
-	if r.menuShowing && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" && req.Args[1] == "read" {
-		return execx.Result{Stdout: []byte("Background work is running\nThe following will stop when you exit:\n  npm run dev (shell 1)\n> 1. Exit and stop tasks\n  2. Move to background and exit\n  3. Stay\n")}, nil
-	}
-	// A resume dialog exists only once the new harness is up: it covers the
-	// pane until an Enter lands, exactly like claude's resume-from-summary
-	// prompt. Ctrl+U and typed text do not dismiss it.
-	if r.resumeDialog != "" && r.restarted && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" {
-		if req.Args[1] == "read" {
-			return execx.Result{Stdout: []byte(r.resumeDialog)}, nil
-		}
-		if req.Args[1] == "send-keys" && len(req.Args) >= 4 && req.Args[3] == "enter" {
-			r.resumeDialog = ""
-		}
-	}
-	// `claude --continue` replays the prior conversation into the same pane
-	// tail the dialog loop reads. No keystroke clears it.
-	if r.resumeReplay != "" && r.restarted && req.Name == "herdr" && len(req.Args) >= 3 && req.Args[0] == "pane" && req.Args[1] == "read" {
-		result, err := r.herdrRunner.Run(ctx, req)
-		if err != nil {
-			return result, err
-		}
-		return execx.Result{Stdout: append([]byte(r.resumeReplay), result.Stdout...)}, nil
-	}
-	// herdr puts the subcommand first and appends --session, so the head of
-	// the argument list is what identifies the call.
-	if req.Name == "herdr" && len(req.Args) >= 2 && req.Args[0] == "agent" {
-		switch req.Args[1] {
-		case "start":
-			// The replacement harness registers, so the pane has an agent
-			// again from here on.
-			r.restarted = true
-		case "get":
-			r.agentGets++
-			// An unexpected error code is herdr answering without being
-			// trustworthy, which is neither "alive" nor "gone".
-			if r.agentUnreadable && r.restarted {
-				return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
-			}
-			if r.agentGoneAfterStart && r.restarted {
-				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
-			}
-			if !r.neverStops && !r.restarted && r.agentGets > r.stopAfter {
-				return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`), ExitCode: 1}, nil
-			}
-		}
-	}
-	return r.herdrRunner.Run(ctx, req)
+	return g.next.Run(ctx, req)
 }
 
-// switchFixture is a task already spawned and running, ready to be switched.
+// switchFixture is task-7, a native codex goblin spawned earlier whose
+// terminal has since ended, ready to be switched: its record is what spawn
+// published, so a switch starts its new harness at once, with nothing to stop.
 type switchFixture struct {
-	service  Service
-	runner   *switchRunner
-	stateDir string
-	worktree string
-	project  string
-	dataDir  string
-	meta     state.TaskMeta
-	base     *fixture
+	*nativeFixture
+	git  *switchGit
+	meta state.TaskMeta
 }
 
-func newSwitchFixture(t *testing.T) *switchFixture {
+func newSwitchFixture(t *testing.T, control harness.Control) *switchFixture {
 	t.Helper()
-	base := newFixture(t)
-	// The task must exist before it can be switched, so the fixture spawns it
-	// the ordinary way and then swaps in a runner that can also stop it.
-	if _, err := base.service.Spawn(context.Background(), base.request); err != nil {
-		t.Fatalf("seed spawn: %v", err)
+	f := newQuickFixture(t)
+	closeCurrentTerminal(t, f)
+	git := &switchGit{next: f.runner, branch: "gb/task-7", log: "abc1234 first commit\ndef5678 second commit"}
+	f.service.Commands = git
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: control, specs: &f.fixture.specs}}}
+	meta := state.TaskMeta{
+		ID:             "task-7",
+		Window:         "native",
+		EndpointTaskID: "task-7",
+		Worktree:       f.worktree,
+		Project:        f.project,
+		Harness:        string(harness.Codex),
+		Kind:           "ship",
+		Mode:           "no-mistakes",
+		Yolo:           "on",
+		TaskTmp:        makeDir(t, filepath.Join(f.stateDir, "tasktmp", "task-7")),
+		Brief:          f.brief,
+		Model:          "default",
+		Effort:         "default",
+		Backend:        "native",
+		SpawnGen:       "s1",
 	}
-	meta, err := state.ReadTaskMeta(base.stateDir, base.request.ID)
+	if err := state.WriteTaskMeta(f.stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	return &switchFixture{nativeFixture: f, git: git, meta: meta}
+}
+
+// newRunningGoblin spawns task-7 as a native codex goblin, in a turn that
+// never ends, so a switch has a running harness to stop or leave alone. It
+// returns the goblin's terminal.
+func newRunningGoblin(t *testing.T) (*nativeFixture, host.Record) {
+	t.Helper()
+	f := newQuickFixture(t)
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}}}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	closeCurrentTerminal(t, f)
+	record, err := host.ReadRecord(f.stateDir, "task-7")
 	if err != nil {
-		t.Fatalf("read seeded metadata: %v", err)
+		t.Fatal(err)
 	}
+	return f, record
+}
 
-	runner := &switchRunner{
-		herdrRunner: base.runner,
-		gitBranch:   "gb/task-7",
-		gitLog:      "abc1234 first commit\ndef5678 second commit",
-		stopAfter:   1,
+// assertLeftRunning fails unless task-7 still runs in the terminal it ran in,
+// was never told to exit, and keeps its record as it was.
+func assertLeftRunning(t *testing.T, f *nativeFixture, terminal host.Record, before state.TaskMeta) {
+	t.Helper()
+	current, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil || current.HostPID != terminal.HostPID || !host.Running(current) {
+		t.Errorf("the terminal is %+v, %v; want host %d still running", current, err, terminal.HostPID)
 	}
-	service := base.service
-	service.Terminals = terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "fleet", Sleep: func(context.Context, time.Duration) error { return nil }})
-	service.Worktrees.Commands = runner
-	service.Commands = runner
-	service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
-		harness.Claude: fixtureAdapter{events: &base.events, specs: &base.specs},
-		harness.Kimi:   fixtureAdapter{events: &base.events, specs: &base.specs},
-	}}
-	// The stopped harness leaves nothing for the pane's shell to wait on.
-	service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) { return nil, nil }
-
-	return &switchFixture{
-		service:  service,
-		runner:   runner,
-		stateDir: base.stateDir,
-		worktree: base.worktree,
-		project:  base.project,
-		dataDir:  service.Worktrees.DataDir,
-		meta:     meta,
-		base:     base,
+	if submitted := submittedLines(t, f, 1); slices.Contains(submitted, "/exit") {
+		t.Errorf("submitted = %q, want the harness never told to exit", submitted)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil || after.Harness != before.Harness || after.Model != before.Model || after.SpawnGen != before.SpawnGen {
+		t.Errorf("after the refusal the record is %+v, %v; want it unchanged from %+v", after, err, before)
 	}
 }
 
-func TestSwitchKeepsTheTaskIDPaneAndWorktree(t *testing.T) {
-	fixture := newSwitchFixture(t)
-
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	})
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-
-	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if err != nil {
-		t.Fatalf("read metadata: %v", err)
-	}
-	// The whole point: nothing about the task's identity or its work moves.
-	if after.ID != fixture.meta.ID || after.Worktree != fixture.meta.Worktree || after.HerdrPaneID != fixture.meta.HerdrPaneID || after.HerdrTabID != fixture.meta.HerdrTabID {
-		t.Errorf("identity changed: %+v -> %+v", fixture.meta, after)
-	}
-	if after.Harness != string(harness.Kimi) {
-		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
-	}
-	if after.SpawnGen == fixture.meta.SpawnGen {
-		t.Error("spawn_gen was not bumped, so the watcher cannot tell the pane holds a new process")
-	}
-	if !strings.Contains(result.Output, "switched "+fixture.meta.ID) {
-		t.Errorf("output = %q, want it to name the switched task", result.Output)
-	}
-}
-
-func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	if err := state.AppendStatus(fixture.stateDir, fixture.meta.ID, "progress: wrote the parser"); err != nil {
+// A switch the harness cannot resume writes a handoff with everything the new
+// harness needs, and points the new harness at it before anything else.
+func TestSwitchWritesAHandoffAndPointsTheNewHarnessAtIt(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	if err := state.AppendStatus(f.stateDir, f.meta.ID, "progress: wrote the parser"); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
-	if result.Handoff == "" {
-		t.Fatal("a cross-harness switch produced no handoff note")
+	if result.Handoff == "" || result.Resumed {
+		t.Fatalf("result = %+v, want a handoff and no resume", result)
 	}
-	if result.Resumed {
-		t.Error("Resumed = true across harnesses, which cannot carry context")
-	}
-
 	note, err := os.ReadFile(result.Handoff)
 	if err != nil {
 		t.Fatalf("read handoff: %v", err)
 	}
 	for _, want := range []string{
-		fixture.meta.Brief,           // the original brief, still the task
-		fixture.worktree,             // where the work is
+		f.meta.Brief,                 // the original brief, still the task
+		f.worktree,                   // where the work is
 		"gb/task-7",                  // the branch it is on
 		"abc1234 first commit",       // what is already committed
 		"progress: wrote the parser", // what the previous goblin reported
@@ -287,75 +151,68 @@ func TestSwitchWritesAHandoffAcrossHarnessesAndInstructsTheNewOne(t *testing.T) 
 			t.Errorf("handoff lacks %q:\n%s", want, note)
 		}
 	}
-	// The new harness has to be told to read it before doing anything else.
-	// It arrives through the native agent prompt, not as typed composer text.
-	if !strings.Contains(fixture.runner.prompt, result.Handoff) {
-		t.Errorf("delivered instruction = %q, want it to point at the handoff", fixture.runner.prompt)
+	submitted := submittedLines(t, f.nativeFixture, 1)
+	if len(submitted) != 1 {
+		t.Fatalf("submitted = %q, want the new harness's instruction", submitted)
 	}
-	if !strings.Contains(fixture.runner.prompt, "ask it again with cfo notify --blocked") {
-		t.Errorf("delivered instruction = %q, want the new harness told to ask again a question the restart cancelled", fixture.runner.prompt)
+	instruction := delivered(t, submitted[0])
+	if !strings.Contains(instruction, result.Handoff) || !strings.Contains(instruction, "ask it again with cfo notify --blocked") {
+		t.Errorf("instruction = %q, want it pointed at the handoff and told to ask a cancelled question again", instruction)
 	}
 }
 
 func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
-	fixture := newSwitchFixture(t)
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
 
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Model:   "opus",
-		Session: "fleet",
-	})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
-	if !result.Resumed {
-		t.Fatal("a same-harness switch did not use the harness's own resume")
+	if !result.Resumed || result.Handoff != "" {
+		t.Fatalf("result = %+v, want the harness's own resume and no handoff", result)
 	}
-	if result.Handoff != "" {
-		t.Errorf("Handoff = %q, want none when the harness resumes its own session", result.Handoff)
+	if launches := named(f.events(t), "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume --last ") {
+		t.Errorf("launches = %+v, want the resume arguments first", launches)
 	}
-	if !contains(fixture.runner.startArgs, "--continue") {
-		t.Errorf("start args = %v, want the resume argument first", fixture.runner.startArgs)
-	}
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Model != "opus" || after.Harness != fixture.meta.Harness {
+	after, _ := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if after.Model != "gpt-9" || after.Harness != f.meta.Harness {
 		t.Errorf("meta = harness %q model %q, want the same harness on the new model", after.Harness, after.Model)
 	}
 }
 
 func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	if err := state.WriteLifecycle(fixture.stateDir, state.Lifecycle{ID: fixture.meta.ID, Generation: fixture.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+	if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
 		t.Fatal(err)
 	}
-	fixture.runner.stopped = true
-	fixture.runner.agentGets = fixture.runner.stopAfter
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID: fixture.meta.ID, Session: "fleet", Model: "opus", IsResume: true, ResumeSession: "saved-session-42",
-	})
+
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, IsResume: true, ResumeSession: "saved-session-42"})
+
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Resumed || !contains(fixture.runner.startArgs, "--resume") || !contains(fixture.runner.startArgs, "saved-session-42") || contains(fixture.runner.startArgs, "--continue") {
-		t.Fatalf("wrong session launch: %v", fixture.runner.startArgs)
+	launches := named(f.events(t), "env")
+	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
+		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
 	}
 }
 
 func TestSwitchRefusesADirtyWorktreeUnlessForced(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.gitStatus = " M internal/thing.go\n?? notes.txt\n"
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.git.status = " M internal/thing.go\n?? notes.txt\n"
 
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
 	if err == nil || !strings.Contains(err.Error(), "--force-dirty") {
 		t.Fatalf("err = %v, want a refusal naming --force-dirty", err)
 	}
-	// Refusing must change nothing: the harness is still the original one.
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
+	// Refusing must change nothing: the task is still what it was.
+	after, _ := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if after.Model != f.meta.Model || after.SpawnGen != f.meta.SpawnGen {
 		t.Errorf("a refused switch still mutated metadata: %+v", after)
 	}
 
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet", ForceDirty: true})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", ForceDirty: true})
 	if err != nil {
 		t.Fatalf("forced Switch: %v", err)
 	}
@@ -372,168 +229,91 @@ func TestSwitchRefusesADirtyWorktreeUnlessForced(t *testing.T) {
 	}
 }
 
-func TestSwitchStopsTheOldHarnessBeforeStartingTheNew(t *testing.T) {
-	fixture := newSwitchFixture(t)
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	// The adapter's stop command has to reach the pane before the relaunch
-	// prefix, or two harnesses end up sharing one shell.
-	stopAt := -1
-	for index, literal := range fixture.runner.literals {
-		if literal == "/exit" {
-			stopAt = index
-			break
-		}
-	}
-	if stopAt < 0 {
-		t.Fatalf("the harness stop command was never sent: %q", fixture.runner.literals)
-	}
-	relaunched := false
-	for _, literal := range fixture.runner.literals[stopAt+1:] {
-		if strings.Contains(literal, "Set-Location") {
-			relaunched = true
-			break
-		}
-	}
-	if !relaunched {
-		t.Fatalf("no relaunch prefix followed the stop: %q", fixture.runner.literals)
-	}
-	if !contains(fixture.runner.keys, "escape") {
-		t.Errorf("keys = %v, want the stream interrupted before the stop command", fixture.runner.keys)
-	}
-}
-
-// A harness that never took its stop command still holds it in its composer,
-// so the first interrupt only clears it, as Codex 0.154 did in a Herdr pane on
-// 2026-09-29; the switch interrupts once more, and the harness exits.
-func TestSwitchInterruptsAgainWhenTheFirstOnlyClearsTheComposer(t *testing.T) {
-	f := newSwitchFixture(t)
-	f.runner.neverStops, f.runner.quitsOnSecondInterrupt = true, true
-
-	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "other-model", Session: "fleet"})
-
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	if f.runner.interrupts != 2 {
-		t.Errorf("interrupts = %d, want 2", f.runner.interrupts)
-	}
-}
-
-func TestSwitchRefusesWhenTheHarnessWillNotStop(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.neverStops = true
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
-	if err == nil || !strings.Contains(err.Error(), "still running") {
-		t.Fatalf("err = %v, want a refusal rather than a second harness in the same pane", err)
-	}
-	// The wire name, not the spelling switch.go types: herdr rejects an
-	// unsupported key, so asserting "Ctrl-C" here would pin the value that
-	// made this interrupt fail.
-	if !contains(fixture.runner.keys, "ctrl+c") {
-		t.Errorf("keys = %v, want an interrupt attempted before giving up", fixture.runner.keys)
-	}
-}
-
-func TestSwitchRefusesANoOp(t *testing.T) {
-	fixture := newSwitchFixture(t)
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kind(fixture.meta.Harness),
-		Model:   fixture.meta.Model,
-		Effort:  fixture.meta.Effort,
-		Session: "fleet",
-	})
-	if err == nil || !strings.Contains(err.Error(), "nothing to switch") {
-		t.Fatalf("err = %v, want a refusal to restart a harness for no change", err)
-	}
-}
-
-// A same-harness request is only a no-op while a harness is actually running.
-// When the pane is empty - the harness died on its own, or a previous switch
-// stopped it and failed before the replacement started - the same request is
-// the restart the recovery message tells the operator to run.
-func TestSwitchAllowsARestartWhenThePaneIsEmpty(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// The first agent status read reports the pane as dead, so the switch must
-	// proceed as a restart rather than refuse the request as a no-op.
-	fixture.runner.stopAfter = 0
-
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kind(fixture.meta.Harness),
-		Model:   fixture.meta.Model,
-		Effort:  fixture.meta.Effort,
-		Session: "fleet",
-	})
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	if !result.Resumed {
-		t.Error("Resumed = false, want the dead harness restarted through its own resume")
-	}
-	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
+func TestSwitchRefusesANoOpWhileTheHarnessRuns(t *testing.T) {
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.SpawnGen == fixture.meta.SpawnGen {
-		t.Error("spawn_gen was not bumped, so the watcher cannot tell the restarted harness is a new process")
-	}
-}
 
-// The recorded session is where the pane lives; a request naming a different
-// session must not redirect the switch there.
-func TestSwitchTargetsTheRecordedSessionNotTheRequestSession(t *testing.T) {
-	fixture := newSwitchFixture(t)
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Harness: harness.Kind(before.Harness), Model: before.Model, Effort: before.Effort})
 
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "elsewhere",
-	})
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "nothing to switch") {
+		t.Fatalf("err = %v, want a refusal to restart a harness for no change", err)
 	}
-	if !strings.Contains(result.Output, "switched "+fixture.meta.ID) {
-		t.Errorf("output = %q, want it to name the switched task", result.Output)
-	}
+	assertLeftRunning(t, f, terminal, before)
 }
 
 // A failure between stopping the old harness and starting the new one - here
-// the target adapter refusing to build its launch - must leave the same empty-
-// pane record as a failed start, not a silent pane with stale metadata.
-func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.service.Harness.Adapters[harness.Kimi] = fixtureAdapter{
-		events:   &[]string{},
-		buildErr: errors.New(`harness: Codex does not support effort "max"`),
-	}
+// the target adapter refusing to build its launch - leaves a durable record
+// that the goblin has no harness, and how to start one.
+func TestSwitchRecordsAnEmptyTerminalWhenTheTargetRefusesToBuild(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, buildErr: errors.New(`harness: Codex does not support effort "max"`)}
 
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Effort: "max"})
+
+	assertEmptyTerminalRecorded(t, f, err, "--effort default")
+}
+
+// A replacement whose terminal cannot start leaves the same record.
+func TestSwitchRecordsAnEmptyTerminalWhenTheNewHarnessWillNotStart(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.service.HostCommand = []string{filepath.Join(t.TempDir(), "no-such-host.exe")}
+
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	assertEmptyTerminalRecorded(t, f, err)
+}
+
+// assertEmptyTerminalRecorded fails unless err tells the operator the goblin
+// has no harness, that its work is safe and how to recover, and the task's
+// status records it: without the record a goblin that stopped existing looks
+// like one that is thinking.
+func assertEmptyTerminalRecorded(t *testing.T, f *switchFixture, err error, more ...string) {
+	t.Helper()
 	if err == nil {
-		t.Fatal("Switch = nil, want the build failure surfaced")
+		t.Fatal("Switch = nil, want the failure surfaced")
 	}
-	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID, "--effort default"} {
+	for _, want := range append([]string{"native terminal now has no harness", "is untouched", "cfo switch " + f.meta.ID}, more...) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
 	}
-	status, err := state.TailStatus(fixture.stateDir, fixture.meta.ID, 5)
-	if err != nil {
-		t.Fatal(err)
+	status, statusErr := state.TailStatus(f.stateDir, f.meta.ID, 5)
+	if statusErr != nil {
+		t.Fatal(statusErr)
 	}
-	found := false
-	for _, line := range status {
-		if _, event := state.SplitStatus(line); strings.HasPrefix(event, "failed:") && strings.Contains(event, "no harness") {
-			found = true
+	if !slices.ContainsFunc(status, func(line string) bool {
+		_, event := state.SplitStatus(line)
+		return strings.HasPrefix(event, "failed:") && strings.Contains(event, "no harness")
+	}) {
+		t.Errorf("status = %v, want a durable record of the empty terminal", status)
+	}
+}
+
+// A failure after the new harness is up must not claim the terminal is empty:
+// that sends the operator to `cfo switch` again, which stops a running goblin
+// and loses its context.
+func TestSwitchReportsALiveTerminalInsteadOfClaimingItIsEmpty(t *testing.T) {
+	previous := nativeStartup
+	nativeStartup = 5 * time.Second
+	t.Cleanup(func() { nativeStartup = previous })
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=silent")
+
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	if err == nil {
+		t.Fatal("Switch = nil, want the launch failure surfaced")
+	}
+	for _, want := range []string{"still holds a live", "is untouched", "cfo peek " + f.meta.ID, "do NOT rerun `cfo switch`"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
 		}
 	}
-	if !found {
-		t.Errorf("status = %v, want a durable record of the empty pane", status)
+	if strings.Contains(err.Error(), "now has no harness") {
+		t.Errorf("err = %v, want no empty-terminal claim while the harness runs", err)
 	}
 }
 
@@ -541,58 +321,60 @@ func TestSwitchRecordsAnEmptyPaneWhenTheTargetRefusesToBuild(t *testing.T) {
 // on its id. Before this, respawning a cleaned-up id was refused and the task
 // had to be given an invented suffix.
 func TestSpawnAllowsAnIDWhoseOnlyRemainIsAFinishedTasksStatusLog(t *testing.T) {
-	fixture := newFixture(t)
-	if err := state.AppendStatus(fixture.stateDir, fixture.request.ID, "done: returned worktree via cfo cleanup"); err != nil {
+	f := newNativeFixture(t, harness.Codex, "")
+	if err := state.AppendStatus(f.stateDir, f.request.ID, "done: returned worktree via cfo cleanup"); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn after cleanup: %v", err)
 	}
-	meta, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID)
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
-	if meta.ID != fixture.request.ID {
+	if meta.ID != f.request.ID {
 		t.Errorf("id = %q, want the original id reused", meta.ID)
 	}
 }
 
 func TestSpawnStillRefusesAnIDThatCollidesWithALiveTask(t *testing.T) {
-	fixture := newFixture(t)
+	f := newFixture(t)
 	// A live task keeps its metadata, and on Windows two ids differing only in
 	// case would share every state file.
-	if err := state.WriteTaskMeta(fixture.stateDir, state.TaskMeta{
-		ID:               strings.ToUpper(fixture.request.ID),
-		Backend:          "herdr",
-		HerdrSession:     "fleet",
-		HerdrWorkspaceID: "workspace-1",
-		HerdrTabID:       "tab-1",
-		HerdrPaneID:      "pane-1",
-	}); err != nil {
+	if err := state.WriteTaskMeta(f.stateDir, state.TaskMeta{ID: strings.ToUpper(f.request.ID), Window: "native", Backend: "native"}); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil || !strings.Contains(err.Error(), "conflicts case-insensitively") {
 		t.Fatalf("err = %v, want the live-task collision still refused", err)
 	}
 }
 
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
+// A task recorded in Herdr is not one this build can reach, so a switch
+// refuses it by name before anything is stopped or written.
+func TestSwitchRefusesATaskRecordedInHerdr(t *testing.T) {
+	f := newFixture(t)
+	if err := state.WriteTaskMeta(f.stateDir, state.TaskMeta{ID: "task-7", Window: "fleet:p1", Worktree: f.worktree, Project: f.project, Harness: "claude", TaskTmp: f.stateDir, Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "w1", HerdrTabID: "t1", HerdrPaneID: "p1", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
 	}
-	return false
+
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "opus"})
+
+	if err == nil || !strings.Contains(err.Error(), `runs in backend "herdr"`) || !strings.Contains(err.Error(), "only a task in a native terminal can be switched") {
+		t.Fatalf("err = %v, want the Herdr task refused by name", err)
+	}
+	if after, readErr := state.ReadTaskMeta(f.stateDir, "task-7"); readErr != nil || after.SpawnGen != "s1" || f.runner.calls != 0 {
+		t.Errorf("record %+v, %v and %d commands after the refusal; want the task untouched", after, readErr, f.runner.calls)
+	}
 }
 
 func TestSwitchHandoffNamesADetachedWorktreePlainly(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.gitBranch = "HEAD"
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.git.branch = "HEAD"
 
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
@@ -610,223 +392,44 @@ func TestSwitchHandoffNamesADetachedWorktreePlainly(t *testing.T) {
 	}
 }
 
-func TestSwitchDoesNotCarryAModelAcrossHarnesses(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// Give the task a model that only its current harness understands.
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"}); err != nil {
-		t.Fatalf("seed model switch: %v", err)
-	}
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// "opus" means nothing to another harness; carrying it would either fail
-	// the launch or silently select the wrong thing.
-	if after.Model != "default" {
-		t.Errorf("model = %q, want the new harness's default rather than the old harness's model", after.Model)
-	}
-	if after.Harness != string(harness.Kimi) {
-		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
-	}
-}
-
-func TestSwitchDoesNotCarryAnEffortAcrossHarnesses(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// Give the task an effort another harness may not honour: Kimi has no
-	// effort knob at all, so carrying one across would loop the recovery.
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Effort: "xhigh", Session: "fleet"}); err != nil {
-		t.Fatalf("seed effort switch: %v", err)
-	}
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Effort != "default" {
-		t.Errorf("effort = %q, want the new harness's default rather than the old harness's effort", after.Effort)
-	}
-	if after.Harness != string(harness.Kimi) {
-		t.Errorf("harness = %q, want %q", after.Harness, harness.Kimi)
+// Neither a model name nor an effort survives a change of harness: "opus"
+// means nothing to codex, and Kimi has no effort at all. A model or an effort
+// the operator names explicitly is kept, a Claude goblin that names no model
+// runs Opus 5.5, and a switch that changes only the effort keeps a named model.
+func TestSwitchCarriesOnlyWhatTheNewHarnessUnderstands(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		meta    state.TaskMeta
+		request SwitchRequest
+		want    switchTarget
+	}{
+		{"a model change keeps the effort", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Model: "sonnet"}, switchTarget{harness.Claude, "sonnet", "high"}},
+		{"a new harness drops the model and the effort", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi}, switchTarget{harness.Kimi, "", ""}},
+		{"an explicit effort crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi, Effort: "xhigh"}, switchTarget{harness.Kimi, "", "xhigh"}},
+		{"an explicit model crosses harnesses", state.TaskMeta{Harness: "claude", Model: "opus", Effort: "high"}, SwitchRequest{Harness: harness.Kimi, Model: "kimi-k2"}, switchTarget{harness.Kimi, "kimi-k2", ""}},
+		{"claude with no model runs Opus 5.5", state.TaskMeta{Harness: "kimi", Model: "default", Effort: "default"}, SwitchRequest{Harness: harness.Claude}, switchTarget{harness.Claude, "claude-opus-5-5", ""}},
+		{"an effort change keeps a named model", state.TaskMeta{Harness: "claude", Model: "claude-sonnet-5", Effort: "high"}, SwitchRequest{Effort: "max"}, switchTarget{harness.Claude, "claude-sonnet-5", "max"}},
+		{"an effort change gives an unnamed claude model Opus 5.5", state.TaskMeta{Harness: "claude", Model: "default", Effort: "high"}, SwitchRequest{Effort: "max"}, switchTarget{harness.Claude, "claude-opus-5-5", "max"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := requestedTarget(test.meta, test.request); got != test.want {
+				t.Errorf("target = %+v, want %+v", got, test.want)
+			}
+		})
 	}
 }
 
-func TestSwitchKeepsAnExplicitEffortAcrossHarnesses(t *testing.T) {
-	fixture := newSwitchFixture(t)
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID: fixture.meta.ID, Harness: harness.Kimi, Effort: "xhigh", Session: "fleet",
-	}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Effort != "xhigh" {
-		t.Errorf("effort = %q, want the effort the operator asked for", after.Effort)
-	}
-}
-
-func TestSwitchKeepsAnExplicitModelAcrossHarnesses(t *testing.T) {
-	fixture := newSwitchFixture(t)
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID: fixture.meta.ID, Harness: harness.Kimi, Model: "kimi-k2", Session: "fleet",
-	}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Model != "kimi-k2" {
-		t.Errorf("model = %q, want the model the operator asked for", after.Model)
-	}
-}
-
-func TestSwitchRecordsAnEmptyPaneWhenTheNewHarnessWillNotStart(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.startErr = errStartFailed
-	// The old harness is stopped normally; only then does the replacement fail
-	// to start, leaving no registered agent behind - which is what the
-	// empty-pane recovery is read off.
-	fixture.runner.agentGoneAfterStart = true
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
-	if err == nil {
-		t.Fatal("Switch = nil, want the start failure surfaced")
-	}
-	// The recovery text says the old harness was stopped, so the stop sequence
-	// has to have actually run before the failed start.
-	if !slices.Contains(fixture.runner.keys, "escape") {
-		t.Errorf("keys = %v, want the stop sequence driven before the failed start", fixture.runner.keys)
-	}
-	// The operator has to learn three things: the pane is empty, the work is
-	// safe, and how to recover.
-	for _, want := range []string{"pane now has no harness", "is untouched", "cfo switch " + fixture.meta.ID} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	status, err := state.TailStatus(fixture.stateDir, fixture.meta.ID, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, line := range status {
-		if _, event := state.SplitStatus(line); strings.HasPrefix(event, "failed:") && strings.Contains(event, "no harness") {
-			found = true
-		}
-	}
-	if !found {
-		// Without a record the task looks merely idle, and a goblin that
-		// stopped existing is indistinguishable from one that is thinking.
-		t.Errorf("status = %v, want a durable record of the empty pane", status)
-	}
-}
-
-var errStartFailed = &startFailure{}
-
-type startFailure struct{}
-
-func (*startFailure) Error() string { return "herdr: timed out waiting for agent startup" }
-
-// The switch failure path used to assert the pane was empty no matter where
-// the failure came from. A rejected instruction read-back happens after the
-// new harness is up, so that claim sent the operator to `cfo switch` again -
-// which stops a running goblin and loses its context.
-func TestSwitchReportsALivePaneInsteadOfClaimingItIsEmpty(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.startErr = errStartFailed
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
-	if err == nil {
-		t.Fatal("Switch = nil, want the start failure surfaced")
-	}
-	for _, want := range []string{"still holds a live", "is untouched", "cfo peek " + fixture.meta.ID, "do NOT rerun `cfo switch`"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	if strings.Contains(err.Error(), "pane now has no harness") {
-		t.Errorf("err = %v, want no empty-pane claim while the agent is alive", err)
-	}
-}
-
-// An unreadable probe is herdr admitting it does not know, and the recovery
-// text must admit it too. Treating "could not answer" as "no harness" sends
-// the operator back to `cfo switch`, which stops whatever live goblin is
-// actually holding the pane - the exact context loss the re-probe prevents.
-func TestSwitchDoesNotGuessWhenTheProbeCannotReadThePane(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.startErr = errStartFailed
-	fixture.runner.agentUnreadable = true
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
-	if err == nil {
-		t.Fatal("Switch = nil, want the start failure surfaced")
-	}
-	for _, want := range []string{"could not verify what the pane holds", "may still be running", "is untouched", "cfo peek " + fixture.meta.ID} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	for _, unwanted := range []string{"pane now has no harness", "still holds a live"} {
-		if strings.Contains(err.Error(), unwanted) {
-			t.Errorf("err = %v, want no %q claim from an unreadable probe", err, unwanted)
-		}
-	}
-}
-
-// The resume markers must not match the conversation `--continue` replays
-// into the same pane tail. A goblin that discussed the dialog's option labels
-// ("Resume from summary") replays them on every read, so option-label markers
-// held the dialog loop open until the switch failed on a harness that was
-// answering normally.
-func TestSwitchIgnoresAReplayedTranscriptThatNamesTheResumeOptions(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.resumeReplay = "> the dialog offers Resume from summary and Resume full session as-is\n\n"
-
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	if !result.Resumed {
-		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
-	}
-}
-
-// A resumed claude can open its interactive resume dialog (resume from
-// summary / full session) before the composer accepts input. The switch must
-// clear it like any startup dialog - Enter accepts the summary default -
-// otherwise the resume instruction is typed into the dialog, every read-back
-// mismatches, and a healthy relaunch reports failed.
-func TestSwitchClearsTheResumeDialogBeforeInstructingTheResumedHarness(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.runner.resumeDialog = "This session is 6 hours old and 120k tokens.\n\nResuming the full session will consume a substantial portion of your usage limits.\nWe recommend resuming from a summary.\n\n> 1. Resume from summary\n  2. Resume full session as-is\n  3. Don't ask me again\n"
-
-	result, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "opus", Session: "fleet"})
-	if err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	if !result.Resumed {
-		t.Fatal("Resumed = false, want the same-harness switch to resume in place")
-	}
-}
-
+// The switch rebuilds the launch from the preflight, so a credential the
+// operator stored after the spawn reaches the new harness only if the
+// preflight reads the store the way a refresh does.
 func TestSwitchKeepsACredentialStoredAfterSpawn(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	for _, name := range []string{"DATABASE_URL", "FLY_API_TOKEN"} {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	for _, name := range []string{"DATABASE_URL", "FIXTURE_TOKEN"} {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
 	}
 	t.Setenv(auth.StoreDirEnv, filepath.Join(t.TempDir(), "credentials"))
-	// The manifest declares one name. The operator stored a second one after
-	// the spawn and the refresh wrote it into auth.ps1; a switch rebuilds
-	// that script from the preflight, so it only survives if the preflight
-	// reads the store the way the refresh does.
-	manifestPath := auth.ManifestPath(fixture.dataDir, fixture.project)
+	manifestPath := auth.ManifestPath(f.dataDir, f.project)
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -838,41 +441,34 @@ func TestSwitchKeepsACredentialStoredAfterSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Set(auth.Scoped(fixture.project, "DATABASE_URL"), "postgres://declared"); err != nil {
+	if err := store.Set(auth.Scoped(f.project, "DATABASE_URL"), "postgres://declared"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Set(auth.Scoped(fixture.project, "FLY_API_TOKEN"), "fly_stored_midtask"); err != nil {
+	if err := store.Set(auth.Scoped(f.project, "FIXTURE_TOKEN"), "stored-midtask"); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.Auth = auth.SpawnPreflight{DataDir: fixture.dataDir, Runner: fixture.runner}
+	f.service.Auth = auth.SpawnPreflight{DataDir: f.dataDir, Runner: f.runner}
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	}); err != nil {
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"}); err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
 
-	script, err := os.ReadFile(filepath.Join(fixture.meta.TaskTmp, "auth.ps1"))
-	if err != nil {
-		t.Fatalf("read regenerated script: %v", err)
-	}
-	for _, want := range []string{"$env:DATABASE_URL = 'postgres://declared'", "$env:FLY_API_TOKEN = 'fly_stored_midtask'"} {
-		if !strings.Contains(string(script), want) {
-			t.Errorf("the switch regenerated a script without %q:\n%s", want, script)
+	started := named(f.events(t), "env")[0].Env
+	for name, want := range map[string]string{"DATABASE_URL": "postgres://declared", "FIXTURE_TOKEN": "stored-midtask"} {
+		if got := started[name]; got == nil || *got != want {
+			t.Errorf("the new harness started with %s = %v, want %q", name, got, want)
 		}
 	}
 }
 
+// The launch is rebuilt from scratch by the switch, so a redirect the spawn
+// injected is only there afterwards if the switch re-applies it. GOTMPDIR is
+// declared alongside it to prove the launch contract still wins over a
+// manifest that tries to redirect a reserved name, in any case and including
+// a name the relaunch only writes at harness start.
 func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// The launch is rebuilt from scratch by the switch, so a redirect the
-	// spawn injected is only there afterwards if the switch re-applies it.
-	// GOTMPDIR is declared alongside it to prove the launch contract still
-	// wins over a manifest that tries to redirect a reserved name, in any
-	// case and including a name the relaunch only writes at harness start.
-	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
@@ -882,20 +478,19 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 		},
 	})
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	}); err != nil {
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"}); err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
 
-	launched := launchLiteral(t, fixture.runner.literals)
-	if !strings.Contains(launched, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
-		t.Errorf("launch line = %q, want the project's declared redirect re-applied", launched)
-	}
-	if strings.Contains(launched, "hijacked") {
-		t.Errorf("launch line = %q, want the harness's own GOTMPDIR to win over the manifest", launched)
+	started := named(f.events(t), "env")[0].Env
+	for name, want := range map[string]string{
+		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
+		"GOTMPDIR":                 goTmpDir(t, f.stateDir, f.meta.ID),
+		"CFO_STATE_OVERRIDE":       f.stateDir,
+	} {
+		if got := started[name]; got == nil || *got != want {
+			t.Errorf("the new harness started with %s = %v, want %q", name, got, want)
+		}
 	}
 }
 
@@ -904,23 +499,18 @@ func TestSwitchReappliesTheProjectEnvironmentRedirects(t *testing.T) {
 // long-lived task can outlive its scratch, and a harness launched at a
 // GOTMPDIR that does not exist fails its first go build.
 func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	goTmp := goTmpDir(t, fixture.stateDir, fixture.meta.ID)
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	goTmp := goTmpDir(t, f.stateDir, f.meta.ID)
 	if err := os.RemoveAll(goTmp); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	}); err != nil {
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"}); err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
 
-	launched := launchLiteral(t, fixture.runner.literals)
-	if !strings.Contains(launched, "$env:GOTMPDIR = '"+goTmp+"'") {
-		t.Errorf("launch line = %q, want GOTMPDIR set to the task's own directory %q", launched, goTmp)
+	if got := named(f.events(t), "env")[0].Env["GOTMPDIR"]; got == nil || *got != goTmp {
+		t.Errorf("the new harness started with GOTMPDIR = %v, want the task's own %q", got, goTmp)
 	}
 	if info, err := os.Stat(goTmp); err != nil || !info.IsDir() {
 		t.Errorf("stat %q = %v, %v, want the relaunch to have recreated the directory", goTmp, info, err)
@@ -929,80 +519,61 @@ func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
 
 // An unresolvable user cache directory is a fleet-wide misconfiguration, so a
 // switch has to refuse before it stops the running harness. Discovered after
-// the stop it would leave the goblin with no harness at all, which is the
-// outcome the pre-stop resolves exist to prevent.
+// the stop it would leave the goblin with no harness at all.
 func TestSwitchRefusesAnUnresolvableGoTmpDirBeforeStoppingTheHarness(t *testing.T) {
-	fixture := newSwitchFixture(t)
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
 	// os.UserCacheDir reads these and errors when the one it needs is empty.
 	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
 		t.Setenv(name, "")
 	}
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	}); err == nil {
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"}); err == nil {
 		t.Fatal("Switch succeeded without a resolvable Go temporary directory, want refusal")
 	}
 
-	// The stop sequence reads the agent first, then sends the stop keys and
-	// types the stop command; none of that may have happened.
-	if fixture.runner.agentGets != 0 {
-		t.Errorf("agent reads = %d, want the switch to abort before the stop sequence", fixture.runner.agentGets)
-	}
-	if slices.Contains(fixture.runner.keys, "escape") || slices.Contains(fixture.runner.literals, "/exit") {
-		t.Errorf("keys = %v, literals = %v, want the running harness left alone", fixture.runner.keys, fixture.runner.literals)
-	}
+	assertLeftRunning(t, f, terminal, before)
 }
 
-func TestSwitchHandsTheNewHarnessTheProvisionedMCPConfig(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// Provisioning materializes the filtered configuration under the task's
-	// temporary directory, never inside the checkout, and a relaunch must
-	// hand over that file and no other.
-	provisioned := filepath.Join(fixture.meta.TaskTmp, "mcp.json")
-	if err := os.WriteFile(provisioned, []byte(`{"mcpServers":{"neon":{"command":"npx"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// A .mcp.json in the worktree is the project's own unfiltered file or one
-	// the goblin wrote; either way it must never reach --mcp-config.
-	if err := os.WriteFile(filepath.Join(fixture.worktree, ".mcp.json"), []byte(`{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+// Provisioning materializes the filtered configuration under the task's
+// temporary directory, never inside the checkout, and a relaunch hands over
+// that file and no other: a .mcp.json in the worktree is the project's own
+// unfiltered file or one the goblin wrote. The build is refused here so
+// nothing starts.
+func TestSwitchHandsTheNewHarnessOnlyTheProvisionedMCPConfig(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		isProvisioned bool
+	}{
+		{name: "provisioning materialized one", isProvisioned: true},
+		{name: "provisioning materialized none"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+			specs := []harness.LaunchSpec{}
+			f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, specs: &specs, buildErr: errors.New("nothing starts in this test")}
+			provisioned := filepath.Join(f.meta.TaskTmp, "mcp.json")
+			if test.isProvisioned {
+				writeFile(t, provisioned, `{"mcpServers":{"neon":{"command":"npx"}}}`)
+			}
+			writeFile(t, filepath.Join(f.worktree, ".mcp.json"), `{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`)
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:         fixture.meta.ID,
-		Harness:    harness.Kimi,
-		ForceDirty: true,
-		Session:    "fleet",
-	}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
+			_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", ForceDirty: true})
 
-	spec := fixture.base.specs[len(fixture.base.specs)-1]
-	if spec.MCPConfig != provisioned {
-		t.Errorf("MCPConfig = %q, want the provisioned %q", spec.MCPConfig, provisioned)
-	}
-}
-
-func TestSwitchPassesNoMCPConfigWhenProvisioningMaterializedNone(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	if err := os.WriteFile(filepath.Join(fixture.worktree, ".mcp.json"), []byte(`{"mcpServers":{"oauth":{"url":"https://example.com/mcp"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:         fixture.meta.ID,
-		Harness:    harness.Kimi,
-		ForceDirty: true,
-		Session:    "fleet",
-	}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-
-	if spec := fixture.base.specs[len(fixture.base.specs)-1]; spec.MCPConfig != "" {
-		t.Errorf("MCPConfig = %q, want none - the worktree's own .mcp.json is not the goblin's config", spec.MCPConfig)
+			if err == nil || len(specs) != 1 {
+				t.Fatalf("Switch = %v with %d builds, want the one refused build", err, len(specs))
+			}
+			want := ""
+			if test.isProvisioned {
+				want = provisioned
+			}
+			if specs[0].MCPConfig != want {
+				t.Errorf("MCPConfig = %q, want %q", specs[0].MCPConfig, want)
+			}
+		})
 	}
 }
 
@@ -1023,38 +594,26 @@ func writeWorktreeManifest(t *testing.T, dataDir, project string, manifest workt
 	}
 }
 
+// A hand-edited worktree.json with a typo is fully knowable before anything
+// is touched. Discovering it after the stop would leave the goblin with no
+// harness at all over a config error.
 func TestSwitchRefusesAMalformedManifestBeforeStoppingTheHarness(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	// A hand-edited worktree.json with a typo is fully knowable before
-	// anything is touched. Discovering it after the stop would leave the
-	// goblin with no harness at all over a config error.
-	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{
 		Project:      "primary",
 		Dependencies: worktree.Dependencies{Strategy: "instal"},
 	})
-	before := len(fixture.runner.literals)
 
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Kimi,
-		Session: "fleet",
-	})
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
+
 	if err == nil || !strings.Contains(err.Error(), "unknown dependency strategy") {
 		t.Fatalf("err = %v, want a refusal naming the malformed manifest", err)
 	}
-	// The running harness was never asked to exit, so the goblin still has one.
-	if contains(fixture.runner.keys, "escape") {
-		t.Errorf("keys = %v, want no stop sequence sent", fixture.runner.keys)
-	}
-	for _, literal := range fixture.runner.literals[before:] {
-		if strings.HasPrefix(literal, "/") {
-			t.Errorf("the harness stop command was sent before the manifest was validated: %q", literal)
-		}
-	}
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
-		t.Errorf("a refused switch still mutated metadata: %+v", after)
-	}
+	assertLeftRunning(t, f, terminal, before)
 }
 
 // A Codex MCP server the operator's configuration names in a form a -c
@@ -1062,260 +621,44 @@ func TestSwitchRefusesAMalformedManifestBeforeStoppingTheHarness(t *testing.T) {
 // to Codex refuses it while the old harness still runs rather than leaving the
 // goblin with no harness at all.
 func TestSwitchRefusesAnUnaddressableCodexMCPServerBeforeStoppingTheHarness(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.service.Harness.Adapters[harness.Codex] = fixtureAdapter{events: &fixture.base.events, specs: &fixture.base.specs}
-	config := "[mcp_servers.\"my.server\"]\ncommand = \"npx\"\n"
-	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"), []byte(config), 0o600); err != nil {
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
 		t.Fatal(err)
 	}
-	before := len(fixture.runner.literals)
+	writeFile(t, filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"), "[mcp_servers.\"my.server\"]\ncommand = \"npx\"\n")
 
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{
-		ID:      fixture.meta.ID,
-		Harness: harness.Codex,
-		Session: "fleet",
-	})
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"})
 
 	if err == nil || !strings.Contains(err.Error(), `"my.server"`) {
 		t.Fatalf("err = %v, want a refusal naming the server", err)
 	}
-	if contains(fixture.runner.keys, "escape") {
-		t.Errorf("keys = %v, want no stop sequence sent", fixture.runner.keys)
-	}
-	for _, literal := range fixture.runner.literals[before:] {
-		if strings.HasPrefix(literal, "/") {
-			t.Errorf("the harness stop command was sent before the MCP servers were checked: %q", literal)
-		}
-	}
-	after, _ := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen {
-		t.Errorf("a refused switch still mutated metadata: %+v", after)
-	}
-}
-
-// launchLiteral returns the most recent typed literal that carries a harness
-// launch, identified by the environment prefix every launch line renders. A
-// switch sends two - the original launch and the relaunch - and these
-// assertions are about the relaunch. Selecting by content rather than by
-// position keeps them honest: the number of literals changes whenever delivery
-// does, and an index quietly starts pointing at a different line than the one
-// the test names instead of failing.
-func launchLiteral(t *testing.T, literals []string) string {
-	t.Helper()
-	last := -1
-	for i, literal := range literals {
-		if strings.Contains(literal, "$env:GOTMPDIR = ") {
-			last = i
-		}
-	}
-	if last < 0 {
-		t.Fatalf("literals = %q, want at least one harness launch line", literals)
-	}
-	return literals[last]
+	assertLeftRunning(t, f, terminal, before)
 }
 
 // /exit on a Claude goblin with background work opens Claude's "Background
-// work is running" menu instead of exiting, and switch used to interrupt and
-// then refuse. It now answers with Claude's own exit keys, which pick Exit
-// and stop tasks, and never interrupts the menu.
-func TestSwitchAnswersClaudesBackgroundWorkMenu(t *testing.T) {
-	fixture := newSwitchFixture(t)
+// work is running" menu instead of exiting. A switch answers it with the
+// harness's own exit keys, which pick Exit and stop tasks, so the harness
+// ends on its own terms rather than by its terminal being closed.
+func TestSwitchAnswersAnExitMenuWithTheHarnessesOwnKeys(t *testing.T) {
 	claude, err := harness.DefaultRegistry().Get(harness.Claude)
 	if err != nil {
 		t.Fatal(err)
 	}
-	control := claude.Control()
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.base.events, specs: &fixture.base.specs, control: &control}
-	fixture.runner.exitMenu = true
+	exit := claude.Control()
+	f := newNativeFixture(t, harness.Codex, "exitmenu")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit", ExitMarkers: exit.ExitMarkers, ExitKeys: exit.ExitKeys}}}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	closeCurrentTerminal(t, f)
 
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("Switch over the background-work menu: %v", err)
-	}
-	if !fixture.runner.menuAnswered || fixture.runner.interrupted {
-		t.Fatalf("menu answered %v, interrupted %v; want it answered and never interrupted", fixture.runner.menuAnswered, fixture.runner.interrupted)
-	}
-}
-
-// A goblin's Claude session left a Lavish review server and a
-// chrome-devtools-axi bridge running when it exited on 2026-09-23. The
-// pane's shell waits for both, so the relaunch sat in its input and later
-// started with no registered agent. Switch now refuses before relaunching,
-// naming each leftover with the line to rerun, refuses again on a rerun while
-// they live, and relaunches once they are gone.
-func TestSwitchRefusesToRelaunchOverTheOldSessionsLeftovers(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	tonight := []Leftover{
-		{PID: 38804, Executable: "node.exe", CommandLine: `"C:\Program Files\nodejs\node.exe" C:\Users\fpres\AppData\Roaming\npm\node_modules\lavish-axi\dist\cli.mjs server --port 4387`},
-		{PID: 41276, Executable: "node.exe", CommandLine: `"C:\Program Files\nodejs\node.exe" C:\Users\fpres\AppData\Roaming\npm\node_modules\chrome-devtools-axi\dist\bridge.mjs --session gb-steward-ui`},
-	}
-	alive := tonight
-	fixture.service.Leftovers = func(_ context.Context, _ terminal.Backend, target herdr.Target) ([]Leftover, error) {
-		if target.Pane != fixture.meta.HerdrPaneID {
-			t.Errorf("leftovers asked about pane %q, want the goblin's %q", target.Pane, fixture.meta.HerdrPaneID)
-		}
-		return alive, nil
-	}
-	request := SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Model: "kimi-k2", Effort: "high", ForceDirty: true, Session: "fleet"}
-	rerun := "cfo switch " + fixture.meta.ID + " --harness kimi --model kimi-k2 --effort high --force-dirty"
-
-	for attempt := 1; attempt <= 2; attempt++ {
-		_, err := fixture.service.Switch(context.Background(), request)
-		if err == nil {
-			t.Fatalf("attempt %d relaunched over the leftovers", attempt)
-		}
-		for _, want := range []string{"node.exe pid 38804: " + tonight[0].CommandLine, "node.exe pid 41276: " + tonight[1].CommandLine, rerun} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("attempt %d refusal %q does not name %q", attempt, err, want)
-			}
-		}
-		after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		lines, _ := state.TailStatus(fixture.stateDir, fixture.meta.ID, 1)
-		if fixture.runner.restarted || after.Harness != fixture.meta.Harness || after.SpawnGen != fixture.meta.SpawnGen || len(lines) != 1 || !strings.Contains(lines[0], "failed: switch:") {
-			t.Fatalf("attempt %d: restarted %v, meta %+v, status %q; want no harness, the task unchanged and the refusal on the board", attempt, fixture.runner.restarted, after, lines)
-		}
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"}); err != nil {
+		t.Fatalf("Switch over the exit menu: %v", err)
 	}
 
-	alive = nil
-	fixture.runner.herdrCalls = nil
-	if _, err := fixture.service.Switch(context.Background(), request); err != nil {
-		t.Fatalf("switch once the leftovers are stopped: %v", err)
-	}
-	if !fixture.runner.restarted {
-		t.Fatal("no harness started once the leftovers were stopped")
-	}
-	started := slices.ContainsFunc(fixture.runner.herdrCalls, func(call execx.Request) bool {
-		return len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "start" && call.Args[2] == "gb-"+fixture.meta.ID
-	})
-	if !started {
-		t.Fatalf("relaunch did not start agent %q; herdr calls %v", "gb-"+fixture.meta.ID, fixture.runner.herdrCalls)
-	}
-}
-
-// A move refused over the old session's leftovers names the rerun that moves
-// the goblin, not one that would relaunch it in its Herdr pane.
-func TestSwitchNamesTheMoveInTheRerunOverLeftovers(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
-		return []Leftover{{PID: 38804, Executable: "node.exe", CommandLine: "node lavish-axi server --port 4387"}}, nil
-	}
-
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Native: true, Session: "fleet"})
-
-	if err == nil || !strings.HasSuffix(err.Error(), "run:\n  cfo switch "+fixture.meta.ID+" --native") {
-		t.Fatalf("err = %v, want the refusal to end with the rerun that moves the goblin", err)
-	}
-	if after, readErr := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID); readErr != nil || after.Backend != "herdr" || after.HerdrPaneID != fixture.meta.HerdrPaneID {
-		t.Errorf("task record = %+v, %v; want it still in its Herdr pane", after, readErr)
-	}
-}
-
-// A relaunched harness Herdr cannot detect is registered by CFO itself, under
-// the goblin's gb- name, so deliveries to it still confirm.
-func TestSwitchRegistersAnUndetectedRelaunchUnderTheGoblinsName(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	fixture.service.Harness.Adapters[harness.Pi] = typedFixtureAdapter{events: &fixture.base.events, kind: harness.Pi}
-	typedScreens(fixture.base.runner, harness.Pi)
-	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
-		fixture.base.runner.prompt = ""
-		fixture.base.runner.agentNotFound = true
-		fixture.base.runner.harnessRunning = true
-		return nil, nil
-	}
-
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Pi, Session: "fleet"}); err != nil {
-		t.Fatalf("Switch: %v", err)
-	}
-	reported := fixture.base.runner.reportedAgent
-	if index := slices.Index(reported, "--agent-session-id"); index < 0 || index+1 >= len(reported) || reported[index+1] != "gb-"+fixture.meta.ID {
-		t.Fatalf("reported agent %v, want it registered as %q", reported, "gb-"+fixture.meta.ID)
-	}
-}
-
-// A job handle the shell closes mid-check makes one listing fail; the grace
-// keeps looking, so a shell that turns out free still gets its harness.
-func TestSwitchLooksAgainWhenALeftoverListingFailsOnce(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	looks := 0
-	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
-		looks++
-		if looks == 1 {
-			return nil, errors.New("duplicate job handle: the handle is invalid")
-		}
-		return nil, nil
-	}
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("one failed listing stopped the switch: %v", err)
-	}
-	if !fixture.runner.restarted {
-		t.Fatal("no harness started")
-	}
-}
-
-// A listing that fails through the whole grace cannot prove the shell free,
-// so switch refuses and starts nothing.
-func TestSwitchRefusesWhenTheLeftoverListingKeepsFailing(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	looks := 0
-	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
-		looks++
-		return nil, errors.New("duplicate job handle: access is denied")
-	}
-	_, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"})
-	if err == nil || !strings.Contains(err.Error(), "could not be checked (duplicate job handle: access is denied)") {
-		t.Fatalf("Switch error %v, want the could-not-be-checked refusal", err)
-	}
-	if fixture.runner.restarted || looks != leftoverPolls+1 {
-		t.Fatalf("restarted %v after %d looks; want no harness after %d", fixture.runner.restarted, looks, leftoverPolls+1)
-	}
-}
-
-// A harness's own children can take a moment to follow it out, so processes
-// gone within a few looks do not stop a switch.
-func TestSwitchLetsAHarnessesChildrenFollowItOut(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	looks := 0
-	fixture.service.Leftovers = func(context.Context, terminal.Backend, herdr.Target) ([]Leftover, error) {
-		looks++
-		if looks == 1 {
-			return []Leftover{{PID: 5120, Executable: "bash.exe", CommandLine: "bash -c 'npm run dev'"}}, nil
-		}
-		return nil, nil
-	}
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("a child on its way out stopped the switch: %v", err)
-	}
-	if !fixture.runner.restarted {
-		t.Fatal("no harness started")
-	}
-}
-
-// A switch to Claude that names no model runs Opus 5.5, while a switch that
-// keeps a Claude goblin's named model keeps it.
-func TestSwitchToClaudeWithNoNamedModelRunsOpus55(t *testing.T) {
-	fixture := newSwitchFixture(t)
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Kimi, Session: "fleet"}); err != nil {
-		t.Fatalf("switch to kimi: %v", err)
-	}
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Harness: harness.Claude, Session: "fleet"}); err != nil {
-		t.Fatalf("switch back to claude: %v", err)
-	}
-	after, err := state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if launched := fixture.base.specs[len(fixture.base.specs)-1].Model; after.Model != "claude-opus-5-5" || launched != "claude-opus-5-5" {
-		t.Fatalf("recorded model %q, launched %q; want claude-opus-5-5", after.Model, launched)
-	}
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Model: "claude-sonnet-5", Session: "fleet"}); err != nil {
-		t.Fatalf("name a model: %v", err)
-	}
-	if _, err := fixture.service.Switch(context.Background(), SwitchRequest{ID: fixture.meta.ID, Effort: "max", Session: "fleet"}); err != nil {
-		t.Fatalf("change only the effort: %v", err)
-	}
-	if after, err = state.ReadTaskMeta(fixture.stateDir, fixture.meta.ID); err != nil || after.Model != "claude-sonnet-5" {
-		t.Fatalf("an effort-only switch changed the named model to %q (%v)", after.Model, err)
+	if answered := named(f.events(t), "exit menu"); len(answered) != 1 || answered[0].Text != "1. Exit and stop tasks" {
+		t.Errorf("exit menu answers = %+v, want Exit and stop tasks chosen once", answered)
 	}
 }

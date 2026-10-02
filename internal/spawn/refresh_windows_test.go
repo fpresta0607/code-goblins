@@ -65,8 +65,9 @@ func TestAuthRefreshSkipsAnUnreadableTaskRecordAndRefreshesTheRest(t *testing.T)
 
 // A native goblin is live for a credential refresh while its terminal's host
 // runs, since the host ends with its harness, so it gets the refreshed script
-// and its re-source notice as a goblin in Herdr does; one whose terminal has
-// ended is not, and a goblin in Herdr is still asked of Herdr.
+// and its re-source notice; one whose terminal has ended is not, and neither
+// is a task recorded in Herdr, which no terminal of this build can reach, even
+// when a native terminal of its id runs.
 func TestANativeGoblinIsLiveForACredentialRefreshWhileItsTerminalRuns(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
 	fake, err := exec.LookPath(string(harness.Codex))
@@ -82,7 +83,7 @@ func TestANativeGoblinIsLiveForACredentialRefreshWhileItsTerminalRuns(t *testing
 			t.Errorf("close the terminal: %v", err)
 		}
 	})
-	liveness := BackendLiveness{StateDir: f.stateDir}
+	liveness := NativeLiveness{StateDir: f.stateDir}
 
 	for _, tc := range []struct {
 		name string
@@ -91,7 +92,7 @@ func TestANativeGoblinIsLiveForACredentialRefreshWhileItsTerminalRuns(t *testing
 	}{
 		{"a native goblin whose terminal runs", state.TaskMeta{ID: "task-7", Backend: "native"}, true},
 		{"a native goblin whose terminal ended", state.TaskMeta{ID: "task-8", Backend: "native"}, false},
-		{"a goblin in Herdr with no Herdr to ask", state.TaskMeta{ID: "task-7", Backend: "herdr", HerdrSession: "fleet", HerdrPaneID: "p1"}, false},
+		{"a task recorded in Herdr", state.TaskMeta{ID: "task-7", Backend: "herdr", HerdrSession: "fleet", HerdrPaneID: "p1"}, false},
 	} {
 		if got := liveness.Live(context.Background(), tc.meta); got != tc.want {
 			t.Errorf("%s: live = %v, want %v", tc.name, got, tc.want)
