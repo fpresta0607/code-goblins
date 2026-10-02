@@ -47,9 +47,10 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
 export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { kind: "empty"; text: string };
 
 // A registered CFO with no native terminal is the live CFO still in Herdr.
-export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs">): DeckView {
+export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs" | "cfo_closed">): DeckView {
   if (snapshot.cfo_terminal) return { kind: "host", query: "cfo=" + encodeURIComponent(snapshot.cfo_terminal) };
-  return snapshot.cfo_runs ? { kind: "herdr" } : { kind: "empty", text: "No CFO is running." };
+  if (snapshot.cfo_runs) return { kind: "herdr" };
+  return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed. Reopen it from the board." : "No CFO is running." };
 }
 
 export function goblinView(task: Task): DeckView {

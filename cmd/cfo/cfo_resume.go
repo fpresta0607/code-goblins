@@ -19,6 +19,36 @@ var (
 	cfoResumeWait   = time.Sleep
 )
 
+// comeBack starts agent as the CFO of h in native terminal cfo on the
+// conversation resume names, and reports whether it holds: a terminal that
+// ended within cfoResumeSettle is a harness that could not resume it.
+func comeBack(h home.Home, agent string, resume []string, start func(h home.Home, project, harness string, args []string) error, runs func(stateDir, id string) bool) (bool, error) {
+	if err := start(h, h.Root, agent, resume); err != nil {
+		return false, err
+	}
+	cfoResumeWait(cfoResumeSettle)
+	return runs(h.State, supervisor.NativeCFOTerminal), nil
+}
+
+// reopenCFO brings the home's closed CFO back for the board's Reopen, as
+// goblins brings it back: as the agent the home remembers, in native terminal
+// cfo, on the conversation it last registered with where its harness resumes
+// one, and on a new one when there is none or the resumed terminal does not
+// hold. The board shows the CFO in a native terminal, so it starts in one
+// wherever it ran before.
+func reopenCFO(h home.Home, start func(h home.Home, project, harness string, args []string) error, runs func(stateDir, id string) bool) error {
+	agent, err := cfoHarness(h.State)
+	if err != nil {
+		return err
+	}
+	if resume, _, _ := cfoResume(h, agent); len(resume) > 0 {
+		if held, err := comeBack(h, agent, resume, start, runs); err != nil || held {
+			return err
+		}
+	}
+	return start(h, h.Root, agent, nil)
+}
+
 // cfoTranscriptLimit is the size past which a CFO starts a new conversation
 // rather than resume its last one: the Overlord's rule (2026-09-29) that CFO
 // sessions stay small, about 20 MB.
