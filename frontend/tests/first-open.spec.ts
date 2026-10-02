@@ -1,5 +1,8 @@
 import { expect, holdStream, test, type Page } from "./site";
 
+// The DOM renderer makes terminal output observable in headless screenshots.
+test.use({ launchOptions: { args: ["--disable-webgl"] } });
+
 // The Overlord, 2026-10-02, with a screenshot of his own board: "make sure
 // that when you open the Code Goblins board for the first time, or any type of
 // the Code Goblins app or UI for the first time, the default window is what
@@ -34,6 +37,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
   });
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+    socket.send(JSON.stringify({ type: "size", cols: 60, rows: 20 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") { typed.push(data.toString("utf8")); return; }
       const command: unknown = JSON.parse(data);
@@ -61,6 +65,8 @@ async function besideTheBoard(page: Page) {
   await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
   await expect(board(page)).toBeVisible();
   await expect(terminalInput(page)).toBeVisible();
+  await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".terminal-view .xterm-rows")).toContainText("READY");
   const [left, right] = [(await board(page).boundingBox())!, (await panel(page).boundingBox())!];
   expect(left.x + left.width).toBeLessThanOrEqual(right.x);
   expect(Math.abs(left.y - right.y)).toBeLessThan(2);
