@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +87,52 @@ func queueBriefedTask(t *testing.T, h home.Home, row, brief string) {
 }
 
 const plainBrief = "# Brief next-task\n\n## Project\n\nC:\\dev\\code-goblins\n\n## Task\n\nShip it.\n"
+
+func TestSnapshotDoesNotWaitForAStartReadingMachineMemory(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	queueBriefedTask(t, h, "- **next-task** - Next task (repo: code-goblins)", plainBrief)
+	reading, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	handler.Service.Options.Dispatch.Memory = func() (Memory, error) {
+		if calls.Add(1) == 1 {
+			close(reading)
+			<-release
+			return Memory{}, errors.New("memory reading failed")
+		}
+		return Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, nil
+	}
+	startFinished := make(chan error, 1)
+	go func() { startFinished <- handler.Service.startTask("next-task") }()
+	<-reading
+	end := sync.OnceFunc(func() { close(release) })
+	defer end()
+
+	// Act
+	finished := make(chan error, 1)
+	go func() { _, err := handler.Service.Snapshot(); finished <- err }()
+
+	// Assert
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(time.Second):
+		t.Error("snapshot waited for a Start's machine read while holding s.starts")
+		end()
+		if err := <-finished; err != nil {
+			t.Error(err)
+		}
+	}
+	end()
+	if err := <-startFinished; err == nil {
+		t.Error("a failed memory reading started the task")
+	}
+	if len(handler.Service.changing) != 0 || handler.Service.starting != "" {
+		t.Error("a refused Start kept its reservation")
+	}
+}
 
 // waitStarted waits until the board no longer shows the start in progress. A
 // snapshot read while the start writes the wake queue can meet a Windows

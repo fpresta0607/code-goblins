@@ -945,6 +945,9 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 		t.Run(c.phase, func(t *testing.T) {
 			store, h := testStore(t)
 			store.db.Tasks["task-1"] = Evaluation{Phase: c.phase, Generation: "g1", At: time.Now()}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
 			if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
 				t.Fatal(err)
 			}

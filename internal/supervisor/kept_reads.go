@@ -31,10 +31,11 @@ type keptReads struct {
 	// together, in one listing of each folder: builds counts the builds in
 	// progress, looks is what this build has asked so far, and lists holds
 	// the listing of each folder in folders once it was read.
-	builds  int
-	folders []string
-	looks   map[string]look
-	lists   map[string]map[string]fs.FileInfo
+	builds     int
+	generation uint64
+	folders    []string
+	looks      map[string]look
+	lists      map[string]map[string]fs.FileInfo
 }
 
 // look is what the disk said of a path, as os.Stat gives it.
@@ -65,6 +66,7 @@ func (k *keptReads) begin(folders ...string) func() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.builds++
+	k.generation++
 	k.folders, k.looks, k.lists = folders, map[string]look{}, map[string]map[string]fs.FileInfo{}
 	return func() {
 		k.mu.Lock()
@@ -82,32 +84,42 @@ func (k *keptReads) begin(folders ...string) func() {
 // before the last changes inside it.
 func (k *keptReads) look(path string) (fs.FileInfo, error) {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	if k.builds == 0 {
+		k.mu.Unlock()
 		return os.Stat(path)
 	}
 	if seen, ok := k.looks[path]; ok {
+		k.mu.Unlock()
 		return seen.info, seen.err
 	}
-	info, err := k.ask(path)
-	if err == nil || errors.Is(err, fs.ErrNotExist) {
+	folder := filepath.Dir(path)
+	isListed := slices.Contains(k.folders, folder)
+	list := k.lists[folder]
+	generation := k.generation
+	k.mu.Unlock()
+	info, list, err := ask(path, isListed, list)
+	k.mu.Lock()
+	if k.builds > 0 && k.generation == generation && (err == nil || errors.Is(err, fs.ErrNotExist)) {
 		k.looks[path] = look{info, err}
+		if list != nil {
+			k.lists[folder] = list
+		}
 	}
+	k.mu.Unlock()
 	return info, err
 }
 
-// ask is look for a path this build has not asked about. The caller holds
-// the lock.
-func (k *keptReads) ask(path string) (fs.FileInfo, error) {
+// ask reads the disk without holding the cache's lock.
+func ask(path string, isListed bool, list map[string]fs.FileInfo) (fs.FileInfo, map[string]fs.FileInfo, error) {
 	folder := filepath.Dir(path)
-	if !slices.Contains(k.folders, folder) {
-		return os.Stat(path)
+	if !isListed {
+		info, err := os.Stat(path)
+		return info, nil, err
 	}
-	list, ok := k.lists[folder]
-	if !ok {
+	if list == nil {
 		entries, err := os.ReadDir(folder)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return nil, nil, err
 		}
 		list = make(map[string]fs.FileInfo, len(entries))
 		for _, entry := range entries {
@@ -116,20 +128,20 @@ func (k *keptReads) ask(path string) (fs.FileInfo, error) {
 				continue
 			}
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			list[strings.ToLower(entry.Name())] = info
 		}
-		k.lists[folder] = list
 	}
 	info, ok := list[strings.ToLower(filepath.Base(path))]
 	switch {
 	case !ok:
-		return nil, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
+		return nil, list, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
 	case info.IsDir():
-		return os.Stat(path)
+		info, err := os.Stat(path)
+		return info, list, err
 	}
-	return info, nil
+	return info, list, nil
 }
 
 // kept returns what read gave the last time for these paths, while each of
@@ -231,7 +243,11 @@ func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
 	h := s.Store.Home
 	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName)}
 	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
-		task, err := fleet.ReadQueuedTask(h, id)
+		backlog, err := s.backlog()
+		if err != nil {
+			return answer{}, err
+		}
+		task, err := backlog.ReadQueuedTask(h, id)
 		if errors.Is(err, fleet.ErrNotQueued) {
 			return answer{notQueued: true}, nil
 		}

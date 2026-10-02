@@ -56,6 +56,10 @@ func loopbackAddress(address string) bool {
 }
 
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: %v\n", err)
+		return 1
+	}
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
 	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
@@ -164,7 +168,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
-		CI:               execx.OSRunner{},
+		CI: execx.OSRunner{},
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,

@@ -1,8 +1,12 @@
 package supervisor
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,5 +146,124 @@ func TestASnapshotReadsAgainOnlyTheFileThatChanged(t *testing.T) {
 		if task.ID == "goblin-03" && task.Activity != "working: the new report" {
 			t.Errorf("goblin-03 reads %q, want its new report", task.Activity)
 		}
+	}
+}
+
+func TestASnapshotWithTwoThousandBacklogRowsFinishesWithinTwoSeconds(t *testing.T) {
+	// Arrange: a live task, fourteen undispatched briefs and a large Done section.
+	store, h := testStore(t)
+	var backlog strings.Builder
+	backlog.WriteString("# Backlog\n\n## Queued\n\n## Done\n")
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2000 {
+		fmt.Fprintf(&backlog, "- **finished-%04d** - A completed task with its delivery and verification recorded https://example.invalid/pull/%d (repo: example, kind: ship, harness: claude, model: opus, effort: high, mode: no-mistakes)\n", i, i)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 14 {
+		folder := filepath.Join(h.Data, fmt.Sprintf("brief-%02d", i))
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, "brief.md"), []byte("# Brief\n\n## Project\n\nexample\n\n## Task\n\nA queued task\n\nIts detail.\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &Service{Store: store}
+
+	// Act
+	started := time.Now()
+	snapshot, err := s.Snapshot()
+	elapsed := time.Since(started)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Tasks) != 15 {
+		t.Fatalf("snapshot has %d tasks, want 15", len(snapshot.Tasks))
+	}
+	for _, task := range snapshot.Tasks {
+		if task.ID == "task-1" {
+			continue
+		}
+		if task.Detail != "Its detail." || !strings.HasPrefix(task.QueueRevision, "brief:") {
+			t.Fatalf("queued task lost its editable detail or revision: %+v", task)
+		}
+	}
+	t.Logf("snapshot: 2000 backlog rows, 15 tasks, %d backlog bytes, %s", backlog.Len(), elapsed)
+	if elapsed > 2*time.Second {
+		t.Errorf("snapshot took %s, budget is two seconds", elapsed)
+		return
+	}
+
+	// A newly opened event stream must send its initial snapshot within the same bound.
+	service := &Service{Store: store, Instance: "budget", subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{})}
+	handler := NewHTTP(service, "", nil)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	handler.Host = strings.TrimPrefix(server.URL, "http://")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("event stream did not open within two seconds: %v", err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("initial snapshot did not arrive within two seconds: %v", err)
+		}
+		if strings.TrimSpace(line) == "event: snapshot" {
+			break
+		}
+	}
+}
+
+func TestSnapshotReadsAChangedBacklogOnceForAllQueuedRows(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	path := filepath.Join(h.Data, "backlog.md")
+	writeFile(t, path, "## Queued\n- **first** - First task\n  Old detail.\n- **second** - Second task\n- **third** - Third task\n")
+	s := &Service{Store: store}
+	before, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, "## Queued\n- **first** - First task\n  New detail is longer.\n- **second** - Second task\n- **third** - Third task\n")
+	opened := fsx.Opens()
+
+	// Act
+	after, err := s.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := fsx.Opens() - opened; count > 5 {
+		t.Errorf("changed backlog snapshot opened %d files, want at most five, including one backlog read", count)
+	}
+	var prior, current Task
+	for _, task := range before.Tasks {
+		if task.ID == "first" {
+			prior = task
+		}
+	}
+	for _, task := range after.Tasks {
+		if task.ID == "first" {
+			current = task
+		}
+	}
+	if current.Detail != "New detail is longer." || current.QueueRevision == "" || current.QueueRevision == prior.QueueRevision {
+		t.Fatalf("changed task stayed stale: before=%+v after=%+v", prior, current)
 	}
 }

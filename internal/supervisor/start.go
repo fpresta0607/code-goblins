@@ -147,26 +147,38 @@ func (s *Service) startTask(id string) error {
 		return StartRefusal{Reason: "This board cannot start goblins"}
 	}
 	s.starts.Lock()
-	defer s.starts.Unlock()
 	if s.startErrors == nil {
 		s.startErrors = map[string]string{}
 	}
 	if s.starting != "" {
-		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
+		starting := s.starting
+		s.starts.Unlock()
+		return StartRefusal{Reason: starting + " is starting; start another once it is up", Passing: true}
 	}
 	for task, action := range s.changing {
 		if action == "resume" {
+			s.starts.Unlock()
 			return StartRefusal{Reason: task + " is resuming; start another once it is up", Passing: true}
 		}
 	}
 	if s.changing[id] != "" {
+		s.starts.Unlock()
 		return StartRefusal{Reason: "This task is being changed", Passing: true}
 	}
+	s.starting = id
+	s.starts.Unlock()
+	isStarting := false
+	defer func() {
+		if !isStarting {
+			s.starts.Lock()
+			s.starting = ""
+			s.starts.Unlock()
+		}
+	}()
 	queueLock := ".queued-" + id + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
 		return StartRefusal{Reason: "This queued task is being changed; try again", Passing: true}
 	}
-	isStarting := false
 	defer func() {
 		if !isStarting {
 			if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
@@ -193,9 +205,10 @@ func (s *Service) startTask(id string) error {
 			return err
 		}
 	}
-	s.starting = id
 	isStarting = true
+	s.starts.Lock()
 	delete(s.startErrors, id)
+	s.starts.Unlock()
 	go s.runStart(dispatch, plan)
 	return nil
 }
