@@ -257,21 +257,7 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 	var err error
 	switch p.cfo {
 	case "claude":
-		settings := filepath.Join(p.root, "claude-settings.json")
-		hook := func(name string, extra map[string]any) map[string]any {
-			entry := map[string]any{"type": "command", "command": p.binary, "args": []string{"hook", name}}
-			for key, value := range extra {
-				entry[key] = value
-			}
-			return map[string]any{"hooks": []any{entry}}
-		}
-		data, _ := json.Marshal(map[string]any{"hooks": map[string]any{
-			"SessionStart": []any{hook("session-start", map[string]any{"timeout": 120})},
-			"Stop":         []any{hook("turnend-guard", nil), hook("stop-autoarm", map[string]any{"asyncRewake": true, "timeout": 28800})},
-		}})
-		writeProofFile(t, settings, string(data))
-		args, err = nativeCFOProgram("claude")
-		args = append(args, "--setting-sources", "project,local", "--settings", settings, "--dangerously-skip-permissions", prompt)
+		args, err = nativeCFOProgram("claude", append(p.claudeArguments(t), prompt)...)
 	case "codex":
 		args, err = spawn.NativeProgram("codex", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-m", proofModel("codex"), prompt)
 	case "pi":
@@ -289,6 +275,32 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 			_ = process.Kill()
 		}
 	})
+	return p.settle(t, record)
+}
+
+// claudeArguments are what a Claude Code CFO of the proof starts with: this
+// tree's hooks from its own settings and none of the user's, which name the
+// fleet's binary.
+func (p *wakeProof) claudeArguments(t *testing.T) []string {
+	settings := filepath.Join(p.root, "claude-settings.json")
+	hook := func(name string, extra map[string]any) map[string]any {
+		entry := map[string]any{"type": "command", "command": p.binary, "args": []string{"hook", name}}
+		for key, value := range extra {
+			entry[key] = value
+		}
+		return map[string]any{"hooks": []any{entry}}
+	}
+	data, _ := json.Marshal(map[string]any{"hooks": map[string]any{
+		"SessionStart": []any{hook("session-start", map[string]any{"timeout": 120})},
+		"Stop":         []any{hook("turnend-guard", nil), hook("stop-autoarm", map[string]any{"asyncRewake": true, "timeout": 28800})},
+	}})
+	writeProofFile(t, settings, string(data))
+	return []string{"--setting-sources", "project,local", "--settings", settings, "--dangerously-skip-permissions"}
+}
+
+// settle answers the startup dialogs the CFO's harness shows in record's
+// terminal, and returns once its composer or a turn has settled.
+func (p *wakeProof) settle(t *testing.T, record host.Record) host.Record {
 	screens, _ := harness.NativeScreens(harness.Kind(p.cfo))
 	// A dialog is answered before anything else, and the composer or a turn
 	// counts only once it has shown startupSettle reads in a row: on

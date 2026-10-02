@@ -14,8 +14,9 @@ import (
 )
 
 // A new CFO's startup dialogs are watched for at most cfoSettle, and the
-// watch ends once its screen has shown no dialog it knows and not changed for
-// cfoSettleQuiet, read every cfoSettlePoll.
+// watch ends once its screen shows a turn in progress, which is past them, or
+// has shown no dialog it knows and not changed for cfoSettleQuiet, read every
+// cfoSettlePoll.
 var (
 	cfoSettle      = 45 * time.Second
 	cfoSettleQuiet = 3 * time.Second
@@ -58,9 +59,11 @@ func settleNativeCFO(ctx context.Context, stateDir, name string) []string {
 // whose trust is known and safe to give: Claude Code's trust in the home the
 // quick start made, Codex's directory trust and update prompt, and Codex's
 // hook review without trusting the hooks, which only the Overlord trusts. It
-// stops at a screen it does not know, which it never types into, and returns
-// a line for each dialog it answered and, for a dialog it may not have
-// reached, what to choose there.
+// stops at a screen it does not know, which it never types into, and at once
+// at a screen that shows a turn in progress, as a CFO started with a first
+// prompt shows once its dialogs are behind it. It returns a line for each
+// dialog it answered and, for a dialog it may not have reached, what to
+// choose there.
 func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []string {
 	var notes, answered []string
 	deadline := terminal.now().Add(cfoSettle)
@@ -79,6 +82,9 @@ func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []strin
 			answered = append(answered, dialog.Name)
 			last, since = "", time.Time{}
 			continue
+		}
+		if screens.IsWorking(screen) {
+			return append(notes, unreached(name, answered)...)
 		}
 		shown := strings.TrimSpace(strings.Join(screen, "\n"))
 		switch {

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Alerts } from "../../src/Alerts";
 import { CfoPin } from "../../src/CfoPin";
 import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -42,4 +43,5 @@ function Page() {
   </main>;
 }
 
+watchTips();
 createRoot(document.getElementById("root")!).render(<Page />);

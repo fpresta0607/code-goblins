@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { showsFirstRun, startState } from "./firstRunStart.ts";
 import type { Setup, SetupAgent } from "./types.ts";
 
-const claude: SetupAgent = { id: "claude", name: "Claude Code", installed: true, signed_in: true, reason: "" };
+const claude: SetupAgent = { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true, reason: "" };
 const others: SetupAgent[] = [
-  { id: "codex", name: "Codex", installed: true, signed_in: true, reason: "Goblins can wake only a Claude Code CFO today" },
-  { id: "pi", name: "Pi", installed: false, signed_in: false, reason: "Goblins can wake only a Claude Code CFO today" },
+  { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, signed_in: true, reason: "" },
+  { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, signed_in: false, reason: "Install pi to start the CFO" },
 ];
 const setup = (changes: Partial<Setup> = {}): Setup => ({ home: "C:\\CodeGoblins", agent: "", projects_root: "C:\\dev", checkouts: ["alpha", "beta"], problem: "", agents: [claude, ...others], cfo_runs: false, ...changes });
 
@@ -14,16 +14,17 @@ test("Start uses the picked agent, or the one the quick start remembered, or the
   const noCheckout = "No git checkout is in this folder; pick the folder that holds your projects.";
   const cases: [string, Setup, string, boolean, { agent: string; blocked: string }][] = [
     ["nothing chosen anywhere", setup(), "", false, { agent: "claude", blocked: "" }],
-    ["the agent the quick start remembered", setup({ agent: "codex" }), "", false, { agent: "codex", blocked: "Goblins can wake only a Claude Code CFO today" }],
+    ["the agent the quick start remembered, which starts like any other", setup({ agent: "codex" }), "", false, { agent: "codex", blocked: "" }],
     ["a tab picked over the remembered agent", setup({ agent: "codex" }), "claude", false, { agent: "claude", blocked: "" }],
-    ["a pick that is no agent of this machine", setup({ agent: "pi" }), "gemini", false, { agent: "pi", blocked: "Goblins can wake only a Claude Code CFO today" }],
+    ["a pick that is no agent of this machine", setup({ agent: "pi" }), "gemini", false, { agent: "pi", blocked: "Install pi to start the CFO" }],
     ["a remembered name that is no agent", setup({ agent: "kimi" }), "", false, { agent: "claude", blocked: "" }],
     ["two projects and none picked, since none is asked for", setup(), "", false, { agent: "claude", blocked: "" }],
     ["no projects folder at all", setup({ projects_root: "", checkouts: [] }), "", false, { agent: "claude", blocked: "" }],
     ["a recorded folder without projects that he never looked at", setup({ checkouts: [], problem: noCheckout }), "", false, { agent: "claude", blocked: "" }],
     ["a folder he looked at that has no projects", setup({ checkouts: [], problem: noCheckout }), "", true, { agent: "claude", blocked: noCheckout }],
     ["a Claude Code it cannot start", setup({ agents: [{ ...claude, installed: false, reason: "Install Claude Code to start the CFO" }, ...others] }), "", false, { agent: "claude", blocked: "Install Claude Code to start the CFO" }],
-    ["a machine whose page lists no Claude Code", setup({ agents: others }), "", false, { agent: "claude", blocked: "This board cannot start Claude Code." }],
+    ["a page that recommends none and remembers none", setup({ agents: others }), "", false, { agent: "", blocked: "This board offers no agent to start the CFO as." }],
+    ["the recommended agent wherever it stands in the list", setup({ agents: [...others, claude] }), "", false, { agent: "claude", blocked: "" }],
   ];
   for (const [name, given, picked, lookedAtFolder, want] of cases) assert.deepEqual(startState(given, picked, lookedAtFolder), want, name);
 });

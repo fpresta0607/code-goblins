@@ -80,7 +80,9 @@ test("an open panel stays idle and reopening reads only the cached check", async
   await disclosure.click();
   await disclosure.click();
   await expect(page.getByText("Checking connections...", { exact: true })).toBeVisible();
-  expect(reads).toBe(2);
+  // The panel says it is checking from the moment it opens, before its
+  // request is counted here, so the count is waited for.
+  await expect.poll(() => reads).toBe(2);
   await page.clock.runFor(2000);
   await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
   await page.clock.runFor(5 * 60 * 1000);

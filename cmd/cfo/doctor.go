@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 )
 
@@ -64,6 +65,7 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 
 	reportRouting(stdout)
 	reportProjectsRoot(stdout, runtime)
+	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
 
 	if !healthy {
@@ -93,6 +95,27 @@ func reportProjectsRoot(stdout io.Writer, runtime commandRuntime) {
 		return
 	}
 	fmt.Fprintf(stdout, "projects root: %s (--project <name> resolves to a checkout under it)\n", root)
+}
+
+// reportCFOHarness prints the harness this home starts the CFO as and what a
+// CFO in it gets, from the table the quick start and the board's first-run
+// page read, with each thing it goes without on a line of its own. It never
+// counts against the health verdict.
+func reportCFOHarness(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	agent, err := cfoHarness(h.State)
+	if err != nil {
+		fmt.Fprintf(stdout, "cfo harness: unreadable (%v)\n", err)
+		return
+	}
+	capability, _ := supervisor.CFOCapabilityFor(agent)
+	fmt.Fprintf(stdout, "cfo harness: %s (%s); %s\n", capability.Name, capability.Note, capability.Registers)
+	for _, lack := range capability.Lacks {
+		fmt.Fprintf(stdout, "  goes without: %s\n", lack)
+	}
 }
 
 // reportRouting prints the standing switch policy and the execution lane

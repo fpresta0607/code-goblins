@@ -58,21 +58,22 @@
   --merged: #ab7df8;
   --closed: #f85149;
   --radius: 0.625rem;
+  /* A tip's own surface: solid, a step lighter than the cards it floats
+     over, with a mint edge. */
+  --tip-surface: #10222a;
+  --tip-edge: #2f7d66;
 }
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #38564d transparent; }
 /* Every icon-only control names itself twice: aria-label for assistive
-   technology and data-tip for sighted pointer and keyboard users. */
+   technology and data-tip for sighted pointer and keyboard users. The tip is
+   one box that floats over the whole page (tips.ts), so no scrolling box
+   clips it and no dimmed control dims it: it holds its whole text, wrapping
+   past 320 px, on a solid surface with an edge that reads over a card, a
+   terminal or the workshop picture alike. */
 [data-tip] { position: relative; }
-[data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; top: calc(100% + 8px); z-index: 30; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: 280px; pointer-events: none; opacity: 0; transform: translate(-50%, -4px); transition: opacity .12s ease, transform .12s ease; }
-[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-[data-tip-align="end"]::after { left: auto; right: 0; transform: translateY(-4px); }
-[data-tip-align="start"]::after { left: 0; transform: translateY(-4px); }
-[data-tip-align="end"]:hover::after, [data-tip-align="end"]:focus-visible::after, [data-tip-align="start"]:hover::after, [data-tip-align="start"]:focus-visible::after { transform: none; }
-/* A task card's parts show their tips in one tip floating over the whole page,
-   over or under the card, so a tip never covers the card's own controls or
-   links. */
-.task-card-shell [data-tip]::after { content: none; }
-.card-tip { position: fixed; z-index: 50; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
+.tip { position: fixed; z-index: 60; padding: 6px 11px; border: 1px solid var(--tip-edge); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); color: #edf4f3; font: 700 1rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
+/* These open their tips over them, clear of what they sit above. */
+.canvas-controls, .voice-dock, .comment-mark { --tip-side: over; }
 body { margin: 0; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input, textarea {
@@ -199,6 +200,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .agent-recommended { padding: 1px 8px; border: 1px solid var(--accent-green); border-radius: 999px; color: var(--accent-green); font-size: .8125rem; }
 .agent-panel { display: grid; gap: 4px; min-width: 0; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .agent-panel small { color: var(--amber); font-size: .9375rem; }
+.agent-note { color: var(--muted); font-size: .9375rem; }
+.agent-note::first-letter { text-transform: uppercase; }
 .agent-state { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: .9375rem; }
 .agent-state > span { display: inline-flex; align-items: center; gap: 5px; }
 .agent-state .icon { width: 16px; height: 16px; }
@@ -364,7 +367,6 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .canvas-controls > div { display: flex; align-items: center; border-radius: var(--radius); padding: 2px; }
 
 .canvas-controls > button { border-radius: 50%; }
-.canvas-controls > button[data-tip]::after, .canvas-controls div button[data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 .canvas-controls output { min-width: 62px; text-align: center; color: #bcd2e3; font-size: .9375rem; }
 .layout-notice { position: absolute; bottom: 76px; left: 18px; right: 18px; padding: 10px; background: #241e12; color: var(--amber); font-size: .9375rem; border-radius: 10px; }
 .context-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
@@ -704,7 +706,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    never covers the terminal's text. It stays still while idle: only
    recording moves, and only with the microphone's level. */
 .voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
-.voice-dock [data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 /* The voice bubble and its cards wear the goblin alerts' look: the same
    palette, and stepped pixel frames drawn behind them, so their tooltips and
    focus rings show in full. */
@@ -750,8 +751,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The speech bubble shows only on the hovered row, on keyboard focus and on
    selected lines, so it never reads as an added or removed marker. */
 .diff-row:hover .comment-mark, .split-cell:hover .comment-mark, .line-number:focus-visible .comment-mark, .line-number[aria-pressed="true"] .comment-mark { opacity: 1; }
-.comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
-.comment-mark[data-tip]:hover::after { transform: none; }
 /* The comment floats over the rows after the selection. The anchor has no
    height, and the diff keeps room at its end so a comment on the last lines
    is never clipped. */
