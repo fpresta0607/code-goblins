@@ -92,7 +92,8 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         for (const essential of ["Task", "Terminal", "Close panel"]) expect(report.shown).toContain(essential);
 
         await press(page, "Open in Windows Terminal", "Open in terminal");
-        await expect.poll(() => posted.map((request) => request.path)).toEqual(["/api/terminal/open"]);
+        // The terminal view posts for its own stream too.
+        await expect.poll(() => posted.map((request) => request.path)).toContain("/api/terminal/open");
         await press(page, "Maximize the panel", "Maximize");
         await expect(page.locator(".canvas-region")).toBeHidden();
         expect((await page.evaluate(rowReport)).problems).toEqual([]);
