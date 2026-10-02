@@ -184,10 +184,14 @@ The first time, it asks each of Claude Code, Codex and pi whether it is installe
 When the one you pick is missing, Enter installs it the way the install script does: Claude Code's native build from its own installer, Codex and pi with npm.
 When nobody is signed in, Enter opens that tool's own sign-in, where you sign in yourself; Code Goblins never sees your password, and it checks again when the sign-in ends.
 A sign-in it cannot verify is never called ready: Enter opens the sign-in again, and continuing without verifying is a choice of its own.
-Every screen shows its default marked, with Enter to continue, Up and Down to choose and Esc to go back, and a screen nobody can answer, as in a script, accepts nothing.
+Every step shows its default marked, with Enter to continue, the arrows to choose and Esc to go back, and a step nobody can answer, as in a script, accepts nothing.
+The agents are one row of tabs, each with its own mark, moved with Left and Right, with the marked agent's state under the row.
+A step you have answered leaves one line, a tick with the step's name and its answer, in place of its screen, so the window never fills with the steps before; installers and sign-ins run on the console's other screen and leave nothing behind.
 The agent you end on is remembered, so later runs skip what is already set up and go straight to the last screen; `goblins setup` asks again, and `goblins --harness codex` names the agent instead of asking.
 Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it, which the choice of agent and the start both say.
-Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen, where you pick the folder that holds your projects, the project the CFO starts in and the agent, then **Start the CFO**, and it opens in the board's terminal.
+Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
+It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
+The folder that holds your projects is optional there.
 The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
 
 Tell the CFO what outcome you want.

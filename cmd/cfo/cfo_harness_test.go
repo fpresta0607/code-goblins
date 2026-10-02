@@ -39,11 +39,11 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "The CFO starts as codex in "+f.home.Root+".") || !strings.Contains(out, "A codex CFO has no wake path in Herdr") {
+		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A Codex CFO has no wake path in Herdr") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path in Herdr", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.home.Root+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
+	if !strings.Contains(nativeOut, "CFO        started as pi in "+f.home.Root+", in native terminal cfo\n") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
 		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
 	}
 	if strings.Contains(nativeOut, "no wake path") {
@@ -95,8 +95,8 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 			if exit != 0 || len(f.harnesses) != 0 || len(f.nativeStarts) != 0 {
 				t.Fatalf("exit=%d harnesses=%q nativeStarts=%q stderr=%q, want nothing started", exit, f.harnesses, f.nativeStarts, stderr)
 			}
-			if !strings.Contains(stdout, "The CFO already runs, and keeps its harness; codex is the harness goblins starts the next CFO as.") {
-				t.Errorf("stdout = %q, want it to say the live CFO keeps its harness", stdout)
+			if !strings.Contains(stdout, "It keeps its agent; Codex is the agent goblins starts the next CFO as.") {
+				t.Errorf("stdout = %q, want it to say the live CFO keeps its agent", stdout)
 			}
 			if harness, err := cfoHarness(f.home.State); err != nil || harness != "codex" {
 				t.Errorf("remembered harness = %q, %v; want codex", harness, err)
@@ -122,11 +122,70 @@ func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
 	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
 
 	// Act
-	err := run.StartCFO(t.TempDir())
+	saved := run.SavedAgent()
+	err := run.StartCFO("claude")
 
 	// Assert
+	if saved != "codex" {
+		t.Errorf("the first-run page reads the remembered agent as %q, want codex", saved)
+	}
 	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
 		t.Fatalf("first-run StartCFO error = %v, want claude looked up rather than codex", err)
+	}
+}
+
+// The first-run page and the quick start hold one answer for the agent: the
+// page reads what goblins remembered, none when nothing was chosen or the
+// file names no agent, and the agent the page starts is what goblins starts
+// the next CFO as.
+func TestTheFirstRunPageAndGoblinsRememberOneAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	none := run.SavedAgent()
+	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("kimi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := run.SavedAgent()
+	saveErr := run.SaveAgent("pi")
+	saved := run.SavedAgent()
+	started, startErr := cfoHarness(h.State)
+
+	// Assert
+	if none != "" || unknown != "" {
+		t.Errorf("with nothing chosen the page reads %q, and with a name that is no agent %q; want none both times", none, unknown)
+	}
+	if saveErr != nil || saved != "pi" || startErr != nil || started != "pi" {
+		t.Errorf("after the page remembers pi: saved %q (%v), goblins starts %q (%v); want pi for both", saved, saveErr, started, startErr)
+	}
+	if run.CFOHome != h.Root {
+		t.Errorf("the page names the home %q, want %q", run.CFOHome, h.Root)
+	}
+}
+
+// The page forgets the agent by remembering none: the file goes, so goblins
+// is back to having no answer, and a home that remembered none is no error.
+func TestTheFirstRunPageForgetsTheAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	if err := run.SaveAgent("codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	forgetErr := run.SaveAgent("")
+	_, statErr := os.Stat(cfoHarnessPath(h.State))
+	againErr := run.SaveAgent("")
+
+	// Assert
+	if forgetErr != nil || !os.IsNotExist(statErr) || run.SavedAgent() != "" {
+		t.Errorf("forgetting: err %v, the file's stat %v, the page reads %q; want the file gone and no agent", forgetErr, statErr, run.SavedAgent())
+	}
+	if againErr != nil {
+		t.Errorf("forgetting with none remembered: err %v, want none", againErr)
 	}
 }
 
