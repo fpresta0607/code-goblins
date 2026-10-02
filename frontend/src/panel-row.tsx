@@ -9,9 +9,8 @@ import { PanelMore } from "./panel-more";
 // it, and a named item of the row's More menu once it has not. name is what
 // its tip and its menu item say, label its accessible name as an icon, and
 // importance its claim on the row: where there is not room for all, the
-// controls with the highest stay. A control that is a switch says in pressed
-// whether it is on.
-export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; onPress: () => void; pressed?: boolean }
+// controls with the highest stay.
+export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; onPress: () => void }
 
 // The importance of every control of the row, written once. The Task and
 // Terminal switch and the corner button, Close or Back, are not controls:
@@ -63,7 +62,7 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     <span />
     {view ? pill(fit.hasWords) : <span />}
     <div className="panel-controls">
-      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} aria-pressed={control.pressed} data-tip={control.name} data-tip-align="end" onClick={control.onPress}><Icon name={control.icon} /></button>)}
+      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} data-tip-align="end" onClick={control.onPress}><Icon name={control.icon} /></button>)}
       {kept.size < count && <PanelMore controls={controls.filter((control) => !kept.has(control.id)).sort((a, b) => b.importance - a.importance)} />}
       <div ref={cornerBox} className="panel-corner">{corner}</div>
       {notice}
