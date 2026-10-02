@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The Overlord's requirement, 2026-10-01: "A home that has had a CFO never
 // shows the first-run page again. While its CFO is closed the board says so
@@ -58,4 +58,31 @@ test("a CFO that could not come back says why, and Reopen can be tried again", a
   await expect(page.getByRole("alert")).toHaveText(reason);
   await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
   expect(requests).toHaveLength(1);
+});
+
+// The Overlord works in the desktop window, the board in WebView2: maximized
+// on his 2560 by 1600 screen at 150 percent it is 1707 CSS pixels wide at
+// device scale 1.5. The bar uses nothing only a browser has, so it must only
+// fit there: its words and Reopen on one line, nothing cut off or wrapped.
+test.describe("at the desktop window's size", () => {
+  test.use({ viewport: { width: 1707, height: 420 }, deviceScaleFactor: 1.5 });
+
+  test("the closed CFO's bar shows whole on one line, with Reopen in view", async ({ page }, testInfo) => {
+    // Arrange
+    const { release } = await open(page, { status: 200, body: { reopened: true } });
+    release();
+    const bar = page.getByRole("group", { name: "CFO" });
+    const reopen = page.getByRole("button", { name: "Reopen the CFO" });
+
+    // Act
+    const said = bar.getByText("The CFO is closed. Goblins keep running.");
+    const [words, button] = [await said.boundingBox(), await reopen.boundingBox()];
+    const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+
+    // Assert
+    await expect(reopen).toBeInViewport({ ratio: 1 });
+    expect(sideways).toBe(false);
+    expect(words!.height).toBeLessThan(button!.height);
+    await page.screenshot({ path: testInfo.outputPath("closed-cfo-window.png") });
+  });
 });
