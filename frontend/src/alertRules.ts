@@ -179,11 +179,17 @@ export function arrive(shown: BoardAlert[], fresh: BoardAlert[]): BoardAlert[] {
   return [...shown.filter((toast) => !keys.has(toast.key)), ...fresh].slice(-MAX_TOASTS);
 }
 
-// A Windows notification is for an alert the Overlord would not see: the
-// board's tab is hidden or its window is not in front, and he allowed them.
-export function notifies(permission: NotificationPermission | "unsupported", hidden: boolean, focused: boolean): boolean {
-  return permission === "granted" && (hidden || !focused);
+// A Windows notification is for an alert the Overlord cannot see: the board
+// is out of sight, its tab hidden or its window minimized, and he allowed
+// them. A board on screen notifies nothing, in front or not.
+export function notifies(permission: NotificationPermission | "unsupported", hidden: boolean): boolean {
+  return permission === "granted" && hidden;
 }
+
+// One item is one signal: what waits on him shows on the bar's Open Command
+// Center button and under the count, so its alert is no toast. A goblin's
+// news, which waits on nothing, is one.
+export const showsToast = (alert: BoardAlert) => !isItemAlert(alert);
 
 // The board asks for Windows notifications once, with the first alert, and
 // never again once he has answered or dismissed the ask.

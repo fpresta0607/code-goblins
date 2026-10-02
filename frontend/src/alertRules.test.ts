@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
+import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, showsToast, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
@@ -298,16 +298,37 @@ test("an alert names who asks and what, in a few words", () => {
   assert.equal(short.text, "The CFO asks: Which option?");
 });
 
-test("a Windows notification is only for a board he is not looking at, once allowed", () => {
-  const cases: [string, NotificationPermission | "unsupported", boolean, boolean, boolean][] = [
-    ["a hidden tab", "granted", true, false, true],
-    ["a window behind another", "granted", false, false, true],
-    ["the board in front", "granted", false, true, false],
-    ["not allowed", "denied", true, false, false],
-    ["not answered yet", "default", true, false, false],
-    ["a browser without notifications", "unsupported", true, false, false],
+// The Overlord, 2026-10-02: system notifications are only for when the app
+// is minimized, not on every notification.
+test("a Windows notification is only for a board out of sight, once allowed", () => {
+  const cases: [string, NotificationPermission | "unsupported", boolean, boolean][] = [
+    ["a hidden tab or a minimized window", "granted", true, true],
+    ["a board on screen, in front or not", "granted", false, false],
+    ["not allowed", "denied", true, false],
+    ["not answered yet", "default", true, false],
+    ["a browser without notifications", "unsupported", true, false],
   ];
-  for (const [name, permission, hidden, focused, want] of cases) assert.equal(notifies(permission, hidden, focused), want, name);
+  for (const [name, permission, hidden, want] of cases) assert.equal(notifies(permission, hidden), want, name);
+});
+
+// The Overlord, 2026-10-02, after one question reached him as a toast, a
+// Windows notification and the Command Center opening itself: one item is
+// one signal. What waits on him shows on the bar's Open Command Center
+// button and under the count; only a goblin's news is a toast.
+test("an item that waits on him shows no toast; a goblin's news does", () => {
+  const before = snapshot({});
+  const cases: [string, Snapshot, boolean][] = [
+    ["the CFO's question", snapshot({ questions: [question("q1")] }), false],
+    ["a goblin's review item", snapshot({ reviews: [review("r1")] }), false],
+    ["a command to run", snapshot({ runs: [run("c1")] }), false],
+    ["a goblin that finished", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), true],
+    ["a goblin that failed", snapshot({ tasks: [task("a", "failed")] }), true],
+    ["a goblin blocked on something the CFO cannot answer", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), true],
+  ];
+  for (const [name, next, want] of cases) {
+    const [alert] = boardAlerts(before, next);
+    assert.equal(showsToast(alert), want, name);
+  }
 });
 
 test("the board asks for notifications once, and only while the browser has not been answered", () => {
