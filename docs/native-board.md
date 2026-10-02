@@ -90,7 +90,7 @@ A Stop never establishes that the task shipped.
 
 ## Evidence and recovery
 
-The supervisor reuses the existing monitor, watch signal signatures, wake queue, task metadata, Herdr steering, and frozen pipeline reader.
+The supervisor reuses the existing monitor, watch signal signatures, wake queue, task metadata, native terminal steering, and frozen pipeline reader.
 One Windows filesystem watcher consumes the spool, with a two-second recovery interval for missed notifications.
 One slow reconciliation pass runs each minute; there is no browser-driven task polling engine.
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
@@ -764,7 +764,7 @@ Finished, expired and withdrawn items are pruned a week after they end; a waitin
 Output is stored on the board, so the CFO never puts a secret in a run command or requests one that prints a secret.
 Items that speak for the CFO (its questions, its own items with their withdrawals, every clear, documents from `cfo deliver` without `--task`, and `cfo answer`) reach the board only over the supervisor's pipe, which proves the sender descends from the registered CFO process, like run items; the question, review and answer inboxes refuse any file that claims to be the CFO's and name it on the board.
 Known limit: every goblin runs as the same Windows user as the CFO, and a process of that user can still spoof another goblin's items, including withdrawing them, since a goblin's identity is a hash of its task record, which any of them can read.
-It can also spoof the CFO's live presentation notices (`cfo present` without `--task`), text typed into a goblin's pane through Herdr, including a line that starts with `CFO:`, and the wake queue and status files the CFO reads.
+It can also spoof the CFO's live presentation notices (`cfo present` without `--task`), text typed into a goblin's terminal, including a line that starts with `CFO:`, and the wake queue and status files the CFO reads.
 It can rewrite the supervisor's own database file (`state/.supervisor.json`) while `cfo serve` is stopped, and anything it runs as a descendant of the CFO's harness process is the CFO by this proof.
 It can also debug or inject into the CFO process itself: the pipe closes the file inbox path and the pipe squat, not the same-user boundary.
 
