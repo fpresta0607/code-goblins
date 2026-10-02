@@ -39,7 +39,7 @@ func TestReadChoosesTheChangedPackageUnderAShortName(t *testing.T) {
 	write(t, filepath.Join(dir, "c", "c.go"), "package c\n\nconst C = 1\n")
 
 	// Act
-	plan, err := Read(context.Background(), execx.OSRunner{}, short)
+	plan, err := Read(context.Background(), execx.OSRunner{}, short, "")
 
 	// Assert
 	if err != nil {

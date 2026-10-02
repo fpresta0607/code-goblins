@@ -13,12 +13,13 @@ import (
 
 type Result struct {
 	Command         []string  `json:"command"`
-	Start           time.Time `json:"start"`
+	Start           time.Time `json:"start,omitzero"`
 	DurationSeconds float64   `json:"duration_seconds"`
 	ExitCode        int       `json:"exit_code"`
 	Scope           string    `json:"scope"`
 	Task            string    `json:"task,omitempty"`
 	Commit          string    `json:"commit,omitempty"`
+	Status          string    `json:"status,omitempty"`
 	TimedOut        bool      `json:"timed_out,omitempty"`
 	Output          string    `json:"output,omitempty"`
 }
