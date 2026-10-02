@@ -126,9 +126,9 @@ jobs:
         run: go vet ./...
       - name: Run Go tests with isolated CFO state
         # go test's default of 10 minutes a package left too little headroom
-        # here: internal/spawn takes about 6.5 minutes on this runner, and the
-        # root package reached the limit before its repeated installs were
-        # cut. 20 minutes is about three times the slowest package.
+        # while one job ran every package at once: internal/spawn took 8
+        # minutes there and the root package 11. With a runner to itself the
+        # slowest, internal/supervisor, takes 5, and the limit stays at 20.
         shell: pwsh
         run: |
           if ($env:PACKAGES) {
@@ -144,7 +144,7 @@ jobs:
           $only = @()
           if ($env:RUN) { $only += '-run', $env:RUN }
           if ($env:SKIP) { $only += '-skip', $env:SKIP }
-          go test $packages $only -json -count=1 -timeout 20m > "$env:RUNNER_TEMP\go-test.json"
+          go test $packages $only -count=1 -timeout 20m
         env:
           PACKAGES: ${{ matrix.packages }}
           EXCEPT: ${{ matrix.except }}
@@ -152,15 +152,6 @@ jobs:
           SKIP: ${{ matrix.skip }}
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
-      # Measurement only, removed before merge: every test this job ran, with
-      # its time, to compare with the single job.
-      - name: Keep the test inventory
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-test-inventory-${{ matrix.shard }}
-          path: ${{ runner.temp }}/go-test.json
-          retention-days: 14
       - if: matrix.shard == 'rest'
         run: go build ./cmd/cfo
 
