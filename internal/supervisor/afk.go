@@ -138,9 +138,19 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 	if err != nil {
 		return err
 	}
+	stateDir := s.Store.Home.State
+	// quota-axi is read with afkChange free, so the supervisor's cycle never
+	// waits behind it, and only for a switch that will be made. Pipe requests
+	// are taken one at a time, so the switch reads the same again below.
+	s.afkChange.Lock()
+	before, err := afk.Read(stateDir)
+	s.afkChange.Unlock()
+	allowance, unread := []afk.Allowance(nil), "this supervisor reads no allowance"
+	if err == nil && on != before.On && s.Options.Allowance != nil {
+		allowance, unread = s.Options.Allowance(ctx)
+	}
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
-	stateDir := s.Store.Home.State
 	current, err := afk.Read(stateDir)
 	if err != nil {
 		// His off always works: it puts a switch that cannot be read back to
@@ -158,10 +168,6 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 			return nil
 		}
 		return afk.ErrNotOn
-	}
-	allowance, unread := []afk.Allowance(nil), "this supervisor reads no allowance"
-	if s.Options.Allowance != nil {
-		allowance, unread = s.Options.Allowance(ctx)
 	}
 	now := time.Now().UTC()
 	if on {
@@ -303,16 +309,21 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread strin
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())
 	}
 	report.Finished = finished
+	// What the CFO answered is a decision in the log, not held. Only the log
+	// says so: a question the board closed as the CFO's with no decision
+	// logged stays held.
+	answered := map[string]bool{}
+	for _, decision := range report.Decisions {
+		if decision.Kind == afk.KindAnswer {
+			answered["question:"+decision.What] = true
+		}
+	}
 	d := s.Store.Snapshot()
 	for _, entry := range entries {
-		if entry.Kind != afk.KindHeld {
+		if entry.Kind != afk.KindHeld || answered[entry.Item] {
 			continue
 		}
-		waiting, now, decided := heldNow(d, entry.Item)
-		// What the CFO answered is a decision in the log, not held.
-		if decided {
-			continue
-		}
+		waiting, now := heldNow(d, entry.Item)
 		held := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now}
 		if entry.Task != "" {
 			// A status line is stamped to the second.
@@ -327,14 +338,15 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread strin
 }
 
 // heldNow is what became of a held item: whether it still waits on the
-// Overlord, in what words, and whether the CFO decided it.
-func heldNow(d Database, item string) (waiting bool, now string, decided bool) {
+// Overlord, and in what words. It is asked only about an item the log holds
+// no answer decision for.
+func heldNow(d Database, item string) (waiting bool, now string) {
 	kind, id, _ := strings.Cut(item, ":")
-	closed := func(how, reason string) (bool, string, bool) {
+	closed := func(how, reason string) (bool, string) {
 		if reason != "" {
 			how += ": " + reason
 		}
-		return false, bounded(how, 500), false
+		return false, bounded(how, 500)
 	}
 	switch kind {
 	case "question":
@@ -344,9 +356,9 @@ func heldNow(d Database, item string) (waiting bool, now string, decided bool) {
 		}
 		switch q := d.Questions[i]; {
 		case q.Status == "pending":
-			return true, "still waiting on you", false
+			return true, "still waiting on you"
 		case q.AnsweredBy == "cfo":
-			return false, "", true
+			return closed("closed as answered by the CFO, and no decision was logged for it", "")
 		case q.AnsweredBy == "overlord":
 			return closed("you answered it", q.Answer)
 		default:
@@ -360,7 +372,7 @@ func heldNow(d Database, item string) (waiting bool, now string, decided bool) {
 		if r := d.Reviews[i]; r.State != "open" {
 			return closed(r.State, r.Reason)
 		}
-		return true, "still waiting on you", false
+		return true, "still waiting on you"
 	case "run":
 		i := slices.IndexFunc(d.Runs, func(r Run) bool { return r.ID == id })
 		if i < 0 {
@@ -369,7 +381,7 @@ func heldNow(d Database, item string) (waiting bool, now string, decided bool) {
 		if r := d.Runs[i]; r.State != "ready" {
 			return closed(r.State, r.Reason)
 		}
-		return true, "still waiting for you to run it", false
+		return true, "still waiting for you to run it"
 	case "credential":
 		i := slices.IndexFunc(d.Credentials, func(c CredentialRequest) bool { return c.ID == id })
 		if i < 0 {
@@ -378,9 +390,9 @@ func heldNow(d Database, item string) (waiting bool, now string, decided bool) {
 		if c := d.Credentials[i]; c.State != "open" {
 			return closed(c.State, c.Reason)
 		}
-		return true, "still waiting for the values", false
+		return true, "still waiting for the values"
 	}
-	return false, "no longer listed on the board", false
+	return false, "no longer listed on the board"
 }
 
 // doneBetween are the pull requests goblins reported done from since to

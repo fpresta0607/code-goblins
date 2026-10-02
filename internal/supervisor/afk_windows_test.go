@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -702,6 +704,9 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindAnswer, What: "drop-legacy-invoices", Evidence: "asked: Apply it? answered: Keep it held"}, answered); err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	err = SwitchAFK(h, false)
@@ -713,5 +718,108 @@ func TestAQuestionTheCFOAnsweredIsNotReportedAsHeld(t *testing.T) {
 	}
 	if slices.ContainsFunc(report.Held, func(held afk.Held) bool { return held.Item == "question:drop-legacy-invoices" }) || len(report.Held) != 2 {
 		t.Errorf("held = %+v, want the wait and the run item, and not the question the CFO answered", report.Held)
+	}
+}
+
+// The board closes a goblin's question as the CFO's once the CFO acks its
+// notify, whether or not it answered. Only a logged answer is a decision, so a
+// held question that closed that way with nothing logged stays in the report
+// as held, saying so.
+func TestAHeldQuestionClosedAsTheCFOsWithNoLoggedDecisionStaysInTheReport(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, record, _, cfo := goblinFixture(t, store)
+	s := &Service{Store: store}
+	asOverlordsTerminal(s)
+	runPipe(t, s)
+	if err := SwitchAFK(h, true); err != nil {
+		t.Fatal(err)
+	}
+	asked := surfaced(t, store, meta, record, cfo)
+	if err := s.holdForOverlord(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.AckThrough(h.State, record.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.supersedeQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if closed := store.Snapshot().Questions[0]; closed.Status != "succeeded" || closed.AnsweredBy != "cfo" {
+		t.Fatalf("the question = %+v, want it closed as answered by the CFO", closed)
+	}
+
+	// Act
+	err := SwitchAFK(h, false)
+
+	// Assert
+	report, _, readErr := afk.ReadReport(h.State)
+	if err != nil || readErr != nil {
+		t.Fatal(err, readErr)
+	}
+	if len(report.Decisions) != 0 {
+		t.Errorf("decisions = %+v, want none: the CFO logged nothing", report.Decisions)
+	}
+	if len(report.Held) != 1 {
+		t.Fatalf("held = %+v, want the goblin's question", report.Held)
+	}
+	if held := report.Held[0]; held.Item != "question:"+asked.ID || held.Task != meta.ID || held.Waiting || !strings.Contains(held.Now, "closed as answered by the CFO") || !strings.Contains(held.Now, "no decision was logged for it") {
+		t.Errorf("held question = %+v, want it not waiting, closed as answered by the CFO with no decision logged", held)
+	}
+}
+
+// quota-axi can take as long as the pipe gives a request. The supervisor's
+// cycle never waits behind that reading, and a request that changes nothing
+// reads nothing.
+func TestTheCycleDoesNotWaitForTheAllowanceReadingOfASwitch(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	var readings atomic.Int32
+	reading, release := make(chan struct{}, 1), make(chan struct{})
+	var released sync.Once
+	free := func() { released.Do(func() { close(release) }) }
+	defer free()
+	s := &Service{Store: store, Options: Options{Allowance: func(context.Context) ([]afk.Allowance, string) {
+		if readings.Add(1) == 1 {
+			reading <- struct{}{}
+		}
+		<-release
+		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
+	}}}
+	asOverlordsTerminal(s)
+	runPipe(t, s)
+	switched := make(chan error, 1)
+	go func() { switched <- SwitchAFK(h, true) }()
+	select {
+	case <-reading:
+	case err := <-switched:
+		t.Fatalf("SwitchAFK = %v before the allowance was read", err)
+	}
+
+	// Act
+	held := make(chan error, 1)
+	go func() { held <- s.holdForOverlord(time.Now()) }()
+
+	// Assert
+	select {
+	case err := <-held:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("holdForOverlord waited for the allowance reading of a switch")
+	}
+	free()
+	if err := <-switched; err != nil {
+		t.Fatal(err)
+	}
+	if err := SwitchAFK(h, true); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := afk.Read(h.State); err != nil || !state.On || len(state.Allowance) != 1 {
+		t.Errorf("the switch = %+v, %v, want on with the allowance read", state, err)
+	}
+	if got := readings.Load(); got != 1 {
+		t.Errorf("the allowance was read %d times, want once: on while on changes nothing", got)
 	}
 }

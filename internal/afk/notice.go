@@ -22,7 +22,7 @@ func Notice(state State) []string {
 		"AFK MODE IS ON: the Supreme Overlord turned it on " + at(state.Since) + " from " + state.From + ", and he is away until he turns it off.",
 		"No Command Center prompt opens for him while it is on: what waits on him is held for him, and cfo afk status lists it.",
 		"Under it you decide these yourself, without waiting, and each is logged with its evidence:",
-		"- The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its merge ref's first parent equals origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included. cfo pr merge <url> --verified \"<what verified it>\" checks it, logs it and merges it.",
+		"- The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its head holds main's tip, which is what makes its merge ref's first parent origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included. cfo pr merge <url> --verified \"<what verified it>\" checks it, logs it and merges it.",
 		"- Each deploy, named and verified read-only. Log it: cfo afk log --kind deploy --what \"<the deploy>\" --evidence \"<what you read>\" [--link <url>].",
 		"- A merged migration that adds or changes, applied to production and dev and read back from the applied list. Log it with --kind migration.",
 		"- Installing a merged build through <candidate> update once the merge queue settles. Log it with --kind install.",

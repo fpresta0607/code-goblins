@@ -428,7 +428,7 @@ Use a terminal that is not run as administrator: the supervisor cannot read an e
 While it is on:
 
 - The CFO decides what you authorised by itself and logs each decision with its evidence.
-  It gives the merge word for a goblin's pull request that is verified, green in CI on current main and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
+  It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
   They are never decided for you.
 - Nothing prompts you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.

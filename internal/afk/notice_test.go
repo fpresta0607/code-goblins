@@ -39,7 +39,7 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"logged with evidence":           "logged with its evidence",
 		"merge: gated or verified":       "gated or locally verified with the output read",
 		"merge: green on current main":   "green in CI on current main",
-		"merge: the merge ref check":     "merge ref's first parent equals origin/main",
+		"merge: the merge ref check":     "its head holds main's tip, which is what makes its merge ref's first parent origin/main",
 		"merge: mergeable":               "mergeable",
 		"merge: the classes it covers":   "recovery, security, money-path and production-deploy pull requests included",
 		"merge: the command":             "cfo pr merge <url> --verified",

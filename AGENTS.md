@@ -391,7 +391,7 @@ The session digest, every `cfo drain`, the Stop hook's rewake and the wake line 
 
 While it is on you decide these yourself, without waiting, and each is logged with its evidence in `state/afk.audit`:
 
-- The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its merge ref's first parent equals origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included.
+- The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its head holds main's tip, which is what makes its merge ref's first parent origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included.
   Give it with `cfo pr merge <url> --verified "<what verified it>"`.
   It refuses without `--verified`, refuses a pull request the account `gh` is signed in as did not open or whose head is in another repository, and refuses a head that does not hold the tip of its base branch: only then is the merge ref's first parent that tip and CI on the head a test of what lands, so have the goblin merge the base in and let CI run.
   It reads the base a moment before it merges and its evidence names the tip it read, so give one merge word at a time for a base branch.
