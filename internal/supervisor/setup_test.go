@@ -422,6 +422,11 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	if setupCode != http.StatusOK || !strings.Contains(setup, `"checkouts":["alpha","beta"]`) || !strings.Contains(setup, `"agent":""`) || !strings.Contains(setup, `"home":`) {
 		t.Fatalf("GET /api/setup = %d %s", setupCode, setup)
 	}
+	// The page's parser takes a missing boolean for a broken answer and
+	// draws nothing, so an agent that is not the recommended one says so.
+	if strings.Count(setup, `"recommended":true`) != 1 || strings.Count(setup, `"recommended":false`) != 2 {
+		t.Fatalf("GET /api/setup = %s, want each of the three agents to say whether it is the recommended one", setup)
+	}
 	if refusedCode != http.StatusConflict || !strings.Contains(refused, "Install pi to start the CFO") {
 		t.Fatalf("a start as pi, which this machine lacks = %d %s, want 409 with the reason", refusedCode, refused)
 	}

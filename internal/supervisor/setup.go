@@ -76,7 +76,7 @@ type Setup struct {
 type SetupAgent struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Recommended bool   `json:"recommended,omitempty"`
+	Recommended bool   `json:"recommended"`
 	Note        string `json:"note,omitempty"`
 	Installed   bool   `json:"installed"`
 	SignedIn    bool   `json:"signed_in"`
