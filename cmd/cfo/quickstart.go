@@ -160,14 +160,14 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, err
 		}
 	}
-	list.Working("CFO", "starting as "+agent)
+	list.Working("CFO", "starting as "+onboarding.Name(agent))
 	if native {
 		if err := runtime.startNativeCFO(h, h.Root, agent); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
 		// Its startup dialogs are answered before the line says it started.
 		notes := runtime.settleCFO(ctx, h.State, agent)
-		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", agent, h.Root, supervisor.NativeCFOTerminal))
+		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
 		for _, note := range append(noWakePath(agent), notes...) {
 			list.Note(note)
 		}
@@ -181,7 +181,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		list.Done("CFO", "already running in Herdr's cfo tab")
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
-	list.Done("CFO", fmt.Sprintf("started as %s in %s", agent, h.Root))
+	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
 	for _, note := range append(noWakePath(agent), unreached(agent, nil)...) {
 		list.Note(note)
 	}

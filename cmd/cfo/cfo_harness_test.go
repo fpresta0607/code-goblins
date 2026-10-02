@@ -38,7 +38,7 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "CFO        started as codex in "+f.home.Root+"\n") || !strings.Contains(out, "A codex CFO has no wake path") {
+		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A codex CFO has no wake path") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path", out)
 		}
 	}

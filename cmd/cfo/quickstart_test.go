@@ -305,7 +305,7 @@ func TestGoblinsSaysWhatAlreadyRunsAndStartsNothingBesideIt(t *testing.T) {
 		heading   string
 	}{
 		{"both run", supervisor.NativeCFOTerminal, 0, "\n  \u221a Supervisor already running\n  \u221a CFO        already running in native terminal cfo\n", "Your CFO is running\n"},
-		{"only the supervisor runs", "", 1, "\n  \u221a Supervisor already running\n  \u221a Agent      claude\n  . CFO        starting as claude\n  \u221a CFO        started as claude in %s, in native terminal cfo\n", "Your CFO is starting\n"},
+		{"only the supervisor runs", "", 1, "\n  \u221a Supervisor already running\n  \u221a Agent      claude\n  . CFO        starting as Claude Code\n  \u221a CFO        started as Claude Code in %s, in native terminal cfo\n", "Your CFO is starting\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange

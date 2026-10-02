@@ -88,13 +88,13 @@ func TestGoblinsStartsTheCFOInItsHome(t *testing.T) {
 	if herdrExit != 0 || !slices.Equal(herdrStart.cfoStarts, []string{herdrStart.home.Root}) || len(herdrStart.nativeStarts) != 0 || !slices.Equal(herdrStart.attached, []string{"fixture-fleet"}) {
 		t.Errorf("goblins: exit=%d cfoStarts=%q nativeStarts=%q attached=%q stderr=%q, want the CFO started in Herdr in the home %s and the fleet's session attached", herdrExit, herdrStart.cfoStarts, herdrStart.nativeStarts, herdrStart.attached, herdrErr, herdrStart.home.Root)
 	}
-	if !strings.Contains(herdrOut, "CFO        started as claude in "+herdrStart.home.Root+"\n") {
+	if !strings.Contains(herdrOut, "CFO        started as Claude Code in "+herdrStart.home.Root+"\n") {
 		t.Errorf("goblins: stdout = %q, want it to say where the CFO starts", herdrOut)
 	}
 	if nativeExit != 0 || !slices.Equal(nativeStart.nativeStarts, []string{nativeStart.home.Root}) || len(nativeStart.cfoStarts) != 0 || !slices.Equal(nativeStart.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
 		t.Errorf("goblins --native: exit=%d nativeStarts=%q cfoStarts=%q nativeAttached=%q stderr=%q, want the CFO started natively in the home %s and shown", nativeExit, nativeStart.nativeStarts, nativeStart.cfoStarts, nativeStart.nativeAttached, nativeErr, nativeStart.home.Root)
 	}
-	if !strings.Contains(nativeOut, "CFO        started as claude in "+nativeStart.home.Root+", in native terminal cfo\n") {
+	if !strings.Contains(nativeOut, "CFO        started as Claude Code in "+nativeStart.home.Root+", in native terminal cfo\n") {
 		t.Errorf("goblins --native: stdout = %q, want it to say where the CFO starts", nativeOut)
 	}
 }
