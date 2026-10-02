@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // The Overlord, 2026-09-29: "You can't close a command card if you answered
 // it". He answered the CFO's question in chat and its card stayed under

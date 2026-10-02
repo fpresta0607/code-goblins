@@ -1,6 +1,7 @@
 import type { Snapshot } from "./types.ts";
 import { waitingItems, type Item } from "./commandQueue.ts";
 import { messageBlocks } from "./messageText.ts";
+import { credentialAsk } from "./credentials.ts";
 
 // The pinned CFO bar says what the CFO needs from the Overlord, since every
 // question and review reaches him through the CFO, and otherwise how many
@@ -13,6 +14,7 @@ import { messageBlocks } from "./messageText.ts";
 function title(item: Item): string {
   if (item.kind === "review") return item.review.title.replace(/^Waiting on you: /, "");
   if (item.kind === "run") return item.run.title;
+  if (item.kind === "credential") return credentialAsk(item.request);
   const [lead] = messageBlocks(item.question.text);
   const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
   return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();

@@ -80,7 +80,7 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// shares, rather than rendered as "SESSION START DEGRADED" digest
 		// text. Reaching this arm needs the working directory itself to be
 		// gone, which the shared prologue's uniformity was judged to
-		// outweigh; digest.Compose is never even reached in this case.
+		// outweigh; digest.ComposeBrief is never even reached in this case.
 		h, err := home.Resolve()
 		if err != nil {
 			return 0
@@ -771,19 +771,24 @@ func resolveSessionOwnerPID() int {
 // hook in this file, its stdout is PLAIN TEXT with exit 0 always, never the
 // {"systemMessage":"..."} envelope: Claude Code injects SessionStart stdout
 // into the session context verbatim, so a JSON wrapper would deliver the
-// whole digest as one escaped blob. It always exits 0, even when Compose
-// fails: a SessionStart exit 2 would block session init entirely, so a
-// Compose failure is rendered as digest text (SESSION START DEGRADED)
-// instead of a nonzero exit.
+// whole digest as one escaped blob. It always exits 0, even when
+// ComposeBrief fails: a SessionStart exit 2 would block session init
+// entirely, so a ComposeBrief failure is rendered as digest text (SESSION
+// START DEGRADED) instead of a nonzero exit.
 //
 // Routing: startup, new, clear, compact, empty, or any source this build
-// does not recognize all take the same single code path below, full
-// Compose, with no marker consulted. resume, reload, and fork take the
+// does not recognize all take the same single code path below, the brief
+// digest, with no marker consulted. resume, reload, and fork take the
 // short-circuit nudge instead, but only when state\.session-start-complete
 // names THIS resolved owner and lock.HeldBy confirms that owner still holds
-// the home; otherwise they fall through to the same full Compose, so a
+// the home; otherwise they fall through to the same brief digest, so a
 // session resuming into a home that never received a digest under this
 // custody does not start blind.
+//
+// The digest is the brief one for every source because Claude Code hands a
+// session a hook's output whole only up to digest.Limit: the long digest
+// arrived as a preview of its first 2 KB, a session lock and a few wake
+// lines, under a contract saying the session had read every file.
 func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
 	ownerPID := resolveSessionOwnerPID()
 	terminals := registerTerminals()
@@ -797,7 +802,7 @@ func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer)
 		}
 	}
 
-	if err := digest.Compose(h, ownerPID, payload.SessionID, stdout); err != nil {
+	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
 	registerPrimary(h, ownerPID, "claude", payload.SessionID, terminals, stdout)
