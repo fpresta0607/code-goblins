@@ -6,9 +6,13 @@ import { memoryBlock, queueBlock } from "./start";
 import { Icon } from "./Icon";
 import { StopTaskDialog } from "./stop-task-dialog";
 
+// A task's controls: icons on its card, where start starts a queued task and
+// onAdjust opens its panel, and labelled buttons in its panel's action row,
+// which leaves both to the card. A queued task has not started, so it is
+// removed rather than stopped.
 // leading is a control shown first in the group, such as a card's terminal button.
-export function TaskControls({ task, snapshot, start, leading, onAdjust }: {
-  task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; onAdjust: (source: HTMLElement) => void;
+export function TaskControls({ task, snapshot, start, leading, labelled = false, onAdjust }: {
+  task: Task; snapshot: Snapshot; start?: CardStart; leading?: ReactNode; labelled?: boolean; onAdjust?: (source: HTMLElement) => void;
 }) {
   const [confirmation, setConfirmation] = useState<{ generation: string; revision: string } | null>(null);
   const [pending, setPending] = useState<{ action: string; revision: number | null } | null>(null);
@@ -37,17 +41,27 @@ export function TaskControls({ task, snapshot, start, leading, onAdjust }: {
   };
   if (task.archived || task.phase === "stopped") return null;
   const problemText = problem || task.action_error || start?.problem;
+  const end = isQueued ? "Remove" : "Stop";
+  const ending = isQueued ? "Removing" : "Stopping";
+  // A labelled button says its own name, so its tip only says why it cannot
+  // run; an icon's tip is its name until then.
+  const face = (name: string, tone = "", block = "") => ({
+    className: (labelled ? "labelled-button" : "icon-button raised") + tone,
+    "aria-label": name + " " + task.title,
+    ...(!labelled ? { "data-tip": block || name } : block ? { "data-tip": block, "data-tip-align": "start" } : {}),
+  });
+  const text = (name: string) => labelled && <span>{name}</span>;
   return <>
     <div className="task-controls" role="group" aria-label={"Controls for " + (task.title || task.id)}>
       {leading}
-      {isQueued && start && !queueBlock(task) && <button className="icon-button raised" aria-label={"Start " + task.title} data-tip={start.blocked || "Start"} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" /></button>}
-      {isQueued && <button className="icon-button raised" aria-label={"Adjust " + task.title} data-tip="Adjust" disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
-      {canPause && <button className="icon-button raised" aria-label={"Pause " + task.title} data-tip="Pause" disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" /></button>}
-      {canResume && <button className="icon-button raised" aria-label={"Resume " + task.title} data-tip={resumeBlock || "Resume"} aria-disabled={!!resumeBlock || isChanging} onClick={() => { if (!resumeBlock && !isChanging) void act("resume"); }}><Icon name="play" /></button>}
-      <button className="icon-button raised danger" aria-label={"Stop " + task.title} data-tip="Stop" data-tip-align="end" disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" /></button>
+      {isQueued && start && !queueBlock(task) && <button {...face("Start", "", start.blocked)} aria-disabled={!!start.blocked || isChanging} onClick={(event) => { if (!isChanging) start.onStart(event.currentTarget); }}><Icon name="play" />{text("Start")}</button>}
+      {isQueued && onAdjust && <button {...face("Adjust")} disabled={isChanging} onClick={(event) => onAdjust(event.currentTarget)}><Icon name="edit" /></button>}
+      {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" />{text("Pause")}</button>}
+      {canResume && <button {...face("Resume", "", resumeBlock)} aria-disabled={!!resumeBlock || isChanging} onClick={() => { if (!resumeBlock && !isChanging) void act("resume"); }}><Icon name="play" />{text("Resume")}</button>}
+      <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
     </div>
     {(isChanging || problemText) && <div className="task-notes">
-      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: "Stopping" }[pending.action] : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : "Stopping"}...</p>}
+      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
       {problemText && <p className="task-action-problem" role="alert">{problemText}</p>}
     </div>}
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}
