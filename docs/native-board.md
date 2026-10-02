@@ -726,6 +726,7 @@ An item runs once and expires 24 hours after it was created; running it again ne
 The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
 Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.
 A connection repair the Overlord asked for from a goblin's connections panel is the board's own item, not the CFO's, and cannot be withdrawn.
+Nor can the terminal the Overlord opened for a credential request, which is the board's own item too.
 Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
 An admin item launches through `Start-Process -Verb RunAs`, so Windows itself asks the Overlord to confirm, and a declined prompt ends the item failed with that reason.
 The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
@@ -738,6 +739,55 @@ Known limit: every goblin runs as the same Windows user as the CFO, and a proces
 It can also spoof the CFO's live presentation notices (`cfo present` without `--task`), text typed into a goblin's pane through Herdr, including a line that starts with `CFO:`, and the wake queue and status files the CFO reads.
 It can rewrite the supervisor's own database file (`state/.supervisor.json`) while `cfo serve` is stopped, and anything it runs as a descendant of the CFO's harness process is the CFO by this proof.
 It can also debug or inject into the CFO process itself: the pipe closes the file inbox path and the pipe squat, not the same-user boundary.
+
+## Credential requests
+
+When the CFO or a goblin needs a secret the project's scope does not hold, such as `STRIPE_SECRET_KEY`, it asks for it by name and the Overlord pastes the value on the board; nobody asks for a value in chat or puts one in a brief:
+
+```powershell
+cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/apikeys STRIPE_SECRET_KEY
+cfo auth request --project acme-shop --task add-billing --why "Check webhook signatures" STRIPE_WEBHOOK_SECRET
+```
+
+A request takes names only, at most ten, each an environment variable name, with one line saying what they are for and optionally the https page they come from, with no credentials, query or fragment in its link.
+Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, in the reason or in the link, and no refusal repeats what it refused.
+The registered CFO files over the supervisor's pipe, proven the way run items prove it; a goblin files for its own task with `--task <its id>`, from its own terminal, proven the way its questions are, through `state/credential-requests-inbox`, and a request in that inbox that claims to be the CFO's is refused and named among the board's issues.
+The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason and link, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
+It also says where each value goes: the repository, which is the checkout the scope is named for when it is on this machine, the credential scope, and every service of the project's `auth.json` that reads the name, beside the project's goblins, whose `auth.ps1` carries the whole scope.
+It never holds a value.
+A project's `auth.json` may declare format hints, which the request carries for the card to warn with and never to refuse a value:
+
+```json
+"formats": [
+  {"names": ["STRIPE_*"], "prefixes": ["sk_", "rk_"], "warn": [{"prefix": "sk_live_", "say": "A live secret key can do anything on the account; use a restricted rk_live_ key."}]}
+]
+```
+
+A name in `names` is exact or ends in `*` to match every name starting with what comes before it, and the first matching format applies.
+
+The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name the Overlord filled, and the names he confirmed replacing.
+It is the one board endpoint that takes a secret value.
+Every other endpoint that changes anything still refuses one, as the connection repairs always have: each reads a fixed request shape and refuses a body that carries a value, secret, password, token or credential field, as text, an object or a list, before it reads anything else, and `internal/supervisor/value_guard_test.go` reads the board's route table and fails the moment any other endpoint starts reading such a field.
+The save is taken only from the board's own page on this machine: its Host must name 127.0.0.1, localhost or ::1 with the board's port, its peer must be this machine, and any forwarding or Tailscale identity header (`X-Forwarded-*`, `Forwarded`, `Via`, `X-Real-Ip` or any `Tailscale-*` header) refuses it, so a board shared through `tailscale serve`, which reaches the same port on this machine, never takes a value.
+It also passes every check other actions pass: POST only, the exact Host and Origin, and the per-session `X-CFO-Token`.
+It must name an open request and its current generation, and only names that request asks for, each with a non-empty value of one line and at most 16 KiB.
+A request takes one save: the same save sent again, or another value for it, is refused, and a request nobody saves expires after 24 hours, when the CFO is told the names still unsaved so it can ask again.
+While the request's terminal is open, its save is refused and it does not expire; it expires on the first check after the terminal ends.
+A name the project's scope already holds is replaced only when the save confirms it; otherwise the save is refused naming the names to confirm, and nothing is stored.
+Every refusal stores nothing and leaves the request open.
+The board holds at most 64 requests, never drops an open one to make room, and prunes a closed one a week after it closed.
+
+A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
+The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
+A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
+The value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
+A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
+
+The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
+`POST /api/credentials/terminal` with the request's ID and generation opens that fallback for the Overlord: a visible PowerShell window on this PC, a run item the board makes itself, that runs `cfo auth store` for each name the request does not have yet that the scope does not hold, and for each name the scope holds that the request confirms replacing, so he types or pastes each value there and it never passes through the board.
+It takes the save's checks (this machine only, the open request and its generation) and opens one window at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
+When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
+A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
 
 ## Nonblocking presentation notices
 

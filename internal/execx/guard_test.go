@@ -21,9 +21,10 @@ var starters = map[string][]string{
 }
 
 // startsElsewhere are the process starts that do not go through this
-// package, each with why it opens no window.
+// package, each with why it cannot.
 var startsElsewhere = map[string]string{
-	"internal/conpty/conpty_windows.go windows.CreateProcess": "the process runs in a pseudo console, which has no window",
+	"internal/conpty/conpty_windows.go windows.CreateProcess":   "the process runs in a pseudo console, which has no window",
+	"internal/supervisor/runs_windows.go windows.CreateProcess": "a run item's window is meant to show and to read what the Overlord types in it, which takes starting it without standard handles; an exec.Cmd always hands it some",
 }
 
 // Every process a fleet program starts goes through Command or

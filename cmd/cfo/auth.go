@@ -8,19 +8,25 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
-       cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin)
+       cfo auth store [--project <p>] <NAME> [value]   (omit value to read it from stdin, hidden when typed at a console)
+       cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] NAME [NAME...]   (ask the Overlord for values on the board, by name only)
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth refresh <task-id>   regenerate a task's auth.ps1 from its project scope
@@ -42,6 +48,8 @@ func runAuth(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	switch args[0] {
 	case "store":
 		return runAuthStore(args[1:], stdout, stderr, runtime)
+	case "request":
+		return runAuthRequest(args[1:], stdout, stderr, runtime)
 	case "list":
 		return runAuthList(args[1:], stdout, stderr, runtime)
 	case "copy":
@@ -247,8 +255,19 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		return 2
 	}
 	value := ""
+	typed, isConsole, err := "", false, error(nil)
+	if len(positional) == 1 {
+		// A value typed at the console is read without showing it.
+		typed, isConsole, err = readHiddenLine(stderr, "Value for "+key.String())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
 	if len(positional) == 2 {
 		value = positional[1]
+	} else if isConsole {
+		value = typed
 	} else {
 		// Reading from stdin keeps the secret out of shell history, which is
 		// why it is the documented path.
@@ -290,7 +309,13 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
+	if isConsole {
+		// A board run keeps this output, so a typed value leaves no trace
+		// at all, not even its redacted shape.
+		fmt.Fprintf(stdout, "stored %s in %s\n", key, store.Describe())
+	} else {
+		fmt.Fprintf(stdout, "stored %s (%s) in %s\n", key, auth.Redact(value), store.Describe())
+	}
 	if key.IsShared() {
 		fmt.Fprintln(stdout, "shared scope: only services a manifest declares shared will read this")
 		return 0
@@ -301,6 +326,88 @@ func runAuthStore(args []string, stdout, stderr io.Writer, runtime commandRuntim
 	// CFO stored credentials mid-task: its auth.ps1 followed the store.
 	refreshProjectAuth(context.Background(), runtime, key.Project, stdout, stderr)
 	return 0
+}
+
+// runAuthRequest files a request for credential values by name: the Overlord
+// pastes each value on the request's card on the board, which stores it the
+// way cfo auth store does. Nothing shaped like a value is taken, and nothing
+// refused is repeated. The registered CFO files over the supervisor's pipe; a
+// goblin files for its own task from its own terminal.
+func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	flags := flag.NewFlagSet("auth request", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	project := flags.String("project", "", "the project whose scope the values are stored in")
+	task := flags.String("task", "", "the goblin that needs the values; a goblin names its own task")
+	why := flags.String("why", "", "what the values are for, in one line")
+	link := flags.String("link", "", "the https page the Overlord gets the values from")
+	names, err := parseAuthArgs(flags, args)
+	if err != nil {
+		return 2
+	}
+	if *project == "" || strings.TrimSpace(*why) == "" || len(names) == 0 {
+		fmt.Fprint(stderr, authUsage)
+		return 2
+	}
+	request, err := credentialRequest(runtime, *project, *task, *why, *link, names)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
+		return 2
+	}
+	scope := request.Project
+	h, err := home.Resolve()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	filed, err := supervisor.FileCredentialRequest(ctx, h, terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}}), request)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "filed credential request %s for %s: %s\n", filed.ID, scope, strings.Join(names, ", "))
+	fmt.Fprintln(stdout, "the Overlord pastes the values on its card in the board's Command Center; the CFO hears when they are stored, and running goblins of the project are told to re-source their credentials")
+	for _, name := range names {
+		fmt.Fprintf(stdout, "his terminal fallback on this machine: %s\n", auth.StoreCommand(scope, name))
+	}
+	return 0
+}
+
+// credentialRequest builds a request from cfo auth request's arguments: the
+// scope cfo auth store would write, and the checkout that scope is named for
+// when it is on this machine. It refuses anything shaped like a value without
+// repeating it.
+func credentialRequest(runtime commandRuntime, project, task, why, link string, names []string) (supervisor.CredentialRequest, error) {
+	// A path is judged by the scope it names: a checkout's parent folders
+	// are no part of the request.
+	shaped := func(text string) error {
+		if shape := auth.SecretShape(text); shape != "" {
+			return fmt.Errorf("--project looks like a credential value, not a project: %s", shape)
+		}
+		return nil
+	}
+	if !strings.ContainsAny(project, `/\:`) {
+		if err := shaped(project); err != nil {
+			return supervisor.CredentialRequest{}, err
+		}
+	}
+	scope, err := credentialScope(runtime, project)
+	if err != nil {
+		return supervisor.CredentialRequest{}, err
+	}
+	if err := shaped(scope); err != nil {
+		return supervisor.CredentialRequest{}, err
+	}
+	request := supervisor.CredentialRequest{Project: scope, Task: task, Names: names, Why: strings.TrimSpace(why), Link: link}
+	if resolved, err := runtime.resolveProject(project); err == nil {
+		if checkout, err := filepath.Abs(resolved); err == nil && auth.ProjectName(checkout) == scope {
+			if _, err := os.Stat(filepath.Join(checkout, ".git")); err == nil {
+				request.Repository = checkout
+			}
+		}
+	}
+	return request, supervisor.CredentialRequestProblem(request)
 }
 
 // credentialKey builds and validates one store key from the operator's
@@ -460,24 +567,42 @@ func runAuthCopy(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	return 0
 }
 
+// boardCredentialRefresh is the refresh the board runs after a credential
+// request's save: cfo auth store's own, returning the goblins it told and
+// whatever it would have printed as a problem.
+func boardCredentialRefresh(runtime commandRuntime) func(context.Context, string) ([]string, error) {
+	return func(ctx context.Context, project string) ([]string, error) {
+		var problems strings.Builder
+		told := refreshProjectAuth(ctx, runtime, project, io.Discard, &problems)
+		if problems.Len() > 0 {
+			return told, errors.New(strings.ReplaceAll(strings.TrimSpace(problems.String()), "\n", "; "))
+		}
+		return told, nil
+	}
+}
+
 // refreshProjectAuth regenerates the credential script of every live task of
 // the project and delivers a re-source notice to each one whose pane is live.
 // It is best effort by design: the store write already succeeded, so a fleet
 // that cannot be reached must not fail the store. A runtime without the fleet
 // seams (tests, offline use) skips the refresh entirely rather than pretending.
-func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope string, stdout, stderr io.Writer) {
+// It returns the tasks whose pane took the notice.
+func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope string, stdout, stderr io.Writer) []string {
 	if runtime.resolveHome == nil || runtime.authRefresher == nil || runtime.sendText == nil {
-		return
+		return nil
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth: resolve home: %v\n", err)
-		return
+		return nil
 	}
 	refreshed, err := runtime.authRefresher(h).RefreshProject(ctx, scope)
+	var told []string
 	for _, item := range refreshed.Refreshed {
 		fmt.Fprintf(stdout, "refreshed %s auth.ps1 (%d vars)\n", item.ID, item.Vars)
-		deliverRefreshNotice(ctx, runtime, h, item, stderr)
+		if deliverRefreshNotice(ctx, runtime, h, item, stderr) {
+			told = append(told, item.ID)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth: refresh live task credentials: %v\n", err)
@@ -489,6 +614,7 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 	if len(refreshed.Refreshed) == 0 && refreshed.Unreachable > 0 {
 		fmt.Fprintf(stderr, "cfo auth: found %d live task record(s) for %s but no pane could be confirmed reachable; the stored credentials may not have reached any goblin\n", refreshed.Unreachable, scope)
 	}
+	return told
 }
 
 func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -518,14 +644,17 @@ func runAuthRefresh(args []string, stdout, stderr io.Writer, runtime commandRunt
 }
 
 // deliverRefreshNotice types the one-line re-source notice into the task's
-// pane through the existing fleet sender. A failed notice is reported but
-// never fails the refresh: the script on disk is already current.
-func deliverRefreshNotice(ctx context.Context, runtime commandRuntime, h home.Home, item spawn.Refreshed, stderr io.Writer) {
+// pane through the existing fleet sender and reports whether the pane took
+// it. A failed notice is reported but never fails the refresh: the script on
+// disk is already current.
+func deliverRefreshNotice(ctx context.Context, runtime commandRuntime, h home.Home, item spawn.Refreshed, stderr io.Writer) bool {
 	if runtime.sendText == nil {
-		return
+		return false
 	}
 	notice := fmt.Sprintf("credentials refreshed: re-source %s", item.Path)
 	if err := runtime.sendText(ctx, h, "gb-"+item.ID, notice); err != nil {
 		fmt.Fprintf(stderr, "cfo auth: deliver re-source notice to %s: %v\n", item.ID, err)
+		return false
 	}
+	return true
 }
