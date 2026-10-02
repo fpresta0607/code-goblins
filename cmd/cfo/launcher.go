@@ -115,32 +115,6 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runLauncher is goblins with no arguments, or with --native or --harness. It finds
-// the supervisor, or starts one detached from this terminal, prints the banner
-// with the board's link and the fleet's status, and opens the board in the
-// browser when this launch started the supervisor; a later goblins only
-// prints the link. native starts a new CFO in a native terminal rather than in
-// Herdr, and harness, when set, is the harness goblins starts the CFO as from
-// now on.
-func runLauncher(stdout, stderr io.Writer, runtime commandRuntime, native bool, harness string) int {
-	h, err := runtime.resolveHome()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	ctx := context.Background()
-	board, started, ok := launchBoard(ctx, runtime, h, stdout, stderr)
-	if !ok {
-		return 1
-	}
-	if started {
-		if err := runtime.openURL(board); err != nil {
-			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
-		}
-	}
-	return startCFOSession(ctx, runtime, h, native, harness, stdout, stderr)
-}
-
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as
 // goblins does and opens the board in the browser every time, and starts or
 // shows no CFO in this terminal: the board shows the CFO, and its first-run
