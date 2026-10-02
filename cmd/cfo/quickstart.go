@@ -1,0 +1,366 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+)
+
+// runQuickstart is goblins with no command, with --native or --harness, and
+// goblins setup. It finds the supervisor or starts one, which never opens the
+// board; one Enter at a time it makes the agent the CFO runs on ready; it
+// starts the CFO in the Code Goblins home when none runs; and it ends on one
+// screen: Enter shows the CFO's terminal here, and the board's link or B
+// opens the board. It asks for no project, since the CFO works across every
+// project from its home. The agent steps are skipped while a CFO runs and
+// nothing asks for them: rerun, which goblins setup sets, or a harness named
+// with --harness. native starts a new CFO in a native terminal rather than in
+// Herdr.
+func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native bool, harness string) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx := context.Background()
+	board, _, ok := launchBoard(ctx, runtime, h, stdout, stderr)
+	if !ok {
+		return 1
+	}
+	agent := ""
+	if rerun || harness != "" || !cfoRuns(runtime, h.State) {
+		if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "goblins: %v\n", err)
+			return 1
+		}
+	}
+	session, started, err := ensureCFOSession(ctx, runtime, h, native, agent, stdout)
+	if err != nil {
+		fmt.Fprintf(stderr, "goblins: %v\n", err)
+		return 1
+	}
+	if !started && agent != "" {
+		fmt.Fprintf(stdout, "\nThe CFO already runs, and keeps its harness; %s is the harness goblins starts the next CFO as.\n", agent)
+	}
+	heading := "Your CFO is running"
+	if started {
+		heading = "Your CFO is starting"
+	}
+	link := board
+	if bannerColor(stdout) {
+		link = "\x1b]8;;" + board + "\x1b\\" + board + "\x1b]8;;\x1b\\"
+	}
+	title := fmt.Sprintf("%s\nHome   %s\nBoard  %s  (Ctrl+click opens it)", heading, h.Root, link)
+	choice, err := runtime.choose(stdout, title, []onboarding.Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}}, 0)
+	if errors.Is(err, onboarding.ErrBack) {
+		fmt.Fprintln(stdout, "\nThe CFO and the board keep running; run goblins to see them again.")
+		return 0
+	}
+	if err != nil {
+		// The CFO and the board run either way; only this screen had no
+		// answer.
+		fmt.Fprintf(stderr, "goblins: %v\n", err)
+		return 1
+	}
+	if choice == 1 {
+		if err := runtime.openURL(board); err != nil {
+			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
+			return 1
+		}
+		return 0
+	}
+	if session.native != "" {
+		return runtime.attachNative(h.State, session.native, stdout, stderr)
+	}
+	if os.Getenv("HERDR_PANE_ID") != "" {
+		fmt.Fprintln(stdout, "The CFO is in front in Herdr.")
+		return 0
+	}
+	return runtime.attachHerdr(session.herdr)
+}
+
+// cfoRuns reports whether a CFO runs for the home: one registered in a native
+// terminal or in Herdr, or native terminal cfo up for one that has not
+// registered yet.
+func cfoRuns(runtime commandRuntime, stateDir string) bool {
+	if _, live := runtime.nativeCFO(stateDir); live {
+		return true
+	}
+	if _, live := runtime.liveCFO(stateDir); live {
+		return true
+	}
+	return runtime.nativeTerminalRuns(stateDir, supervisor.NativeCFOTerminal)
+}
+
+// cfoSession is where the CFO runs: a native terminal, or the Herdr session it
+// runs in.
+type cfoSession struct {
+	native string
+	herdr  string
+}
+
+// ensureCFOSession finds the CFO's session, or starts the CFO as agent in the
+// home and reports whether it started one: in native terminal cfo when native
+// is set, or else in Herdr's cfo tab. A CFO registered in a native terminal
+// comes first, then one whose registration names a live process in Herdr,
+// which is brought to the front where it registered, then native terminal cfo
+// while its host answers, since the CFO started there may not have registered
+// yet. A CFO is never started beside one that runs.
+func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, native bool, agent string, stdout io.Writer) (cfoSession, bool, error) {
+	if id, live := runtime.nativeCFO(h.State); live {
+		return cfoSession{native: id}, false, nil
+	}
+	if endpoint, live := runtime.liveCFO(h.State); live {
+		if err := runtime.focusCFO(ctx, endpoint); err != nil {
+			return cfoSession{}, false, fmt.Errorf("the CFO could not be brought to the front in Herdr: %w", err)
+		}
+		return cfoSession{herdr: endpoint.Target.Session}, false, nil
+	}
+	if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		return cfoSession{native: supervisor.NativeCFOTerminal}, false, nil
+	}
+	if agent == "" {
+		// The CFO that ran when this launch began has ended since.
+		var err error
+		if agent, err = cfoHarness(h.State); err != nil {
+			return cfoSession{}, false, err
+		}
+	}
+	if native {
+		if err := runtime.startNativeCFO(h, h.Root, agent); err != nil {
+			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
+		}
+		fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", agent, h.Root, supervisor.NativeCFOTerminal)
+		warnNoWakePath(stdout, agent)
+		for _, note := range runtime.settleCFO(ctx, h.State, agent) {
+			fmt.Fprintln(stdout, note)
+		}
+		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
+	}
+	started, err := runtime.startCFO(ctx, h.Root, agent)
+	if err != nil {
+		return cfoSession{}, false, fmt.Errorf("the CFO session could not be started in Herdr: %w", err)
+	}
+	if !started {
+		fmt.Fprintln(stdout, "\nThe CFO is already running in Herdr's cfo tab.")
+		return cfoSession{herdr: herdrSession()}, false, nil
+	}
+	fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s.\n", agent, h.Root)
+	warnNoWakePath(stdout, agent)
+	for _, note := range unreached(agent, nil) {
+		fmt.Fprintln(stdout, note)
+	}
+	return cfoSession{herdr: herdrSession()}, true, nil
+}
+
+// quickstartDetector reads how ready each agent is on this machine: PATH,
+// each agent's own status command, pi's settings in its agent folder, and
+// whether Claude Code's native build is installed.
+func quickstartDetector() onboarding.Detector {
+	directory, claudeDirectory := os.Getenv("PI_CODING_AGENT_DIR"), ""
+	if userHome, err := os.UserHomeDir(); err == nil {
+		if directory == "" {
+			directory = filepath.Join(userHome, ".pi", "agent")
+		}
+		claudeDirectory = filepath.Join(userHome, ".local", "bin")
+	}
+	return onboarding.Detector{LookPath: exec.LookPath, PiDirectory: directory, ClaudeDirectory: claudeDirectory, Probe: func(ctx context.Context, name string, args ...string) (execx.Result, error) {
+		program, err := spawn.NativeProgram(name, args...)
+		if err != nil {
+			return execx.Result{}, err
+		}
+		return execx.OSRunner{}.Run(ctx, execx.Request{Name: program[0], Args: program[1:], KillTree: true})
+	}}
+}
+
+// setupAgent runs the quick start's agent steps in this console and returns
+// the agent the CFO starts as. An installer and a sign-in run in this console,
+// where the person sees them and answers them: nothing is typed for them.
+func setupAgent(ctx context.Context, stateDir, chosen string, rerun bool, stdout, stderr io.Writer) (string, error) {
+	fmt.Fprintln(stdout, "Checking the agents on this machine ...")
+	return rememberAgent(ctx, stateDir, chosen, rerun, onboarding.Flow{
+		Detect: quickstartDetector().Detect,
+		Choose: func(title string, choices []string, selected int) (int, error) {
+			return onboarding.ChooseConsole(stdout, title, onboarding.Labels(choices...), selected)
+		},
+		Install: func(id string) error { return installAgent(ctx, id, stdout, stderr) },
+		Login:   func(id string) error { return signInAgent(id, stdout, stderr) },
+	})
+}
+
+// rememberAgent runs flow for the home whose state is stateDir and returns
+// the agent the CFO starts as. The flow starts from chosen, the agent
+// --harness named, or else from the agent the home remembers, and the agent
+// it ends on is remembered for every later start. A flow that ends on none
+// leaves what the home remembers as it was.
+func rememberAgent(ctx context.Context, stateDir, chosen string, rerun bool, flow onboarding.Flow) (string, error) {
+	if chosen == "" {
+		data, err := fsx.ReadFile(cfoHarnessPath(stateDir))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		chosen = strings.TrimSpace(string(data))
+	}
+	flow.Save = func(id string) error {
+		return fsx.AtomicWriteFile(cfoHarnessPath(stateDir), []byte(id+"\n"))
+	}
+	return flow.Run(ctx, chosen, rerun)
+}
+
+// installAgent installs an agent the way install.ps1 does, in this console,
+// then brings this process's PATH up to date so the agent it installed is
+// found.
+func installAgent(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	installer, ok := onboarding.InstallerFor(id)
+	if !ok {
+		return fmt.Errorf("%s has no installer", id)
+	}
+	fmt.Fprintf(stdout, "\nRunning %s ...\n", installer.Describe())
+	switch installer.Kind {
+	case "npm":
+		if _, err := exec.LookPath("npm.cmd"); err != nil {
+			return errors.New("npm is not installed; install Node.js first with: winget install OpenJS.NodeJS.LTS")
+		}
+		if err := runInConsole(stdout, stderr, "npm.cmd", "install", "-g", installer.Source); err != nil {
+			return err
+		}
+	default:
+		// The script is saved to a file and run from it. A download-and-run
+		// one-liner on a child's command line is what Defender blocks as
+		// Trojan:Win32/Commando.A!ml.
+		script, err := downloadInstaller(ctx, installer.Source)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(script)
+		if err := runInConsole(stdout, stderr, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script); err != nil {
+			return err
+		}
+	}
+	return refreshPath(id)
+}
+
+// installerTimeout bounds the download of an install script.
+const installerTimeout = 2 * time.Minute
+
+// downloadInstaller saves the install script at address to a temporary file
+// and returns its path.
+func downloadInstaller(ctx context.Context, address string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, installerTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download %s: %w", address, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download %s: HTTP %d", address, response.StatusCode)
+	}
+	file, err := os.CreateTemp("", "code-goblins-install-*.ps1")
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(file, response.Body)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(file.Name())
+		return "", fmt.Errorf("save %s: %w", address, err)
+	}
+	return file.Name(), nil
+}
+
+// refreshPath makes what an installer added to the user's PATH visible to
+// this process, which still holds the PATH it started with: every entry the
+// user's own environment has and this one lacks is appended. Claude Code's
+// native installer puts claude.exe in ~\.local\bin and may leave that folder
+// off PATH, so it is added to the user's PATH as install.ps1 adds it.
+func refreshPath(id string) error {
+	userEnv, err := spawn.UserEnvironment()
+	if err != nil {
+		return fmt.Errorf("read the user's environment: %w", err)
+	}
+	var added []string
+	for _, entry := range userEnv {
+		if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, "PATH") {
+			added = filepath.SplitList(value)
+		}
+	}
+	if id == "claude" {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			bin := filepath.Join(userHome, ".local", "bin")
+			if _, err := os.Stat(filepath.Join(bin, "claude.exe")); err == nil {
+				if err := install.AddToUserPath(bin); err != nil {
+					return fmt.Errorf("add %s to your PATH: %w", bin, err)
+				}
+				added = append(added, bin)
+			}
+		}
+	}
+	entries := filepath.SplitList(os.Getenv("PATH"))
+	for _, entry := range added {
+		if entry != "" && !containsPath(entries, entry) {
+			entries = append(entries, entry)
+		}
+	}
+	return os.Setenv("PATH", strings.Join(entries, string(os.PathListSeparator)))
+}
+
+// containsPath reports whether entries names dir, as Windows compares paths.
+func containsPath(entries []string, dir string) bool {
+	for _, entry := range entries {
+		if fsx.SamePath(entry, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// signInAgent opens an agent's own sign-in in this console and returns when
+// it ends. The person signs in there: Code Goblins types nothing and never
+// sees a password.
+func signInAgent(id string, stdout, stderr io.Writer) error {
+	switch id {
+	case "claude":
+		return runInConsole(stdout, stderr, id, "auth", "login")
+	case "codex":
+		return runInConsole(stdout, stderr, id, "login")
+	case "pi":
+		// pi signs in from inside itself.
+		fmt.Fprintln(stdout, "\npi opens next. In pi, sign in with /login, pick a model with /model, then leave with /quit to come back here.")
+		return runInConsole(stdout, stderr, id)
+	}
+	return fmt.Errorf("%s has no sign-in", id)
+}
+
+// runInConsole runs a program in this console, as the person would run it,
+// and waits for it.
+func runInConsole(stdout, stderr io.Writer, name string, args ...string) error {
+	program, err := spawn.NativeProgram(name, args...)
+	if err != nil {
+		return err
+	}
+	command := execx.Command(program[0], program[1:]...)
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, stdout, stderr
+	return command.Run()
+}
