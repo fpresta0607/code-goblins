@@ -103,20 +103,21 @@ type Entry struct {
 var ErrNotOn = errors.New("AFK mode is not on")
 
 // Read returns the switch as the home's state directory holds it. A switch
-// that cannot be read is an error, never off.
+// that cannot be read is an error, never off, and the error names the way
+// back: Reset, which is the Overlord's off.
 func Read(stateDir string) (State, error) {
 	data, err := fsx.ReadFile(filepath.Join(stateDir, stateFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return State{}, nil
 	}
-	if err != nil {
-		return State{}, fmt.Errorf("AFK mode's switch cannot be read: %w", err)
-	}
 	var state State
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil {
-		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w", stateFile, err)
+	if err == nil {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(&state)
+	}
+	if err != nil {
+		return State{}, fmt.Errorf("AFK mode's switch (state/%s) cannot be read: %w; only the Overlord resets it, with cfo afk off from a terminal of his own", stateFile, err)
 	}
 	return state, nil
 }
@@ -167,6 +168,17 @@ func TurnOff(stateDir, from string, now time.Time) (State, error) {
 		return State{}, err
 	}
 	return state, nil
+}
+
+// Reset puts a switch that cannot be read back to off from where the Overlord
+// did it, so his off always works. The log says so and why first, as for any
+// switch. What the switch held is not known, so no stretch ends here and no
+// report is built: the log keeps what was decided.
+func Reset(stateDir, from string, unread error, now time.Time) error {
+	if err := appendEntry(stateDir, Entry{At: now.UTC(), Kind: KindOff, What: from, Evidence: "the switch could not be read and was reset to off: " + unread.Error()}); err != nil {
+		return err
+	}
+	return write(stateDir, State{})
 }
 
 // Log records a decision the CFO made under the authority, in the stretch

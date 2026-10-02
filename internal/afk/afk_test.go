@@ -212,3 +212,32 @@ func TestASwitchThatCannotBeReadIsAnErrorNotOff(t *testing.T) {
 		t.Error("TurnOn over an unreadable switch was accepted")
 	}
 }
+
+// The Overlord's off always works: a switch that cannot be read is put back
+// to off from where he did it, and the log says it was reset and why.
+func TestResettingASwitchThatCannotBeReadPutsItBackToOff(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "afk.json"), []byte("{\"on\": tr"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, unread := Read(dir)
+
+	// Act
+	err := Reset(dir, "his own terminal (powershell.exe pid 4242)", unread, night)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := Read(dir); err != nil || state.On || state.Session != "" {
+		t.Errorf("Read after Reset = %+v, %v, want off with no stretch", state, err)
+	}
+	entries, unreadable, err := Entries(dir, "")
+	if err != nil || unreadable != 0 || len(entries) != 1 {
+		t.Fatalf("log = %+v (%d unreadable, %v), want the one line of the reset", entries, unreadable, err)
+	}
+	if reset := entries[0]; reset.Kind != KindOff || reset.What != "his own terminal (powershell.exe pid 4242)" || !reset.At.Equal(night) || !strings.Contains(reset.Evidence, "could not be read") || !strings.Contains(reset.Evidence, unread.Error()) {
+		t.Errorf("logged = %+v, want the switch turned off from his terminal, saying it could not be read and why", reset)
+	}
+}

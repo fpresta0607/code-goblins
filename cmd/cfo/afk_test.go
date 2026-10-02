@@ -151,6 +151,46 @@ func TestAFKOffWhileItIsOffSaysSo(t *testing.T) {
 	}
 }
 
+// His off over a switch that cannot be read resets it, and the command says
+// so rather than print the report of an earlier stretch as if it were this
+// one's.
+func TestAFKOffOverASwitchThatCannotBeReadSaysItWasResetAndPrintsNoReport(t *testing.T) {
+	// Arrange
+	runtime, h := afkRuntime(t)
+	if exit, _, stderr := afkCommand(runtime, "on"); exit != 0 {
+		t.Fatal(stderr)
+	}
+	if exit, _, stderr := afkCommand(runtime, "off"); exit != 0 {
+		t.Fatal(stderr)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, unread := afk.Read(h.State)
+	runtime.switchAFK = func(h home.Home, on bool) error {
+		if on {
+			t.Error("the command asked to turn AFK mode on")
+		}
+		return afk.Reset(h.State, overlordsShell, unread, time.Now())
+	}
+
+	// Act
+	exit, stdout, stderr := afkCommand(runtime, "off")
+
+	// Assert
+	if exit != 0 || stderr != "" {
+		t.Fatalf("exit=%d stderr=%q, want the reset reported as done", exit, stderr)
+	}
+	for _, phrase := range []string{"could not be read", "is reset to off", "no report", "state/afk.audit"} {
+		if !strings.Contains(stdout, phrase) {
+			t.Errorf("stdout does not say %q:\n%s", phrase, stdout)
+		}
+	}
+	if strings.Contains(stdout, "AFK MODE REPORT") {
+		t.Errorf("stdout prints an earlier stretch's report as this one's:\n%s", stdout)
+	}
+}
+
 func TestAFKLogSendsTheDecisionWithItsEvidence(t *testing.T) {
 	// Arrange
 	runtime, h := afkRuntime(t)

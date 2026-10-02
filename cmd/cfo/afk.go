@@ -68,8 +68,15 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintln(stdout, "cfo afk status shows both. cfo afk off turns it off and prints the report.")
 		return 0
 	case "off":
+		// His off resets a switch that cannot be read, and then no stretch
+		// ended that a report could be of.
+		_, unread := afk.Read(h.State)
 		if err := runtime.afkSwitch()(h, false); err != nil {
 			return fail(err)
+		}
+		if unread != nil {
+			fmt.Fprintln(stdout, "AFK mode's switch could not be read and is reset to off. There is no report of the stretch it may have held: state/afk.audit keeps what was logged.")
+			return 0
 		}
 		return printAFKReport(h, stdout, stderr)
 	case "report":

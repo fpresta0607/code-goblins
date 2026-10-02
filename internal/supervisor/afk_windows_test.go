@@ -395,6 +395,82 @@ func TestAnUnreadableSwitchHidesNothingAndIsReported(t *testing.T) {
 	}
 }
 
+// His off always works. A switch that cannot be read is put back to off from
+// a terminal of his own, the CFO is told there is no report of that stretch,
+// and nothing else changes it: not an agent's off, and not his own on, which
+// would guess at what the switch held.
+func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
+	unreadable := func(t *testing.T, stateDir string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(stateDir, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("his off resets it", func(t *testing.T) {
+		// Arrange
+		store, h := testStore(t)
+		s := &Service{Store: store}
+		asOverlordsTerminal(s)
+		runPipe(t, s)
+		unreadable(t, h.State)
+
+		// Act
+		err := SwitchAFK(h, false)
+
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if switched, err := afk.Read(h.State); err != nil || switched.On {
+			t.Errorf("the switch = %+v, %v, want it readable again and off", switched, err)
+		}
+		entries := afkEntries(t, h.State)
+		if len(entries) != 1 || entries[0].Kind != afk.KindOff || entries[0].What != "his own terminal (powershell.exe pid 4242)" || !strings.Contains(entries[0].Evidence, "could not be read") {
+			t.Errorf("the AFK log = %+v, want the one line of the reset, from his terminal, saying why", entries)
+		}
+		pending, err := wake.Pending(h.State)
+		if err != nil || len(pending) != 1 || pending[0].Key != "afk" || !strings.Contains(pending[0].Detail, "could not be read") || !strings.Contains(pending[0].Detail, "no report") {
+			t.Errorf("the CFO's queue = %+v, %v, want it told the switch was reset to off and that there is no report", pending, err)
+		}
+		if _, found, err := afk.ReadReport(h.State); err != nil || found {
+			t.Errorf("ReadReport = %v, %v, want no report of a stretch nobody could read", found, err)
+		}
+	})
+
+	for name, c := range map[string]struct {
+		on      bool
+		caller  func(*Service)
+		refusal string
+	}{
+		"a goblin's off is refused": {false, asGoblinsTerminal, "a goblin's terminal"},
+		"his on is refused":         {true, asOverlordsTerminal, "only the Overlord resets it, with cfo afk off"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			s := &Service{Store: store}
+			c.caller(s)
+			runPipe(t, s)
+			unreadable(t, h.State)
+
+			// Act
+			err := SwitchAFK(h, c.on)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), c.refusal) {
+				t.Fatalf("SwitchAFK = %v, want it refused as %q", err, c.refusal)
+			}
+			if _, err := afk.Read(h.State); err == nil {
+				t.Error("the switch reads again after a refused request, want it left as it was")
+			}
+			if entries := afkEntries(t, h.State); len(entries) != 0 {
+				t.Errorf("the AFK log = %+v, want nothing", entries)
+			}
+		})
+	}
+}
+
 func waitingItems(t *testing.T, store *Store) {
 	t.Helper()
 	now := time.Now().UTC()

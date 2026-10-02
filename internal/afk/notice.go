@@ -64,5 +64,5 @@ func BannerFor(stateDir string) string {
 
 // unreadable says the switch cannot be read, on one line.
 func unreadable(err error) string {
-	return "AFK MODE: UNREADABLE (" + strings.Join(strings.Fields(err.Error()), " ") + "): whether the Overlord is away is unknown, so decide nothing under its authority until state/" + stateFile + " reads again."
+	return "AFK MODE: UNREADABLE (" + strings.Join(strings.Fields(err.Error()), " ") + "): whether the Overlord is away is unknown, so decide nothing under its authority until it reads again."
 }

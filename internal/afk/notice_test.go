@@ -110,6 +110,10 @@ func TestTheNoticeAndBannerForAHomeFollowItsSwitch(t *testing.T) {
 		if len(lines) != 1 || !strings.HasPrefix(lines[0], "AFK MODE: UNREADABLE (") {
 			t.Errorf("NoticeFor = %q, want the unreadable switch said", lines)
 		}
+		// The way back is his alone, so the line names it as his.
+		if len(lines) == 1 && !strings.Contains(lines[0], "only the Overlord resets it, with cfo afk off from a terminal of his own") {
+			t.Errorf("NoticeFor = %q, want it to say who resets the switch and how", lines)
+		}
 		if !strings.HasPrefix(banner, "AFK MODE: UNREADABLE (") || strings.Contains(banner, "\n") {
 			t.Errorf("BannerFor = %q, want the unreadable switch said on one line", banner)
 		}

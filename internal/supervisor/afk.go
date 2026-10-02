@@ -128,7 +128,7 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 // switchAFK turns AFK mode on or off for the process at the other end of the
 // pipe, once that process is proven to be the Overlord's own terminal. Turning
 // it on reads the allowance and tells the CFO through its wake queue; turning
-// it off keeps the report of the stretch first, so AFK mode is never off
+// it off keeps the report of the stretch first, so a stretch never ends
 // without one, and tells the CFO to write it into its terminal.
 func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, on bool) error {
 	from, err := s.overlordsTerminal(pid, connected)
@@ -140,7 +140,15 @@ func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, o
 	stateDir := s.Store.Home.State
 	current, err := afk.Read(stateDir)
 	if err != nil {
-		return err
+		// His off always works: it puts a switch that cannot be read back to
+		// off. His on does not, since it would guess at what the switch held.
+		if on {
+			return err
+		}
+		if err := afk.Reset(stateDir, from, err, time.Now()); err != nil {
+			return err
+		}
+		return s.afkNotice("the Overlord reset AFK mode to off from " + from + ": its switch could not be read, so there is no report of the stretch it may have held, and state/afk.audit keeps what was logged. He is back and decides again, so the standing rules apply.")
 	}
 	if on == current.On {
 		if on {
