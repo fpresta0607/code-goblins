@@ -379,7 +379,7 @@ func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Tim
 		return "", "", "", false
 	}
 	switch target {
-	case "ci", "deploy":
+	case "ci", "deploy", "memory":
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.

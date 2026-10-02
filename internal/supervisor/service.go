@@ -107,10 +107,13 @@ type Service struct {
 	// historyErr is what the last history refresh met, and cfoWakeErr and
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
-	// recovery cycle.
-	historyErr error
-	cfoWakeErr error
-	fleetErr   error
+	// recovery cycle. ciUnreadable is why each watched repository's CI
+	// cannot be read, as of the last fleet reading; every recovery cycle
+	// reports it for as long as the failure lasts.
+	historyErr   error
+	cfoWakeErr   error
+	fleetErr     error
+	ciUnreadable error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -393,7 +396,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
 		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))

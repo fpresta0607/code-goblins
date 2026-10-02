@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -145,7 +147,9 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 // no branch, as the fixture home's own task has. origin's HEAD names main
 // unless noOriginHead says the repository has none, and then originBranches
 // are the branches its origin has. runListDirs holds where push runs were
-// listed.
+// listed. noOrigin says the repository has no origin remote, ghFailure is
+// what gh prints when it cannot read the repository, and ghCalls counts the
+// gh calls made in it.
 type fakeForge struct {
 	mu             sync.Mutex
 	repo           string
@@ -154,8 +158,11 @@ type fakeForge struct {
 	runs           string
 	jobs           string
 	branch         string
+	noOrigin       bool
 	noOriginHead   bool
 	originBranches []string
+	ghFailure      string
+	ghCalls        int
 	listCalls      int
 	runListDirs    []string
 }
@@ -171,7 +178,18 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		}
 		return execx.Result{Stdout: []byte(output)}, nil
 	}
+	if inRepo && req.Name == "gh" {
+		f.ghCalls++
+		if f.ghFailure != "" {
+			return execx.Result{ExitCode: 1, Stderr: []byte(f.ghFailure)}, nil
+		}
+	}
 	switch {
+	case strings.HasPrefix(command, "git config --get remote.origin.url"):
+		if inRepo && f.noOrigin {
+			return execx.Result{ExitCode: 1}, nil
+		}
+		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
 		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
 			return execx.Result{Stdout: []byte("\n")}, nil
@@ -505,5 +523,164 @@ func TestFleetWakesForgetAPullRequestNoLongerWatched(t *testing.T) {
 	}
 	if len(remembered.Checks) != 0 || len(remembered.Woke) != 0 {
 		t.Fatalf("a pull request closed for a week is still remembered: checks %v, woke %v", remembered.Checks, remembered.Woke)
+	}
+}
+
+// unreadableForge is a service whose one goblin works in a repository gh
+// cannot read, the forge that says why, and the repository.
+func unreadableForge(t *testing.T) (*Service, home.Home, *fakeForge, string) {
+	t.Helper()
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
+	forge.ghFailure = "To get started with GitHub CLI, please run: gh auth login"
+	s.Options.CI = forge
+	return s, h, forge, project
+}
+
+// A repository with no origin remote is a supported setup, not a fault: gh
+// is asked nothing about it, and it raises no error and no wake.
+func TestCIUnreadableIgnoresARepositoryWithNoOrigin(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", passedChecks, redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	forge.noOrigin = true
+	s.Options.CI = forge
+
+	err := s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
+
+	if err != nil {
+		t.Fatalf("a repository with no origin returned %v, want no error", err)
+	}
+	if forge.ghCalls != 0 {
+		t.Fatalf("gh was called %d times in a repository with no origin, want none", forge.ghCalls)
+	}
+	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
+		t.Fatalf("a repository with no origin woke the CFO: %+v", woke)
+	}
+}
+
+// A repository gh cannot read keeps its named error at every reading,
+// polling or not, and wakes the CFO once, when the same failure was met on
+// two polls in a row, however long it then lasts.
+func TestCIUnreadableWakesOnceForAFailureMetOnTwoPolls(t *testing.T) {
+	s, h, _, project := unreadableForge(t)
+	polled := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	for _, reading := range []struct {
+		after time.Duration
+		woke  int
+	}{{0, 0}, {time.Minute, 0}, {2 * time.Minute, 1}, {3 * time.Minute, 1}, {4 * time.Minute, 1}, {6 * time.Minute, 1}} {
+		err := s.checkFleet(context.Background(), polled.Add(reading.after))
+		if err == nil || !strings.Contains(err.Error(), "list the push runs of "+project) || !strings.Contains(err.Error(), "gh auth login") {
+			t.Fatalf("the reading at %s returned %v, want the named error of %s", reading.after, err, project)
+		}
+		woke := fleetWakeRecords(t, h, "ci")
+		if len(woke) != reading.woke {
+			t.Fatalf("by the reading at %s the CFO was woken %d times, want %d: %+v", reading.after, len(woke), reading.woke, woke)
+		}
+	}
+	woke := fleetWakeRecords(t, h, "ci")[0]
+	if woke.Key != "repo:"+filepath.Base(project) || !strings.HasPrefix(woke.Detail, "ci_unreadable: ") || !strings.Contains(woke.Detail, project) || !strings.Contains(woke.Detail, "next:") {
+		t.Fatalf("wake = %+v, want one keyed by the repository, starting ci_unreadable and naming it and the next step", woke)
+	}
+}
+
+// A different failure wakes again once it too was met on two polls, a
+// failure that clears wakes nobody and leaves no record in
+// state/fleet-wakes.json, and the same failure coming back wakes again.
+func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
+	s, h, forge, project := unreadableForge(t)
+	signedOut := forge.ghFailure
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	poll := func() (int, error) {
+		t.Helper()
+		now = now.Add(3 * time.Minute)
+		err := s.checkFleet(context.Background(), now)
+		return len(fleetWakeRecords(t, h, "ci")), err
+	}
+	for _, step := range []struct {
+		failure string
+		woke    int
+	}{{signedOut, 0}, {signedOut, 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 2}} {
+		forge.ghFailure = step.failure
+		if woke, _ := poll(); woke != step.woke {
+			t.Fatalf("after a poll failing with %q the CFO was woken %d times, want %d", step.failure, woke, step.woke)
+		}
+	}
+
+	forge.ghFailure = ""
+	woke, err := poll()
+
+	if err != nil || woke != 2 {
+		t.Fatalf("the repository reading again returned %v and %d wakes, want no error and no new wake", err, woke)
+	}
+	data, err := fsx.ReadFile(fleetWakesPath(h.State))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var remembered map[string]json.RawMessage
+	if err := json.Unmarshal(data, &remembered); err != nil {
+		t.Fatal(err)
+	}
+	if failure, kept := remembered["unreadable"]; kept {
+		t.Fatalf("state/fleet-wakes.json still remembers a failure of %s: %s", project, failure)
+	}
+	forge.ghFailure = signedOut
+	if woke, _ := poll(); woke != 2 {
+		t.Fatalf("the failure met once after it cleared woke the CFO %d times, want 2", woke)
+	}
+	if woke, _ := poll(); woke != 3 {
+		t.Fatalf("the failure back on two polls woke the CFO %d times, want 3", woke)
+	}
+}
+
+// What state/fleet-wakes.json remembers of a failure outlives a restart: a
+// new supervisor on the same state shows the line before it polls and does
+// not wake the CFO for it again.
+func TestCIUnreadableStandsAcrossARestartWithoutWakingAgain(t *testing.T) {
+	s, h, _, project := unreadableForge(t)
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 2 {
+		now = now.Add(ciPollEvery)
+		_ = s.checkFleet(context.Background(), now)
+	}
+	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
+		t.Fatalf("a failure met twice woke %d times, want one", len(woke))
+	}
+	restarted := &Service{Store: s.Store, Options: s.Options}
+
+	unpolled := restarted.checkFleet(context.Background(), now.Add(time.Minute))
+	polled := restarted.checkFleet(context.Background(), now.Add(ciPollEvery))
+
+	for _, err := range []error{unpolled, polled} {
+		if err == nil || !strings.Contains(err.Error(), "list the push runs of "+project) {
+			t.Fatalf("after a restart a reading returned %v, want the named error of %s", err, project)
+		}
+	}
+	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
+		t.Fatalf("the restart woke the CFO again: %+v", woke)
+	}
+}
+
+// The board keeps the line for as long as the failure lasts: two recovery
+// cycles with no reading between them both show it.
+func TestCIUnreadableShowsAtEveryRecoveryCycle(t *testing.T) {
+	s, _, _, project := unreadableForge(t)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
+
+	s.cycle(context.Background(), true)
+	first := s.lastError
+	s.cycle(context.Background(), true)
+
+	for _, shown := range []string{first, s.lastError} {
+		if !strings.Contains(shown, "list the push runs of "+project) {
+			t.Fatalf("a recovery cycle showed %q, want the named error of %s", shown, project)
+		}
 	}
 }

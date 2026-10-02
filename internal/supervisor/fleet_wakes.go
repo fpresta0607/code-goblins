@@ -74,6 +74,9 @@ type fleetWakes struct {
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
+	// Unreadable holds, by repository, why its CI could not be read on its
+	// last poll.
+	Unreadable map[string]unreadableRepo `json:"unreadable,omitempty"`
 	// Repos holds each repository watched and when a live goblin was last
 	// seen working in it.
 	Repos    map[string]time.Time `json:"repos,omitempty"`
@@ -87,6 +90,13 @@ type fleetWakes struct {
 type reportedChecks struct {
 	Signature string    `json:"signature"`
 	At        time.Time `json:"at"`
+}
+
+// unreadableRepo is the failure a repository's last poll met, and whether
+// the CFO was woken for it.
+type unreadableRepo struct {
+	Failure string `json:"failure"`
+	Woke    bool   `json:"woke,omitempty"`
 }
 
 func fleetWakesPath(stateDir string) string {
@@ -136,19 +146,13 @@ func (w *fleetWakes) woke(key string, now time.Time) {
 
 // keepFleetWakes reads memory every fleetWatchEvery and CI every ciPollEvery
 // until ctx ends. It runs apart from the supervisor's loop, since a GitHub
-// call can take seconds, and hands what went wrong to the next recovery
-// cycle, which shows it on the board, once however many readings met it.
+// call can take seconds, and each reading hands what went wrong to the
+// recovery cycle itself.
 func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
-		if err := s.checkFleet(ctx, time.Now().UTC()); err != nil {
-			s.mu.Lock()
-			if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
-				s.fleetErr = errors.Join(s.fleetErr, err)
-			}
-			s.mu.Unlock()
-		}
+		_ = s.checkFleet(ctx, time.Now().UTC())
 		select {
 		case <-ctx.Done():
 			return
@@ -158,7 +162,10 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 }
 
 // checkFleet takes one memory reading and, when it is due, one CI poll. A
-// supervisor that reads neither writes nothing.
+// supervisor that reads neither writes nothing. It returns what went wrong
+// and hands it to the recovery cycle, which shows it on the board: what this
+// reading met once, however many readings met it, and each repository whose
+// CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil {
 		return nil
@@ -166,7 +173,25 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.checkMemory(&w, now), s.pollCI(ctx, &w, now))
-	return errors.Join(err, writeFleetWakes(stateDir, w))
+	err = errors.Join(err, writeFleetWakes(stateDir, w))
+	var unreadable error
+	if s.Options.CI != nil {
+		repos := make([]string, 0, len(w.Unreadable))
+		for repo := range w.Unreadable {
+			repos = append(repos, repo)
+		}
+		sort.Strings(repos)
+		for _, repo := range repos {
+			unreadable = errors.Join(unreadable, errors.New(w.Unreadable[repo].Failure))
+		}
+	}
+	s.mu.Lock()
+	if err != nil && (s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error())) {
+		s.fleetErr = errors.Join(s.fleetErr, err)
+	}
+	s.ciUnreadable = unreadable
+	s.mu.Unlock()
+	return errors.Join(err, unreadable)
 }
 
 // checkMemory raises memory_ready once memory and commit both read at or
@@ -305,6 +330,9 @@ type ciGoblin struct {
 // repositories live goblins work in and about their main's push CI, and
 // raises ci_finished for each goblin pull request whose checks have all
 // concluded since it was last reported, and for each red push run of main.
+// A repository with no origin remote is a local one and is asked nothing.
+// One with an origin whose CI cannot be read is remembered in w.Unreadable
+// until a poll reads it again, and raises ci_unreadable.
 func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) error {
 	runner := s.Options.CI
 	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
@@ -314,14 +342,19 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	var errs error
 	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
+		if _, err := runOutput(ctx, runner, repo, "git", "config", "--get", "remote.origin.url"); err != nil {
+			delete(w.Unreadable, repo)
+			continue
+		}
 		var mine []ciGoblin
 		for _, goblin := range goblins {
 			if fsx.SamePath(goblin.repo, repo) {
 				mine = append(mine, goblin)
 			}
 		}
-		errs = errors.Join(errs, pollPullRequests(ctx, runner, s.Store.Home.State, w, repo, mine, now))
-		errs = errors.Join(errs, pollMain(ctx, runner, s.Store.Home.State, w, repo, now))
+		pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, s.Store.Home.State, w, repo, mine, now)
+		mainUnreadable, mainErr := pollMain(ctx, runner, s.Store.Home.State, w, repo, now)
+		errs = errors.Join(errs, pullsErr, mainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
 	}
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
@@ -334,6 +367,37 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 		}
 	}
 	return errs
+}
+
+// reportUnreadable remembers why repo's CI could not be read and raises
+// ci_unreadable once the same failure was met on two polls in a row: once
+// for as long as it stays the same, and again for a different failure or
+// for one that cleared and came back. A repository that reads again is
+// forgotten and wakes nobody.
+func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error, now time.Time) error {
+	if failure == nil {
+		delete(w.Unreadable, repo)
+		return nil
+	}
+	if w.Unreadable == nil {
+		w.Unreadable = map[string]unreadableRepo{}
+	}
+	record, key := w.Unreadable[repo], "ci:repo:"+repo
+	if record.Failure != failure.Error() {
+		w.Unreadable[repo] = unreadableRepo{Failure: failure.Error()}
+		return nil
+	}
+	if record.Woke || !w.due(key, ciWakeGap, now) {
+		return nil
+	}
+	detail := fmt.Sprintf("ci_unreadable: %s; next: sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a; no CI wake comes from this repository until it reads again", record.Failure)
+	if err := raiseFleetWake(stateDir, "ci", "repo:"+filepath.Base(repo), detail); err != nil {
+		return err
+	}
+	record.Woke = true
+	w.Unreadable[repo] = record
+	w.woke(key, now)
+	return nil
 }
 
 // ciGoblins reads every live goblin's repository, branch and pull requests.
@@ -395,6 +459,7 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 		if now.Sub(last) >= repoWatchFor {
 			delete(w.Repos, repo)
 			delete(w.RedRuns, repo)
+			delete(w.Unreadable, repo)
 			continue
 		}
 		repos = append(repos, repo)
@@ -462,18 +527,20 @@ func (c ghCheck) outcome() string {
 
 // pollPullRequests lists repo's open pull requests once and raises
 // ci_finished for each one of goblins whose checks have all concluded with
-// a result it was not woken for: its head and each check's conclusion.
-func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) error {
+// a result it was not woken for: its head and each check's conclusion. It
+// returns why the pull requests could not be read, apart from what went
+// wrong raising a wake.
+func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (unreadable, err error) {
 	if len(goblins) == 0 {
-		return nil
+		return nil, nil
 	}
 	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup")
 	if err != nil {
-		return fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err)
+		return fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
 	}
 	var open []ghPullRequest
 	if err := json.Unmarshal([]byte(out), &open); err != nil {
-		return fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err)
+		return fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err), nil
 	}
 	var errs error
 	for _, goblin := range goblins {
@@ -488,7 +555,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}
-	return errs
+	return nil, errs
 }
 
 // reportChecks raises ci_finished for pr once every check on it has
@@ -576,19 +643,20 @@ func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (strin
 // pollMain raises ci_finished for each workflow whose newest push run on
 // repo's default branch finished red and was not reported yet, naming the
 // workflow, the jobs that failed and the run. On 2026-09-30 main's install
-// workflow stayed red for hours before the CFO noticed.
-func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time) error {
+// workflow stayed red for hours before the CFO noticed. It returns why the
+// runs could not be read, apart from what went wrong raising a wake.
+func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time) (unreadable, err error) {
 	branch, err := defaultBranch(ctx, runner, repo)
 	if err != nil {
-		return err
+		return err, nil
 	}
 	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,headSha,url")
 	if err != nil {
-		return fmt.Errorf("ci wakes: list the push runs of %s's %s: %w", repo, branch, err)
+		return fmt.Errorf("ci wakes: list the push runs of %s's %s: %w", repo, branch, err), nil
 	}
 	var runs []ghRun
 	if err := json.Unmarshal([]byte(out), &runs); err != nil {
-		return fmt.Errorf("ci wakes: gh listed the push runs of %s in a shape it cannot read: %w", repo, err)
+		return fmt.Errorf("ci wakes: gh listed the push runs of %s in a shape it cannot read: %w", repo, err), nil
 	}
 	newest := map[string]bool{}
 	var errs error
@@ -619,7 +687,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		w.RedRuns[repo] = reported[max(0, len(reported)-20):]
 		w.woke(key, now)
 	}
-	return errs
+	return nil, errs
 }
 
 // failedJobs names the jobs of run that failed, as the wake reads them.

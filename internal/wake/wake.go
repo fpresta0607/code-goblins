@@ -39,7 +39,8 @@ const wakeLockName = ".wake-queue.lock"
 // kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
 // sweep appends, the `review` kind the supervisor appends when the Overlord
 // answers a goblin's item or page, and the `memory` and `ci` kinds it appends
-// when memory comes back for waiting work and when CI finishes, and no others.
+// when memory comes back for waiting work and when CI finishes or a
+// repository's CI cannot be read, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
