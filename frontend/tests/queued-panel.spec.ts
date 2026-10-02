@@ -36,7 +36,7 @@ async function open(page: Page, posted: Posted[] = []) {
 }
 
 const panel = (page: Page) => page.locator(".goblin-panel");
-const card = (page: Page, id: string) => page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
+const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 
 async function select(page: Page, id: string) {
   await card(page, id).locator(".task-card").click();

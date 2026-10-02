@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
 
 // The Overlord, 2026-10-02, with a screenshot of his own board: "make sure
 // that when you open the Code Goblins board for the first time, or any type of
@@ -18,25 +18,33 @@ const TASKS = [
 ];
 const running = { healthy: true, instance: "fixture", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: 1, attention: [], tasks: TASKS };
 
-// open shows the board over a supervisor that sends one snapshot and answers
-// every terminal with an empty screen. kept is what the browser already
-// keeps, set before the page loads.
+// open holds the supervisor's stream and answers each terminal's size claim
+// with a repaint. kept is what the browser already keeps, set before load.
 async function open(page: Page, snapshot: Record<string, unknown> = running, kept: Record<string, string> = {}) {
+  const typed: string[] = [];
   await page.addInitScript((entries: Record<string, string>) => {
     for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
   }, kept);
+  await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
-    else if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true }], cfo_runs: false } });
+    if (path === "/api/setup") await route.fulfill({ json: { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true }], cfo_runs: false } });
     else if (path === "/api/setup/start") await route.fulfill({ json: { started: true } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
-    socket.send(Buffer.from("READY\r\n"));
+    socket.onMessage((data) => {
+      if (typeof data !== "string") { typed.push(data.toString("utf8")); return; }
+      const command: unknown = JSON.parse(data);
+      if (typeof command === "object" && command !== null && "type" in command && command.type === "resize" && "cols" in command && "rows" in command) {
+        socket.send(JSON.stringify({ type: "size", cols: command.cols, rows: command.rows }));
+        socket.send(Buffer.from("\x1b[2J\x1b[HREADY\r\n"));
+      }
+    });
   });
   await page.goto("/");
+  return typed;
 }
 
 const board = (page: Page) => page.getByRole("main", { name: "Board" });
@@ -72,11 +80,13 @@ for (const [name, viewport, scale, wantColumns] of [
 
     test("the first open shows the board with the CFO's terminal beside it and the keyboard in the terminal", async ({ page }, testInfo) => {
       // Act
-      await open(page);
+      const typed = await open(page);
 
       // Assert
       await besideTheBoard(page);
       await expect(terminalInput(page)).toBeFocused();
+      await page.keyboard.type("help");
+      await expect.poll(() => typed.join("")).toBe("help");
       expect(await columns(page)).toBe(wantColumns);
       await page.screenshot({ path: testInfo.outputPath("first-open.png") });
     });

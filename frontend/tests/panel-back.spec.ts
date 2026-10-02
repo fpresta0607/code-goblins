@@ -14,6 +14,7 @@ const BOARD = [
 ];
 
 async function open(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks: BOARD };
   await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {
@@ -74,8 +75,9 @@ test("Back returns to the view the CFO's panel last showed, and a maximized pane
   await expect(pill(page, "Task")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".canvas-region")).toBeVisible();
 
-  // Now the CFO's panel last showed its terminal, which covers the board.
+  // Now he maximizes the CFO's terminal, which covers the board.
   await pill(page, "Terminal").click();
+  await page.getByRole("button", { name: "Maximize the panel" }).click();
   await expect(page.locator(".canvas-region")).toBeHidden();
   await page.keyboard.press("Control+Alt+2");
   await expect(title(page)).toHaveText("working-one");
