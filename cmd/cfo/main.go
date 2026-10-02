@@ -78,7 +78,7 @@ commands:
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
-  cfo gate test         this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package
+  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
