@@ -157,7 +157,7 @@ type commandRuntime struct {
 	// startNativeCFO and attachNative start the CFO in a native terminal and
 	// show a native terminal in this console, for goblins --native and a CFO
 	// registered in one.
-	startNativeCFO func(h home.Home, project, harness string) error
+	startNativeCFO func(h home.Home, project, harness string, args []string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never

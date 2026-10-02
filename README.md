@@ -165,6 +165,9 @@ It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
 It starts in its remembered harness in Herdr, in a fresh `cfo` tab, closing an idle old `cfo` tab or renaming a busy one to `shell`; `goblins --native` starts it in a native terminal of its own instead, so closing any window leaves it running, and `goblins attach` shows it again.
+A CFO that ran in a native terminal and was closed, however it ended (`/exit`, Ctrl-C, its window closed, a crash or a reboot), comes back when you run `goblins` again, with or without `--native`: in that terminal, and, when it starts as the same agent, on the conversation it last registered with, Claude Code with `--resume` and Codex with `codex resume`, and it registers itself as before.
+A conversation that cannot be resumed starts a new one, and so does one past 20 MB, since CFO sessions stay small, or one in pi, which has no resume; `goblins` says which.
+A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
@@ -189,7 +192,9 @@ The agents are one row of tabs, each with its own mark, moved with Left and Righ
 A step you have answered leaves one line, a tick with the step's name and its answer, in place of its screen, so the window never fills with the steps before; installers and sign-ins run on the console's other screen and leave nothing behind.
 The agent you end on is remembered, so later runs skip what is already set up and go straight to the last screen; `goblins setup` asks again, and `goblins --harness codex` names the agent instead of asking.
 Only a CFO in Claude Code is woken by the fleet today, through its Stop hook: a CFO run in Codex or pi learns what goblins finished or asked only when you next prompt it, which the choice of agent and the start both say.
-Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen, where you pick the folder that holds your projects, the project the CFO starts in and the agent, then **Start the CFO**, and it opens in the board's terminal.
+Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
+It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
+The folder that holds your projects is optional there.
 The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.
 
 Tell the CFO what outcome you want.
