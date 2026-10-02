@@ -220,19 +220,10 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
-It lives in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), the private repository where the desktop app is built before it comes here; no release of this repository ships it yet.
-To get it, build it from a clone of that repository, which needs Go, and add it beside your CFO home with that repository's `tools\install-window.ps1`:
-
-```powershell
-go build -trimpath -ldflags "-H windowsgui" -o C:\build\goblins-window.exe ./cmd/goblins-window
-(Get-FileHash C:\build\goblins-window.exe -Algorithm SHA256).Hash
-.\tools\install-window.ps1 -Window C:\build\goblins-window.exe -Sha256 <the hash it printed> -CfoHome C:\path\to\the\home
-```
-
-The script refuses a file whose SHA-256 is not the one given, says that the build is unsigned and what Windows shows for it, copies it to `%LOCALAPPDATA%\CodeGoblinsWindow` and adds **Code Goblins Window** to the Start menu, which starts it; it stops or starts no process itself.
-Closing the window hides it to the tray, and `.\tools\install-window.ps1 -Remove`, once the window is quit from the tray, takes it away again.
+It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
+The window is unsigned, and its install says so.
 Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
-That repository's README has the rest: what Windows shows for an unsigned build, how the window differs from the browser board, and troubleshooting.
 
 ### Board and Orchestration
 
