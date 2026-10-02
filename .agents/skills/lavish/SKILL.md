@@ -20,7 +20,8 @@ If it is empty, infer what to show from the conversation.
 ## When to use it
 
 - **Plain chat** for a yes-or-no decision, a single recommendation, a status answer, or anything one paragraph carries.
-- **Lavish** when several options, trade-offs, a structured report, a plan, a comparison, a diagram, or a fleet-wide table justify a surface the Overlord can annotate.
+- **A Scrawl page** when several options, trade-offs, a structured report, a plan, a comparison, a diagram, or a fleet-wide table justify a surface the Overlord can annotate.
+  Scrawl is the Overlord's name for the review page `lavish-axi` serves, so call it Scrawl when naming it to him.
 - **Neither, and say so** when lavish-axi is missing, below its floor, or not the Code Goblins build (the upstream package): name the unavailable state once ("visual review is unavailable, here it is as text"), deliver the content in plain text, and carry on.
   Never hang waiting for a surface that cannot open, and never hold unrelated dispatch for an install.
   When the Overlord wants the visual version, ask for consent to install the Code Goblins build of lavish-axi with the command `cfo doctor` prints, then confirm with `cfo doctor`.
