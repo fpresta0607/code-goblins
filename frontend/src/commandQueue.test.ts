@@ -85,13 +85,15 @@ test("closed items are listed newest first with what became of them", () => {
   assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "review:r5", "question:a"],
     "a question asked first but answered after a review was cleared sorts by when it was answered");
   const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
-  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday"], ["question:c", "Superseded; the asker was replaced"],
+  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday (not yet delivered to the CFO)"], ["question:c", "Superseded; the asker was replaced"],
     ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"],
     ["review:r5", "Cleared by the CFO: Decided: grid ships"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
   assert.equal(parseSnapshot({ healthy: true }).reviews?.length, 0);
   assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
   assert.deepEqual(settledIcon(itemFor(snapshot, "question:c")!, snapshot.actions), { icon: "close", tone: "superseded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "question:a")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "question:b")!, snapshot.actions), { icon: "check", tone: "queued" }, "an answer on its way has one check until it is delivered");
 });
 
 test("a closed question says what was chosen, by whom and when", () => {
@@ -117,10 +119,10 @@ test("a closed question says what was chosen, by whom and when", () => {
 test("only an answer that reached its asker counts as answered", () => {
   const cases: [string, Record<string, unknown>, string, string, string][] = [
     ["a board answer", { status: "succeeded", answer_id: "x", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord" }, "answered", "You chose A", "check-double"],
-    ["a board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "answered", "You chose A", "check-double"],
+    ["a board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "answered", "You chose A (not yet delivered to the goblin)", "check-double"],
     ["a cfo answer with an empty answer_id", { status: "succeeded", answer_id: "", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "cfo" }, "answered", "The CFO chose B", "check-double"],
     ["a failed board answer", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option", message: "the CFO already handled this question; nothing was sent" }, "failed", "Your answer did not reach the goblin", "warning"],
-    ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Delivery unconfirmed", "warning"],
+    ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Not confirmed: check the goblin's terminal", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
     ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
@@ -142,7 +144,11 @@ test("an answered review item is marked by whether its answer reached the asker"
     ["a delivered answer whose action aged out", { delivered: true }, [], "You wrote: Go with B", "check-double", "succeeded"],
     ["queued for the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
     ["on its way to the goblin", { delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
-    ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Delivery unconfirmed: inspect the goblin's pane before answering again", "warning", "uncertain"],
+    ["sent behind the goblin's turn", { delivered: false }, [{ ...action("running"), awaiting: { task: "steward", generation: "g1", since: "2026-10-01T00:00:00Z" } }],
+      "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["handed to a busy CFO after the goblin was replaced", { delivered: false }, [{ ...action("running"), awaiting: { host: "cfo-host", since: "2026-10-01T00:00:00Z" } }],
+      "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
+    ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Not confirmed: check the goblin's terminal before answering again", "warning", "uncertain"],
     ["handed to the CFO after the goblin was replaced", { delivered: false }, [action("succeeded")], "Sent to the CFO: Go with B", "check", "succeeded"],
     ["refused with no CFO to take it", { delivered: false }, [action("failed")], "Your answer did not reach the goblin", "warning", "failed"],
     ["the CFO's own item, not yet delivered", { task: "", delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
