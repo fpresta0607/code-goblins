@@ -86,7 +86,8 @@ test("a board too narrow for three columns stacks, and its layout button says wh
   const layout = page.getByRole("button", { name: /^Layout: stacked/ });
   await expect(layout).toHaveAttribute("aria-disabled", "true");
   await expect(layout).toHaveAttribute("data-tip", /^Too narrow for columns side by side, so the board is stacked\./);
-  await layout.click();
+  // The button is marked disabled, so the press skips the wait for an enabled one.
+  await layout.click({ force: true });
   expect(await columns(page)).toBe(1);
   await page.getByRole("button", { name: "Close panel" }).click();
   await expect(page.getByRole("button", { name: "Stacked layout" })).toBeVisible();
@@ -94,12 +95,12 @@ test("a board too narrow for three columns stacks, and its layout button says wh
 });
 
 // The Overlord's window on 2026-10-02: 2560 by 1600 at 150 percent, so 1707
-// CSS pixels wide. The panel took half and left the board 835, under the 961
+// CSS pixels wide, each drawn on one and a half device pixels. The panel took half and left the board 835, under the 961
 // its columns need, and the layout button looked dead. By default the panel
 // yields to a kanban board, long enough here to scroll, since its scroll bar
 // takes room from its columns.
 test.describe("in a window 1707 px wide", () => {
-  test.use({ viewport: { width: 1707, height: 1067 } });
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   test("the kanban keeps its three columns beside an open panel", async ({ page }) => {
     await open(page, [...BOARD, ...Array.from({ length: 9 }, (_, index) => task("working-" + (index + 3), "working"))]);
