@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { arrive, asksPermission, boardAlerts, notifies, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
+import { announce } from "./api";
+import { announceKey, arrive, asksPermission, boardAlerts, isItemAlert, notifies, outlived, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
 import { personaFor } from "./workflow";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
@@ -32,17 +33,20 @@ function rememberSeen(seen: readonly SeenAlert[]) {
 // The board's alerts: a stack of toasts at the bottom right for what needs the
 // Overlord or finished, each opening its item, and a Windows notification for
 // each while he is not looking at the board, once he allows them. The board
-// asks for that once, with the first alert. Each event shows once on each:
-// opening or dismissing its toast closes its notification, a toast that only
-// times out leaves it, and clicking the notification removes the toast and
-// opens its item.
+// asks for that once, with the first alert. Each event shows once on each,
+// in one tab of the board: the supervisor hands each alert to the first tab
+// that asks, and remembers it through a reload and its own restart. Opening
+// or dismissing a toast closes its notification, a toast that only times out
+// leaves it, clicking the notification removes the toast and opens its item,
+// and both leave when their item is answered or cleared anywhere.
 export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (target: AlertTarget) => void }) {
   const previous = useRef<Snapshot | null>(null);
   const [stored] = useState(readSeen);
   const seen = useRef<readonly SeenAlert[]>(stored);
-  const notes = useRef(new Map<string, Notification>());
-  const open = useRef(onOpen);
-  useEffect(() => { open.current = onOpen; });
+  const notes = useRef(new Map<string, { note: Notification; alert: BoardAlert }>());
+  const latest = useRef(snapshot);
+  const onOpenNow = useRef(onOpen);
+  useEffect(() => { onOpenNow.current = onOpen; });
   const [toasts, setToasts] = useState<BoardAlert[]>([]);
   const [asking, setAsking] = useState(false);
   useEffect(() => {
@@ -55,25 +59,35 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
       // Another tab of the board remembers its own alerts in the same list.
       rememberSeen(unseen(alerts, readSeen(), now).seen);
     }
+    latest.current = snapshot;
+    for (const { note, alert } of [...notes.current.values()]) if (outlived(alert, snapshot)) note.close();
     const { fresh } = sighting;
     if (!fresh.length) return;
-    setToasts((prior) => arrive(prior, fresh));
-    if (asksPermission(permission(), asked())) setAsking(true);
-    if (!notifies(permission(), document.hidden, document.hasFocus())) return;
-    for (const alert of fresh) {
-      const note = new Notification(alert.speaker, { body: alert.text, tag: alert.key });
-      notes.current.set(alert.key, note);
-      note.onclose = () => { if (notes.current.get(alert.key) === note) notes.current.delete(alert.key); };
-      note.onclick = () => {
-        window.focus();
-        note.close();
-        setToasts((prior) => prior.filter((toast) => toast.key !== alert.key));
-        open.current(alert.target);
-      };
-    }
+    // The supervisor answers after later snapshots may have come, so what
+    // it hands this tab is shown against the items open by then.
+    void announce(snapshot.instance, fresh.filter(isItemAlert).map(announceKey), fresh.filter((alert) => !isItemAlert(alert)).map(announceKey)).then((claimed) => {
+      const mine = fresh.filter((alert) => (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
+      if (!mine.length) return;
+      setToasts((prior) => arrive(prior, mine));
+      if (asksPermission(permission(), asked())) setAsking(true);
+      if (!notifies(permission(), document.hidden, document.hasFocus())) return;
+      for (const alert of mine) {
+        const note = new Notification(alert.speaker, { body: alert.text, tag: alert.key });
+        notes.current.set(alert.key, { note, alert });
+        note.onclose = () => { if (notes.current.get(alert.key)?.note === note) notes.current.delete(alert.key); };
+        note.onclick = () => {
+          window.focus();
+          note.close();
+          setToasts((prior) => prior.filter((toast) => toast.key !== alert.key));
+          onOpenNow.current(alert.target);
+        };
+      }
+    });
   }, [snapshot]);
+  // A toast leaves with its item, as its notification does.
+  if (toasts.some((toast) => outlived(toast, snapshot))) setToasts(toasts.filter((toast) => !outlived(toast, snapshot)));
   const leave = (key: string) => setToasts((prior) => prior.filter((toast) => toast.key !== key));
-  const dismiss = (key: string) => { leave(key); notes.current.get(key)?.close(); };
+  const dismiss = (key: string) => { leave(key); notes.current.get(key)?.note.close(); };
   const answer = (allow: boolean) => {
     rememberAsked();
     setAsking(false);

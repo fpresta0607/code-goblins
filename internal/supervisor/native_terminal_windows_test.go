@@ -44,7 +44,9 @@ const viewQuery = "task=task-1&generation=g1&token=instance"
 // TestNativeTerminalProgram is not a test but the program a native terminal
 // test runs in its terminal: it records each typed line in the file it is
 // given, prints its terminal's size for "size", registers as the CFO of the
-// state directory it is given for "register", recording the outcome, prints
+// state directory it is given for "register" as Claude Code, or for "register
+// by program" as whatever its terminal's program names, recording the
+// outcome, prints
 // more than the host's pipe holds for "spill", recording "spilled" after,
 // runs any of its lines in a process whose parent has exited for "orphaned
 // <line>", and exits for "exit N".
@@ -113,8 +115,14 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("sent")
-		case line == "register":
-			described, err := Register(args[2], "claude", "session-1")
+		case line == "register", line == "register by program":
+			// A CFO runs plain cfo register, which names no harness, so the
+			// terminal's program has to say which harness it is.
+			named := "claude"
+			if line == "register by program" {
+				named = ""
+			}
+			described, err := Register(args[2], named, "session-1")
 			if err != nil {
 				record("register error: " + err.Error())
 				continue
@@ -242,10 +250,18 @@ func hostTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 	if err != nil {
 		t.Fatal(err)
 	}
-	terminal := hostedTerminal{stateDir: stateDir, id: id, typed: filepath.Join(t.TempDir(), "typed.txt"), ended: make(chan struct{})}
+	typed := filepath.Join(t.TempDir(), "typed.txt")
+	return hostProgram(t, stateDir, id, typed, program, "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", typed, stateDir)
+}
+
+// hostProgram hosts terminal id running args, a command line that ends up
+// running this test binary as TestNativeTerminalProgram recording into typed.
+func hostProgram(t *testing.T, stateDir, id, typed string, args ...string) hostedTerminal {
+	t.Helper()
+	terminal := hostedTerminal{stateDir: stateDir, id: id, typed: typed, ended: make(chan struct{})}
 	go func() {
 		defer close(terminal.ended)
-		err := host.Run(stateDir, host.Spec{ID: id, Args: []string{program, "-test.run=^TestNativeTerminalProgram$", "--", "native-terminal-program", terminal.typed, stateDir}, Cols: 80, Rows: 24})
+		err := host.Run(stateDir, host.Spec{ID: id, Args: args, Cols: 80, Rows: 24})
 		if err != nil {
 			t.Errorf("the host ended with %v", err)
 		}

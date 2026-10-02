@@ -1,4 +1,5 @@
-import { newestItemOf, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { isOpen, itemFor, newestItemOf, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { credentialAsk } from "./credentials.ts";
 import { messageBlocks } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
@@ -52,6 +53,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
     return alert(item.question.task, asker(item.question.task) + " asks: " + spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim());
   }
   if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + waitReason(item.review) : " wants your review: " + item.review.title));
+  if (item.kind === "credential") return alert(item.request.task, asker(item.request.task) + " asks: " + credentialAsk(item.request));
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
@@ -89,14 +91,17 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snaps
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord
-// or finished: a new question, review or command in the Command Center, and a
-// goblin that became blocked, failed or done with its pull request. The first
-// snapshot a page sees alerts nothing: what already waits is under the badge.
+// or finished: a new question, review, command or credential request in the
+// Command Center, and a goblin that became blocked, failed or done with its
+// pull request. The first snapshot a page sees alerts nothing: what already
+// waits is under the badge.
+// A question that was open inside its page's card is not new when it shows
+// as a card of its own.
 // The Completed column's history is not a goblin finishing, so it alerts
 // nothing either.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
-  const known = new Set(waitingItems(previous).map((item) => item.key));
+  const known = openKeys(previous);
   const items = waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(item, next.tasks));
   const before = new Map(previous.tasks.map((task) => [task.id, task]));
   const tasks = next.tasks.filter((task) => !task.archived).flatMap((task) => {
@@ -133,7 +138,7 @@ export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: nu
   const shown = [...seen];
   const fresh: BoardAlert[] = [];
   for (const alert of alerts) {
-    const isItem = alert.key !== alert.says;
+    const isItem = isItemAlert(alert);
     if (isItem && shown.some((one) => one.key === alert.key)) continue;
     const said = shown.find((one) => one.says === alert.says && now - one.at < SAME_EVENT_MS);
     if (said && !isItem) continue;
@@ -141,6 +146,27 @@ export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: nu
     if (!said) fresh.push(alert);
   }
   return { fresh, seen: shown.length === seen.length ? seen : shown.slice(-SEEN_LIMIT) };
+}
+
+// An item's alert has the item's key and says its words; a goblin's news has
+// no id of its own, so its key is what it says.
+export const isItemAlert = (alert: BoardAlert) => alert.key !== alert.says;
+
+// The name the supervisor records an alert under, short enough for it to
+// take: a goblin's long reason is one event by how it starts. The cut never
+// leaves half of a character, which the supervisor would record as another.
+export function announceKey(alert: BoardAlert): string {
+  const name = ("alert:" + alert.key).slice(0, 160);
+  const last = name.charCodeAt(name.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? name.slice(0, -1) : name;
+}
+
+// An alert whose item the snapshot shows closed has nothing left to open: he
+// answered or cleared it, here or anywhere else. An item the snapshot does
+// not hold, as while the supervisor restarts, is not known to be closed.
+export function outlived(alert: BoardAlert, snapshot: Snapshot): boolean {
+  const item = isItemAlert(alert) ? itemFor(snapshot, alert.key) : undefined;
+  return !!item && !isOpen(item);
 }
 
 // The most toasts shown at once; the oldest leaves first.

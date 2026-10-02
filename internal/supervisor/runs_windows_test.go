@@ -291,23 +291,25 @@ func TestTheCFOWithdrawsARunItemNobodyRan(t *testing.T) {
 	}
 }
 
-// Only the registered CFO withdraws a run item, only one nobody ran yet, and
-// only with a reason; a refused withdrawal changes nothing.
+// Only the registered CFO withdraws a run item, only one of its own that
+// nobody ran yet, and only with a reason; a refused withdrawal changes nothing.
 func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 	for _, c := range []struct {
-		name           string
-		isRegistered   bool
-		id, reason     string
-		age            time.Duration
-		connectionTask string
-		ran            bool
-		refusal        string
+		name              string
+		isRegistered      bool
+		id, reason        string
+		age               time.Duration
+		connectionTask    string
+		credentialRequest string
+		ran               bool
+		refusal           string
 	}{
 		{name: "a process that is not the CFO", id: "install-tool", reason: "not needed", refusal: "not registered"},
 		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
 		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
 		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
 		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
+		{name: "the terminal the Overlord opened for a credential request", isRegistered: true, id: "install-tool", reason: "not needed", credentialRequest: "cred-0123456789abcdef", refusal: "terminal the Overlord opened for a credential request"},
 		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -316,10 +318,13 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			_, identity, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			var r Run
-			if c.connectionTask == "" {
+			if c.connectionTask == "" && c.credentialRequest == "" {
 				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
 			} else {
-				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, ConnectionGeneration: "1"}
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest}
+				if c.connectionTask != "" {
+					r.ConnectionGeneration = "1"
+				}
 				name, script := runScript(r)
 				dir := runDir(store.Home.State, r)
 				if err := os.MkdirAll(dir, 0700); err != nil {
@@ -727,5 +732,48 @@ func TestPowerShellRunnerShowsAPromptBeforeItIsAnswered(t *testing.T) {
 	}
 	if code, ok := readRunExit(dir); !ok || code != 7 {
 		t.Fatalf("exit.txt = %d %v, want 7", code, ok)
+	}
+}
+
+// A run window takes what the Overlord types in it: the item's script reads
+// its window's console, not an empty input, so a prompt such as cfo auth
+// store's hidden one waits for an answer. It opens a real window.
+func TestRunWindowGivesTheItemItsConsoleAsInput(t *testing.T) {
+	// Arrange
+	exists := func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}
+	if _, err := runShellPath("powershell", exec.LookPath, exists, os.Getenv("SystemRoot")); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "command.ps1")
+	if err := os.WriteFile(script, []byte("\xef\xbb\xbfWrite-Output \"input redirected: $([Console]::IsInputRedirected)\"\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	started, err := OSRunLauncher{}.Launch(context.Background(), RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if window, err := os.FindProcess(started.PID); err == nil {
+			_ = window.Kill()
+			_, _ = window.Wait()
+		}
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	for _, ok := readRunExit(dir); !ok; _, ok = readRunExit(dir) {
+		if time.Now().After(deadline) {
+			t.Fatal("the run window never finished its script")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Assert
+	if output := readRunOutput(dir); !strings.Contains(output, "input redirected: False") {
+		t.Fatalf("output.log = %q, want the script to read its window's console", output)
 	}
 }

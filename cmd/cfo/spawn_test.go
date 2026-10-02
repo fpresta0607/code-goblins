@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
@@ -266,9 +268,18 @@ func TestRunSpawnRefusesANativeKimiGoblin(t *testing.T) {
 	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	deps := fixture.runtime
+	deps.spawn = func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
+		return spawn.Service{
+			Worktrees: worktree.Service{Commands: fixture.runner, Git: fixture.git, Sleep: noWait},
+			Harness:   harness.DefaultRegistry(),
+			StateDir:  h.State,
+			Sleep:     noWait,
+		}.Spawn(ctx, request)
+	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"spawn", "kimi-native", "--project", fixture.project, "--brief", brief, "--harness", "kimi", "--mode", "local-only"}, &stdout, &stderr, fixture.runtime)
+	exit := runWithRuntime([]string{"spawn", "kimi-native", "--project", fixture.project, "--brief", brief, "--harness", "kimi", "--mode", "local-only"}, &stdout, &stderr, deps)
 
 	if exit == 0 || !strings.Contains(stderr.String(), "kimi cannot run in a native terminal yet") {
 		t.Fatalf("native kimi exit=%d stdout=%q stderr=%q, want it refused", exit, stdout.String(), stderr.String())

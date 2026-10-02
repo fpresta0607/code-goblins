@@ -67,6 +67,9 @@ type Evaluation struct {
 	// WaitingOn is what a waiting task waits on: another task's ID,
 	// overlord, ci or deploy.
 	WaitingOn string `json:"waiting_on,omitempty"`
+	// Awaiting is set by a delivery that was typed and submitted and now
+	// waits for its harness to report taking it; its action keeps it.
+	Awaiting *Awaiting `json:"-"`
 }
 
 type Action struct {
@@ -93,6 +96,12 @@ type Action struct {
 	Message     string    `json:"message,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Awaiting is set while the action's delivery, typed and submitted, waits
+	// for its harness to report taking it.
+	Awaiting *Awaiting `json:"awaiting,omitempty"`
+	// Advice is what the Overlord should do about a delivery that never
+	// arrived, in his words; the board shows it as written.
+	Advice string `json:"advice,omitempty"`
 }
 
 type Database struct {
@@ -114,6 +123,11 @@ type Database struct {
 	// not take them yet: still arriving, or held by the Overlord's own board
 	// answer on its way. Only the pipe adds to them, so each is proven.
 	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
+	// Credentials are requests for credential values, by name only.
+	Credentials []CredentialRequest `json:"credentials,omitempty"`
+	// Announced is every Command Center key the board has announced, so no
+	// item is announced twice.
+	Announced []Announcement `json:"announced,omitempty"`
 }
 
 type Store struct {
@@ -153,7 +167,8 @@ func Open(h home.Home) (*Store, error) {
 		s.committed = cloneDatabase(s.db)
 		for i := range s.db.Actions {
 			a := &s.db.Actions[i]
-			if a.Status == "running" {
+			// A delivery already typed and submitted still awaits its hook.
+			if a.Status == "running" && a.Awaiting == nil {
 				if a.Kind == "evaluate" {
 					a.Status = "queued"
 					a.Message = "Recovered evaluation"
@@ -229,11 +244,19 @@ func cloneDatabase(d Database) Database {
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
+	d.Credentials = slices.Clone(d.Credentials)
+	for i := range d.Credentials {
+		d.Credentials[i] = d.Credentials[i].clone()
+	}
+	d.Announced = slices.Clone(d.Announced)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}
 	for i := range d.Reviews {
 		d.Reviews[i].ImageSums = slices.Clone(d.Reviews[i].ImageSums)
+	}
+	for i := range d.Runs {
+		d.Runs[i].CredentialNames = slices.Clone(d.Runs[i].CredentialNames)
 	}
 	return d
 }
@@ -579,9 +602,9 @@ func (s *Store) queue(a Action) (Action, error) {
 }
 
 // queueItemAction admits the Overlord answering or clearing one Command
-// Center item: an open review, or a question that closed without an answer.
-// A pending question cannot be cleared, so an unanswered decision is never
-// hidden. A clear carries text only to say the Overlord opened or downloaded
+// Center item: an open review, or a question that closed without an answer
+// or still waits on him, which the clear dismisses. A pending question whose
+// answer is on its way cannot be cleared. A clear carries text only to say the Overlord opened or downloaded
 // the item's document.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
@@ -597,9 +620,9 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		}
 	}
 	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
-		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
+		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed" || q.Status == "pending" && q.AnswerID == "")
 	}) {
-		return Action{}, errors.New("only a question that closed without an answer can be cleared; refresh the board")
+		return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
 	}
 	// A run item runs once: the action claims it here, under the store lock.
 	run := -1
@@ -689,6 +712,14 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			prior := s.db.Tasks[a.TaskID]
 			s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: prior.Base, Generation: a.Generation, At: completed.UpdatedAt}
 		}
+	} else if result.Awaiting != nil {
+		// Typed and submitted, and its harness has yet to report taking it:
+		// it stays on its way until settleDeliveries hears.
+		awaiting := *result.Awaiting
+		if awaiting.QuietSince.IsZero() {
+			awaiting.QuietSince = awaiting.Since
+		}
+		completed.Awaiting, completed.Message = &awaiting, result.Reason
 	} else {
 		completed.Status = "succeeded"
 		completed.Message = result.Reason
@@ -696,6 +727,15 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			result.At = time.Now().UTC()
 			result.Generation = a.Generation
 			s.db.Tasks[a.TaskID] = result
+		}
+	}
+	// An answer closes the pages that carry its question, and its goblin's
+	// waits on the Overlord up to it, once, when it is sent or taken: a
+	// delivery that settles later was sent first.
+	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
+		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
+			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
+			s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
 		}
 	}
 	s.updateQuestionOutcomes()
@@ -710,7 +750,6 @@ func (s *Store) updateQuestionOutcomes() {
 		for _, a := range s.db.Actions {
 			if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && a.ID == s.db.Questions[i].AnswerID {
 				q := &s.db.Questions[i]
-				answered := a.Status == "succeeded" && q.Status != "succeeded"
 				q.Status, q.Message = a.Status, a.Message
 				if a.Status == "succeeded" {
 					at := a.UpdatedAt
@@ -718,9 +757,6 @@ func (s *Store) updateQuestionOutcomes() {
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
-				}
-				if answered {
-					s.closePagesOfQuestion(*q, "overlord", "You answered its question: "+a.Text)
 				}
 			}
 		}

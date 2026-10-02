@@ -54,6 +54,13 @@ func (s *Service) acceptCFOItem(pid int, connected time.Time, req runPipeRequest
 		return nil
 	case req.Kind == "answer" && req.Answer != nil:
 		return s.Store.recordCFOAnswer(*req.Answer)
+	case req.Kind == "credential" && req.Credential != nil:
+		r := *req.Credential
+		if r.By != "cfo" || r.Identity != identity {
+			return errors.New("a credential request over the pipe must be the registered CFO's own")
+		}
+		_, err := s.acceptCredentialRequest(r)
+		return err
 	case req.Kind == "withdraw-run":
 		return s.Store.withdrawRun(req.ID, req.Reason)
 	}

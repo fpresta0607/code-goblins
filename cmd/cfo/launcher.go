@@ -115,32 +115,6 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runLauncher is goblins with no arguments, or with --native or --harness. It finds
-// the supervisor, or starts one detached from this terminal, prints the banner
-// with the board's link and the fleet's status, and opens the board in the
-// browser when this launch started the supervisor; a later goblins only
-// prints the link. native starts a new CFO in a native terminal rather than in
-// Herdr, and harness, when set, is the harness goblins starts the CFO as from
-// now on.
-func runLauncher(stdout, stderr io.Writer, runtime commandRuntime, native bool, harness string) int {
-	h, err := runtime.resolveHome()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	ctx := context.Background()
-	board, started, ok := launchBoard(ctx, runtime, h, stdout, stderr)
-	if !ok {
-		return 1
-	}
-	if started {
-		if err := runtime.openURL(board); err != nil {
-			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
-		}
-	}
-	return startCFOSession(ctx, runtime, h, native, harness, stdout, stderr)
-}
-
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as
 // goblins does and opens the board in the browser every time, and starts or
 // shows no CFO in this terminal: the board shows the CFO, and its first-run
@@ -169,7 +143,18 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 	board, status, running := liveBoard(ctx, h.State)
 	if !running {
 		exited, startErr := runtime.startServe(h)
-		if startErr != nil && !errors.Is(startErr, errorSharingViolation) {
+		var taken boardAddressTaken
+		switch {
+		case errors.As(startErr, &taken):
+			// The board's address is the same every time, so a board is
+			// never started on another one because this one is in use. Only
+			// this home's own supervisor, started a moment ago by another
+			// goblins and not yet recorded, is waited for below.
+			if !sameHomePath(taken.home, h.Root) && !anotherSupervisorStarting(h.State) {
+				fmt.Fprintf(stderr, "goblins: %v\n", taken)
+				return "", false, false
+			}
+		case startErr != nil && !errors.Is(startErr, errorSharingViolation):
 			fmt.Fprintf(stderr, "goblins: the supervisor could not be started: %v\n", startErr)
 			return "", false, false
 		}
@@ -177,7 +162,13 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 		// goblins started a moment ago, writing it: this one waits for that
 		// board, and says why it started none when no board comes.
 		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
-			if startErr != nil {
+			switch {
+			case errors.As(startErr, &taken) && sameHomePath(taken.home, h.Root):
+				fmt.Fprintf(stderr, "goblins: this home's supervisor (pid %d) holds the board's address %s but recorded no board. End that process in Windows PowerShell, then run goblins again:\n  Stop-Process -Id %d\n", taken.pid, taken.address, taken.pid)
+				return "", false, false
+			case errors.As(startErr, &taken):
+				fmt.Fprintf(stderr, "goblins: %v\n", taken)
+			case startErr != nil:
 				fmt.Fprintf(stderr, "goblins: the supervisor was not started, because another process held %s (%v)\n", serveLogPath(h.State), startErr)
 			}
 			fmt.Fprintf(stderr, "goblins: the supervisor did not start; the end of %s says:\n%s", serveLogPath(h.State), logTail(serveLogPath(h.State), 12))
@@ -358,14 +349,23 @@ const (
 // file another process holds without sharing fails with.
 const errorSharingViolation = syscall.Errno(32)
 
-// startDetachedServe starts this binary's serve in the home, detached from
-// this terminal. The returned channel closes when the supervisor exits.
+// startDetachedServe starts this binary's serve in the home on the board's
+// address, detached from this terminal. An address already in use starts
+// nothing and is a boardAddressTaken. The returned channel closes when the
+// supervisor exits.
 func startDetachedServe(h home.Home) (<-chan struct{}, error) {
+	address := boardAddress()
+	if !loopbackAddress(address) {
+		return nil, fmt.Errorf("%s is %q, not a numeric loopback address such as %s", boardAddressVariable, address, defaultBoardAddress)
+	}
+	if err := boardAddressFree(context.Background(), address); err != nil {
+		return nil, err
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	command, err := startDetached(executable, h.Root, serveLogPath(h.State), serveArguments(defaultBoardAddress)...)
+	command, err := startDetached(executable, h.Root, serveLogPath(h.State), "serve", "--listen", address)
 	if err != nil {
 		return nil, errors.Join(errors.New("start cfo serve"), err)
 	}
@@ -377,17 +377,56 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 	return exited, nil
 }
 
-// serveArguments is cfo serve on the preferred address, or on a free loopback
-// port when another program, such as the supervisor of another CFO home,
-// already listens there: goblins finds the board through its record either
-// way.
-func serveArguments(preferred string) []string {
-	listener, err := net.Listen("tcp", preferred)
-	if err != nil {
-		return []string{"serve", "--listen", "127.0.0.1:0"}
+// boardAddressTaken says the board's address cannot be listened on, and
+// which Code Goblins supervisor holds it when one answers there: its pid, and
+// its home when it says. Another program holding it leaves both empty.
+type boardAddressTaken struct {
+	address string
+	cause   error
+	pid     int
+	home    string
+}
+
+func (e boardAddressTaken) Error() string {
+	own := fmt.Sprintf("give this home's board an address of its own by setting %s, for example to 127.0.0.1:4311", boardAddressVariable)
+	switch {
+	case e.pid <= 0:
+		return fmt.Sprintf("the board's address %s is in use by another program, so no supervisor was started (%v). Close that program, or %s", e.address, e.cause, own)
+	case e.home == "":
+		return fmt.Sprintf("the board's address %s is in use by another Code Goblins supervisor (pid %d), so no second one was started. Stop that one with goblins stop in its home, or %s", e.address, e.pid, own)
+	default:
+		return fmt.Sprintf("the board's address %s is in use by the Code Goblins fleet in %s (supervisor pid %d), so no second one was started. To use that fleet, set CFO_HOME to its folder; to run this home beside it, %s", e.address, e.home, e.pid, own)
 	}
-	_ = listener.Close()
-	return []string{"serve", "--listen", preferred}
+}
+
+// boardAddressFree reports whether address can be listened on, and returns a
+// boardAddressTaken when it cannot. It asks whoever listens there whether it
+// is a Code Goblins supervisor, which answers with its pid and its home.
+func boardAddressFree(ctx context.Context, address string) error {
+	listener, err := net.Listen("tcp", address)
+	if err == nil {
+		return listener.Close()
+	}
+	taken := boardAddressTaken{address: address, cause: err}
+	ctx, cancel := context.WithTimeout(ctx, aliveTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/api/alive", nil)
+	if err != nil {
+		return taken
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return taken
+	}
+	defer response.Body.Close()
+	var alive struct {
+		PID  int    `json:"pid"`
+		Home string `json:"home"`
+	}
+	if response.StatusCode == http.StatusOK && json.NewDecoder(response.Body).Decode(&alive) == nil && alive.PID > 0 {
+		taken.pid, taken.home = alive.PID, alive.Home
+	}
+	return taken
 }
 
 // startDetached starts executable in dir with a hidden console of its own,

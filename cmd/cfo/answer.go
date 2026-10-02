@@ -13,15 +13,20 @@ import (
 
 func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintln(stderr, "cfo answer: a goblin question ID or its notify's wake sequence is required")
+		fmt.Fprintln(stderr, "cfo answer: a question ID or a goblin notify's wake sequence is required")
 		return 2
 	}
 	f := flag.NewFlagSet("answer", flag.ContinueOnError)
 	f.SetOutput(stderr)
 	option := f.String("option", "", "the choice that answers the question, in full or by its first word such as a")
 	note := f.String("note", "", "text the goblin receives after the choice")
-	recordOnly := f.Bool("record-only", false, "record on the board a choice the goblin already received another way, sending nothing; takes the question ID, and only for a notify already acknowledged or answered")
+	recordOnly := f.Bool("record-only", false, "record on the board a choice already given another way, sending nothing; takes the question ID, and for a goblin's question only a notify already acknowledged or answered")
+	in := f.String("in", "", "with --record-only, where the Overlord gave the answer, such as chat; the card then reads as his answer there, recorded by the CFO, and the CFO's own question needs it")
 	if err := f.Parse(args[1:]); err != nil || f.NArg() != 0 {
+		return 2
+	}
+	if *in != "" && !*recordOnly {
+		fmt.Fprintln(stderr, "cfo answer: --in goes with --record-only")
 		return 2
 	}
 	if strings.TrimSpace(*option) == "" {
@@ -35,7 +40,7 @@ func runAnswer(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	c := supervisor.CFOConnection{State: h.State}
 	if *recordOnly {
-		chosen, err := c.RecordGoblinAnswer(args[0], *option, *note)
+		chosen, err := c.RecordAnswer(args[0], *option, *note, *in)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1

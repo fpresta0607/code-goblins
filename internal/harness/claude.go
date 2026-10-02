@@ -67,8 +67,8 @@ func (claudeAdapter) Control() Control {
 		ResumeArgs:  []string{"--continue"},
 		// /exit with background work running opens Claude's "Background
 		// work is running" menu. Its first and highlighted option is Exit
-		// and stop tasks, which also ends the background work that would
-		// otherwise keep the pane's shell waiting, so Enter picks it.
+		// and stop tasks, which also ends the background work, so Enter
+		// picks it.
 		ExitMarkers: []string{"Background work is running"},
 		ExitKeys:    []string{"Enter"},
 	}
