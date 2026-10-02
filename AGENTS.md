@@ -418,8 +418,7 @@ The board does not prompt him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
 Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
 What the board asked to announce while he was away is not announced once he is back either.
-The desktop window is not silenced yet: while `goblins-window.exe` runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
-The window reads the board's snapshot itself and notifies of each thing that newly waits on him without asking the supervisor, so each question, review item or command you leave for him still notifies him.
+The desktop window is silenced with it: before `goblins-window.exe` notifies what its own look at the board found, it claims it through `/api/announce`, which hands out nothing while AFK mode is on.
 
 Turning it off produces the report of the stretch, which `cfo afk off` prints for him and `cfo afk report` prints again: what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, what is held for him with what became of it and what its goblin did meanwhile, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
@@ -427,7 +426,7 @@ You are woken when it turns off: write that report into your terminal with `cfo 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
 Only he resets the switch, with `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
-Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, silence in the desktop window, and the pauses at an allowance floor and at the memory floor.
+Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and the pauses at an allowance floor and at the memory floor.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command or the pipe; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
 ## Escalation
