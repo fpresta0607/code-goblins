@@ -308,8 +308,9 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange
+			// Arrange: the CFO runs, since a delivery to a closed one waits.
 			store, _ := testStore(t)
+			writeRegistration(t, store.Home.State, thisProcess(t))
 			since := time.Now().UTC().Add(-time.Minute)
 			r := openReview("plan-review-1", test.task)
 			if err := store.acceptReview(r); err != nil {
