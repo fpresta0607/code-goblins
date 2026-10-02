@@ -15,6 +15,7 @@ config/
 !/config/
 /config/*
 !/config/pipeline.json
+!/config/verify.json
 /cfo.exe
 # install.cmd -Dev builds both names and moves a copy still running aside.
 /goblins.exe
