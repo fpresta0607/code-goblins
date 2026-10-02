@@ -138,7 +138,10 @@ type Service struct {
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
 	done          chan struct{}
 	work          chan struct{}
-	cancel        context.CancelFunc
+	// looks takes each request to look at the fleet now, which the loop
+	// answers by closing it once its cycle has run (see lookNow).
+	looks  chan chan struct{}
+	cancel context.CancelFunc
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
@@ -176,7 +179,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -343,6 +346,15 @@ func (s *Service) run(ctx context.Context) {
 			return
 		case <-refresh.C:
 			s.notify()
+		case looked := <-s.looks:
+			// A report changes a goblin's status file, which no cycle
+			// counts as a change, so the boards are told here.
+			before := s.Revision()
+			s.cycle(ctx, false)
+			if s.Revision() == before {
+				s.notify()
+			}
+			close(looked)
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
