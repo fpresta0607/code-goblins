@@ -186,7 +186,9 @@ A goblin that waits on the Overlord, or has an open question to him, shows Waiti
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
 The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says All quiet and how many goblins the CFO supervises.
-The bar is the CFO's dialogue box, drawn like the alerts below: its main button, Open Command Center, opens the Command Center on the first item waiting, or its inbox when nothing waits, and is filled lantern only while something waits; its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
+At rest the bar is a plain card like the columns under it, with no lantern and no Open Command Center: the CFO's portrait, its harness mark, its line, and one icon button for its terminal.
+While something waits on the Overlord, or no CFO runs, the bar is the CFO's dialogue box, drawn like the alerts below with the CFO's name on a tab: Open Command Center, filled lantern, opens the Command Center on the first item waiting.
+In both, its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
@@ -545,6 +547,7 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 ## Goblin questions
 
 A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.
 The card shows the choices as a plain list of radio buttons, each the answer's own text with no A, B or C, because the Overlord picks an answer, not a letter.
 `cfo notify` and `cfo question` refuse, recording nothing, a choice that is only a letter or number, such as `a`, `B)`, `(c)` or `2`, and say to write the answer itself as the choice.
 When every choice starts with the goblin's own letter in order, such as `A) `, `b. `, `(c) ` or `D: `, the card drops those letters from what it shows; the answer is still the goblin's choice word for word.
