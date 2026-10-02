@@ -82,6 +82,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",
+		"cfo tickets <project> [--brief <file>] [--files <paths>] [--json]",
 	} {
 		if !strings.Contains(stderr.String(), command) {
 			t.Errorf("usage = %q, want it to contain %q", stderr.String(), command)

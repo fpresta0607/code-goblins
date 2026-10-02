@@ -217,6 +217,13 @@ func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary stri
 	return nil
 }
 
+// AnswerDialog answers one recognized startup dialog in the native terminal
+// record names, as a spawn answers it, for a harness spawn did not start,
+// such as the CFO's.
+func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
+	return Service{}.answerDialog(ctx, record, dialog, screen)
+}
+
 // answerDialog answers one recognized startup dialog. It moves the focus down
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow

@@ -106,7 +106,7 @@ func HandoverAcknowledged(stateDir string, holder lock.Info) bool {
 }
 
 func readHandoverAck(stateDir string) (handoverAck, bool) {
-	data, err := os.ReadFile(handoverAckPath(stateDir))
+	data, err := fsx.ReadFile(handoverAckPath(stateDir))
 	if err != nil {
 		return handoverAck{}, false
 	}
@@ -118,7 +118,7 @@ func readHandoverAck(stateDir string) (handoverAck, bool) {
 }
 
 func readHandover(stateDir string) (handoverRequest, bool) {
-	data, err := os.ReadFile(handoverPath(stateDir))
+	data, err := fsx.ReadFile(handoverPath(stateDir))
 	if err != nil {
 		return handoverRequest{}, false
 	}
