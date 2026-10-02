@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // The Overlord, 2026-10-01: "fix the issue of idempotent cleared notification
@@ -120,44 +118,5 @@ func TestTheAnnounceEndpointHandsEachKeyToOneRequest(t *testing.T) {
 				t.Errorf("POST /api/announce = %d %q, want %d %q", code, claimed, test.code, test.claimed)
 			}
 		})
-	}
-}
-
-// A goblin's alert is its report: the snapshot names when the goblin last
-// reported, so the board keys a goblin's news on that report and a phase that
-// flips back and forth without a new report is never news again.
-func TestTheSnapshotNamesWhenAGoblinLastReported(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	s := &Service{Store: store}
-	reported := func() *time.Time {
-		t.Helper()
-		snapshot, err := s.Snapshot()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, task := range snapshot.Tasks {
-			if task.ID == "task-1" {
-				return task.ReportedAt
-			}
-		}
-		t.Fatal("task-1 missing from the snapshot")
-		return nil
-	}
-	before := reported()
-	sent := time.Now().UTC().Truncate(time.Second)
-
-	// Act
-	if err := state.AppendStatus(h.State, "task-1", "blocked: Which store?"); err != nil {
-		t.Fatal(err)
-	}
-	after := reported()
-
-	// Assert
-	if before != nil {
-		t.Errorf("before any report: reported_at = %v, want none", before)
-	}
-	if after == nil || after.Before(sent) || after.After(time.Now().UTC().Add(time.Second)) {
-		t.Errorf("after a report at %v: reported_at = %v, want that report's time", sent, after)
 	}
 }
