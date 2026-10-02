@@ -86,9 +86,9 @@ The `no-mistakes` path owns review, bounded repair cycles, tests, lint, document
 
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
-It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran.
+It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
-Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn and which wait.
+Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.

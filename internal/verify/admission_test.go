@@ -664,3 +664,60 @@ func TestLineOfAFolderNoRunHasUsedIsEmpty(t *testing.T) {
 		t.Errorf("Line = %+v, %+v, %v; want nothing and no error", holding, waiting, err)
 	}
 }
+
+// A run that holds a turn can say what it is doing now, and whoever reads the
+// line sees it beside who the run is and its budget, which stay as they were.
+func TestARunSaysWhatItIsDoingWhileItHoldsItsTurn(t *testing.T) {
+	// Arrange
+	a := admission(t, 1)
+	turn := within(t, take(t, a), "the run")
+	defer turn.Release()
+
+	// Act
+	turn.Say("go test: 3 packages done")
+	turn.Say("go test: 4 packages done")
+
+	// Assert
+	holding, _, err := Line(a.Dir)
+	if err != nil || len(holding) != 1 {
+		t.Fatalf("Line holding = %+v, %v; want the one run", holding, err)
+	}
+	if holding[0].Now != "go test: 4 packages done" || holding[0].Who != "a test's run" || holding[0].Budget != 90*time.Minute {
+		t.Errorf("the holder reads %+v; want the last thing it said, with its name and its budget of 1h30m0s kept", holding[0])
+	}
+}
+
+// A run whose turn was taken from it no longer speaks for the slot: what it
+// says then is not written over the card of the run that holds the turn now.
+func TestARunThatLostItsTurnSaysNothingOverTheNewHolder(t *testing.T) {
+	// Arrange: the run's slot now names a holder on another machine, which
+	// cannot be checked and so counts as running.
+	a := admission(t, 1)
+	turn := within(t, take(t, a), "the run")
+	defer turn.Release()
+	other, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Acquired: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"slot-1": other, "slot-1.run": []byte(`{"who":"the run that took the turn","budget_seconds":5400}`)} {
+		if err := os.WriteFile(filepath.Join(a.Dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	turn.Say("go test: still going")
+
+	// Assert
+	holding, _, err := Line(a.Dir)
+	if err != nil || len(holding) != 1 || holding[0].Who != "the run that took the turn" || holding[0].Now != "" {
+		t.Errorf("Line holding = %+v, %v; want the run that took the turn, saying nothing", holding, err)
+	}
+}
+
+// A turn that was never taken, as when a run can take none, says nothing and
+// does not fail.
+func TestATurnThatWasNeverTakenSaysNothing(t *testing.T) {
+	// Act
+	Turn{}.Say("go test: 1 package done")
+}
