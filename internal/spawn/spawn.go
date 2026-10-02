@@ -46,8 +46,9 @@ type Request struct {
 	Model     string
 	Effort    string
 	Class     string
-	// Title is the task's short title from its backlog row, kept on the task
-	// so the board names it once the row leaves the queue.
+	// Title is the task's short title, given with --title or taken from its
+	// backlog row, kept on the task so the board names it once the row leaves
+	// the queue.
 	Title string
 	// Capsule, when set, writes the task capsule into the task temporary
 	// directory and returns the brief the goblin reads instead of BriefPath.

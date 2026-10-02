@@ -28,6 +28,7 @@ Bundled PrismJS license: /assets/prism-LICENSE.txt
 Bundled xterm.js 6.0.0 license, which also covers @xterm/addon-webgl 0.19.0 (Copyright (c) 2018, The xterm.js authors) from the same authors: /assets/xterm-LICENSE.txt
 
 Service and provider marks: path data from Simple Icons 16.32.0 (https://simpleicons.org), CC0 1.0. Each mark remains its owner's trademark and is used only to name that service.
+The Codex harness mark is not a copied asset: it was drawn for this project's line icon set (src/Icon.tsx, in the project's own licence) after the mark OpenAI publishes for Codex, a six-lobed cloud holding a terminal prompt, as seen in the Codex app and editor extension on 2026-10-02. Codex and its mark are trademarks of OpenAI, and the mark is used only to name that harness.
 The Visual Studio Code icon is Microsoft's official stable icon (https://code.visualstudio.com/brand), bundled unmodified and shown only on the button that opens a workspace in VS Code.
 Visual Studio Code, VS Code and the Visual Studio Code icon are trademarks of Microsoft Corporation.
 
