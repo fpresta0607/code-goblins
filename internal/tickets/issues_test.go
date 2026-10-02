@@ -23,11 +23,16 @@ type apiCall struct {
 func (c apiCall) String() string { return c.Method + " " + c.Path }
 
 // issueGitHub answers gh api writes the way GitHub would and records each
-// request. A status in failures makes that request fail with it.
+// request and each issue it closed. A status in failures makes the request it
+// names fail with it, every time or only the first failTimes times. A failure
+// names a request as "METHOD path", and may add one of its fields, as in
+// "PATCH path state=closed", to pick out one of the requests to that path.
 type issueGitHub struct {
-	issues   map[int]string
-	failures map[string]int
-	calls    []apiCall
+	issues    map[int]string
+	failures  map[string]int
+	failTimes map[string]int
+	calls     []apiCall
+	closed    []string
 }
 
 func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -58,12 +63,15 @@ func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, e
 		}
 	}
 	f.calls = append(f.calls, call)
-	if status, ok := f.failures[call.String()]; ok {
+	if status, ok := f.failure(call); ok {
 		answer := `{"message":"failed"}`
 		if status == 422 {
 			answer = `{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}]}`
 		}
 		return execx.Result{ExitCode: 1, Stdout: []byte(answer), Stderr: []byte(fmt.Sprintf("gh: failed (HTTP %d)", status))}, nil
+	}
+	if call.Method == "PATCH" && slices.Contains(call.Fields["state"], "closed") {
+		f.closed = append(f.closed, call.Path)
 	}
 	switch {
 	case call.Method == "POST" && call.Path == "repos/"+northwind+"/issues":
@@ -80,6 +88,29 @@ func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, e
 		return execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")}, nil
 	}
 	return execx.Result{Stdout: []byte(`{}`)}, nil
+}
+
+// failure is the status a request fails with, if a failure names it and has
+// times left.
+func (f *issueGitHub) failure(call apiCall) (int, bool) {
+	for name, status := range f.failures {
+		rest, isRequest := strings.CutPrefix(name, call.String())
+		field, hasField := strings.CutPrefix(rest, " ")
+		if !isRequest || (rest != "" && !hasField) {
+			continue
+		}
+		if key, value, _ := strings.Cut(field, "="); hasField && !slices.Contains(call.Fields[key], value) {
+			continue
+		}
+		if times, isLimited := f.failTimes[name]; isLimited {
+			if times == 0 {
+				continue
+			}
+			f.failTimes[name] = times - 1
+		}
+		return status, true
+	}
+	return 0, false
 }
 
 func (f *issueGitHub) requests() []string {
@@ -160,9 +191,9 @@ func TestApplyMovesAnOpenedIssueThroughEachState(t *testing.T) {
 		{name: "in progress to blocked", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), to: Ticket{State: Blocked, Harness: "claude", Reason: WaitingOnDecision},
 			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"cfo: blocked"}},
 		{name: "pull request open to merged", from: openedRecord(PROpen, "cfo: pr open", "goblin: claude"), to: Ticket{State: Merged, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20pr%20open", "PATCH " + issue, "POST " + issue + "/comments", "PATCH " + issue}, wantClosed: "completed"},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20pr%20open", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "completed"},
 		{name: "in progress to stopped", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), to: Ticket{State: Closed, Harness: "claude", Reason: StoppedByCFO},
-			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20in%20progress", "PATCH " + issue, "POST " + issue + "/comments", "PATCH " + issue}, wantClosed: "not_planned"},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20in%20progress", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "not_planned"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -334,6 +365,50 @@ func TestApplyKeepsTheRecordWhenAWriteFails(t *testing.T) {
 	}
 	if record != from {
 		t.Fatalf("record = %+v, want the last written one kept so the next pass redoes the move", record)
+	}
+}
+
+func TestApplyRetriesAFailedCloseWithOneClosingComment(t *testing.T) {
+	issue := "repos/" + northwind + "/issues/501"
+	cases := []struct {
+		name string
+		to   Ticket
+	}{
+		{name: "merged", to: Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}},
+		{name: "stopped", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			closeIssue := "PATCH " + issue + " state=closed"
+			gh := &issueGitHub{failures: map[string]int{closeIssue: 502}, failTimes: map[string]int{closeIssue: 1}}
+			from := openedRecord(PROpen, "cfo: pr open", "goblin: claude")
+			comments := func() int {
+				return len(slices.DeleteFunc(slices.Clone(gh.calls), func(c apiCall) bool { return c.String() != "POST "+issue+"/comments" }))
+			}
+
+			// Act
+			failed, failErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, 0)
+			commentsAfterFailure := comments()
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, failed, tc.to, 0)
+
+			// Assert
+			if failErr == nil || failed != from {
+				t.Fatalf("record = %+v, err = %v, want the last written record and the failed close", failed, failErr)
+			}
+			if commentsAfterFailure != 0 {
+				t.Fatalf("%d closing comments posted before the issue closed, want none", commentsAfterFailure)
+			}
+			if err != nil || !record.IsDone {
+				t.Fatalf("record = %+v, err = %v, want the retry to finish the move", record, err)
+			}
+			if got := comments(); got != 1 {
+				t.Fatalf("%d closing comments posted across both passes, want exactly one; requests = %v", got, gh.requests())
+			}
+			if !slices.Equal(gh.closed, []string{issue}) {
+				t.Fatalf("issues closed = %v, want %s", gh.closed, issue)
+			}
+		})
 	}
 }
 

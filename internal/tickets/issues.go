@@ -26,7 +26,8 @@ import (
 //
 // When a write fails, Apply returns the record it was given with the error,
 // so the next pass redoes the whole move: every write in it is safe to
-// repeat.
+// repeat but the closing comment, which comes last so it is only posted
+// once.
 func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ticket Ticket, claim int) (*Record, error) {
 	if record == nil {
 		switch {
@@ -77,13 +78,13 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 		return record, err
 	}
 	if !ticket.IsOpen() && !isReleased {
+		if _, err := g.api(ctx, "PATCH", issue, "state=closed", "state_reason="+ticket.CloseReason()); err != nil {
+			return record, err
+		}
 		if !record.IsClaimed {
 			if _, err := g.api(ctx, "POST", issue+"/comments", "body="+status); err != nil {
 				return record, err
 			}
-		}
-		if _, err := g.api(ctx, "PATCH", issue, "state=closed", "state_reason="+ticket.CloseReason()); err != nil {
-			return record, err
 		}
 	}
 	next := *record
