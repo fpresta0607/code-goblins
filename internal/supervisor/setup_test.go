@@ -74,10 +74,13 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	return m
 }
 
+// The page shows every harness a CFO can run in, by the table of what is
+// proved: Claude Code marked as the recommended one, each with the few words
+// on what a CFO in it gets, and none refused that this machine has. Only one
+// that is not installed says why Start cannot pick it.
 func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 	// Arrange
 	m := newFirstRunMachine(t)
-	wait := "Goblins can wake only a Claude Code CFO today"
 
 	// Act
 	setup := m.run.Setup(m.root)
@@ -87,9 +90,9 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 		t.Fatalf("setup = %+v, want the folder with alpha and beta", setup)
 	}
 	want := []SetupAgent{
-		{ID: "claude", Name: "Claude Code", Installed: true, SignedIn: true},
-		{ID: "codex", Name: "Codex", Installed: true, SignedIn: true, Reason: wait},
-		{ID: "pi", Name: "Pi", Reason: wait},
+		{ID: "claude", Name: "Claude Code", Recommended: true, Note: "the best experience", Installed: true, SignedIn: true},
+		{ID: "codex", Name: "Codex", Note: "woken by a typed line; no digest or guards", Installed: true, SignedIn: true},
+		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest, guards or resume", Reason: "Install pi to start the CFO"},
 	}
 	if len(setup.Agents) != len(want) {
 		t.Fatalf("agents = %+v, want %+v", setup.Agents, want)
@@ -179,6 +182,55 @@ func TestFirstRunSaysWhyClaudeCodeCannotStart(t *testing.T) {
 	}
 }
 
+// A Codex CFO starts from the page as a Claude Code one does, now that the
+// fleet wakes it: the page refuses no harness that works.
+func TestFirstRunStartsAHarnessTheFleetCanWake(t *testing.T) {
+	// Arrange
+	m := newFirstRunMachine(t)
+
+	// Act
+	err := m.run.Start("", "codex")
+
+	// Assert
+	if err != nil || len(m.started) != 1 || m.started[0] != "codex" || m.saved != "codex" {
+		t.Fatalf("Start as Codex = %v, started %q, remembered %q; want Codex started once and remembered", err, m.started, m.saved)
+	}
+}
+
+// The table of what is proved is the one place that says what a CFO in each
+// harness gets: Claude Code alone is recommended and goes without nothing,
+// every harness in it can be woken, and a Codex or pi CFO says plainly what
+// it goes without.
+func TestTheCFOCapabilityTableSaysOnlyWhatIsProved(t *testing.T) {
+	table := CFOCapabilities()
+	if len(table) != 3 || table[0].Agent != "claude" || table[1].Agent != "codex" || table[2].Agent != "pi" {
+		t.Fatalf("the table names %+v, want Claude Code, Codex and pi in that order", table)
+	}
+	for _, row := range table {
+		if row.Wake != CFOWakeFor(row.Agent) || row.Wake == CFOWakeNone {
+			t.Errorf("%s: wake %q, want what CFOWakeFor says, and a wake", row.Agent, row.Wake)
+		}
+		if row.Recommended != (row.Agent == "claude") {
+			t.Errorf("%s: recommended %v, want Claude Code alone recommended", row.Agent, row.Recommended)
+		}
+		if (len(row.Lacks) == 0) != (row.Agent == "claude") {
+			t.Errorf("%s: lacks %q, want Claude Code alone to go without nothing", row.Agent, row.Lacks)
+		}
+		if row.Name == "" || row.Note == "" || row.Registers == "" {
+			t.Errorf("%s: a row of the table is missing its name, note or how it registers: %+v", row.Agent, row)
+		}
+	}
+	if !table[0].Resumes || !table[1].Resumes || table[2].Resumes {
+		t.Errorf("resumes: %v %v %v, want Claude Code and Codex to come back on their conversation and pi not", table[0].Resumes, table[1].Resumes, table[2].Resumes)
+	}
+	if row, ok := CFOCapabilityFor("codex"); !ok || row.Agent != "codex" {
+		t.Errorf("CFOCapabilityFor(codex) = %+v, %v", row, ok)
+	}
+	if _, ok := CFOCapabilityFor("kimi"); ok {
+		t.Error("CFOCapabilityFor(kimi) found a row for a harness no CFO runs in")
+	}
+}
+
 // Start asks for no project: it starts the agent as the CFO, which the
 // machine starts in the home, and remembers the agent as goblins would. A
 // projects folder is recorded when one is entered and is new, and the CFO
@@ -228,8 +280,8 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 			m.run.CFORuns = func() bool { return true }
 			return m.root
 		}},
-		{"an agent goblins cannot wake", "codex", "Goblins can wake only a Claude Code CFO today", func(m *firstRunMachine) string { return m.root }},
-		{"an unknown agent", "gemini", "Pick Claude Code", func(m *firstRunMachine) string { return m.root }},
+		{"an agent this machine does not have", "pi", "Install pi to start the CFO", func(m *firstRunMachine) string { return m.root }},
+		{"an unknown agent", "gemini", "Pick one of the agents this page offers", func(m *firstRunMachine) string { return m.root }},
 		{"a relative folder", "claude", "Enter the full path of a folder", func(*firstRunMachine) string { return "projects" }},
 		{"an entered folder without a checkout", "claude", "No git checkout is in this folder", func(m *firstRunMachine) string { return filepath.Join(m.root, "notes") }},
 		{"an entered folder that cannot be read", "claude", "This folder cannot be read", func(m *firstRunMachine) string { return filepath.Join(m.root, "missing") }},
@@ -358,7 +410,7 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	// Act
 	pageCode, page := request("GET", "/", "")
 	setupCode, setup := request("GET", "/api/setup?root="+url.QueryEscape(m.root), "")
-	refusedCode, refused := request("POST", "/api/setup/start", start("codex"))
+	refusedCode, refused := request("POST", "/api/setup/start", start("pi"))
 	changes, unsubscribe := s.subscribe()
 	defer unsubscribe()
 	startCode, _ := request("POST", "/api/setup/start", start("claude"))
@@ -370,8 +422,8 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	if setupCode != http.StatusOK || !strings.Contains(setup, `"checkouts":["alpha","beta"]`) || !strings.Contains(setup, `"agent":""`) || !strings.Contains(setup, `"home":`) {
 		t.Fatalf("GET /api/setup = %d %s", setupCode, setup)
 	}
-	if refusedCode != http.StatusConflict || !strings.Contains(refused, "Goblins can wake only a Claude Code CFO today") {
-		t.Fatalf("a start as Codex = %d %s, want 409 with the reason", refusedCode, refused)
+	if refusedCode != http.StatusConflict || !strings.Contains(refused, "Install pi to start the CFO") {
+		t.Fatalf("a start as pi, which this machine lacks = %d %s, want 409 with the reason", refusedCode, refused)
 	}
 	if startCode != http.StatusOK || len(m.started) != 1 || m.started[0] != "claude" || m.saved != "claude" {
 		t.Fatalf("a start as Claude Code = %d, started %q, remembered %q", startCode, m.started, m.saved)
