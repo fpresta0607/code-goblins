@@ -231,6 +231,7 @@ The header switches between two views, one at a time, each with a contextual pan
 
 - **Board** is task review.
   Real tasks sit in **Tasks**, **In progress** and **Completed**, side by side as a kanban; the layout button in the top bar switches to a stacked layout, one column under another, and your browser remembers the choice.
+  An open panel leaves the kanban the width its three columns need whenever the window can hold both; in a window too narrow for that the board stacks and the layout button says why.
   Paused tasks sit at the bottom of In progress, under a **Paused** divider, and keep their Resume and Stop.
   Completed holds delivered work and tasks explicitly stopped, with each pull request shown once under its repository.
   Failed work and work awaiting review stay in progress with a plain status.
@@ -251,13 +252,14 @@ On a narrow screen the columns stack and a card's repo and status wrap onto more
 Under the status, a quiet clock shows how long each goblin's session has run, such as 2h 14m, and how long each queued task has waited since its brief was written; a queued row with no brief yet has no clock.
 
 **Tasks** and **In progress** are in priority order, top first, and Completed is history, newest first.
-A list of up to ten cards shows them all, and the board scrolls when they run past the screen.
-Past ten, each list shows only the cards that fit the visible board, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
+In progress shows every goblin's card at once, however many there are, and the board scrolls when they run past the screen.
+Tasks, the Paused group and Completed show up to ten cards whole; past ten, each shows a page, as many cards as fit the visible board and never fewer than five, Completed its newest, and a pager under it says which show, such as 1–5 of 18, and turns to the others; on a touch screen a sideways swipe on a card does the same.
 A Completed card shows what its pull request really did, the way GitHub does: **Merged** with GitHub's purple merge icon when it merged into its base, **Closed** with the closed icon when it was closed without merging, and **Finished** with the pull request icon while it is still open.
 Without a PR, Finished requires pushed task commits or the artifact the brief requested.
 A task ended by Stop, or cleaned up without delivery, says **Stopped**, with when and why.
 Every Completed card leads with its PR title, or its task title without a PR, then repository and state together, then its PR link when present; task IDs and branch names are secondary detail.
 A number on each card shows its place and turns into a grip on hover or focus: drag a card to move it and the others slide aside to make room, or focus it and press **Alt+Up** or **Alt+Down**.
+A card goes to any place in its list, the first included: held at the top or bottom edge of the board it waits while the board scrolls under it, and held over a page arrow in Tasks it turns the page and goes with it.
 On a touch screen, drag a card by its number.
 A drag moves a card within the page it is on; **Alt+Up** or **Alt+Down** past the page's edge moves it on and turns the page with it.
 Tasks is the order the CFO starts queued work in, saved as the order of the rows in `data/backlog.md`'s Queued section, and In progress is the order the CFO attends to its goblins in, which `cfo fleet-view` lists them in.
