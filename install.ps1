@@ -10,7 +10,8 @@
 # cfo.exe and goblins.exe on your PATH, this window included, asks once for
 # the folder that holds your projects, installs the tools, skills and hooks
 # the fleet needs, adds Code Goblins to the Start menu, runs goblins doctor,
-# and ends by opening the board in the browser.
+# and ends with the quick start in this window, which never opens the board
+# on its own.
 #
 # Releases are code-signed from the first signed release on; earlier ones
 # are not. The one-line install runs cfo.exe only when it matches the
@@ -676,19 +677,19 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Code Goblins in the Start menu opens the board, starting the supervisor
-    # when none runs; its console shows only minimized, for as long as that
-    # takes.
+    # Code Goblins in the Start menu runs the quick start in a window of its
+    # own: it starts the supervisor and the CFO when they are not running and
+    # ends on a screen that offers the CFO's terminal and the board.
     $goblins = Join-Path $InstallDir "goblins.exe"
     $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
     try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $goblins
-        $shortcut.Arguments = "--board"
+        $shortcut.Arguments = ""
         $shortcut.WorkingDirectory = $InstallDir
-        $shortcut.WindowStyle = 7
-        $shortcut.Description = "Open the Code Goblins board"
+        $shortcut.WindowStyle = 1
+        $shortcut.Description = "Start Code Goblins"
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
     }
@@ -701,16 +702,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     Write-Host "Verifying the toolchain ..."
     & $dest doctor
     $doctorExit = $LASTEXITCODE
-
-    # Last, the board opens in the browser, starting the supervisor when none
-    # runs; the board shows the CFO, and its first-run screen while none is
-    # set up.
-    Write-Host ""
-    & $goblins --board
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host ("WARN     {0,-20} the board did not open; see the lines above" -f "board")
-        $failedInstalls += "the board: run goblins --board"
-    }
 
     if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
         Write-Host ""
@@ -730,8 +721,23 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu opens the board; open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu starts it again; open a new terminal so cfo and goblins are on your PATH."
+    }
+    else {
+        Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu starts it again, and goblins works in this window and in any new one."
+    }
+
+    # Last, the quick start in this window: it starts the supervisor, sets up
+    # the agent the CFO runs on, starts the CFO and ends on a screen that
+    # offers the CFO's terminal and the board. It never opens the board on
+    # its own, and where nobody can answer it, as in a script, it accepts
+    # nothing and says to run goblins in a terminal.
+    Write-Host ""
+    & $goblins
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ("NOTE     {0,-20} run goblins in a terminal to finish the quick start" -f "goblins")
+    }
+    if ($Dev) {
         exit $doctorExit
     }
-    Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu opens the board, and goblins works in this window and in any new one."
 } $args

@@ -123,6 +123,8 @@ type Database struct {
 	// not take them yet: still arriving, or held by the Overlord's own board
 	// answer on its way. Only the pipe adds to them, so each is proven.
 	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
+	// Credentials are requests for credential values, by name only.
+	Credentials []CredentialRequest `json:"credentials,omitempty"`
 	// Announced is every Command Center key the board has announced, so no
 	// item is announced twice.
 	Announced []Announcement `json:"announced,omitempty"`
@@ -242,12 +244,19 @@ func cloneDatabase(d Database) Database {
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
+	d.Credentials = slices.Clone(d.Credentials)
+	for i := range d.Credentials {
+		d.Credentials[i] = d.Credentials[i].clone()
+	}
 	d.Announced = slices.Clone(d.Announced)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}
 	for i := range d.Reviews {
 		d.Reviews[i].ImageSums = slices.Clone(d.Reviews[i].ImageSums)
+	}
+	for i := range d.Runs {
+		d.Runs[i].CredentialNames = slices.Clone(d.Runs[i].CredentialNames)
 	}
 	return d
 }

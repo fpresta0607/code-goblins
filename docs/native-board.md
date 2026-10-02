@@ -21,17 +21,25 @@ Once it holds the singleton and listens, `serve` records its pid and the board's
 `goblins` with no command reads that record and asks the board's `/api/alive`, which answers with the supervisor's pid without building the fleet's snapshot: only a successful answer naming the recorded pid is the running supervisor, and anything else at the address, a page not found, an answer that names no pid or another one, makes the record stale.
 On 2026-10-01 a healthy board took eight seconds to build its snapshot, the launcher's three-second wait read it as dead, and `goblins` tried to start a second supervisor.
 A live supervisor gets a status line from the snapshot within three seconds, or one saying the fleet's status is still loading, or that the board could not read the fleet's state, and `goblins` starts and opens nothing and goes on to the CFO.
-Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to a minute for the board to answer, which covers a watcher handing it the lock, and opens it in the browser once.
+Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to a minute for the board to answer, which covers a watcher handing it the lock, and opens no browser: `goblins` opens the board only when it is chosen on its last screen.
 Two `goblins` started at once each start a `serve`: the one whose start finds `serve.log` held by the other's, or whose `serve` exits finding the other taking the lock over or holding it, waits for the other's board instead of failing.
-The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
+The detached `serve` listens on the board's address, which is the same every time: `127.0.0.1:4310`, or the numeric loopback address the `CFO_BOARD_ADDRESS` environment variable names (port 0 there asks the OS for a free port, as a scratch home or a test does; the record holds the real address).
+An address already in use is never replaced with another: `goblins` starts nothing and says who holds it.
+It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, an older supervisor, which answers with no home, by its pid alone, and says "another program" for anything else.
+Only this home's own supervisor, started a moment ago by another `goblins` and not yet recorded, is waited for instead.
+This home's own supervisor that holds the address but records no board within that wait is named by its pid, with the PowerShell line that ends it (`Stop-Process -Id <pid>`), since `goblins stop` decides from the record that is missing.
+`cfo serve` without `--listen` uses the same address.
+`cfo update` restarts the supervisor on the address the one it stops was serving, read from the record, so a home on an address of its own keeps it whatever shell runs the update; with no supervisor running it uses the board's address.
+A later `cfo update --recover` starts the previous build's supervisor on the address the record names, whether or not that supervisor still answers, and on the board's address only when no record can be read.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 `goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
-Then `goblins` brings the Overlord to the CFO.
+The quick start (`goblins` with no command) says first, under the banner, when it found a supervisor rather than started one: "The supervisor and the CFO of this home already run: nothing new was started.", or "The supervisor of this home already runs: it was not started again." when no CFO runs yet.
+Then `goblins` brings the Overlord to the CFO, after the quick start's agent steps when no CFO runs (docs/install.md, The quick start).
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
-Otherwise it picks the project (the git checkout its terminal is in, else the only checkout under the projects root, else the one the Overlord picks by number), makes sure Herdr's server runs, and starts the remembered harness (Claude Code by default) as the CFO in a fresh `cfo` tab it creates in that project, since Herdr starts an agent in its pane's own directory.
+Otherwise it makes sure Herdr's server runs and starts the remembered harness as the CFO in a fresh `cfo` tab it creates in the CFO home, since Herdr starts an agent in its pane's own directory; it asks for no project, because the CFO works across every project from its home.
 An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
-It brings the CFO's tab to the front and hands its terminal to `herdr`, which attaches to the fleet's session.
+It brings the CFO's tab to the front, and every run ends on one screen: the home and the board's address as an OSC 8 link, with **Open the CFO terminal**, which Enter takes and which hands the terminal to `herdr` attached to the fleet's session, or to the CFO's native terminal, and **Open the board**, which B takes.
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
 `goblins status` reads the board record and prints the board's link, the status line and the supervisor's pid, and exits 1 when the supervisor the record names does not answer as itself there.
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
@@ -174,14 +182,17 @@ A live task's pull request link wears the merge icon too once its gate shows the
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane or, for a native task, what the monitor reads from its terminal, and it is evaluated once a minute like any other.
 Each card shows its short title, then a muted line with the task's repo and status, the status's dot between them, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
 The title shows up to three lines and the repo and the status wrap onto further lines; a title cut at three lines ends in an ellipsis and shows in full in the board's tip on hover or keyboard focus.
+Every tip on a card, its title's and its controls' and harness mark's, floats over the whole page, over the card or under it, whichever edge the part it names is nearer, or on the other side when the screen has no room there.
+It is at most 320 px wide, kept on the screen, and gone the moment the pointer or the focus leaves that part, so a tip never covers the card's own controls or links.
+While it shows it follows its card as the page scrolls or resizes, says what its part's tip says now, and goes when that part is replaced.
 Each card in Tasks and In progress also shows a quiet clock under its status, in whole minutes, hours and days (just started, 47m, 2h 14m, 1d 3h), counted from the snapshot's `since`: when a live task's worktree folder was created, which `cfo spawn` makes fresh for each goblin and a switch keeps, so the clock counts the whole session across switches, or its spawn generation's time when that folder cannot be read; or when a queued task's `data/<id>/brief.md` was created.
 A queued row with no brief, or a live task with neither a readable worktree nor a generation that records a time, gets no clock rather than a guessed one, and a completed card shows none.
 Each card carries the mark of the harness its goblin runs in its corner, under its controls: OpenAI's mark for Codex, Claude's for Claude Code, π for pi, Kimi's for Kimi and a terminal for any other harness; its tip names the harness, then the model and effort it runs, and a click on it selects the card.
-Under the clock, the goblin a card waits on and its pull request take a row of their own that wraps within the card, and the card's controls sit beside its text or, on a card under 420 px wide, under it: every part of a card has its own place, so none is drawn over another, and the card's text is never smaller than 16 px.
+Under the clock, a card's pull request takes a row of its own that wraps within the card, and the card's controls sit beside its text or, on a card under 420 px wide, under it: every part of a card has its own place, so none is drawn over another, and the card's text is never smaller than 16 px.
 The title is the backlog row's short title, which `cfo spawn` keeps on the task as `title=` in its metadata so it outlives the row, and the task's id only when it had none.
 The status line and the pull request come from the current generation's lines only, so a respawned task id shows neither its earlier generation's activity nor its pull request until it reports again.
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
-A goblin waiting on another goblin links to it: a chip on its card and a button beside its status in the panel open the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
+A goblin waiting on another goblin names it once, in its card's status line, and links to it from its panel: a button beside its status there opens the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
@@ -393,12 +404,12 @@ A second answer is refused while the first is sent, so nothing is typed twice, a
 A native goblin's answer that waits behind its turn is settled the same way, by its task and spawn generation, and its review item reads delivered only then; a goblin in a Herdr pane reports nothing the board can wait on, so its answer reads as before.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
-`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it.
+`goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, in the CFO home, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it.
 Its environment starts, as a native goblin's does, from the one Windows gives a new process of the user, never the launcher's, so a CFO started from inside another Claude Code session is not that session's child (which would save no transcript): the session markers and harness billing keys are dropped, the CFO is placed in the supervisor's home and projects root, and it keeps the launcher's Herdr session and configuration without the pane variables `serve` drops.
-`goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; claude is the default.
+`goblins --harness claude|codex|pi`, alone or with `--native`, chooses the harness the CFO starts as, and the home remembers it in `state/cfo-harness` for every later goblins start; without it the quick start asks, starting on the remembered harness, or else on Claude Code, the one it recommends.
 The board's first run starts the Claude Code CFO its page offers, whatever harness is remembered.
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; in Herdr Claude Code starts with `herdr agent start`, and codex and pi, whose npm script shims Herdr's Windows agent start cannot run, are typed into the `cfo` tab's shell, as a Herdr goblin's typed launch is.
-A harness whose program is not on PATH is refused, and nothing is remembered or started.
+A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
 A CFO already running keeps its harness, and goblins says the choice applies to the next start; a Codex or pi CFO is told it has no wake path, because only Claude Code's Stop hook wakes the CFO.
 `cfo attach` shows a native terminal in any console: the registered CFO's, or the one named; `--state <dir>` names the fleet's state folder for a console that does not inherit the supervisor's environment.
 
@@ -734,6 +745,7 @@ An item runs once and expires 24 hours after it was created; running it again ne
 The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
 Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.
 A connection repair the Overlord asked for from a goblin's connections panel is the board's own item, not the CFO's, and cannot be withdrawn.
+Nor can the terminal the Overlord opened for a credential request, which is the board's own item too.
 Run opens a visible console window of exactly the shell the item names: Windows PowerShell 5.1, PowerShell 7 (`pwsh` on `PATH`) or Git Bash (the `bash.exe` beside Git for Windows' `git.exe`, never the WSL `bash.exe`); a shell that is not installed fails the item with the reason.
 An admin item launches through `Start-Process -Verb RunAs`, so Windows itself asks the Overlord to confirm, and a declined prompt ends the item failed with that reason.
 The window stays open after the command finishes, showing its exit code, until he closes it; a window closed before the command finishes ends the item failed.
@@ -746,6 +758,55 @@ Known limit: every goblin runs as the same Windows user as the CFO, and a proces
 It can also spoof the CFO's live presentation notices (`cfo present` without `--task`), text typed into a goblin's pane through Herdr, including a line that starts with `CFO:`, and the wake queue and status files the CFO reads.
 It can rewrite the supervisor's own database file (`state/.supervisor.json`) while `cfo serve` is stopped, and anything it runs as a descendant of the CFO's harness process is the CFO by this proof.
 It can also debug or inject into the CFO process itself: the pipe closes the file inbox path and the pipe squat, not the same-user boundary.
+
+## Credential requests
+
+When the CFO or a goblin needs a secret the project's scope does not hold, such as `STRIPE_SECRET_KEY`, it asks for it by name and the Overlord pastes the value on the board; nobody asks for a value in chat or puts one in a brief:
+
+```powershell
+cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/apikeys STRIPE_SECRET_KEY
+cfo auth request --project acme-shop --task add-billing --why "Check webhook signatures" STRIPE_WEBHOOK_SECRET
+```
+
+A request takes names only, at most ten, each an environment variable name, with one line saying what they are for and optionally the https page they come from, with no credentials, query or fragment in its link.
+Anything shaped like a value is refused before anything is filed: a known key prefix (such as `sk_`, `rk_`, `ghp_`, `xox`, `AKIA` or `eyJ`), an equals sign, or long random text, in a name, in the reason or in the link, and no refusal repeats what it refused.
+The registered CFO files over the supervisor's pipe, proven the way run items prove it; a goblin files for its own task with `--task <its id>`, from its own terminal, proven the way its questions are, through `state/credential-requests-inbox`, and a request in that inbox that claims to be the CFO's is refused and named among the board's issues.
+The board holds each request in `snapshot.credentials`: its ID, a generation minted when the board took it, who asked and for which task, the project, the names, the reason and link, the names the scope already holds, each name's format hint, and its state, open, saved or expired.
+It also says where each value goes: the repository, which is the checkout the scope is named for when it is on this machine, the credential scope, and every service of the project's `auth.json` that reads the name, beside the project's goblins, whose `auth.ps1` carries the whole scope.
+It never holds a value.
+A project's `auth.json` may declare format hints, which the request carries for the card to warn with and never to refuse a value:
+
+```json
+"formats": [
+  {"names": ["STRIPE_*"], "prefixes": ["sk_", "rk_"], "warn": [{"prefix": "sk_live_", "say": "A live secret key can do anything on the account; use a restricted rk_live_ key."}]}
+]
+```
+
+A name in `names` is exact or ends in `*` to match every name starting with what comes before it, and the first matching format applies.
+
+The save is `POST /api/credentials/save` with the request's ID and generation, a value for each name the Overlord filled, and the names he confirmed replacing.
+It is the one board endpoint that takes a secret value.
+Every other endpoint that changes anything still refuses one, as the connection repairs always have: each reads a fixed request shape and refuses a body that carries a value, secret, password, token or credential field, as text, an object or a list, before it reads anything else, and `internal/supervisor/value_guard_test.go` reads the board's route table and fails the moment any other endpoint starts reading such a field.
+The save is taken only from the board's own page on this machine: its Host must name 127.0.0.1, localhost or ::1 with the board's port, its peer must be this machine, and any forwarding or Tailscale identity header (`X-Forwarded-*`, `Forwarded`, `Via`, `X-Real-Ip` or any `Tailscale-*` header) refuses it, so a board shared through `tailscale serve`, which reaches the same port on this machine, never takes a value.
+It also passes every check other actions pass: POST only, the exact Host and Origin, and the per-session `X-CFO-Token`.
+It must name an open request and its current generation, and only names that request asks for, each with a non-empty value of one line and at most 16 KiB.
+A request takes one save: the same save sent again, or another value for it, is refused, and a request nobody saves expires after 24 hours, when the CFO is told the names still unsaved so it can ask again.
+While the request's terminal is open, its save is refused and it does not expire; it expires on the first check after the terminal ends.
+A name the project's scope already holds is replaced only when the save confirms it; otherwise the save is refused naming the names to confirm, and nothing is stored.
+Every refusal stores nothing and leaves the request open.
+The board holds at most 64 requests, never drops an open one to make room, and prunes a closed one a week after it closed.
+
+A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
+The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
+A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
+The value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
+A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
+
+The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
+`POST /api/credentials/terminal` with the request's ID and generation opens that fallback for the Overlord: a visible PowerShell window on this PC, a run item the board makes itself, that runs `cfo auth store` for each name the request does not have yet that the scope does not hold, and for each name the scope holds that the request confirms replacing, so he types or pastes each value there and it never passes through the board.
+It takes the save's checks (this machine only, the open request and its generation) and opens one window at a time per request; with nothing left to type but names the scope holds, it is refused naming them to confirm.
+When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
+A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
 
 ## Nonblocking presentation notices
 

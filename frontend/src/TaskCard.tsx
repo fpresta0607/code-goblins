@@ -1,22 +1,24 @@
 import { useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
+import { CardTip } from "./CardTip";
 import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
 import { TaskControls } from "./task-controls";
 import { queueBlock } from "./start";
-import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn, waitingTarget } from "./workflow";
+import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, taskColumn } from "./workflow";
 
 // A task's card on the board: its title, up to three lines, then a muted line
 // with the repo and the status, both wrapping onto further lines, and a quiet
 // clock of how long its session has run or how long it has waited; the
 // goblin's own words stay in its panel. rank, when the card sits in an ordered
-// list, is read out with it. The goblin it waits on and its pull request take
-// a row of their own under that, and its controls sit beside it or, on a
-// narrow card, under it, with the mark of the harness it runs in the corner:
-// every part of the card has its own place, so none is drawn over another.
+// list, is read out with it. Its pull request takes a row of its own under
+// that, and its controls sit beside it or, on a narrow card, under it, with the
+// mark of the harness it runs in the corner: every part of the card has its own
+// place, so none is drawn over another, and a part's tip floats clear of the
+// card. The goblin it waits on is named in its status line only.
 export interface CardStart { blocked: string; problem: string; onStart: (source: HTMLElement) => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
@@ -27,13 +29,21 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   // A title still shortened shows in full in a tip on hover or focus.
   const [clipped, setClipped] = useState(false);
   const card = useRef<HTMLButtonElement>(null);
+  // The part of the card the pointer or the keyboard's focus is on; its tip
+  // says what the part's data-tip says, which the card itself carries only
+  // while its title is shortened.
+  const [pointed, setPointed] = useState<{ part: HTMLElement; shell: HTMLElement }>();
+  const point = (target: EventTarget, shell: HTMLElement) => {
+    const part = target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
+    setPointed(part && shell.contains(part) ? { part, shell } : undefined);
+  };
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
   };
   const name = task.title || task.id;
   const tip = clipped ? { "data-tip": name, "data-tip-align": "start" } : {};
-  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id), awaited = waitingTarget(snapshot, task);
+  const pr = safePullRequest(task.pr), icon = pullRequestIcon(task), asking = asksOverlord(snapshot, task.id);
   const waiting = task.phase === "queued";
   const column = taskColumn(task);
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
@@ -51,15 +61,17 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     </span>
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
-  return <div className={"task-card-shell" + (selected ? " selected" : "")}>
+  return <div className={"task-card-shell" + (selected ? " selected" : "")}
+    onPointerOver={(event) => point(event.target, event.currentTarget)} onPointerOut={() => setPointed(undefined)}
+    onFocus={(event) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(event.target, event.currentTarget); }} onBlur={() => setPointed(undefined)}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {(awaited || pr || column === "Completed") && <div className="card-links">
-      {awaited && <button className="card-waiting" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} data-tip-align="start" onClick={(event) => onSelect(awaited, event.currentTarget)}><Icon name="next" /><span>{awaited.id}</span></button>}
+    {(pr || column === "Completed") && <div className="card-links">
       {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
       {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} leading={terminal} onAdjust={(source) => onSelect(task, source)} />
     {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
+    {pointed && <CardTip part={pointed.part} card={pointed.shell} />}
   </div>;
 }
