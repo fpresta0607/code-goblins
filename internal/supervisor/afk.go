@@ -46,6 +46,11 @@ var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), str
 // theirs.
 var agentVariables = []string{"CLAUDECODE", "AI_AGENT"}
 
+// desktopPrograms are the programs a terminal of the Overlord's own is opened
+// from, by executable name: the Windows desktop and Windows Terminal. A command
+// whose parents reach neither had them cut off on the way.
+var desktopPrograms = []string{"explorer", "windowsterminal"}
+
 // SwitchAFK asks the supervisor to turn AFK mode on or off for the process
 // that calls it. The supervisor makes the switch only once it has proven that
 // process runs in a terminal of the Overlord's own.
@@ -68,8 +73,8 @@ func LogAFKDecision(h home.Home, entry afk.Entry) error {
 // runs in a terminal of the Overlord's own, and says which. Whatever marks the
 // process as an agent's refuses it: a goblin's or a gate agent's environment,
 // the registered CFO among its ancestors, a terminal the fleet runs an agent
-// in, or an agent harness above it. A process it cannot read is refused too,
-// never taken for his.
+// in, or an agent harness above it. A process it cannot read, or whose parents
+// it cannot follow to the desktop, is refused too, never taken for his.
 func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error) {
 	const his = ": only he turns it on or off, from a terminal of his own"
 	inspect := s.inspectCaller
@@ -121,6 +126,15 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 		if environmentValue(env, name) != "" {
 			return refuse("under an agent harness (its environment carries " + name + ")")
 		}
+	}
+	// The same cut with those variables removed too, as Git Bash's env leaves
+	// a command, has nothing left that marks an agent. Parents that stop short
+	// of the desktop are parents the supervisor could not read, and Git Bash
+	// cuts the Overlord's own the same way, so the refusal names the way out.
+	if !slices.ContainsFunc(ancestry, func(entry proc.Entry) bool {
+		return slices.Contains(desktopPrograms, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe"))
+	}) {
+		return "", errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop, as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd" + his)
 	}
 	// The command itself is the first entry; the shell it was typed in is
 	// the next.

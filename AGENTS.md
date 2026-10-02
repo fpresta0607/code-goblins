@@ -385,7 +385,7 @@ See [docs/native-board.md](docs/native-board.md) for ownership and delivery limi
 
 AFK mode is the Supreme Overlord's switch for running the fleet while he is away.
 Only he turns it on or off, with `cfo afk on` and `cfo afk off` from a terminal of his own.
-The supervisor reads the process that asks and refuses one that runs in a goblin's terminal, as a gate agent, under the registered CFO, in a native terminal or Herdr pane the fleet runs an agent in, or under an agent harness, and one it cannot read.
+The supervisor reads the process that asks and refuses one that runs in a goblin's terminal, as a gate agent, under the registered CFO, in a native terminal or Herdr pane the fleet runs an agent in, or under an agent harness, and one it cannot read or whose parents it cannot follow to the Windows desktop or Windows Terminal.
 You never turn it on or off, and you never have a goblin try.
 The session digest, every `cfo drain`, the Stop hook's rewake and the wake line typed into a Codex or pi CFO say when it is on, with who turned it on, when and from where; `cfo afk status` prints the same with what you decided so far and what is held for him.
 

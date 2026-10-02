@@ -424,6 +424,7 @@ AFK mode runs the fleet while you are away.
 Turn it on with `cfo afk on` in a terminal of your own, and off with `cfo afk off`.
 It is your switch: the same command is refused in a goblin's or the CFO's terminal.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
+Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
 
 While it is on:
 

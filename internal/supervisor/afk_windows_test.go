@@ -115,6 +115,15 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		// among its ancestors; what its harness put in its environment remains.
 		{name: "under Claude Code with its parents cut off", ancestry: shell()[:1], env: []string{"CLAUDECODE=1"}, refusal: "an agent harness (its environment carries CLAUDECODE)"},
 		{name: "an agent's environment with its parents cut off", ancestry: shell()[:1], env: []string{"AI_AGENT=claude-code"}, refusal: "an agent harness (its environment carries AI_AGENT)"},
+		// Git Bash's env cuts the parents the same way and can remove those
+		// variables too, so nothing is left that marks the agent. Parents that
+		// stop short of the desktop are parents the supervisor could not read.
+		{name: "its parents cut off and nothing of a harness in its environment", ancestry: []proc.Entry{
+			{PID: 7001, ParentPID: 4242, ExeBase: "cfo.exe", Start: cfo.Start.Add(4 * time.Millisecond)},
+			{PID: 4242, ParentPID: 900, ExeBase: "env.exe", Start: cfo.Start.Add(2 * time.Millisecond)},
+		}, env: []string{"USERNAME=overlord"}, refusal: "could not follow its parents to the desktop"},
+		{name: "shells above it whose parents are cut off", ancestry: shell(above("bash.exe")), env: []string{"USERNAME=overlord"}, refusal: "could not follow its parents to the desktop"},
+		{name: "his own shell opened from the desktop", ancestry: shell(above("Explorer.EXE")), env: []string{"USERNAME=overlord"}, from: "his own terminal (powershell.exe pid 4242)"},
 		// A terminal run as administrator is one the supervisor cannot read, and
 		// it is the Overlord himself who meets this refusal, so it names the way out.
 		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process that asked for it, as it cannot one run as administrator"},
