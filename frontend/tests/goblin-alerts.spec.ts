@@ -14,7 +14,7 @@ const box = (page: Page, text: string) => page.locator(".dialogue").filter({ has
 const tab = (dialogue: Locator) => dialogue.locator(".dialogue-tab");
 const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
 
-test("the CFO's banner is a plain bar with only its terminal until something waits, and then the lantern box with Open Command Center", async ({ page }) => {
+test("the CFO's banner is a plain bar with its terminal and the AFK switch until something waits, and then the lantern box with Open Command Center", async ({ page }) => {
   await open(page);
   const needs = box(page, "Waiting on you"), rest = page.locator(".cfo-rest");
   await expect(tab(needs)).toHaveText("CFO");
@@ -26,10 +26,11 @@ test("the CFO's banner is a plain bar with only its terminal until something wai
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
   // At rest: the same card as the column under it, no lantern box, no name
   // tab and no Open Command Center; only its terminal, on the icon and the
-  // portrait.
+  // portrait, and the two sides of the AFK switch.
   await expect(rest).toContainText("All quiet. The CFO supervises 3 goblins.");
   await expect(page.locator(".dialogue").filter({ hasText: "All quiet." })).toHaveCount(0);
-  await expect(rest.getByRole("button")).toHaveCount(2);
+  await expect(rest.getByRole("button")).toHaveCount(4);
+  await expect(rest.getByRole("group", { name: "AFK mode" }).getByRole("button")).toHaveText(["Off", "On"]);
   await expect(rest.getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
   const look = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element); return [style.backgroundColor, style.borderTopColor, style.borderRadius].join(" "); });
   expect(await look(rest)).toBe(await look(page.locator(".board-column")));

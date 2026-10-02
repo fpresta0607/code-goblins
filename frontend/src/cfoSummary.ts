@@ -2,6 +2,7 @@ import type { Snapshot } from "./types.ts";
 import { waitingItems, type Item } from "./commandQueue.ts";
 import { messageBlocks } from "./messageText.ts";
 import { credentialAsk } from "./credentials.ts";
+import { afkLine } from "./afk.ts";
 
 // The pinned CFO bar says what the CFO needs from the Overlord, since every
 // question and review reaches him through the CFO, and otherwise how many
@@ -20,7 +21,12 @@ function title(item: Item): string {
   return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();
 }
 
-export function cfoSummary(snapshot: Snapshot): { asking: boolean; line: string } {
+// While AFK mode is on the bar says so instead, in its plain form: nothing on
+// the board prompts the Overlord while he is away, and what waits on him is
+// held under the bar.
+export function cfoSummary(snapshot: Snapshot, now = Date.now()): { asking: boolean; line: string } {
+  const away = afkLine(snapshot.afk, now);
+  if (away) return { asking: false, line: away };
   const waiting = waitingItems(snapshot);
   if (waiting.length) return { asking: true, line: "Waiting on you: " + title(waiting[0]) + (waiting.length > 1 ? " and " + (waiting.length - 1) + " more" : "") };
   const goblins = snapshot.tasks.filter((task) => !!task.generation && !task.archived).length;

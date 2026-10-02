@@ -14,7 +14,7 @@ const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest =>
 });
 
 const board = (credentials: CredentialRequest[], runs: Run[] = []): Snapshot =>
-  ({ tasks: [{ id: "add-billing", title: "Add Stripe billing", phase: "working", generation: "g1" } as Task], questions: [], reviews: [], runs, credentials, attention: [] as string[] }) as unknown as Snapshot;
+  ({ tasks: [{ id: "add-billing", title: "Add Stripe billing", phase: "working", generation: "g1" } as Task], questions: [], reviews: [], runs, credentials, attention: [] as string[], afk: { state: "off" } }) as unknown as Snapshot;
 
 test("a settled request says which names were saved for which project, or why it closed", () => {
   assert.equal(credentialSettled(request({ state: "saved", saved: ["STRIPE_SECRET_KEY", "DATABASE_URL"] })), "Saved STRIPE_SECRET_KEY and DATABASE_URL for precisiondocs");
