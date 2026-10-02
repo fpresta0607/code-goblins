@@ -7,8 +7,3 @@ import "testing"
 func TestCIProofTheOtherHalfFails(t *testing.T) {
 	t.Fatal("deliberate failure: proof that this job turns the test check red")
 }
-
-// Throwaway: only the job that runs the tests named for spawning runs this.
-func TestCIProofSpawnHalfFails(t *testing.T) {
-	t.Fatal("deliberate failure: proof that this job turns the test check red")
-}
