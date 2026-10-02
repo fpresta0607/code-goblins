@@ -23,15 +23,20 @@ import (
 // claimed, and the close. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again. A status comment someone deleted is
-// posted again, and an issue deleted or transferred ends the ticket: Apply
-// returns its record done, without an error. An issue the task named that
-// cannot be claimed (missing, closed, or a pull request) is left alone and a
-// new one is opened, returned with a ClaimRefused.
+// posted again, and an issue that is deleted (410, or 404 while the
+// repository still answers) ends the ticket: Apply returns its record done,
+// without an error. An issue the task named that cannot be claimed (missing,
+// closed, or a pull request) is left alone and a new one is opened, returned
+// with a ClaimRefused.
 //
 // GitHub answers 404 both for an issue that is gone and for a repository gh
 // can no longer see, so a 404 ends or refuses nothing until the repository
 // itself still answers; while it does not, Apply returns an error and the
 // ticket waits.
+//
+// An issue transferred to another repository answers with a redirect that gh
+// follows as a read, so writes to it change nothing and the ticket simply
+// stops being reflected there; nothing wrong is written.
 //
 // The caller keeps any record Apply returns, error or not: it is what the
 // issue then holds. When a write fails, that is the record Apply was given,
@@ -157,11 +162,7 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 
 // open opens an issue for a task that has none.
 func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Record, error) {
-	title := ticket.Title
-	if title == "" {
-		title = ticket.TaskID
-	}
-	fields := []string{"title=" + title, "body=" + ticket.Body()}
+	fields := []string{"title=" + ticket.Title, "body=" + ticket.Body()}
 	for _, label := range ticket.Labels() {
 		fields = append(fields, "labels[]="+label)
 	}
