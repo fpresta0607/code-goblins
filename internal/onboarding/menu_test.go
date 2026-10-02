@@ -176,6 +176,88 @@ func TestAStepAnsweredErasesItsScreen(t *testing.T) {
 	}
 }
 
+// A row's escape sequences take no columns. The last step's link to the board
+// is wrapped in an OSC 8 hyperlink, which makes its row 86 runes and 51
+// columns: in a console between the two it is one line, for the redraw and
+// for the erase, which otherwise takes the checklist's line above the step.
+func TestAStepCountsALinkedRowByTheColumnsItTakes(t *testing.T) {
+	const board = "http://127.0.0.1:4310"
+	for _, c := range []struct {
+		name string
+		link string
+	}{
+		{"ended by ESC backslash", "\x1b]8;;" + board + "\x1b\\" + board + "\x1b]8;;\x1b\\"},
+		{"ended by BEL", "\x1b]8;;" + board + "\a" + board + "\x1b]8;;\a"},
+		{"in colour too", "\x1b]8;;" + board + "\x1b\\" + menuAccent + board + menuReset + "\x1b]8;;\x1b\\"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			var output bytes.Buffer
+			menu := Menu{Output: &output, ReadKey: keys(KeyDown, KeyEnter), Width: func() int { return 80 }}
+
+			// Act
+			_, err := menu.Ask(Step{
+				Title:   "Your CFO is running",
+				Detail:  "Home   C:\\CodeGoblins\nBoard  " + c.link + "  (Ctrl+click opens it)",
+				Choices: []Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}},
+			})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A blank line, the title, two lines under it and a blank line, then
+			// two choices, a blank line and the hint, which is 80 columns.
+			shown := output.String()
+			if moves := strings.Count(shown, "\x1b[4A"); moves != 1 {
+				t.Errorf("the redraw moved up four lines %d times in %q, want once", moves, shown)
+			}
+			if !strings.HasSuffix(shown, "\x1b[9A\r\x1b[J") {
+				t.Errorf("the screen ends %q, want its nine lines erased", shown[max(0, len(shown)-40):])
+			}
+		})
+	}
+}
+
+// With NO_COLOR a step is drawn, redrawn in place and erased as it is with
+// colour, and no colour sequence is written: the marked choice still shows by
+// its > or its brackets.
+func TestAMenuWithoutColourStillRedrawsAndErases(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		step Step
+		want []string
+	}{
+		{"rows", Step{Title: "Title", Choices: Labels("One", "Two")}, []string{"\r\x1b[2K\nTitle\n", "\x1b[2K    One\n\x1b[2K  > Two\n", "\x1b[4A", "\x1b[7A\r\x1b[J"}},
+		{"tabs", Step{Title: "Title", Tabs: true, Choices: []Choice{{Label: "One", Note: "Ready"}, {Label: "Two", Note: "Not installed"}}}, []string{"\r\x1b[2K\nTitle\n", "\x1b[2K   One   [ Two ]\n\x1b[2K   Not installed\n", "\x1b[4A", "\x1b[7A\r\x1b[J"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			var output bytes.Buffer
+			menu := Menu{Output: &output, ReadKey: keys(KeyDown, KeyEnter), NoColor: true}
+
+			// Act
+			_, err := menu.Ask(c.step)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			shown := output.String()
+			for _, want := range c.want {
+				if !strings.Contains(shown, want) {
+					t.Errorf("the screen lacks %q:\n%q", want, shown)
+				}
+			}
+			for _, colour := range []string{menuAccent, menuMarked, menuReset} {
+				if strings.Contains(shown, colour) {
+					t.Errorf("the screen carries the colour sequence %q: %q", colour, shown)
+				}
+			}
+		})
+	}
+}
+
 // A row of tabs is one line: every choice with its mark, the marked one in
 // brackets, and under it the marked choice's note. Left and Right move the
 // mark and wrap, and the hint names those keys.
@@ -263,6 +345,69 @@ func TestTheChecklistPrintsOneLineAStepAndTakesThemBack(t *testing.T) {
 		"\x1b[4A\r\x1b[J"
 	if shown != want {
 		t.Errorf("the checklist printed\n%q\nwant\n%q", shown, want)
+	}
+}
+
+// With NO_COLOR the checklist replaces and takes back its lines as it does
+// with colour, and the tick carries none.
+func TestTheChecklistWithoutColourStillReplacesAndTakesBackItsLines(t *testing.T) {
+	// Arrange
+	var output bytes.Buffer
+	list := &Checklist{Output: &output, Tick: "v", NoColor: true}
+
+	// Act
+	list.Working("Agent", "checking the agents on this machine")
+	list.Done("Agent", "Claude Code")
+	list.Clear()
+
+	// Assert
+	want := "\r\x1b[2K  . Agent      checking the agents on this machine" +
+		"\r\x1b[2K  v Agent      Claude Code\n" +
+		"\x1b[1A\r\x1b[J"
+	if output.String() != want {
+		t.Errorf("the checklist printed\n%q\nwant\n%q", output.String(), want)
+	}
+}
+
+// A working line holds its row open for the line that replaces it. End ends
+// that row once, so an error printed next starts on a row of its own; with no
+// row open, and in plain output whose line was whole already, it prints
+// nothing.
+func TestTheChecklistEndsTheRowAWorkingLineLeftOpen(t *testing.T) {
+	const working = "  . CFO        starting as Claude Code"
+	for _, c := range []struct {
+		name  string
+		plain bool
+		act   func(list *Checklist)
+		want  string
+	}{
+		{"after a working line", false, func(list *Checklist) { list.Working("CFO", "starting as Claude Code"); list.End(); list.End() }, "\r\x1b[2K" + working + "\n"},
+		{"after a finished line", false, func(list *Checklist) {
+			list.Working("CFO", "starting as Claude Code")
+			list.Done("CFO", "started")
+			list.End()
+		}, "\r\x1b[2K" + working + "\r\x1b[2K  v CFO        started\n"},
+		{"after a note", false, func(list *Checklist) {
+			list.Working("CFO", "starting as Claude Code")
+			list.Note("A note")
+			list.End()
+		}, "\r\x1b[2K" + working + "\r\x1b[2K               A note\n"},
+		{"with nothing under way", false, func(list *Checklist) { list.End() }, ""},
+		{"in plain output", true, func(list *Checklist) { list.Working("CFO", "starting as Claude Code"); list.End() }, working + "\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			var output bytes.Buffer
+			list := &Checklist{Output: &output, Tick: "v", Plain: c.plain, NoColor: true}
+
+			// Act
+			c.act(list)
+
+			// Assert
+			if output.String() != c.want {
+				t.Errorf("the checklist printed %q, want %q", output.String(), c.want)
+			}
+		})
 	}
 }
 

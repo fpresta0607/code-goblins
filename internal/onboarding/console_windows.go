@@ -51,7 +51,7 @@ func AskConsole(output io.Writer, step Step) (int, error) {
 		return 0, err
 	}
 	defer windows.SetConsoleMode(screen, screenMode)
-	menu := Menu{Output: output, Width: ConsoleWidth, ReadKey: func() (Key, error) {
+	menu := Menu{Output: output, Width: ConsoleWidth, NoColor: NoColor(), ReadKey: func() (Key, error) {
 		for {
 			var event keyEvent
 			var count uint32

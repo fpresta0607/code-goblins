@@ -38,7 +38,7 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A codex CFO has no wake path") {
+		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+"\n") || !strings.Contains(out, "A Codex CFO has no wake path") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path", out)
 		}
 	}
@@ -91,8 +91,8 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 			if exit != 0 || len(f.harnesses) != 0 || len(f.nativeStarts) != 0 {
 				t.Fatalf("exit=%d harnesses=%q nativeStarts=%q stderr=%q, want nothing started", exit, f.harnesses, f.nativeStarts, stderr)
 			}
-			if !strings.Contains(stdout, "It keeps its harness; codex is the harness goblins starts the next CFO as.") {
-				t.Errorf("stdout = %q, want it to say the live CFO keeps its harness", stdout)
+			if !strings.Contains(stdout, "It keeps its agent; Codex is the agent goblins starts the next CFO as.") {
+				t.Errorf("stdout = %q, want it to say the live CFO keeps its agent", stdout)
 			}
 			if harness, err := cfoHarness(f.home.State); err != nil || harness != "codex" {
 				t.Errorf("remembered harness = %q, %v; want codex", harness, err)

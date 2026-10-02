@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
@@ -64,7 +65,7 @@ func noWakePath(harness string) []string {
 	if harness == "claude" {
 		return nil
 	}
-	return []string{fmt.Sprintf("A %s CFO has no wake path: only Claude Code's Stop hook wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain.", harness)}
+	return []string{fmt.Sprintf("A %s CFO has no wake path: only Claude Code's Stop hook wakes the CFO when a goblin reports, so it sees reports only when it checks the board or runs cfo drain.", onboarding.Name(harness))}
 }
 
 // startCFOInHerdr starts the CFO as harness in the fleet's own Herdr session,

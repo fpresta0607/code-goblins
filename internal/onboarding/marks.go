@@ -1,6 +1,16 @@
 package onboarding
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
+
+// NoColor reports whether NO_COLOR is set, whatever its value: output then
+// carries no colour, and is erased and replaced as it is with colour.
+func NoColor() bool {
+	_, set := os.LookupEnv("NO_COLOR")
+	return set
+}
 
 // DrawsUnicode reports whether the console announces that it draws symbols
 // beyond its code page: Windows Terminal, VS Code's terminal, or a TERM that

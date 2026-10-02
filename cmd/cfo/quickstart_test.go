@@ -153,8 +153,8 @@ func TestGoblinsSetupRunsTheAgentStepsAgain(t *testing.T) {
 	if exit != 0 || !slices.Equal(f.setups, []agentSetup{{chosen: "", rerun: true}}) || len(f.nativeStarts) != 0 {
 		t.Fatalf("exit=%d setups=%+v nativeStarts=%q stderr=%q, want the agent steps rerun and no CFO started", exit, f.setups, f.nativeStarts, stderr)
 	}
-	if !strings.Contains(stdout, "CFO        already running in native terminal cfo\n               It keeps its harness; pi is the harness goblins starts the next CFO as.\n") {
-		t.Errorf("stdout = %q, want it to say the running CFO keeps its harness", stdout)
+	if !strings.Contains(stdout, "CFO        already running in native terminal cfo\n               It keeps its agent; pi is the agent goblins starts the next CFO as.\n") {
+		t.Errorf("stdout = %q, want it to say the running CFO keeps its agent", stdout)
 	}
 	if extra != 2 || !strings.Contains(extraErr, "usage: goblins setup") {
 		t.Errorf("goblins setup now: exit=%d stderr=%q, want its usage", extra, extraErr)

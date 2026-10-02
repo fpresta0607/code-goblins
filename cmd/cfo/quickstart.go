@@ -44,7 +44,7 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	if !ok {
 		return 1
 	}
-	list := &onboarding.Checklist{Output: stdout, Tick: onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Tick, Width: onboarding.ConsoleWidth, Plain: !bannerColor(stdout)}
+	list := &onboarding.Checklist{Output: stdout, Tick: onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Tick, Width: onboarding.ConsoleWidth, Plain: !consoleTakesEscapes(stdout), NoColor: onboarding.NoColor()}
 	fmt.Fprintln(stdout)
 	if startedServe {
 		list.Done("Supervisor", "started")
@@ -57,24 +57,26 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	agent := ""
 	if rerun || harness != "" || !cfoRuns(runtime, h.State) {
 		if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, list, stdout, stderr); err != nil {
+			list.End()
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
 		}
 	}
 	session, started, err := ensureCFOSession(ctx, runtime, h, native, agent, list)
 	if err != nil {
+		list.End()
 		fmt.Fprintf(stderr, "goblins: %v\n", err)
 		return 1
 	}
 	if !started && agent != "" {
-		list.Note(fmt.Sprintf("It keeps its harness; %s is the harness goblins starts the next CFO as.", agent))
+		list.Note(fmt.Sprintf("It keeps its agent; %s is the agent goblins starts the next CFO as.", onboarding.Name(agent)))
 	}
 	heading := "Your CFO is running"
 	if started {
 		heading = "Your CFO is starting"
 	}
 	link := board
-	if bannerColor(stdout) {
+	if consoleTakesEscapes(stdout) {
 		link = "\x1b]8;;" + board + "\x1b\\" + board + "\x1b]8;;\x1b\\"
 	}
 	choice, err := runtime.choose(stdout, onboarding.Step{
@@ -395,7 +397,7 @@ func runInConsole(stdout, stderr io.Writer, heading, name string, args ...string
 	}
 	command := execx.Command(program[0], program[1:]...)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, stdout, stderr
-	if !bannerColor(stdout) {
+	if !consoleTakesEscapes(stdout) {
 		fmt.Fprintf(stdout, "\n%s\n", heading)
 		return command.Run()
 	}

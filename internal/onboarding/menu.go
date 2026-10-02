@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -60,6 +61,8 @@ type Menu struct {
 	// Width is the console's width in columns, onto which a wider row wraps.
 	// With none, or a width of 0 or less, every row is one line.
 	Width func() int
+	// NoColor leaves the colours out, as NO_COLOR asks.
+	NoColor bool
 }
 
 // The quick start's own greens, the board's accent and mint.
@@ -68,6 +71,14 @@ const (
 	menuMarked = "\x1b[48;2;15;24;32m\x1b[38;2;110;231;183m"
 	menuReset  = "\x1b[0m"
 )
+
+// painted is text in colour, or text alone where colour is left out.
+func painted(colour, text string, noColor bool) string {
+	if noColor {
+		return text
+	}
+	return colour + text + menuReset
+}
 
 // Ask shows step and returns the choice the person accepts: the marked one
 // with Enter, moved with the arrows, or a choice's own letter. Escape returns
@@ -85,7 +96,7 @@ func (m Menu) Ask(step Step) (int, error) {
 	}
 	// The row the cursor is on may hold a line still being worked on, such
 	// as "Checking ...": the step takes its place.
-	fmt.Fprintf(m.Output, "\r\x1b[2K\n%s%s%s\n", menuAccent, step.Title, menuReset)
+	fmt.Fprintf(m.Output, "\r\x1b[2K\n%s\n", painted(menuAccent, step.Title, m.NoColor))
 	above := 1 + lines(step.Title, width)
 	if step.Detail != "" {
 		for _, line := range strings.Split(step.Detail, "\n") {
@@ -118,11 +129,9 @@ func (m Menu) Ask(step Step) (int, error) {
 			for index, choice := range choices {
 				row := "    " + choice.Label
 				if index == selected {
-					row = "  > " + choice.Label
-					fmt.Fprintf(m.Output, "\x1b[2K%s%s%s\n", menuMarked, row, menuReset)
-				} else {
-					fmt.Fprintf(m.Output, "\x1b[2K%s\n", row)
+					row = painted(menuMarked, "  > "+choice.Label, m.NoColor)
 				}
+				fmt.Fprintf(m.Output, "\x1b[2K%s\n", row)
 				drawn += lines(row, width)
 			}
 		}
@@ -163,27 +172,24 @@ func (m Menu) Ask(step Step) (int, error) {
 // show the marked tab where colour does not, and under it that tab's note.
 // It returns how many lines it drew.
 func (m Menu) drawTabs(choices []Choice, selected, width int) int {
-	plain, coloured := " ", " "
+	row := " "
 	for index, choice := range choices {
 		label := choice.Label
 		if choice.Mark != "" {
 			label = choice.Mark + " " + label
 		}
 		if index == selected {
-			plain += "[ " + label + " ]"
-			coloured += menuMarked + "[ " + label + " ]" + menuReset
+			row += painted(menuMarked, "[ "+label+" ]", m.NoColor)
 		} else {
-			plain += "  " + label + "  "
-			coloured += "  " + label + "  "
+			row += "  " + label + "  "
 		}
 		if index < len(choices)-1 {
-			plain += " "
-			coloured += " "
+			row += " "
 		}
 	}
 	note := "   " + choices[selected].Note
-	fmt.Fprintf(m.Output, "\x1b[2K%s\n\x1b[2K%s\n", coloured, note)
-	return lines(plain, width) + lines(note, width)
+	fmt.Fprintf(m.Output, "\x1b[2K%s\n\x1b[2K%s\n", row, note)
+	return lines(row, width) + lines(note, width)
 }
 
 // erase clears the count lines above the cursor and everything under them,
@@ -192,12 +198,19 @@ func (m Menu) erase(count int) {
 	fmt.Fprintf(m.Output, "\x1b[%dA\r\x1b[J", count)
 }
 
-// lines is how many lines row takes in a console width columns wide.
+// escapeSequence is a sequence the console acts on and draws nothing for: a
+// CSI sequence, such as a colour, or an OSC sequence, such as a link, up to
+// its terminator.
+var escapeSequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\a\x1b]*(?:\a|\x1b\\)`)
+
+// lines is how many lines row takes in a console width columns wide, by the
+// columns it takes on the screen: its escape sequences take none.
 func lines(row string, width int) int {
 	if width <= 0 {
 		return 1
 	}
-	return max(1, (utf8.RuneCountInString(row)+width-1)/width)
+	columns := utf8.RuneCountInString(escapeSequence.ReplaceAllString(row, ""))
+	return max(1, (columns+width-1)/width)
 }
 
 // Labels are choices with no letters of their own.
@@ -222,7 +235,11 @@ type Checklist struct {
 	// Plain is set for output that is not a console, such as a pipe or a
 	// log: every line is printed whole and none is replaced or erased.
 	Plain bool
-	drawn int
+	// NoColor leaves the tick's colour out, as NO_COLOR asks.
+	NoColor bool
+	drawn   int
+	// working is whether a Working line holds the cursor's row.
+	working bool
 }
 
 // checklistName is the width a step's name is padded to, so every answer
@@ -236,8 +253,9 @@ func (c *Checklist) Done(name, answer string) {
 		fmt.Fprintln(c.Output, row)
 		return
 	}
-	fmt.Fprintf(c.Output, "\r\x1b[2K  %s%s%s %-*s %s\n", menuAccent, c.Tick, menuReset, checklistName, name, answer)
+	fmt.Fprintf(c.Output, "\r\x1b[2K  %s %-*s %s\n", painted(menuAccent, c.Tick, c.NoColor), checklistName, name, answer)
 	c.drawn += lines(row, c.width())
+	c.working = false
 }
 
 // Working shows what is under way with no line end, so the line that follows
@@ -249,6 +267,16 @@ func (c *Checklist) Working(name, doing string) {
 		return
 	}
 	fmt.Fprintf(c.Output, "\r\x1b[2K%s", row)
+	c.working = true
+}
+
+// End ends the row a Working line left open, so what is printed next starts
+// on a row of its own. Plain output's line was whole already.
+func (c *Checklist) End() {
+	if c.working {
+		fmt.Fprintln(c.Output)
+	}
+	c.working = false
 }
 
 // Note prints a line under the last finished one, in the answers' column.
@@ -260,6 +288,7 @@ func (c *Checklist) Note(text string) {
 	}
 	fmt.Fprintf(c.Output, "\r\x1b[2K%s\n", row)
 	c.drawn += lines(row, c.width())
+	c.working = false
 }
 
 func (c *Checklist) width() int {
