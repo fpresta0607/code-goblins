@@ -6,21 +6,29 @@ test("a list pages only past ten cards: up to ten show whole however tall, and t
   const cards = (count: number) => Array.from({ length: count }, () => 300);
   assert.deepEqual(listPageStarts(cards(4), 400, 16, 1), [0], "the Overlord's Tasks column of four, which showed 1–2 of 4");
   assert.deepEqual(listPageStarts(cards(10), 400, 16, 1), [0], "ten cards still show whole");
-  assert.deepEqual(listPageStarts(cards(11), 400, 16, 1), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "past ten, each page holds the cards that fit");
+  assert.deepEqual(listPageStarts(cards(11), 400, 16, 1), [0, 5, 10], "past ten, the list pages");
   assert.deepEqual(listPageStarts([], 400, 16, 1), [0]);
 });
 
-test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
-  assert.deepEqual(pageStarts([195, 120, 150], 370, 16, 1), [0, 2], "the live Tasks column at 1160 px: two cards fit on the first page, where sizing every page by its 195 px tallest card showed one");
-  assert.deepEqual(pageStarts([120, 120, 120, 200, 90, 90], 500, 16, 1), [0, 3], "three cards fill the first page, and the tall fourth starts the next with the two short ones after it");
-  assert.deepEqual(pageStarts([100, 100, 100, 100], 448, 16, 1), [0], "four 100 px cards and three gaps are exactly 448 px");
-  assert.deepEqual(pageStarts([100, 100, 100, 100], 447, 16, 1), [0, 3]);
-  assert.deepEqual(pageStarts([600, 100], 500, 16, 1), [0, 1], "a card taller than the list still gets a page of its own");
+test("a page holds at least five cards however little room there is", () => {
+  const cards = (count: number, height: number) => Array.from({ length: count }, () => height);
+  assert.deepEqual(pageStarts(cards(19, 250), 540, 16, 1), [0, 5, 10, 15], "the Overlord's Tasks column of 19 on 2026-10-02, which showed 1–2 of 19: 540 px under the memory meter fit two 250 px cards");
+  assert.deepEqual(pageStarts(cards(19, 250), 0, 16, 1), [0, 5, 10, 15], "a list below the fold has no room at all");
+  assert.deepEqual(pageStarts(cards(12, Number.POSITIVE_INFINITY), 540, 16, 1), [0, 5, 10], "cards not measured yet");
+  assert.deepEqual(pageStarts(cards(4, 600), 500, 16, 1), [0], "fewer than five cards are one page");
   assert.deepEqual(pageStarts([], 500, 16, 1), [0], "an empty list is one empty page");
 });
 
+test("a page holds as many of its own cards as fit, so a tall card shortens only its own page", () => {
+  const cards = (count: number, height: number) => Array.from({ length: count }, () => height);
+  assert.deepEqual(pageStarts(cards(12, 100), 800, 16, 1), [0, 7], "seven 100 px cards and six gaps are 796 px, and an eighth does not fit");
+  assert.deepEqual(pageStarts(cards(7, 100), 796, 16, 1), [0], "exactly 796 px");
+  assert.deepEqual(pageStarts(cards(7, 100), 795, 16, 1), [0, 6]);
+  assert.deepEqual(pageStarts([...cards(6, 100), 300, ...cards(6, 100)], 700, 16, 1), [0, 6, 11], "six cards fill the first page; the tall seventh starts the next, which still holds five");
+});
+
 test("in a grid, rows of cards fill the page, each row as tall as its tallest card", () => {
-  assert.deepEqual(pageStarts([100, 150, 100, 100, 200, 50], 300, 16, 2), [0, 4], "rows of 150 and 100 px fit in 300 px; the 200 px row starts the next page");
+  assert.deepEqual(pageStarts([100, 150, 100, 100, 200, 50, 100, 100, 100, 100], 300, 16, 2), [0, 6], "rows of 150 and 100 px fit in 300 px, the 200 px row brings the page to five cards and more, and the next row starts the next page");
 });
 
 test("a ranked card is measured apart at the top of its list, where it renders differently", () => {
@@ -45,10 +53,11 @@ test("a card moved past its page's edge is shown on the page it moved to", () =>
 });
 
 test("the page follows the card kept in view as its neighbours are measured", () => {
-  const estimated = pageStarts([195, 195, 150], 370, 16, 1);
-  const measured = pageStarts([195, 120, 150], 370, 16, 1);
-  assert.equal(pageShowing(1, 0, estimated), 1, "the top card moved down one place, next to a new top card not measured yet, first shows on the second page");
-  assert.equal(pageShowing(1, 1, measured), 0, "once the new top card and the moved card are measured, both fit the first page and the view goes with the moved card");
+  const rest = [120, 120, 120, 120, 120, 120, 120];
+  const estimated = pageStarts([195, 195, 195, 195, 195, 195, ...rest], 1100, 16, 1);
+  const measured = pageStarts([195, 120, 120, 120, 120, 120, ...rest], 1100, 16, 1);
+  assert.equal(pageShowing(5, 0, estimated), 1, "the top card moved down five places, behind cards not measured yet, first shows on the second page");
+  assert.equal(pageShowing(5, 1, measured), 0, "once the cards before it are measured, six fit the first page and the view goes with the moved card");
 });
 
 test("a page whose kept card has left the list stays where it was, within the pages there are", () => {

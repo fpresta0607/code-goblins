@@ -1088,36 +1088,19 @@ func (s *Store) questionAnswer(a Action) error {
 	return errors.New("this user question is unavailable")
 }
 
-// clearQuestion closes a question the Overlord cleared from the Command
-// Center: one that closed without an answer, or one still waiting on him that
-// he answered elsewhere or no longer needs, which he dismissed. It returns
-// the dismissed question, which the CFO must hear of, and nil otherwise.
-// Clearing one already cleared changes nothing.
-func (s *Store) clearQuestion(id, identity string) (Evaluation, *Question, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == id && q.Identity == identity })
-	if i < 0 {
-		return Evaluation{}, nil, fmt.Errorf("%w: the question is gone; nothing was cleared", ErrRejected)
-	}
+// clearQuestion closes question i, which the Overlord cleared from the
+// Command Center: one that closed without an answer, or one still waiting on
+// him that he answered elsewhere or no longer needs, which he dismissed. It
+// returns the dismissed question's ID, which the CFO must hear of, and nothing
+// otherwise. The caller holds the store lock and has checked that the
+// question may be cleared.
+func (s *Store) clearQuestion(i int) []string {
 	q := &s.db.Questions[i]
-	if q.Status == "cleared" {
-		return Evaluation{Reason: "The question was already cleared."}, nil, nil
-	}
-	dismissed := q.Status == "pending" && q.AnswerID == ""
-	if !dismissed && q.Status != "superseded" && q.Status != "failed" {
-		return Evaluation{}, nil, fmt.Errorf("%w: the question is %s; only one waiting on you or closed without an answer can be cleared", ErrRejected, q.Status)
-	}
+	dismissed := q.Status == "pending"
 	q.Status = "cleared"
-	if dismissed {
-		q.Message = "You dismissed it: answered elsewhere or no longer needed."
+	if !dismissed {
+		return nil
 	}
-	if err := s.save(); err != nil {
-		return Evaluation{}, nil, err
-	}
-	if dismissed {
-		cleared := *q
-		return Evaluation{Reason: "Dismissed from the Command Center."}, &cleared, nil
-	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, nil, nil
+	q.Message = "You dismissed it: answered elsewhere or no longer needed."
+	return []string{q.ID}
 }
