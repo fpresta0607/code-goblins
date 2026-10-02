@@ -15,6 +15,21 @@ export async function request(
     );
   return value;
 }
+// announce asks the supervisor which of these the board has not announced
+// yet, and gets back those it may announce now: an alert, a Windows
+// notification, the Command Center opening by itself. The supervisor hands
+// each key to one request, so no item is announced twice, in another tab,
+// after a reload or after the supervisor restarts. keys are items, announced
+// once; news is a goblin's news, which is a new event when the same words
+// come again later. Null means the supervisor could not be asked, and the
+// caller falls back on what this browser remembers.
+export async function announce(instance: string, keys: string[], news: string[] = []): Promise<string[] | null> {
+  if (!keys.length && !news.length) return [];
+  try {
+    const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys, news }) }));
+    return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
+  } catch { return null; }
+}
 export function message(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
