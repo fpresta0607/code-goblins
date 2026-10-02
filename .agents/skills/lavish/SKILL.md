@@ -8,7 +8,7 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it against its `0.1.79` floor and the Code Goblins build (`0.1.79-codegoblins.1` or newer) and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.3`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 
 ## Request
 
