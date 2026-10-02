@@ -31,6 +31,28 @@ import (
 // defaultBoardAddress is where cfo serve listens unless told otherwise.
 const defaultBoardAddress = "127.0.0.1:4310"
 
+// boardAddressVariable names the person's own choice of where the board
+// listens, for a machine where another program needs the usual address or
+// that runs a second home.
+const boardAddressVariable = "CFO_BOARD_ADDRESS"
+
+// boardAddress is where this home's board listens, the same every time: the
+// address CFO_BOARD_ADDRESS names, or else the usual one. Port 0 there asks
+// for any free port, which a test or a scratch home uses.
+func boardAddress() string {
+	if chosen := strings.TrimSpace(os.Getenv(boardAddressVariable)); chosen != "" {
+		return chosen
+	}
+	return defaultBoardAddress
+}
+
+// loopbackAddress reports whether address is a numeric loopback host and a
+// port, the only kind of address the board listens on.
+func loopbackAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
+}
+
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
@@ -53,13 +75,12 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	f := flag.NewFlagSet("serve", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	address := f.String("listen", defaultBoardAddress, "loopback address for the native board")
+	address := f.String("listen", boardAddress(), "loopback address for the native board")
 	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
-	host, _, err := net.SplitHostPort(*address)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+	if !loopbackAddress(*address) {
 		fmt.Fprintln(stderr, "serve requires a numeric loopback address, for example 127.0.0.1:4310")
 		return 2
 	}
