@@ -121,7 +121,6 @@ func (m Menu) Ask(step Step) (int, error) {
 	}
 	hint += "   Esc to go back"
 	for {
-		// \x1b[2K clears a row, so a redraw leaves nothing of the last.
 		drawn := 0
 		if step.Tabs {
 			drawn = m.drawTabs(choices, selected, width)
@@ -131,11 +130,11 @@ func (m Menu) Ask(step Step) (int, error) {
 				if index == selected {
 					row = painted(menuMarked, "  > "+choice.Label, m.NoColor)
 				}
-				fmt.Fprintf(m.Output, "\x1b[2K%s\n", row)
+				fmt.Fprintf(m.Output, "%s\n", row)
 				drawn += lines(row, width)
 			}
 		}
-		fmt.Fprintf(m.Output, "\x1b[2K\n\x1b[2K%s\n", hint)
+		fmt.Fprintf(m.Output, "\n%s\n", hint)
 		drawn += 1 + lines(hint, width)
 		key, err := m.ReadKey()
 		if err != nil {
@@ -163,8 +162,9 @@ func (m Menu) Ask(step Step) (int, error) {
 			m.erase(above + drawn)
 			return accepted, nil
 		}
-		// Back to the first choice's row, to draw the choices again in place.
-		fmt.Fprintf(m.Output, "\x1b[%dA", drawn)
+		// Back to the first choice's row, with everything under it cleared, so
+		// a redraw that takes fewer rows leaves nothing of the last.
+		fmt.Fprintf(m.Output, "\x1b[%dA\x1b[J", drawn)
 	}
 }
 
@@ -188,7 +188,7 @@ func (m Menu) drawTabs(choices []Choice, selected, width int) int {
 		}
 	}
 	note := "   " + choices[selected].Note
-	fmt.Fprintf(m.Output, "\x1b[2K%s\n\x1b[2K%s\n", row, note)
+	fmt.Fprintf(m.Output, "%s\n%s\n", row, note)
 	return lines(row, width) + lines(note, width)
 }
 

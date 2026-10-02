@@ -228,8 +228,8 @@ func TestAMenuWithoutColourStillRedrawsAndErases(t *testing.T) {
 		step Step
 		want []string
 	}{
-		{"rows", Step{Title: "Title", Choices: Labels("One", "Two")}, []string{"\r\x1b[2K\nTitle\n", "\x1b[2K    One\n\x1b[2K  > Two\n", "\x1b[4A", "\x1b[7A\r\x1b[J"}},
-		{"tabs", Step{Title: "Title", Tabs: true, Choices: []Choice{{Label: "One", Note: "Ready"}, {Label: "Two", Note: "Not installed"}}}, []string{"\r\x1b[2K\nTitle\n", "\x1b[2K   One   [ Two ]\n\x1b[2K   Not installed\n", "\x1b[4A", "\x1b[7A\r\x1b[J"}},
+		{"rows", Step{Title: "Title", Choices: Labels("One", "Two")}, []string{"\r\x1b[2K\nTitle\n", "    One\n  > Two\n", "\x1b[4A\x1b[J", "\x1b[7A\r\x1b[J"}},
+		{"tabs", Step{Title: "Title", Tabs: true, Choices: []Choice{{Label: "One", Note: "Ready"}, {Label: "Two", Note: "Not installed"}}}, []string{"\r\x1b[2K\nTitle\n", "   One   [ Two ]\n   Not installed\n", "\x1b[4A\x1b[J", "\x1b[7A\r\x1b[J"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -297,6 +297,38 @@ func TestARowOfTabsMovesWithLeftAndRightAndShowsTheMarkedNote(t *testing.T) {
 				t.Errorf("the hint does not name Left and Right: %q", shown)
 			}
 		})
+	}
+}
+
+// A tab's note may wrap onto more rows than the next tab's, so a redraw may
+// take fewer rows than the last draw: everything under the first row drawn is
+// cleared before the redraw, so nothing of the taller draw stays below it,
+// and the step's erase climbs over what the last draw took.
+func TestARedrawOfTabsLeavesNothingOfATallerDrawBelowIt(t *testing.T) {
+	// Arrange
+	// In 70 columns the first tab's note is two rows and the second's one, so
+	// the tabs, the note, a blank line and the hint are five rows, then four.
+	var output bytes.Buffer
+	tabs := []Choice{{Label: "Claude Code", Note: strings.Repeat("x", 80)}, {Label: "Codex", Note: "Ready"}}
+	menu := Menu{Output: &output, ReadKey: keys(KeyRight, KeyLeft, KeyEnter), Width: func() int { return 70 }, NoColor: true}
+
+	// Act
+	_, err := menu.Ask(Step{Title: "Choose the agent your CFO runs on", Choices: tabs, Tabs: true})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	const hint = "\nPress Enter to continue   Left/Right to choose   Esc to go back\n"
+	tall, short := " [ Claude Code ]   Codex  \n   "+strings.Repeat("x", 80)+"\n", "   Claude Code   [ Codex ]\n   Ready\n"
+	// The blank line, the title and the blank line under it are three more
+	// rows above the five of the last draw.
+	want := "\r\x1b[2K\nChoose the agent your CFO runs on\n\n" +
+		tall + hint + "\x1b[5A\x1b[J" +
+		short + hint + "\x1b[4A\x1b[J" +
+		tall + hint + "\x1b[8A\r\x1b[J"
+	if output.String() != want {
+		t.Errorf("the screen was drawn as\n%q\nwant\n%q", output.String(), want)
 	}
 }
 
