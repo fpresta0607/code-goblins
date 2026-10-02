@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Dictation, dictationKey, openMicrophone, speechRecognition } from "./dictation";
+import { Dictation, dictationKey, inDesktopApp, openMicrophone, speechRecognition } from "./dictation";
 
 // A note about dictation stays this long over the terminal.
 const NOTE_MS = 6000;
@@ -39,7 +39,7 @@ export function useDictation(type: (text: string) => void) {
     if (!meaning) return null;
     if (meaning.swallow) event.preventDefault();
     if (meaning.action === "start") {
-      dictation.current ??= new Dictation({ heard: (text) => typeText.current(text), listening: setListening, problem: setNote }, speechRecognition, navigator.language || "en-US", openMicrophone);
+      dictation.current ??= new Dictation({ heard: (text) => typeText.current(text), listening: setListening, problem: setNote }, speechRecognition, navigator.language || "en-US", openMicrophone, inDesktopApp);
       dictation.current.start();
     }
     if (meaning.action === "stop") {

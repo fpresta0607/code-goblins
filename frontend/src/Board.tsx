@@ -18,7 +18,9 @@ export type BoardLayout = "kanban" | "stacked";
 
 // The board is a kanban by default, its columns side by side, or stacked,
 // one under another. Paused tasks keep their work inside In progress, under a
-// divider after its working cards, and show only while one is paused.
+// divider after its working cards, and show only while one is paused. In
+// progress shows every goblin at once; Tasks, Paused and Completed page past
+// ten cards.
 export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, onOpenCfo, onOpenCommand, onStartCfo, cardStart, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; now: number;
@@ -42,9 +44,9 @@ export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, o
         {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={cardStart} onSelect={onSelect} />
           : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} />
             : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}</RenderBoundary>}
-        {column.list === "progress" && paused.length > 0 && <section className="paused-tasks" aria-label="Paused" data-fit-after>
+        {column.list === "progress" && paused.length > 0 && <section className="paused-tasks" aria-label="Paused">
           <h3 className="column-divider">Paused<span className="column-count">{paused.length}</span></h3>
-          <div className="task-cards">{paused.map((task) => card(task))}</div>
+          <RenderBoundary scope="list"><FitList items={paused} keyOf={(task) => task.id} empty={null} renderItem={(task) => card(task)} /></RenderBoundary>
         </section>}
       </section>;
     })}
