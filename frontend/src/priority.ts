@@ -32,6 +32,21 @@ export function dropIndex(boxes: Box[], x: number, y: number, columns: number): 
   return before < 0 ? boxes.length : before;
 }
 
+// The room at the top and bottom edge of what scrolls a list in which a
+// dragged card scrolls it, and the most it scrolls in a frame.
+const EDGE = 64;
+const FASTEST = 20;
+
+// How far a dragged card scrolls its list in a frame, given the pointer and
+// the top and bottom of what scrolls the list, as the screen shows them:
+// nothing while the pointer is clear of both edges, and more the nearer it is
+// to one, or past it. Up is negative. So a card reaches any place in a list
+// longer than the screen.
+export function edgeScroll(y: number, top: number, bottom: number): number {
+  const past = y < top + EDGE ? y - top - EDGE : y > bottom - EDGE ? y - bottom + EDGE : 0;
+  return Math.sign(past) * Math.ceil(Math.min(1, Math.abs(past) / EDGE) * FASTEST);
+}
+
 // The list as the Overlord just dropped it, while the supervisor saves it; a
 // card the drop did not know about keeps its place after the dropped ones.
 export function orderShown<T extends { id: string }>(items: T[], pending: string[] | null): T[] {

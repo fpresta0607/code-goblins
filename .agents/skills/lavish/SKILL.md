@@ -8,7 +8,7 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it against its `0.1.79` floor and the Code Goblins build (`0.1.79-codegoblins.1` or newer) and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+`cfo doctor` reports it against its floor, the Code Goblins build `0.1.79-codegoblins.3`, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 
 ## Request
 
@@ -30,12 +30,62 @@ If it is empty, infer what to show from the conversation.
 
 1. Write the artifact as HTML under `.lavish/` in the working directory (for example `.lavish/dispatch-options.html`).
    Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
-   Keep every referenced asset beside the HTML and reference it with a relative path; a root-absolute path will not resolve.
+   Start the page in the board's look and ask for a pick the way "The page" below says.
+   Keep every other referenced asset beside the HTML and reference it with a relative path; apart from the two board stylesheets, a root-absolute path will not resolve.
 2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
 3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CFO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
    Never run `lavish-axi poll` yourself.
 4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
 5. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
+
+## The page
+
+A Scrawl page starts in the board's look, so it reads as part of Code Goblins and not as another product.
+This needs the Code Goblins build `0.1.79-codegoblins.3` or newer (`lavish-axi --version`); on an older build the page shows unstyled and its choices do not appear, so deliver the content as text instead.
+
+Put these two lines in the `<head>` and write plain semantic HTML:
+
+```html
+<link rel="stylesheet" href="/design/board-tokens.css" />
+<link rel="stylesheet" href="/design/board-page.css" />
+```
+
+The review server serves both, so the page always wears the board's current colours, its three fonts, edges and radii, and `lavish-axi export` carries them inline.
+Add CSS of your own only for what the patterns below do not cover, and take every colour from the tokens (`var(--accent-green)`, `var(--mint)`, `var(--muted)`, `var(--glass-border)`, `var(--amber)`, `var(--red)`), never a new one.
+A page that shows another product's UI, such as a PrecisionDocs mockup, wears that product's design instead, and any page may take the layout its content calls for.
+
+Five patterns cover most pages.
+Combine them freely inside `<main class="page">`; `lavish-axi design` prints each one's full markup under `board_look.patterns`.
+
+| Pattern          | Use it for                                                      | Markup                                                                                                                                         |
+| ---------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Report           | What was found or done: the conclusion first, then the findings | `<header class="page-head">` with `<p class="eyebrow">`, `<h1>`, `<p class="lead">`; `<section class="stats">` of `<div class="stat">`; `<div class="card">` |
+| Comparison       | Options side by side, the recommended one lit                   | `<section class="compare">` of `<article class="card option">`, one with `recommended` and a `<span class="recommendation">`; `<ul class="pros">`, `<ul class="cons">` |
+| Before and after | A picture review: the same view twice, each named               | `<section class="before-after">` of `<figure>` with `<figcaption><span class="chip">Before</span>` and `<span class="chip after">After</span>` |
+| Evidence         | What was checked, what it showed, where to look                 | `<div class="table-wrap"><table class="evidence">`, results as `<span class="status ok">`, `warn` or `bad`                                     |
+| Decision         | A pick is needed                                                | What is being decided and what each option means, a `<p class="callout">` for what he must know, then the declared choices below               |
+
+### Choices
+
+When the page asks him to pick, declare the question as data and Scrawl draws it where the declaration sits, as the Command Center draws a question: who asks, a plain radio list with the recommended option first and marked, Other for a written answer, and Send decision.
+
+```html
+<script type="application/json" data-lavish-choices>
+  {
+    "id": "poll-timeout",
+    "asker": "your task id",
+    "question": "Fix the poll timeout next, or keep 300 s?",
+    "options": ["Fix it next", "Keep 300 s"],
+    "recommended": "Fix it next"
+  }
+</script>
+```
+
+- Put the declaration at the end of the page, after what he needs to read first; a list of such objects asks several questions, each with its own `id`.
+- Write each option as the answer itself, a short phrase, never a bare letter: two to four of them, with `recommended` equal to one.
+- His pick reaches the CFO as the exact option text, or the words he wrote for Other; relay it to the goblin unchanged.
+- Never build an answer form, a notes box, a dropdown or a send button of your own, and never ask the same thing again with `cfo question`: the page is the one place he answers.
+  Everything else he wants to say goes in Scrawl's conversation box or as a comment on the page.
 
 ## A goblin's page
 
