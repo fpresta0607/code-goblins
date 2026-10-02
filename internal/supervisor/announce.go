@@ -96,10 +96,18 @@ func (h *HTTP) announceItems(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "An announce key is empty or too long")
 		return
 	}
+	// While AFK mode is on every key is recorded as announced and none is
+	// handed back: nothing alerts the Overlord while he is away, and what the
+	// board asked about then is in the report, never announced once he is
+	// back.
+	away := h.Service.afkOn()
 	claimed, err := h.Service.Store.claimAnnounced(input.Keys, input.News, time.Now().UTC())
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if away {
+		claimed = []string{}
 	}
 	respond(w, http.StatusOK, struct {
 		Claimed []string `json:"claimed"`

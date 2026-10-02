@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -193,6 +194,8 @@ type runPipeRequest struct {
 	Review     *Review            `json:"review,omitempty"`
 	Answer     *cfoAnswer         `json:"answer,omitempty"`
 	Credential *CredentialRequest `json:"credential,omitempty"`
+	// AFK is a decision the CFO logs under AFK mode's authority.
+	AFK *afk.Entry `json:"afk,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

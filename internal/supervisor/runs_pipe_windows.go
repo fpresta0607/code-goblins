@@ -164,9 +164,12 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	default:
 		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
 		s.runRequests.Lock()
-		if req.Kind == "" {
+		switch req.Kind {
+		case "":
 			err = s.acceptRunRequest(ctx, int(pid), connected, req)
-		} else {
+		case "afk-on", "afk-off":
+			err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+		default:
 			err = s.acceptCFOItem(ctx, int(pid), connected, req)
 		}
 		s.runRequests.Unlock()
