@@ -45,7 +45,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
    Its first line says which: `Supervisor already running`, or `Supervisor started`.
 2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows them as one row of tabs, each with the agent's own mark, moved with Left and Right.
    Under the row is the marked agent's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
-   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say goblin reports do not wake them yet.
+   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say what a CFO in them gets: woken by a typed line, with no digest or guards, and for pi no resume.
 3. When the agent you choose is missing, Enter installs it the way the install script does: Claude Code's native build from <https://claude.ai/install.ps1>, Codex and pi with `npm install -g`, which needs Node.js.
    When npm's `claude.cmd` comes before Claude Code's native build on PATH, which a native terminal cannot start, it shows the uninstall command to run instead, on a line of its own, and Enter checks again once you have run it.
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.

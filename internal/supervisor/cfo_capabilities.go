@@ -28,11 +28,13 @@ type CFOCapability struct {
 // harnesses: Claude Code first, the recommended one. A Codex or pi CFO is
 // woken by a line typed into its native terminal and registers with its first
 // prompt, since the fleet's hooks for those harnesses only report their
-// prompts: they have no session-start digest and no guards.
+// prompts: nothing gives them the session-start digest and nothing guards
+// their turns. Both were proved with real harnesses in scratch homes on
+// 2026-10-02 (TestACodexOrPiCFOStartedAsGoblinsStartsItRegistersAndIsWoken).
 func CFOCapabilities() []CFOCapability {
 	typed := []string{
 		"it is woken only in a native terminal, where the wake line is typed while it sits idle at an empty prompt",
-		"no session-start digest: it reads data/overlord.md and the memory index itself",
+		"no session-start hook: it runs cfo session-start and reads data/overlord.md and the memory index itself",
 		"no turn-end guard and no pre-tool guards",
 	}
 	return []CFOCapability{
