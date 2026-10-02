@@ -1,8 +1,8 @@
 // Package installtest runs install.ps1 for its tests in a session stripped
 // of this machine's own profile, so nothing an install reaches installs onto
 // the machine. Its own tests are those of the no-mistakes install, a package
-// apart from the root package's install tests so that each package's time
-// stays well inside go test's timeout on CI.
+// apart from internal/installscript's install tests so that each package's
+// time stays well inside go test's timeout on CI.
 package installtest
 
 import (

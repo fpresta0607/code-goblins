@@ -1,8 +1,8 @@
 {
   "version": 1,
   "slow_packages": [
-    ".",
     "cmd/cfo",
+    "internal/installscript",
     "internal/installtest",
     "internal/monitor",
     "internal/spawn",
