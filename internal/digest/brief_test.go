@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -316,6 +317,70 @@ func TestABriefStaysWithinItsBudgetWhenTheWakeQueueIsUnreadable(t *testing.T) {
 	fleet := out[strings.Index(out, "== FLEET =="):strings.Index(out, "== READ THIS NEXT ==")]
 	if listed := strings.Count(fleet, "cg-goblin-"); listed != 2 {
 		t.Errorf("the fleet section lists %d of 2 goblins beside an unreadable queue:\n%s", listed, fleet)
+	}
+}
+
+// The brief is the digest a hook prints, so it is the one a CFO session
+// starts from: while AFK mode is on it says so before the wake queue with
+// every line of the authority's terms, as the long digest does, and still
+// fits its budget beside a fleet and a wake queue too long to list. While AFK
+// mode is off it says nothing of it, and a switch that cannot be read is said
+// rather than left out, which would read as off.
+func TestTheBriefTellsTheCFOOfAFKModeWithinItsBudget(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		arrange func(t *testing.T, stateDir string)
+		says    string
+	}{
+		{"on", func(t *testing.T, stateDir string) {
+			if _, _, err := afk.TurnOn(stateDir, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+		}, "AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from his own terminal (powershell.exe pid 4242)"},
+		{"off", func(*testing.T, string) {}, ""},
+		{"a switch that cannot be read", func(t *testing.T, stateDir string) {
+			if err := os.WriteFile(filepath.Join(stateDir, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "AFK MODE: UNREADABLE ("},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := bigHome(t, 40, 300)
+			test.arrange(t, h.State)
+
+			// Act
+			out := composeBrief(t, h)
+
+			// Assert
+			if len(out) > Budget {
+				t.Errorf("the brief digest is %d bytes, over its %d budget", len(out), Budget)
+			}
+			assertHeaderOrder(t, out, []string{
+				"== SESSION LOCK ==",
+				"== WAKE QUEUE ==",
+				"== SUPERVISION OPERATING INSTRUCTIONS ==",
+				"== FLEET ==",
+				"== READ THIS NEXT ==",
+				"== READ-ONCE CONTRACT ==",
+				"== NEXT STEP ==",
+			})
+			if !strings.Contains(out, "WAKE QUEUE: 300 pending") {
+				t.Errorf("the brief does not say how many wakes are pending:\n%s", out)
+			}
+			if test.says == "" {
+				if strings.Contains(out, "AFK MODE") {
+					t.Errorf("the brief mentions AFK mode while it is off:\n%s", out)
+				}
+				return
+			}
+			assertHeaderOrder(t, out, []string{"== SESSION LOCK ==", "== AFK MODE ==", test.says, "== WAKE QUEUE =="})
+			for _, line := range afk.NoticeFor(h.State) {
+				if !strings.Contains(out, line) {
+					t.Errorf("the brief leaves out this line of AFK mode's notice: %q\n%s", line, out)
+				}
+			}
+		})
 	}
 }
 
