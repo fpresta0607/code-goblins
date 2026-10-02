@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -533,5 +535,38 @@ func TestRunDrainAcksAnAnsweredQuestion(t *testing.T) {
 				t.Fatalf("pending after the ack = %+v", pending)
 			}
 		})
+	}
+}
+
+// While AFK mode is on every drain opens with its notice, so each wake tells
+// the CFO it is on and what its authority covers, and the drain still ends
+// with the ack line.
+func TestRunDrainOpensWithAFKModesNoticeWhileItIsOn(t *testing.T) {
+	// Arrange
+	h := buildDrainFixture(t)
+	if _, _, err := afk.TurnOn(h.State, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runDrain(h, nil, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+	}
+	lines := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n")
+	notice := afk.NoticeFor(h.State)
+	if len(notice) == 0 || len(lines) != len(notice)+6 {
+		t.Fatalf("got %d lines with a notice of %d, want the notice and then the six lines of the queue:\n%s", len(lines), len(notice), stdout.String())
+	}
+	for i, want := range notice {
+		if lines[i] != want {
+			t.Errorf("line %d = %q, want the notice's %q", i, lines[i], want)
+		}
+	}
+	if lines[len(notice)] != "WAKE QUEUE: 3 pending" || lines[len(lines)-1] != "WAKE_ACK_REQUIRED: cfo drain --ack-through 7 --recovery-generation 4" {
+		t.Errorf("after the notice the drain = %q, want the queue, ending with its ack line", lines[len(notice):])
 	}
 }

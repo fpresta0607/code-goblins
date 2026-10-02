@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -253,5 +254,27 @@ func TestEveryCFOHarnessHasOneWayItIsWoken(t *testing.T) {
 		if got := CFOWakeFor(agent); got != want {
 			t.Errorf("CFOWakeFor(%q) = %q, want %q", agent, got, want)
 		}
+	}
+}
+
+// A Codex or pi CFO is woken by the typed line alone, so while AFK mode is on
+// that line says so: every wake tells the CFO, whatever harness it runs.
+func TestTheTypedWakeLineSaysAFKModeIsOn(t *testing.T) {
+	// Arrange
+	s, stateDir, typed, _ := typedWakeCFO(t, "codex", idleCodexCFO)
+	if _, _, err := afk.TurnOn(stateDir, "the board", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	queueWake(t, stateDir, "notify", "cg-wakes", "done: PR https://example.test/pull/209")
+
+	// Act
+	err := s.wakeCFO(context.Background(), time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*typed) != 1 || !strings.Contains((*typed)[0], "cfo watcher wake: 1 queued wake (notify cg-wakes)") || !strings.Contains((*typed)[0], "AFK mode is on since 2026-10-02 02:10 UTC") || strings.ContainsAny((*typed)[0], "\r\n") {
+		t.Fatalf("typed = %q, want one line naming the wake and saying AFK mode is on", *typed)
 	}
 }
