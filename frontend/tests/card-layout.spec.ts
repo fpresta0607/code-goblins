@@ -245,6 +245,40 @@ test("a card's tip shows on keyboard focus, clear of the card, and goes with the
   await expect.poll(() => terminal.evaluate(shownTips), { timeout: 300 }).toEqual([]);
 });
 
+// Focus stays on a part while the page scrolls under it, so its tip moves with
+// its card instead of staying where the card was.
+test("a keyboard-focused part's tip follows its card when the page scrolls", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  // The screen is shorter than the board, so the page has room to scroll.
+  await page.setViewportSize({ width: 1000, height: 1000 });
+  await shell.locator(".card-pr").focus();
+  await page.keyboard.press("Tab");
+  const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
+  await expect(terminal).toBeFocused();
+  await expect.poll(async () => (await terminal.evaluate(shownTips)).length).toBe(1);
+  const top = Math.round(await shell.evaluate((card) => card.getBoundingClientRect().top)) - 60;
+  // The page scrolls only once it has taken the new screen's height, so the
+  // scroll is repeated until the card is 60 px higher.
+  await expect.poll(() => shell.evaluate((card, top) => {
+    scrollBy(0, card.getBoundingClientRect().top - top);
+    return Math.round(card.getBoundingClientRect().top);
+  }, top)).toBe(top);
+  let tips: ShownTip[] = [];
+  await expect.poll(async () => tipProblems(tips = await terminal.evaluate(shownTips))).toEqual([]);
+  expect(tips.map((tip) => tip.side)).toEqual(["over"]);
+});
+
+// A part's tip can change while the pointer rests on it, as Start's and
+// Resume's do with the memory that is free.
+test("a tip shows what its part says now", async ({ page }) => {
+  await board(page, 1000);
+  const pause = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).getByRole("button", { name: /^Pause / });
+  expect((await tipsOf(pause)).map((tip) => tip.text)).toEqual(["Pause"]);
+  await pause.evaluate((button) => button.setAttribute("data-tip", "Pause needs 2 GB free"));
+  await expect.poll(async () => (await pause.evaluate(shownTips)).map((tip) => tip.text)).toEqual(["Pause needs 2 GB free"]);
+});
+
 // A card's status line says which goblin it waits on, and the card does not
 // say it again in a chip of its own.
 test("a waiting card names the goblin it waits on once, in its status line", async ({ page }) => {
