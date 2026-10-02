@@ -233,10 +233,6 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 		{"a relative folder", "claude", "Enter the full path of a folder", func(*firstRunMachine) string { return "projects" }},
 		{"an entered folder without a checkout", "claude", "No git checkout is in this folder", func(m *firstRunMachine) string { return filepath.Join(m.root, "notes") }},
 		{"an entered folder that cannot be read", "claude", "This folder cannot be read", func(m *firstRunMachine) string { return filepath.Join(m.root, "missing") }},
-		{"an agent that cannot be remembered", "claude", "The agent could not be remembered", func(m *firstRunMachine) string {
-			m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
-			return ""
-		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -254,6 +250,50 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 				t.Fatalf("CFOs started = %q, projects roots recorded = %q, agent remembered = %q; want none", m.started, m.recorded, m.saved)
 			}
 		})
+	}
+}
+
+// A start that fails leaves what the home remembers as it was, so the next
+// goblins in the terminal starts the agent he chose there.
+func TestFirstRunKeepsTheRememberedAgentWhenTheCFOCannotStart(t *testing.T) {
+	// Arrange
+	m := newFirstRunMachine(t)
+	m.saved = "codex"
+	m.run.StartCFO = func(string) error { return errors.New("the terminal host is down") }
+
+	// Act
+	err := m.run.Start("", "claude")
+
+	// Assert
+	if err == nil || errors.As(err, new(StartRefusal)) || !strings.Contains(err.Error(), "the terminal host is down") {
+		t.Fatalf("err = %v, want the failed start with its cause, not a refusal", err)
+	}
+	if m.saved != "codex" {
+		t.Fatalf("agent remembered = %q, want codex as it was", m.saved)
+	}
+}
+
+// A CFO that started stays started when its agent cannot be remembered, and
+// the error says both, so the page neither hides it nor calls it a refusal.
+func TestFirstRunReportsAnAgentItCannotRememberAfterTheCFOStarted(t *testing.T) {
+	// Arrange
+	m := newFirstRunMachine(t)
+	m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
+
+	// Act
+	err := m.run.Start("", "claude")
+
+	// Assert
+	if err == nil || errors.As(err, new(StartRefusal)) {
+		t.Fatalf("err = %v, want an error that is not a refusal", err)
+	}
+	for _, said := range []string{"the CFO started", "its agent could not be remembered", "the state folder is read-only"} {
+		if !strings.Contains(err.Error(), said) {
+			t.Errorf("err = %v, want it to say %q", err, said)
+		}
+	}
+	if len(m.started) != 1 || m.started[0] != "claude" {
+		t.Fatalf("CFOs started = %q, want Claude Code started once", m.started)
 	}
 }
 

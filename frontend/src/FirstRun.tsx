@@ -17,8 +17,8 @@ const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "openai
 // stay in view.
 export function FirstRun({ instance, onStarted, onBoard }: { instance: string; onStarted: () => void; onBoard: () => void }) {
   // typed is what the Overlord typed in the field, which shows the recorded
-  // folder until he types; asked is the folder last looked at, and null
-  // opens on the recorded one.
+  // folder until he types; asked is the folder last looked at, and null,
+  // which an empty Look goes back to, opens on the recorded one.
   const [typed, setTyped] = useState<string | null>(null);
   const [asked, setAsked] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
@@ -82,7 +82,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
         {shown.reason && <small>{shown.reason}</small>}
       </div>}
     </div>
-    <form className="first-run-step" onSubmit={(event) => { event.preventDefault(); setAsked(folder.trim()); }}>
+    <form className="first-run-step" onSubmit={(event) => { event.preventDefault(); setAsked(folder.trim() || null); }}>
       <label htmlFor="projects-folder">Projects folder <span className="muted">(optional)</span></label>
       <div className="first-run-folder">
         <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" />

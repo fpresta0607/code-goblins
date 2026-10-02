@@ -166,12 +166,13 @@ func projectNames(root string) ([]string, string) {
 }
 
 // Start starts the CFO with agent, which only Claude Code can be today, in
-// the Code Goblins home, as goblins does, and remembers the agent as goblins
-// would. It asks for no project: the CFO works across every project from its
-// home. root, when one is entered, is recorded as the projects folder when it
-// is not already; with none the CFO starts all the same. A start it cannot
-// make is a StartRefusal; one runs at a time, so a second press finds the
-// first CFO running.
+// the Code Goblins home, as goblins does, and once it started remembers the
+// agent as goblins would, so a start that fails leaves the remembered agent
+// as it was. It asks for no project: the CFO works across every project from
+// its home. root, when one is entered, is recorded as the projects folder
+// when it is not already; with none the CFO starts all the same. A start it
+// cannot make is a StartRefusal; one runs at a time, so a second press finds
+// the first CFO running.
 func (f *FirstRun) Start(root, agent string) error {
 	if root != "" && !filepath.IsAbs(root) {
 		return StartRefusal{Reason: notAbsolute}
@@ -198,11 +199,11 @@ func (f *FirstRun) Start(root, agent string) error {
 			}
 		}
 	}
-	if err := f.SaveAgent(agent); err != nil {
-		return StartRefusal{Reason: "The agent could not be remembered: " + err.Error()}
-	}
 	if err := f.StartCFO(agent); err != nil {
 		return fmt.Errorf("the CFO could not be started: %w", err)
+	}
+	if err := f.SaveAgent(agent); err != nil {
+		return fmt.Errorf("the CFO started, but its agent could not be remembered: %w", err)
 	}
 	return nil
 }

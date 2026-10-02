@@ -150,3 +150,24 @@ test("the projects folder is optional: one he looked at is sent, and one with no
   await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
   expect(starts).toEqual([{ root: "C:\\work", agent: "claude" }]);
 });
+
+for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) {
+  test(`a Look with ${name} is no folder: the recorded folder's problem does not hold Start back`, async ({ page }) => {
+    // Arrange
+    const unreadable = "This folder cannot be read: the folder was moved.";
+    const starts = await open(page, setup({ projects_root: "C:\\gone", checkouts: [], problem: unreadable }));
+    const start = page.getByRole("button", { name: "Start the CFO" });
+    await expect(start).toBeEnabled();
+
+    // Act
+    await page.getByLabel("Projects folder").fill(entered);
+    await page.getByRole("button", { name: "Look" }).click();
+
+    // Assert
+    await expect(page.getByRole("alert")).toHaveText(unreadable);
+    await expect(start).toBeEnabled();
+    await start.click();
+    await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+    expect(starts).toEqual([{ root: "", agent: "claude" }]);
+  });
+}
