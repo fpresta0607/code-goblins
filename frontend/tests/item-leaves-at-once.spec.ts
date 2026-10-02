@@ -93,12 +93,28 @@ async function openCard(page: Page, says: string) {
   if (!await card(page).isVisible()) await bar(page).getByRole("button", { name: "Open Command Center" }).click();
   await expect(card(page)).toContainText(says);
 }
-// What the board shows of the item in the very frame of a click on selector:
-// read before anything else can reach the page.
-const clickAndLook = (page: Page, selector: string) => page.evaluate((selector) => {
+// What the board shows of the item in the very frame of a click on selector.
+// React draws what a click changed in the microtasks that follow it, so the
+// look comes after those and before anything else can reach the page, and
+// painted says whether the browser drew a frame in between: it must not have.
+const clickAndLook = (page: Page, selector: string) => page.evaluate(async (selector) => {
+  let painted = false;
+  requestAnimationFrame(() => { painted = true; });
   document.querySelector<HTMLElement>(selector)!.click();
-  return { toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent };
+  for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
 }, selector);
+// A card that finishes shows its check for three quarters of a second, so a
+// board's done cards are recorded as they pass, each as its heading and line.
+const recordDoneCards = (page: Page) => page.evaluate(() => {
+  const seen: string[] = [];
+  Object.assign(window, { doneCards: seen });
+  new MutationObserver(() => {
+    const text = document.querySelector("dialog.question-modal .done-card")?.textContent;
+    if (text && !seen.includes(text)) seen.push(text);
+  }).observe(document.body, { subtree: true, childList: true, characterData: true });
+});
+const doneCards = (page: Page) => page.evaluate(() => (window as unknown as { doneCards: string[] }).doneCards);
 async function expectGone(page: Page, says: string) {
   await expect(toasts(page)).toHaveCount(0);
   await expect(badge(page)).toHaveAccessibleName("Command Center");
@@ -128,9 +144,8 @@ for (const way of WAYS) {
     const shown = await clickAndLook(page, way.press);
 
     // Assert
-    expect(shown).toEqual({ toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet") });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: way.heading });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual([way.kind]);
-    await expect(card(page).locator(".done-card").getByRole("heading", { name: way.heading })).toBeVisible();
     await expectGone(page, way.says);
   });
 }
@@ -213,6 +228,7 @@ test("a second board drops the item he answered on the first before any snapshot
   await send(other, "snapshot", asking({ questions: [question] }));
   await expect(bar(other)).toContainText(ASKS);
   await openCard(other, ASKS);
+  await recordDoneCards(other);
   await openCard(page, ASKS);
   await card(page).getByText("Merge it", { exact: true }).click();
 
@@ -220,7 +236,7 @@ test("a second board drops the item he answered on the first before any snapshot
   await clickAndLook(page, "dialog.question-modal .send-decision");
 
   // Assert
-  await expect(card(other).locator(".done-card").getByRole("heading", { name: "Answered" })).toBeVisible();
+  await expect.poll(() => doneCards(other)).toContainEqual(expect.stringMatching(/^Answered/));
   await expectGone(other, ASKS);
   await expect(card(other)).toBeHidden();
 });
@@ -231,13 +247,13 @@ test("a card open for an item that closed somewhere else shows what became of it
   await announcer(context);
   await boardAsked(page, { reviews: [wait] }, WAITS);
   await openCard(page, WAITS);
+  await recordDoneCards(page);
 
   // Act: the goblin reported again, which takes its wait back.
   await send(page, "snapshot", asking({ reviews: [{ ...wait, state: "withdrawn", reason: "The goblin moved on.", updated_at: "2026-10-02T11:06:00Z" }] }, 3));
 
   // Assert
-  await expect(card(page).locator(".done-card").getByRole("heading", { name: "Closed" })).toBeVisible();
-  await expect(card(page).locator(".done-card")).toContainText("Withdrawn: The goblin moved on.");
+  await expect.poll(() => doneCards(page)).toContain("ClosedWithdrawn: The goblin moved on.");
   await expect(card(page)).toBeHidden();
   await expectGone(page, WAITS);
 });
