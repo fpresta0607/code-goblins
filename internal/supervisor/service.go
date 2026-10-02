@@ -867,6 +867,11 @@ type Snapshot struct {
 	Memory *Memory `json:"memory,omitempty"`
 }
 
+// setItems makes items the snapshot's Command Center items.
+func (snapshot *Snapshot) setItems(items Items) {
+	snapshot.Questions, snapshot.Reviews, snapshot.Runs, snapshot.Credentials, snapshot.Actions = items.Questions, items.Reviews, items.Runs, items.Credentials, items.Actions
+}
+
 func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
@@ -894,43 +899,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Registration = checked
 		}
 	}
-	// The board sees how many images a question has, never where they are.
-	out.Questions = make([]Question, len(d.Questions))
-	for i, q := range d.Questions {
-		q.ImageCount, q.Images = len(q.Images), nil
-		out.Questions[i] = q
-	}
+	out.setItems(boardItems(d))
 	out.Activity = d.Activity
-	// The board sees how many images a review has and what its document is,
-	// never their digests.
-	out.Reviews = make([]Review, len(d.Reviews))
-	for i, r := range d.Reviews {
-		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
-		if r.Document != nil {
-			document := *r.Document
-			document.Sum = ""
-			r.Document = &document
-		}
-		out.Reviews[i] = r
-	}
-	// A goblin's question asked while its review page is open is that page's
-	// item, so the Command Center shows one card: each names the other, the
-	// page its newest pending question.
-	for i := range out.Reviews {
-		r := &out.Reviews[i]
-		for j := range out.Questions {
-			if q := &out.Questions[j]; carriesQuestion(*r, *q) {
-				q.Page, r.Question = r.ID, q.ID
-			}
-		}
-	}
-	// The board sees what runs and how it went, never the process or digest.
-	out.Runs = make([]Run, len(d.Runs))
-	for i, r := range d.Runs {
-		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
-		out.Runs[i] = r
-	}
-	out.Credentials = append([]CredentialRequest{}, d.Credentials...)
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
