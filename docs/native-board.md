@@ -826,13 +826,14 @@ The supervisor makes the switch only for a process it proves runs in a terminal 
 It refuses, in this order, a process whose environment carries `CFO_ROLE=goblin` or `NO_MISTAKES_GATE`, one whose ancestry reaches the registered CFO, one whose environment names a native terminal (`CFO_HOST_ID`) or a Herdr pane (`HERDR_PANE_ID`), where the fleet runs an agent, and one under an agent harness: one among its ancestors (`claude`, `codex`, `pi`, `kimi` or `node`, by executable name), or a harness's own variable in its environment (`CLAUDECODE`, `AI_AGENT`), which still marks a command whose parents were cut off, as Git Bash's `timeout` leaves one.
 A process it cannot read, or one that started after the request, is refused too, never taken for his.
 What it accepts is recorded with the shell the command was typed in, such as `his own terminal (powershell.exe pid 4242)`.
-Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so AFK mode is never off without one, and the notice tells the CFO to write it into its terminal.
+Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
 The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
 A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
+Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
 
 While AFK mode is on, `POST /api/announce` records every key it is asked about and claims none, so the board shows no alert, sends no Windows notification and never opens the Command Center by itself.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
@@ -841,6 +842,9 @@ An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) i
 
 A switch that cannot be read is never taken for on or off.
 The board announces as usual and the recovery cycle reports the unreadable switch, the digest and `cfo drain` say `AFK MODE: UNREADABLE`, and `cfo pr merge` refuses to merge.
+The Overlord's `cfo afk off` is the way back, under the same proof as any switch: the supervisor logs the reset with the reason the switch could not be read, writes it back to off and tells the CFO.
+What the switch held is not known then, so no stretch ends and no report is built; the log keeps what was decided.
+His `cfo afk on` is refused until the switch reads again, since it would guess at what the switch held.
 
 The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
 A held question the CFO answered is a decision, so the report lists it there and not as held.

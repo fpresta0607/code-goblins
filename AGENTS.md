@@ -394,6 +394,7 @@ While it is on you decide these yourself, without waiting, and each is logged wi
 - The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its merge ref's first parent equals origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included.
   Give it with `cfo pr merge <url> --verified "<what verified it>"`.
   It refuses without `--verified`, refuses a pull request the account `gh` is signed in as did not open or whose head is in another repository, and refuses a head that does not hold the tip of its base branch: only then is the merge ref's first parent that tip and CI on the head a test of what lands, so have the goblin merge the base in and let CI run.
+  It reads the base a moment before it merges and its evidence names the tip it read, so give one merge word at a time for a base branch.
   It logs the merge word with what it read before anything merges, merges nothing when the log does not take it, and logs how the merge went.
 - Each deploy, named and verified read-only: `cfo afk log --kind deploy --what "<the deploy>" --evidence "<what you read>" [--link <url>]`.
 - A merged migration that adds or changes, applied to production and dev and read back from the applied list: `--kind migration`.
@@ -410,6 +411,9 @@ Every item that waits on him, a question, a review item or a goblin's wait, a co
 
 Turning it off produces the report of the stretch, which `cfo afk off` prints for him and `cfo afk report` prints again: what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, what is held for him with what became of it and what its goblin did meanwhile, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
+
+When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
+Only he resets the switch, with `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
 Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and the pauses at an allowance floor and at the memory floor.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command or the pipe; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself (see [docs/native-board.md](docs/native-board.md#afk-mode)).

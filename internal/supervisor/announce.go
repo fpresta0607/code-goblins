@@ -100,8 +100,8 @@ func (h *HTTP) announceItems(w http.ResponseWriter, r *http.Request) {
 	}
 	// While AFK mode is on every key is recorded as announced and none is
 	// handed back: nothing alerts the Overlord while he is away, and what the
-	// board asked about then is in the report, never announced once he is
-	// back.
+	// board asked about then is not announced once he is back either. What
+	// waits on him is in the report.
 	away := h.Service.afkOn()
 	claimed, err := h.Service.Store.claimAnnounced(input.Keys, input.News, time.Now().UTC())
 	if err != nil {

@@ -436,6 +436,7 @@ While it is on:
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the report of the stretch: what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
 `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+If the switch itself ever cannot be read, `cfo afk off` puts it back to off.
 
 ```text
 AFK MODE REPORT
@@ -445,12 +446,23 @@ Merged (1)
 - https://github.com/you/northwind-api/pull/412: merged
   Evidence: verified: gate run 41 passed and its test output was read; head 3f1a9c0; 7 checks completed green; mergeable; ...
 
+Deployed (0)
+
+Migrations applied (0)
+
+Installed (0)
+
+Answered for goblins (0)
+
+Goblins finished (1)
+- northwind-invoices: https://github.com/you/northwind-api/pull/412 (03:14 UTC)
+
 Held for you (1)
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   Now: still waiting on you.
 
 Spent
-- claude week: 40% used when it turned on, 47% when it turned off (7 points).
+- claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
 The toggle on the board, the Held for you list and the report page are not built yet, and neither are the pauses at an allowance floor and at the memory floor.
