@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -56,6 +57,14 @@ type Options struct {
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
+	// Credentials opens the credential store cfo auth store writes, which a
+	// credential request's card saves into; without it the board takes no
+	// value.
+	Credentials func() (auth.Store, error)
+	// RefreshCredentials regenerates auth.ps1 for a project's running goblins
+	// and tells each to re-source it, as cfo auth store does after it writes,
+	// and returns the tasks it told.
+	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
 }
 
 type Service struct {
@@ -98,6 +107,11 @@ type Service struct {
 	startErrors  map[string]string
 	changing     map[string]string
 	changeErrors map[string]taskChangeError
+	// credentialSaves takes one credential save at a time, and
+	// credentialWork waits for the refresh and the CFO's notice each save
+	// starts after it answers.
+	credentialSaves sync.Mutex
+	credentialWork  sync.WaitGroup
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -309,6 +323,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
+	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
@@ -326,6 +342,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
+		reconcileErr = errors.Join(reconcileErr, s.Store.pruneCredentials(time.Now()))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -779,6 +796,8 @@ type Snapshot struct {
 	Activity   []BoardActivity `json:"activity"`
 	Reviews    []Review        `json:"reviews"`
 	Runs       []Run           `json:"runs"`
+	// Credentials are the credential requests: names, never a value.
+	Credentials []CredentialRequest `json:"credentials"`
 
 	// Attention is the Overlord's order of the live goblins, top first; a
 	// goblin it does not name has not been placed.
@@ -868,6 +887,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
 		out.Runs[i] = r
 	}
+	out.Credentials = append([]CredentialRequest{}, d.Credentials...)
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

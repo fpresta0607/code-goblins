@@ -68,6 +68,11 @@
 [data-tip-align="end"]::after { left: auto; right: 0; transform: translateY(-4px); }
 [data-tip-align="start"]::after { left: 0; transform: translateY(-4px); }
 [data-tip-align="end"]:hover::after, [data-tip-align="end"]:focus-visible::after, [data-tip-align="start"]:hover::after, [data-tip-align="start"]:focus-visible::after { transform: none; }
+/* A task card's parts show their tips in one tip floating over the whole page,
+   over or under the card, so a tip never covers the card's own controls or
+   links. */
+.task-card-shell [data-tip]::after { content: none; }
+.card-tip { position: fixed; z-index: 50; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
 body { margin: 0; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input, textarea {
@@ -197,9 +202,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-/* A task card is a grid: what the card says, with the goblin it waits on and
-   its pull request on a row of their own under it, and its controls beside
-   them, or under them on a narrow card. Every part has its own place. */
+/* A task card is a grid: what the card says, with its pull request on a row of
+   its own under it, and its controls beside them, or under them on a narrow
+   card. Every part has its own place. */
 .task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "card mark" "links mark" "notes notes"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-links { grid-area: links; }
@@ -751,11 +756,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .comment-overlay.sent .warning-text { grid-column: 1 / -1; }
 @media (max-width: 50rem) { .comment-overlay.floating { left: 8px; width: calc(100% - 16px); } }
 /* Waiting is a calmer sand, whoever it is on, and a wait on a goblin links to
-   it. */
-.card-waiting { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 2px 12px 2px 8px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); color: #e7d3a3; font-size: 1rem; font-weight: 800; text-align: left; }
-.card-waiting .icon { flex: none; }
-.card-waiting span { min-width: 0; overflow-wrap: anywhere; }
-.card-waiting .icon { width: 16px; height: 16px; }
+   it from the panel's status line. */
 .status-link { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; border-color: var(--glass-border); background: var(--ghost-bg); color: #e7d3a3; }
 .status-link .icon { width: 16px; height: 16px; }
 .dependency-line path { fill: none; stroke: #d9b76a; stroke-width: 2.5; stroke-dasharray: 8 6; }
