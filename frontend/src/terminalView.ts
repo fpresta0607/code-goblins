@@ -4,7 +4,7 @@ import { terminalDocument } from "./terminalDocument";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize, wheelFontSize } from "./terminalStream";
 
 const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -58,6 +58,8 @@ export class TerminalView {
   private isReady = false;
   private isShown = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
+  // wheelRest is the wheel travel that has not yet made a step of the font.
+  private wheelRest = 0;
   private disposed = false;
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
@@ -96,6 +98,7 @@ export class TerminalView {
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
+    this.element.addEventListener("wheel", this.sizeByWheel, { capture: true, passive: false });
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); });
     this.resize = new ResizeObserver(() => this.refit());
@@ -143,6 +146,7 @@ export class TerminalView {
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
     this.element.removeEventListener("paste", this.pasteClipboard, true);
+    this.element.removeEventListener("wheel", this.sizeByWheel, true);
     window.removeEventListener("pointerup", this.copy);
     this.socket.onclose = null;
     this.socket.close(1000);
@@ -292,6 +296,20 @@ export class TerminalView {
     const input = clipboardInput(event);
     if (input && "text" in input) this.paste(input.text);
     else if (input) this.term.input(input.key, true);
+  };
+
+  // The wheel with Ctrl held sizes the text, and so does a pinch, which
+  // arrives as that wheel. It neither scrolls the terminal nor zooms the
+  // page: this runs before xterm's own wheel listener, which stops the event
+  // once it has scrolled.
+  private readonly sizeByWheel = (event: WheelEvent): void => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = this.term.options.fontSize ?? DEFAULT_FONT_SIZE;
+    const { size, rest } = wheelFontSize(this.wheelRest, event.deltaY, event.deltaMode, current);
+    this.wheelRest = rest;
+    if (size !== current) { this.setFont(size); this.events.font(size); }
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.

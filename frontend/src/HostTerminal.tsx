@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Icon } from "./Icon";
-import { closedReason, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { closedReason, followFontSize, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { useVoice } from "./useVoice";
@@ -47,6 +47,9 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     }
   }, [shown]);
   useEffect(() => { harnessValue.current = harness; }, [harness]);
+  // A text size chosen anywhere on the page is drawn here at once, by the
+  // screen in sight and by one still staged behind it.
+  useEffect(() => followFontSize((size) => { for (const view of [current.current, staged.current]) view?.setFont(size); }), []);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
   useEffect(() => {

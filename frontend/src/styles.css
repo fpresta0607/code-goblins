@@ -627,6 +627,9 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
 .panel-header.compact h2 { font-size: 1.375rem; }
 .panel-header.compact .panel-actions { grid-column: auto; }
+.text-size { display: flex; align-items: center; padding: 2px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
+.text-size-reset { min-width: 44px; min-height: 44px; padding: 0 6px; border-color: transparent; border-radius: var(--radius); background: transparent; color: #bcd2e3; font-size: .9375rem; }
+.text-size-reset:hover { background: #ffffff0f; }
 .panel-task { position: relative; flex: 1; min-height: 0; overflow: hidden auto; scrollbar-gutter: stable; }
 .panel-content { padding: 0 28px 30px; }
 .panel-content > .disclosure { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; margin: 0; }

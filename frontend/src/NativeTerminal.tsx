@@ -6,7 +6,7 @@ import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
-import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
+import { followFontSize, fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { useDictation } from "./useDictation";
@@ -402,6 +402,16 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       }
       return true;
     };
+    // A text size chosen elsewhere on the page, as by the panel's buttons, is
+    // drawn here too where this view sizes its pane.
+    const unfollow = followFontSize((size) => {
+      if (size === font) return;
+      font = size;
+      if (active?.sized) {
+        term.options.fontSize = size;
+        resizeSized();
+      }
+    });
     term.attachCustomKeyEventHandler((event) => {
       // Escape belongs to the pane, never the surrounding panel.
       event.stopPropagation();
@@ -620,7 +630,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { unfollow(); lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate]);
   if (unavailable) return <TerminalEmpty text={error} />;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
