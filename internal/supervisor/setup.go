@@ -238,7 +238,14 @@ func (f *FirstRun) Reopen() error {
 }
 
 // reopenCFO serves POST /api/cfo/reopen, the board's Reopen for a closed CFO.
-func (h *HTTP) reopenCFO(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTP) reopenCFO(w http.ResponseWriter, r *http.Request) {
+	// Reopen takes nothing: a body that names a field is refused, as every
+	// endpoint refuses a field it does not take.
+	var input struct{}
+	if err := decodeBody(w, r, &input, 4096); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if h.Service.Options.FirstRun == nil {
 		apiError(w, http.StatusConflict, "This board cannot start a CFO")
 		return
