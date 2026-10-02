@@ -263,6 +263,39 @@ func TestUpdateRestartsTheSupervisorOnTheAddressItServedOn(t *testing.T) {
 	}
 }
 
+// A recovery starts the previous build's supervisor on the address this
+// home's board record names, the one it last served on, whatever shell runs
+// the recovery line.
+func TestRecoverStartsTheSupervisorOnTheAddressTheRecordNames(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	before := u.awaitBoard()
+	if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=prepared"}); code != 9 {
+		t.Fatalf("the update did not end at prepared (exit %d):\n%s", code, output)
+	}
+	journal, err := update.ReadJournal(u.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.candidate = journal.Copy
+
+	// Act
+	code, output := u.run(nil, "--recover")
+
+	// Assert
+	if code != updateRolledBack {
+		t.Fatalf("recover exited %d, want %d:\n%s", code, updateRolledBack, output)
+	}
+	after := u.awaitBoard()
+	if after.PID == before.PID {
+		t.Fatalf("the supervisor (pid %d) was not restarted:\n%s", before.PID, output)
+	}
+	if after.URL != before.URL {
+		t.Fatalf("the recovered supervisor serves %s, want the address the record named, %s:\n%s", after.URL, before.URL, output)
+	}
+}
+
 // The failure on 2026-10-01 was a process that ended part way. An update
 // that ends at any step, including between starting the candidate's
 // supervisor and recording it, and between moving an alias and replacing it,

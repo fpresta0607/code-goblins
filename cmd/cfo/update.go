@@ -225,9 +225,14 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cfo update: %v; recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", err, recoverCommand(h))
 		return 1
 	}
-	// The supervisor the update stopped left no record of its address for
-	// this later process, so the previous build starts on the board's own.
-	return rollBack(h, &journal, boardAddress(), fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
+	// The previous build starts on the address this home's board record
+	// names, the one it last served on whether or not that supervisor still
+	// answers, and on the board's own only when no record can be read.
+	address := boardAddress()
+	if record, err := readBoardRecord(h.State); err == nil {
+		address = strings.TrimPrefix(record.URL, "http://")
+	}
+	return rollBack(h, &journal, address, fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
 }
 
 // rollBack puts the previous build back and starts its supervisor on

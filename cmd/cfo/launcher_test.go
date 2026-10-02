@@ -606,7 +606,7 @@ func TestGoblinsTellsItsOwnSupervisorThatRecordedNoBoard(t *testing.T) {
 	if exit != 1 || stdout != "" || len(f.opened) != 0 {
 		t.Fatalf("exit=%d stdout=%q opened=%q, want nothing shown or opened", exit, stdout, f.opened)
 	}
-	if want := "goblins: this home's supervisor (pid 4242) holds the board's address 127.0.0.1:4310 but recorded no board. Stop it with goblins stop, or end pid 4242 if that finds no supervisor, then run goblins again.\n"; stderr != want {
+	if want := "goblins: this home's supervisor (pid 4242) holds the board's address 127.0.0.1:4310 but recorded no board. End that process in Windows PowerShell, then run goblins again:\n  Stop-Process -Id 4242\n"; stderr != want {
 		t.Errorf("stderr = %q, want %q", stderr, want)
 	}
 }

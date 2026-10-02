@@ -164,7 +164,7 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 		if board, status, running = waitForBoard(ctx, h.State, exited); !running {
 			switch {
 			case errors.As(startErr, &taken) && sameHomePath(taken.home, h.Root):
-				fmt.Fprintf(stderr, "goblins: this home's supervisor (pid %d) holds the board's address %s but recorded no board. Stop it with goblins stop, or end pid %d if that finds no supervisor, then run goblins again.\n", taken.pid, taken.address, taken.pid)
+				fmt.Fprintf(stderr, "goblins: this home's supervisor (pid %d) holds the board's address %s but recorded no board. End that process in Windows PowerShell, then run goblins again:\n  Stop-Process -Id %d\n", taken.pid, taken.address, taken.pid)
 				return "", false, false
 			case errors.As(startErr, &taken):
 				fmt.Fprintf(stderr, "goblins: %v\n", taken)
