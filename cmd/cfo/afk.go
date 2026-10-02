@@ -8,7 +8,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -160,7 +159,6 @@ func afkStatus(h home.Home, stdout, stderr io.Writer) int {
 	for _, line := range afk.Notice(switched) {
 		fmt.Fprintln(stdout, line)
 	}
-	fmt.Fprintf(stdout, "It has been on for %s.\n", time.Since(switched.Since).Round(time.Minute))
 	entries, unreadable, err := afk.Entries(h.State, switched.Session)
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo afk: "+err.Error())

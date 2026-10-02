@@ -127,6 +127,13 @@ func TestSpendIsReadFromTheTwoAllowanceReadings(t *testing.T) {
 			[]Allowance{{Provider: "claude", Window: "week", PercentUsed: 47.5, ResetsAt: reset.Add(300 * time.Millisecond)}},
 			"claude week: 40% used when it turned on, 47.5% when it turned off (7.5 points)",
 		},
+		// quota-axi works a window's reset time out again at every reading, so
+		// the same window's reads a second apart, and across a minute's edge.
+		"a window whose reset time moved by a moment": {
+			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 54, ResetsAt: reset.Add(100 * time.Millisecond)}},
+			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 55, ResetsAt: reset.Add(-900 * time.Millisecond)}},
+			"claude session: 54% used when it turned on, 55% when it turned off (1 point)",
+		},
 		"a window that reset in between": {
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 80, ResetsAt: reset}},
 			[]Allowance{{Provider: "claude", Window: "session", PercentUsed: 12, ResetsAt: reset.Add(5 * time.Hour)}},

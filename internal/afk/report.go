@@ -20,6 +20,11 @@ const reportFile = "afk-report.json"
 // OutcomeMerged is the outcome of a merge word whose pull request merged.
 const OutcomeMerged = "merged"
 
+// sameWindow is how far apart two readings of one window's reset time may
+// be. quota-axi works the time out again at every reading, so it moves by a
+// moment; a window that reset moves by its whole length, hours at least.
+const sameWindow = 10 * time.Minute
+
 // Report is what a stretch of AFK mode comes to when it turns off: what the
 // CFO decided under the authority with the evidence of each, what each goblin
 // finished, what is held for the Overlord and why, and what was spent.
@@ -128,8 +133,13 @@ func Spent(before, after []Allowance) []string {
 				line += "; the balance rose in between"
 			}
 			lines = append(lines, line)
-		case on.ResetsAt.Truncate(time.Minute).Equal(off.ResetsAt.Truncate(time.Minute)):
-			lines = append(lines, name+reading(on)+" when it turned on, "+number(off.PercentUsed)+"% when it turned off ("+number(off.PercentUsed-on.PercentUsed)+" points)")
+		case on.ResetsAt.Sub(off.ResetsAt).Abs() < sameWindow:
+			points := number(off.PercentUsed - on.PercentUsed)
+			unit := " points)"
+			if points == "1" {
+				unit = " point)"
+			}
+			lines = append(lines, name+reading(on)+" when it turned on, "+number(off.PercentUsed)+"% when it turned off ("+points+unit)
 		default:
 			lines = append(lines, name+reading(on)+" when it turned on, "+number(off.PercentUsed)+"% when it turned off; the window reset in between")
 		}
