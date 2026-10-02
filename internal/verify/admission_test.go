@@ -687,6 +687,35 @@ func TestARunSaysWhatItIsDoingWhileItHoldsItsTurn(t *testing.T) {
 	}
 }
 
+func TestARunLeavesItsProgressUnchangedDuringATurnTakeover(t *testing.T) {
+	// Arrange
+	a := admission(t, 1)
+	turn := within(t, take(t, a), "the run")
+	defer turn.Release()
+	turn.Say("go test: 3 packages done")
+	if _, err := lock.AcquireExclusiveNamed(a.Dir, "takeover"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.ReleaseExclusiveNamed(a.Dir, "takeover") })
+
+	// Act
+	turn.Say("go test: 4 packages done")
+
+	// Assert
+	holding, _, err := Line(a.Dir)
+	if err != nil || len(holding) != 1 || holding[0].Now != "go test: 3 packages done" {
+		t.Errorf("Line holding = %+v, %v; want the progress card unchanged while a takeover owns it", holding, err)
+	}
+	if err := lock.ReleaseExclusiveNamed(a.Dir, "takeover"); err != nil {
+		t.Fatal(err)
+	}
+	turn.Say("go test: 5 packages done")
+	holding, _, err = Line(a.Dir)
+	if err != nil || len(holding) != 1 || holding[0].Now != "go test: 5 packages done" {
+		t.Errorf("Line holding = %+v, %v; want progress to update after the takeover releases it", holding, err)
+	}
+}
+
 // A run whose turn was taken from it no longer speaks for the slot: what it
 // says then is not written over the card of the run that holds the turn now.
 func TestARunThatLostItsTurnSaysNothingOverTheNewHolder(t *testing.T) {
