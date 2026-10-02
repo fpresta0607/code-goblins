@@ -1,7 +1,9 @@
 package tickets
 
 import (
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -48,6 +50,12 @@ func TestBuildCountsOnlyRecentPeopleOtherThanTheOverlordAsCollaborators(t *testi
 		{name: "a bot GitHub types as a user: claude", event: &Event{Kind: EventCommit, Author: Actor{Login: "claude"}, At: daysAgo(1)}},
 		{name: "a bot GitHub types as a user: cursoragent", event: &Event{Kind: EventCommit, Author: Actor{Login: "cursoragent"}, At: daysAgo(1)}},
 		{name: "an unlinked bot commit", event: &Event{Kind: EventCommit, Author: Actor{Name: "devin-ai-integration[bot]"}, At: daysAgo(1)}},
+		{name: "a bot GitHub types as a user, named -bot", event: &Event{Kind: EventPullRequest, Number: 9, Author: Actor{Login: "northwind-deps-bot"}, At: daysAgo(1)}},
+		{name: "a bot GitHub types as a user, named _bot", event: &Event{Kind: EventCommit, Author: Actor{Login: "Northwind_Bot"}, At: daysAgo(1)}},
+		{name: "a bot GitHub types as a user, named -robot", event: &Event{Kind: EventIssue, Number: 10, Author: Actor{Login: "northwind-ci-robot"}, At: daysAgo(1)}},
+		{name: "an unlinked commit under a git name ending in the word bot", event: &Event{Kind: EventCommit, Author: Actor{Name: "Release Bot"}, At: daysAgo(1)}},
+		{name: "a teammate whose name only ends in the letters bot", event: &Event{Kind: EventPullRequest, Number: 11, Author: Actor{Login: "cara-talbot"}, At: daysAgo(1)}, wantCollaborative: true},
+		{name: "a login that only ends in the letters bot", event: &Event{Kind: EventCommit, Author: Actor{Login: "northwindbot"}, At: daysAgo(1)}, wantCollaborative: true},
 		{name: "the Overlord's commit under his git name", event: &Event{Kind: EventCommit, Author: Actor{Name: "Franco Presta"}, At: daysAgo(1)}},
 		{name: "the Overlord's commit under his login as git name", event: &Event{Kind: EventCommit, Author: Actor{Name: "fpresta0607"}, At: daysAgo(1)}},
 		{name: "the Overlord's login in another case", event: &Event{Kind: EventIssue, Number: 5, Author: Actor{Login: "FPresta0607"}, At: daysAgo(1)}},
@@ -395,5 +403,36 @@ func TestBuildMatchesGivenFilesWithoutABrief(t *testing.T) {
 	}
 	if len(report.Overlaps.Issues) != 1 || !slices.Equal(report.Overlaps.Issues[0].Paths, []string{"internal/spawn"}) {
 		t.Fatalf("issue overlaps = %+v", report.Overlaps.Issues)
+	}
+}
+
+func TestBuildRendersEveryEmptyListAsAnEmptyList(t *testing.T) {
+	bare := overlordActivity()
+	bare.Events, bare.Branches = nil, nil
+	sparse := overlordActivity()
+	sparse.Issues = []Issue{{Number: 414, Title: "Billing sync fails without saying why", Author: Actor{Login: "ana-teammate"}}}
+	sparse.PullRequests = []PullRequest{{Number: 412, HeadRef: "fix/sync-says-why", Author: Actor{Login: "ana-teammate"}}}
+	cases := []struct {
+		name     string
+		activity Activity
+		area     *Area
+	}{
+		{name: "a repository with nothing in flight", activity: bare},
+		{name: "an issue and a pull request with no assignee, label or file", activity: sparse},
+		{name: "an area that names no path", activity: sparse, area: &Area{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			rendered, err := json.Marshal(Build(tc.activity, testNow, tc.area))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(rendered), "null") {
+				t.Fatalf("the report renders a list as null, want []: %s", rendered)
+			}
+		})
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -477,5 +478,41 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	}
 	if records, _ := wake.Pending(stateDir); len(records) != 0 {
 		t.Fatalf("wake records = %+v, want none", records)
+	}
+}
+
+// While AFK mode is on a goblin that reports a wait on the Overlord is told he
+// is away and to move to work that does not depend on it, so it does not sit
+// all night on something only he can do. While it is off the notify says
+// nothing of it.
+func TestNotifyTellsAGoblinWaitingOnTheOverlordToMoveOnWhileAFKModeIsOn(t *testing.T) {
+	for name, away := range map[string]bool{"on": true, "off": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			stateDir := filepath.Join(dir, "state")
+			if err := os.Mkdir(stateDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", dir)
+			if away {
+				if _, _, err := afk.TurnOn(stateDir, "the board", nil, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr)
+
+			// Assert
+			if exit != 0 || !strings.Contains(stdout.String(), "notified g1 waiting on overlord: log in to Stripe") {
+				t.Fatalf("exit=%d stdout=%q stderr=%q, want the wait reported", exit, stdout.String(), stderr.String())
+			}
+			told := strings.Contains(stdout.String(), "AFK mode is on") && strings.Contains(stdout.String(), "move to that next piece") && strings.Contains(stdout.String(), `cfo notify g1 --working`)
+			if told != away {
+				t.Errorf("stdout = %q, want the goblin told to move on only while AFK mode is on (%v)", stdout.String(), away)
+			}
+		})
 	}
 }

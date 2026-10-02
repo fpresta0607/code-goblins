@@ -59,7 +59,7 @@ func liveStart(t *testing.T) RunStarted {
 // readyRun records a run item the way cfo run-request does, its script on disk.
 func readyRun(t *testing.T, store *Store, identity, id, shell string, admin bool, created time.Time) Run {
 	t.Helper()
-	r := Run{ID: id, Identity: identity, Title: "Run " + id, Shell: shell, Admin: admin, Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: created}
+	r := Run{ID: id, Identity: identity, By: "cfo", Title: "Run " + id, Shell: shell, Admin: admin, Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: created}
 	name, script := runScript(r)
 	dir := runDir(store.Home.State, r)
 	if err := os.MkdirAll(dir, 0700); err != nil {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -195,6 +196,11 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	// While AFK mode is on nothing prompts the Overlord, so a goblin that
+	// waits on him is told to move to what does not depend on him.
+	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
+		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off, so this wait is held for him and nothing prompts him. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
+	}
 	return 0
 }
 

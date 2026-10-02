@@ -585,6 +585,33 @@ func TestKeeperTitlesATicketFromTheBacklogOrTheTaskRecordNeverFromTheBoard(t *te
 	}
 }
 
+func TestKeeperRetitlesATicketOpenedUnderTheTasksIdOnceTheTaskIsTitled(t *testing.T) {
+	// Arrange: the task was dispatched with no title, so its ticket was opened
+	// under its id; cfo title then writes the title into the task's record.
+	h, checkout, github := ticketHome(t)
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Title: "nw-sync"}); err != nil {
+		t.Fatal(err)
+	}
+	metaPath := filepath.Join(h.State, "nw-sync.meta")
+	record, err := state.ReadMeta(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record["title"] = "Say why a billing sync fails"
+	if err := state.WriteMeta(metaPath, record); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{{ID: "nw-sync", Title: "nw-sync", Harness: "claude", Evaluation: Evaluation{Phase: "working"}}}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || !github.applied[0].hadRecord || github.applied[0].ticket.Title != "Say why a billing sync fails" || github.applied[0].ticket.State != tickets.InProgress {
+		t.Fatalf("applied = %+v, want the open ticket written once under the task's new title", github.applied)
+	}
+}
+
 func TestKeeperKeepsATicketsTitleWhenNothingTitlesTheTaskAnyMore(t *testing.T) {
 	// Arrange: the task was cleaned up; its ticket was opened under its
 	// dispatch title, which no record holds any more.
@@ -993,5 +1020,23 @@ func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStil
 	// Assert
 	if len(github.applied) != 1 || github.applied[0].ticket.State != tickets.Merged {
 		t.Fatalf("applied = %+v, want the ticket closed by its merge", github.applied)
+	}
+}
+
+func TestKeeperPutsTheOverlapTheCFOAcceptedOnTheTicket(t *testing.T) {
+	// Arrange: cfo spawn started the task beside a teammate's pull request
+	// and kept the CFO's reason; only the supervisor writes tickets.
+	h, checkout, github := ticketHome(t)
+	if err := tickets.WriteOverlapNote(h.State, "nw-sync", "PR #412: it only adds a log line"); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.Overlap != "PR #412: it only adds a log line" {
+		t.Fatalf("applied = %+v, want the ticket to carry the accepted overlap", github.applied)
 	}
 }

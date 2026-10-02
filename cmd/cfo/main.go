@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -82,7 +83,8 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, and with neither it is named by its id
+  cfo title <id> "<short title>"   give a running task its short title: the board shows it, and the supervisor writes it to the ticket it opened for the task
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
@@ -92,7 +94,8 @@ commands:
   cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
-  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
+  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip, and no --delete-branch, and it is logged with its evidence before it merges
+  cfo afk on | off | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his alone, refused in a goblin's or the CFO's terminal, and off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
@@ -179,9 +182,16 @@ type commandRuntime struct {
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
+	// overlapTimeout bounds the repoActivity read cfo spawn makes. Zero, in
+	// every runtime but a test's, is the overlapTimeout constant.
+	overlapTimeout time.Duration
 	// repositoryOf names the GitHub repository a checkout's origin is, for
 	// cfo tickets --allow-public-tickets.
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
+	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
+	// log a decision made under it; nil is the supervisor's pipe.
+	switchAFK func(h home.Home, on bool) error
+	logAFK    func(h home.Home, entry afk.Entry) error
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -380,6 +390,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "afk":
+		return runAFK(args[1:], stdout, stderr, runtime)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr, runtime)
 	case "connection-repair":
@@ -404,6 +416,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSupersede(args[1:], stdout, stderr, runtime)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
+	case "title":
+		return runTitle(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
 	case "pause", "resume":
@@ -427,7 +441,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "cfo pr: check or merge subcommand is required")
 			return 2
 		}
-		return runPR(args[1], args[2:], stdout, stderr, execx.OSRunner{})
+		return runPR(args[1], args[2:], stdout, stderr, execx.OSRunner{}, runtime)
 	case "merge-local":
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":

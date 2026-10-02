@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
@@ -24,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -71,6 +73,10 @@ type Options struct {
 	// and tells each to re-source it, as cfo auth store does after it writes,
 	// and returns the tasks it told.
 	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
+	// Allowance reads what quota-axi says of each provider's allowance, or
+	// says why it could not; AFK mode's report sets the reading taken when it
+	// turned on beside the one taken when it turned off.
+	Allowance func(ctx context.Context) ([]afk.Allowance, string)
 }
 
 type Service struct {
@@ -126,9 +132,18 @@ type Service struct {
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
 	pageWork sync.WaitGroup
-	done     chan struct{}
-	work     chan struct{}
-	cancel   context.CancelFunc
+	// afkChange takes one change to AFK mode at a time: a switch, a logged
+	// decision or the items held. held are the items already held in the
+	// stretch heldSession names.
+	afkChange   sync.Mutex
+	held        map[string]bool
+	heldSession string
+	// inspectCaller reads the ancestry and environment of the process a pipe
+	// request came from; nil reads the process itself.
+	inspectCaller func(pid int) ([]proc.Entry, []string, error)
+	done          chan struct{}
+	work          chan struct{}
+	cancel        context.CancelFunc
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
@@ -364,8 +379,12 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
+		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
+	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations(ctx)
 	s.watchPages(ctx)
 	if recover {
@@ -579,15 +598,7 @@ const actionTimeout = 45 * time.Second
 
 func (s *Service) process(ctx context.Context) {
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
-		d := s.Store.Snapshot()
-		pending := false
-		for _, a := range d.Actions {
-			if a.Status == "queued" {
-				pending = true
-				break
-			}
-		}
-		if !pending {
+		if !s.Store.HasRunnable() {
 			break
 		}
 		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)
@@ -973,6 +984,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return out, err
 	}
+	untitled := map[string]bool{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta") {
 			continue
@@ -1030,6 +1042,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		title := meta.Title
 		if title == "" {
 			title = id
+			untitled[id] = true
 		}
 		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
@@ -1057,7 +1070,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		found := false
 		for i := range out.Tasks {
 			if out.Tasks[i].ID == row.ID {
-				out.Tasks[i].Title = row.Title
+				if untitled[row.ID] {
+					out.Tasks[i].Title = row.Title
+				}
 				out.Tasks[i].Dependencies = row.BlockedByIDs
 				found = true
 				break
