@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { message, request } from "./api";
+import { copyText } from "./clipboard";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
@@ -358,7 +359,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     pastElement.addEventListener("paste", paste, true);
     const copy = (from: Terminal = showing ? past : term) => {
       if (!from.hasSelection()) return;
-      navigator.clipboard.writeText(from.getSelection()).then(() => {
+      copyText(from.getSelection()).then(() => {
         setCopied(true);
         clearTimeout(copiedTimer);
         copiedTimer = setTimeout(() => setCopied(false), 1400);

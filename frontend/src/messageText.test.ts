@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { messageBlocks, messageElements, plainMessage } from "./messageText.ts";
+import { leadAndRest, messageBlocks, messageElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -87,4 +87,36 @@ test("pipes without a separator row stay text, and a one-line summary leaves the
   assert.equal(html("| a | b |\n| c | d |"), "<p>| a | b |\n| c | d |</p>");
   assert.equal(plainMessage("Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nthen tell me"), "Add the records then tell me");
   assert.equal(plainMessage("Run `cfo doctor` first"), "Run cfo doctor first");
+});
+
+test("bold may wrap a code value, sit beside one, and a lone mark near one stays as written", () => {
+  // Arrange
+  const copyable = (value: string) => createElement("button", { "data-copy": value }, value);
+
+  // Act
+  const around = renderToStaticMarkup(messageElements("**Add `mcp` now**", copyable));
+  const only = html("**`mcp`**");
+  const beside = html("**Add** `mcp` and `www` **now**");
+  const lone = html("Add ** `mcp` and `**` now");
+
+  // Assert
+  assert.equal(around, '<p><strong>Add <button data-copy="mcp">mcp</button> now</strong></p>');
+  assert.equal(only, "<p><strong><code>mcp</code></strong></p>");
+  assert.equal(beside, "<p><strong>Add</strong> <code>mcp</code> and <code>www</code> <strong>now</strong></p>");
+  assert.equal(lone, "<p>Add ** <code>mcp</code> and <code>**</code> now</p>");
+  assert.equal(plainMessage("**Add `mcp` now**"), "Add mcp now");
+});
+
+test("a message that opens with a table has no lead line, so the table stays whole in its body", () => {
+  // Arrange
+  const table = "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nAdd these records";
+
+  // Act
+  const opensWithTable = leadAndRest(table);
+  const opensWithWords = leadAndRest("Add these records\n" + table);
+
+  // Assert
+  assert.deepEqual(opensWithTable, { lead: "", rest: table });
+  assert.deepEqual(messageBlocks(opensWithTable.rest).map((block) => block.kind), ["table", "paragraph"]);
+  assert.deepEqual(opensWithWords, { lead: "Add these records", rest: table });
 });

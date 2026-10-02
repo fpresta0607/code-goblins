@@ -11,34 +11,37 @@ export interface Span { text: string; bold: boolean; code?: true }
 export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][] } | { kind: "table"; header: Span[][]; rows: Span[][][] };
 
 // A mark opens only before text and closes only after it, so "5 ** 2" and a
-// lone mark stay as written. A code value is taken as written, marks and all.
+// lone mark stay as written. A code value is taken as written, marks and all,
+// and bold may hold one.
 const BOLD = /\*\*(?=\S)([\s\S]*?\S)\*\*/g;
 const CODE = /`([^`\n]+)`/g;
 const BULLET = /^- /;
 const TABLE_ROW = /^\|.*\|$/;
 const TABLE_SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+$/;
 
-function boldSpans(text: string): Span[] {
-  const out: Span[] = [];
-  let at = 0;
-  for (const match of text.matchAll(BOLD)) {
-    if (match.index > at) out.push({ text: text.slice(at, match.index), bold: false });
-    out.push({ text: match[1], bold: true });
-    at = match.index + match[0].length;
-  }
-  if (at < text.length) out.push({ text: text.slice(at), bold: false });
-  return out;
-}
-
 function spans(text: string): Span[] {
+  const codes = [...text.matchAll(CODE)];
   const out: Span[] = [];
+  const add = (from: number, to: number, bold: boolean) => {
+    for (const code of codes) {
+      const end = code.index + code[0].length;
+      if (end <= from || code.index >= to) continue;
+      if (code.index > from) out.push({ text: text.slice(from, code.index), bold });
+      out.push({ text: code[1], bold, code: true });
+      from = end;
+    }
+    if (from < to) out.push({ text: text.slice(from, to), bold });
+  };
+  // Bold is looked for with each code value covered, so marks inside a value
+  // stay its own and a bold phrase can run across one.
+  const covered = text.replace(CODE, (value) => "x".repeat(value.length));
   let at = 0;
-  for (const match of text.matchAll(CODE)) {
-    if (match.index > at) out.push(...boldSpans(text.slice(at, match.index)));
-    out.push({ text: match[1], bold: false, code: true });
+  for (const match of covered.matchAll(BOLD)) {
+    add(at, match.index, false);
+    add(match.index + 2, match.index + match[0].length - 2, true);
     at = match.index + match[0].length;
   }
-  if (at < text.length) out.push(...boldSpans(text.slice(at)));
+  add(at, text.length, false);
   return out;
 }
 
@@ -82,7 +85,21 @@ export function messageBlocks(text: string): Block[] {
 export type CodeRenderer = (value: string, key: number) => ReactNode;
 const plainCode: CodeRenderer = (value, key) => createElement("code", { key }, value);
 
-const inline = (parts: Span[], code: CodeRenderer) => parts.map((span, n) => span.code ? code(span.text, n) : span.bold ? createElement("strong", { key: n }, span.text) : span.text);
+// Neighbouring bold spans, such as the words around a code value, are one
+// bold phrase.
+function inline(parts: Span[], code: CodeRenderer): ReactNode[] {
+  const out: ReactNode[] = [];
+  const piece = (at: number) => parts[at].code ? code(parts[at].text, at) : parts[at].text;
+  for (let n = 0; n < parts.length; n++) {
+    if (!parts[n].bold) { out.push(piece(n)); continue; }
+    const start = n;
+    const held: ReactNode[] = [];
+    for (; n < parts.length && parts[n].bold; n++) held.push(piece(n));
+    n--;
+    out.push(createElement("strong", { key: start }, ...held));
+  }
+  return out;
+}
 
 export function messageElements(text: string, code: CodeRenderer = plainCode): ReactNode {
   return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
@@ -95,10 +112,12 @@ export function messageElements(text: string, code: CodeRenderer = plainCode): R
 }
 
 // A message's lead, its first line, as inline text for a card's heading, and
-// the rest that follows it.
+// the rest that follows it. A message that opens with a table row has no
+// lead: all of it is the rest, so its table stays whole.
 export function leadAndRest(text: string): { lead: string; rest: string } {
-  const [lead = "", ...rest] = text.replace(/\r\n?/g, "\n").trim().split("\n");
-  return { lead: lead.trim(), rest: rest.join("\n") };
+  const lines = text.replace(/\r\n?/g, "\n").trim().split("\n");
+  const lead = lines[0].trim();
+  return TABLE_ROW.test(lead) ? { lead: "", rest: lines.join("\n") } : { lead, rest: lines.slice(1).join("\n") };
 }
 
 export const inlineElements = (text: string, code: CodeRenderer = plainCode): ReactNode => createElement(Fragment, null, ...inline(spans(text), code));

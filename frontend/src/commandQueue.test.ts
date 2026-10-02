@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -416,4 +416,21 @@ test("a run item the CFO withdrew leaves the Command Center, and its history say
   // Assert
   assert.deepEqual(waiting, []);
   assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
+});
+
+test("a wait's one-line row reads the goblin's words alone, and any other review item keeps its title", () => {
+  // Arrange
+  const page = "http://127.0.0.1:4387/session/f26e";
+  const table = "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |";
+  const wait = (title: string, lavish = "") => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title, lavish }) as unknown as Review;
+
+  // Act
+  const endsWithTable = reviewLine(wait("Waiting on you: Add the **records**\n" + table + " (page " + page + ")", page));
+  const opensWithTable = reviewLine(wait("Waiting on you: " + table + "\nAdd these records (page " + page + ")", page));
+  const other = reviewLine(review("plan-billing", "billing", "2026-09-27T10:00:00Z", "open", { title: "Look at the **plan**" }) as unknown as Review);
+
+  // Assert
+  assert.equal(endsWithTable, "Add the records");
+  assert.equal(opensWithTable, "Add these records");
+  assert.equal(other, "Look at the plan");
 });
