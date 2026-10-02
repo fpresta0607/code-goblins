@@ -37,7 +37,7 @@ export function useItemState(received: Snapshot | null): { snapshot: Snapshot | 
       try {
         const told = object(event.data);
         const what = told.sent == null ? null : object(told.sent);
-        record(string(told.key), what && { kind: string(what.kind), id: string(what.id), text: string(what.text), answer_kind: string(what.answer_kind) });
+        record(string(told.key), what && { kind: string(what.kind), id: string(what.id), text: string(what.text), answer_kind: string(what.answer_kind), identity: string(what.identity), created_at: string(what.created_at) });
       } catch { /* a board of another build said something this one does not read */ }
     };
     return () => { opened.close(); channel.current = null; };

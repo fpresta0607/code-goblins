@@ -210,6 +210,29 @@ test("a snapshot taken before his answer and arriving after it does not bring th
   await expect(card(page)).toBeHidden();
 });
 
+test("an ID published again after its item closed is a new item, and waits on him", async ({ page, context }) => {
+  // Arrange: he answers the question and the supervisor's snapshot shows it closed.
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  await boardAsked(page, { questions: [question] }, ASKS);
+  await openCard(page, ASKS);
+  await card(page).getByText("Merge it", { exact: true }).click();
+  await clickAndLook(page, "dialog.question-modal .send-decision");
+  supervisor.accept();
+  await expect(card(page)).toBeHidden();
+  await send(page, "snapshot", asking({ questions: [{ ...question, status: "succeeded", answer: "Merge it", answer_kind: "option", answered_option: "Merge it", answered_by: "overlord", answered_at: "2026-10-02T11:05:00Z" }] }, 3));
+  await expectGone(page, ASKS);
+  const again = "May I merge the next release train?";
+
+  // Act: the supervisor dropped that record, and an agent asks under the same ID.
+  await send(page, "snapshot", asking({ questions: [{ ...question, created_at: "2026-10-12T09:00:00Z", text: again }] }, 4));
+
+  // Assert
+  await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+  await expect(bar(page)).toContainText(again);
+});
+
 test("a send the board refuses puts the item back, with why", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
