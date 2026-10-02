@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Dictation, dictationKey, dictationProblem, inDesktopApp, spoken, type Capture, type Recognizer } from "./dictation.ts";
+import { Dictation, dictationKey, dictationProblem, spoken, type Capture, type Recognizer } from "./dictation.ts";
 
 const key = (type: string, code: string, changes: Partial<{ key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; repeat: boolean }> = {}) =>
   ({ type, code, key: code === "Space" ? " " : code, ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false, ...changes });
@@ -58,7 +58,7 @@ class FakeRecognizer implements Recognizer {
   }
 }
 
-function dictation(recognition: (new () => Recognizer) | null = FakeRecognizer) {
+function dictation(recognition: new () => Recognizer = FakeRecognizer) {
   FakeRecognizer.made = [];
   const heard: string[] = [], listening: boolean[] = [], problems: string[] = [];
   const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => recognition, "en-GB");
@@ -83,29 +83,6 @@ test("releasing the keys types every final phrase heard while they were held, on
   assert.deepEqual(listening, [true, false]);
   subject.stop();
   assert.deepEqual(heard, ["open the pull request"]);
-});
-
-test("a browser without speech recognition says so and never listens", () => {
-  const { subject, listening, problems } = dictation(null);
-  subject.start();
-  assert.deepEqual(listening, []);
-  assert.match(problems.at(-1) || "", /no speech recognition/);
-});
-
-test("the desktop app says dictation is not in it yet, and sends nobody to a browser or to Windows dictation", () => {
-  FakeRecognizer.made = [];
-  const listening: boolean[] = [], problems: string[] = [];
-  const subject = new Dictation({ heard: () => {}, listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => null, "en-GB", null, () => true);
-  subject.start();
-  assert.deepEqual(listening, []);
-  assert.equal(problems.at(-1), "Dictation is not in the desktop app yet. It is being built.");
-  assert.doesNotMatch(problems.at(-1) || "", /browser|Edge|Chrome|Windows|Win\+H/i);
-});
-
-test("the desktop app is told from a browser by the page object only WebView2 has", () => {
-  assert.equal(inDesktopApp({ chrome: { webview: { postMessage: () => {} } } }), true);
-  assert.equal(inDesktopApp({ chrome: { runtime: {} } }), false, "Chrome and Edge have window.chrome, without webview");
-  assert.equal(inDesktopApp({}), false, "a browser without window.chrome");
 });
 
 test("a blocked microphone is reported and types nothing", () => {
