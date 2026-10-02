@@ -36,15 +36,24 @@ const (
 	// ran out on 2026-09-23), and one poll costs two calls per watched
 	// repository and one more for each red run it reports.
 	ciPollEvery = 2 * time.Minute
-	// memoryWakeGap and ciWakeGap are the least time between two wakes of
-	// one key. A wake its gap holds waits for the gap; it is never dropped.
+	// ciPollSlack is how far short of ciPollEvery a reading may land and
+	// still poll, since the readings come off a ticker whose jitter would
+	// otherwise push every other poll a whole reading later.
+	ciPollSlack = fleetWatchEvery / 2
+	// memoryWakeGap is the least time between two memory wakes. ciWakeGap is
+	// the least time between two wakes for one pull request, and between two
+	// for one workflow on one repository's default branch, so a push that
+	// turns two workflows red raises two wakes. A wake its gap holds waits
+	// for the gap; it is never dropped.
 	memoryWakeGap = 15 * time.Minute
 	ciWakeGap     = 5 * time.Minute
 	// repoWatchFor is how long a repository stays watched for its main's push
 	// CI after the last goblin in it is gone, since a merge's CI usually ends
 	// after the goblin that made it is retired.
 	repoWatchFor = 6 * time.Hour
-	// ciRecordFor is how long a pull request's reported checks are kept.
+	// ciRecordFor is how long a pull request's reported checks are kept
+	// after a live goblin last owned it open, and how long a key's last wake
+	// is kept.
 	ciRecordFor = 7 * 24 * time.Hour
 	// ghCallTimeout bounds one gh or git call.
 	ghCallTimeout = 30 * time.Second
@@ -74,7 +83,7 @@ type fleetWakes struct {
 }
 
 // reportedChecks is a pull request's checks as last reported: its head and
-// each check's conclusion.
+// each check's conclusion, and when a live goblin last owned it open.
 type reportedChecks struct {
 	Signature string    `json:"signature"`
 	At        time.Time `json:"at"`
@@ -292,13 +301,13 @@ type ciGoblin struct {
 	pullRequests     []string
 }
 
-// pollCI asks GitHub, at most every ciPollEvery, about the open pull requests
-// of the repositories live goblins work in and about their main's push CI,
-// and raises ci_finished for each goblin pull request whose checks have all
+// pollCI asks GitHub, every ciPollEvery, about the open pull requests of the
+// repositories live goblins work in and about their main's push CI, and
+// raises ci_finished for each goblin pull request whose checks have all
 // concluded since it was last reported, and for each red push run of main.
 func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) error {
 	runner := s.Options.CI
-	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery {
+	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
 		return nil
 	}
 	w.CIPolled = now
@@ -317,6 +326,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
 			delete(w.Checks, url)
+		}
+	}
+	for key, last := range w.Woke {
+		if now.Sub(last) >= ciRecordFor {
+			delete(w.Woke, key)
 		}
 	}
 	return errs
@@ -467,6 +481,10 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			if !slices.Contains(goblin.pullRequests, pr.URL) && (goblin.branch == "" || pr.HeadRefName != goblin.branch) {
 				continue
 			}
+			if reported, ok := w.Checks[pr.URL]; ok {
+				reported.At = now
+				w.Checks[pr.URL] = reported
+			}
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}
@@ -537,16 +555,32 @@ func (r ghRun) red() bool {
 	return false
 }
 
+// defaultBranch names repo's default branch from its own refs, asking GitHub
+// nothing: the branch origin's HEAD names, else main, else master, whichever
+// origin has. A repository with none of them is an error, never taken for
+// main, since its red runs would then go unseen in silence.
+func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (string, error) {
+	if head, err := runOutput(ctx, runner, repo, "git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if name, ok := strings.CutPrefix(head, "origin/"); ok && name != "" {
+			return name, nil
+		}
+	}
+	for _, name := range []string{"main", "master"} {
+		if _, err := runOutput(ctx, runner, repo, "git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+name); err == nil {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("ci wakes: the default branch of %s cannot be found: its origin has no HEAD, no main and no master", repo)
+}
+
 // pollMain raises ci_finished for each workflow whose newest push run on
 // repo's default branch finished red and was not reported yet, naming the
 // workflow, the jobs that failed and the run. On 2026-09-30 main's install
 // workflow stayed red for hours before the CFO noticed.
 func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time) error {
-	branch := "main"
-	if head, err := runOutput(ctx, runner, repo, "git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		if name, ok := strings.CutPrefix(head, "origin/"); ok && name != "" {
-			branch = name
-		}
+	branch, err := defaultBranch(ctx, runner, repo)
+	if err != nil {
+		return err
 	}
 	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,headSha,url")
 	if err != nil {

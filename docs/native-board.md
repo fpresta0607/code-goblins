@@ -162,7 +162,8 @@ The meter shows whichever of free memory and free commit is the tighter, memory 
 `ci_finished` (wake kind `ci`): every two minutes `serve` asks GitHub through the authenticated `gh`, two calls for each watched repository, which are the repositories live goblins work in, kept for six hours after the last one leaves, and this home when it is a checkout.
 When every check on a live goblin's open pull request has concluded (the one it recorded, reported `done`, or opened from its worktree's branch), it wakes the CFO once, keyed by the goblin, with the result and the names of the failing checks; a rerun that finishes with a new result wakes again.
 When the newest push run of a workflow on a repository's default branch finishes red, it wakes the CFO once for that run, keyed `main:<repository>`, naming the workflow, the failing jobs and the run id; a cancelled run is not red.
-One key wakes at most once every five minutes, and what the fleet wakes remember, in `state/fleet-wakes.json`, survives a restart, so a restart neither repeats a wake nor loses one.
+One pull request wakes at most once every five minutes, and one workflow on one repository's default branch wakes at most once every five minutes, so a push that turns two workflows red raises two wakes, each naming its own workflow and run.
+What the fleet wakes remember, in `state/fleet-wakes.json`, survives a restart, so a restart neither repeats a wake nor loses one.
 The board lists no queued wakes of any kind: these reach the CFO as the others do, through its Stop hook or the line typed into a Codex or pi CFO's terminal.
 A Claude Code CFO's Stop hook arms only while a task is in flight, so a red main with no goblin running reaches it at its next turn end with one.
 A snapshot with no commit limit has not reported commit, so the meter shows memory rather than zero commit, and the labels under the bar give way toward the left so that neither leaves the box when a mark is at the end of the bar.

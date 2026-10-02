@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -141,16 +142,22 @@ func TestMemoryReadyWakesOnlyForWorkWaitingOnIt(t *testing.T) {
 // repository and the one goblin worktree in it, from canned output the test
 // changes between polls, and counts that repository's pull request listings.
 // Any other repository has no pull requests or runs, and any other worktree
-// no branch, as the fixture home's own task has.
+// no branch, as the fixture home's own task has. origin's HEAD names main
+// unless noOriginHead says the repository has none, and then originBranches
+// are the branches its origin has. runListDirs holds where push runs were
+// listed.
 type fakeForge struct {
-	mu        sync.Mutex
-	repo      string
-	worktree  string
-	pulls     string
-	runs      string
-	jobs      string
-	branch    string
-	listCalls int
+	mu             sync.Mutex
+	repo           string
+	worktree       string
+	pulls          string
+	runs           string
+	jobs           string
+	branch         string
+	noOriginHead   bool
+	originBranches []string
+	listCalls      int
+	runListDirs    []string
 }
 
 func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -171,13 +178,22 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		}
 		return execx.Result{Stdout: []byte(f.branch + "\n")}, nil
 	case strings.HasPrefix(command, "git symbolic-ref"):
+		if inRepo && f.noOriginHead {
+			return execx.Result{ExitCode: 1, Stderr: []byte("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref")}, nil
+		}
 		return execx.Result{Stdout: []byte("origin/main\n")}, nil
+	case strings.HasPrefix(command, "git rev-parse --verify --quiet refs/remotes/origin/"):
+		if !slices.Contains(f.originBranches, strings.TrimPrefix(req.Args[len(req.Args)-1], "refs/remotes/origin/")) {
+			return execx.Result{ExitCode: 1}, nil
+		}
+		return execx.Result{Stdout: []byte("4e8bd9e536\n")}, nil
 	case strings.HasPrefix(command, "gh pr list"):
 		if inRepo {
 			f.listCalls++
 		}
 		return answer(f.pulls)
 	case strings.HasPrefix(command, "gh run list"):
+		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
 		return answer(f.runs)
 	case strings.HasPrefix(command, "gh run view"):
 		return execx.Result{Stdout: []byte(f.jobs)}, nil
@@ -335,5 +351,159 @@ func TestCIIsPolledAtMostEveryTwoMinutes(t *testing.T) {
 	}
 	if forge.listCalls != 3 {
 		t.Fatalf("five readings a minute apart listed pull requests %d times, want 3", forge.listCalls)
+	}
+}
+
+// A reading that lands a moment short of two minutes after a poll still
+// polls, so the ticker's jitter cannot stretch the cadence to three minutes,
+// and one a minute after a poll never does.
+func TestCIIsPolledAgainAMomentShortOfTwoMinutes(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
+	s.Options.CI = forge
+	polled := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	for _, reading := range []struct {
+		after time.Duration
+		want  int
+	}{{0, 1}, {60 * time.Second, 1}, {119 * time.Second, 2}} {
+		if err := s.checkFleet(context.Background(), polled.Add(reading.after)); err != nil {
+			t.Fatal(err)
+		}
+		if forge.listCalls != reading.want {
+			t.Fatalf("after the reading %s past a poll, pull requests were listed %d times, want %d", reading.after, forge.listCalls, reading.want)
+		}
+	}
+}
+
+const redGoRun = `[{"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"}]`
+
+// Each red workflow is its own result: a push that turns two workflows red
+// on main raises two wakes in one poll, each naming its own workflow and run.
+func TestCIFinishedWakesOncePerRedWorkflowOfOnePush(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.jobs = "feat/wakes", "[]", `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	forge.runs = `[{"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"},
+{"databaseId":36740825612,"workflowName":"install","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825612"}]`
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	red := pollForge(t, s, h, &now)
+
+	if len(red) != 2 {
+		t.Fatalf("two workflows red on main = %+v, want two wakes", red)
+	}
+	for i, want := range []string{"workflow go, job test, run 36740825611", "workflow install, job test, run 36740825612"} {
+		if !strings.Contains(red[i].Detail, want) {
+			t.Errorf("wake %q lacks %q", red[i].Detail, want)
+		}
+	}
+}
+
+// A repository whose origin has no HEAD is read by the branch its origin
+// does have: one whose default branch is master wakes for master's red run.
+func TestCIFinishedFindsMasterWhenOriginHasNoHead(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", "[]", redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	forge.noOriginHead, forge.originBranches = true, []string{"master"}
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	red := pollForge(t, s, h, &now)
+
+	if len(red) != 1 || !strings.Contains(red[0].Detail, "master's push CI is red") {
+		t.Fatalf("master red = %+v, want one wake for master", red)
+	}
+}
+
+// A repository whose default branch cannot be found is never read as main:
+// the poll says so, naming it, asks GitHub nothing about its runs and still
+// polls the other repositories.
+func TestCIFinishedReportsARepositoryWithNoDefaultBranch(t *testing.T) {
+	s, h := fleetService(t)
+	project, other := t.TempDir(), t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	liveGoblin(t, h, "cg-other", other)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", "[]", redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	forge.noOriginHead = true
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	err := s.checkFleet(context.Background(), now)
+
+	if err == nil || !strings.Contains(err.Error(), "the default branch of "+project+" cannot be found") {
+		t.Fatalf("poll error = %v, want one naming %s and its missing default branch", err, project)
+	}
+	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
+		t.Fatalf("a repository with no default branch woke the CFO: %+v", woke)
+	}
+	if slices.Contains(forge.runListDirs, filepath.Clean(project)) {
+		t.Fatalf("push runs were listed for %s, whose default branch is unknown", project)
+	}
+	if !slices.Contains(forge.runListDirs, filepath.Clean(other)) {
+		t.Fatalf("push runs were listed in %v, want %s polled too", forge.runListDirs, other)
+	}
+}
+
+// A pull request a live goblin still owns keeps its reported checks however
+// long it stays open, so its one result never wakes the CFO a second time.
+func TestCIFinishedNeverRepeatsForAPullRequestOpenForWeeks(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", passedChecks
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+
+	for range 16 {
+		now = now.Add(24 * time.Hour)
+		if err := s.checkFleet(context.Background(), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
+		t.Fatalf("one result on a pull request open for sixteen days woke %d times, want one: %+v", len(woke), woke)
+	}
+}
+
+// What state/fleet-wakes.json remembers of a pull request, its reported
+// checks and when it last woke the CFO, is dropped once no live goblin has
+// owned it open for ciRecordFor, so the record does not grow for ever.
+func TestFleetWakesForgetAPullRequestNoLongerWatched(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", passedChecks
+	s.Options.CI = forge
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	if woke := pollForge(t, s, h, &now); len(woke) != 1 {
+		t.Fatalf("checks all finished = %+v, want one wake", woke)
+	}
+	forge.pulls = "[]"
+
+	now = now.Add(ciRecordFor)
+	if err := s.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	remembered, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remembered.Checks) != 0 || len(remembered.Woke) != 0 {
+		t.Fatalf("a pull request closed for a week is still remembered: checks %v, woke %v", remembered.Checks, remembered.Woke)
 	}
 }
