@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -189,8 +190,11 @@ func WithdrawRun(h home.Home, id, reason string) error {
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
 // may put on the board (a question, a review record, an answer or a
-// credential request) or a run item it withdraws, which the supervisor
-// records only once the sending process is proven to be the CFO.
+// credential request), a run item it withdraws or a decision it logs under
+// AFK mode, which the supervisor records only once the sending process is
+// proven to be the CFO. AFK mode's switch (afk-on, afk-off) is the one kind
+// the CFO may not send: the supervisor makes it only for a process proven to
+// be the Overlord's own terminal.
 type runPipeRequest struct {
 	Kind       string             `json:"kind,omitempty"`
 	ID         string             `json:"id"`
@@ -204,6 +208,8 @@ type runPipeRequest struct {
 	Review     *Review            `json:"review,omitempty"`
 	Answer     *cfoAnswer         `json:"answer,omitempty"`
 	Credential *CredentialRequest `json:"credential,omitempty"`
+	// AFK is a decision the CFO logs under AFK mode's authority.
+	AFK *afk.Entry `json:"afk,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

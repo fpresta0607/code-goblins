@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -110,10 +111,11 @@ func (e *werr) write(text []byte) {
 }
 
 // Compose writes the long session-start digest to w, in this exact section
-// order: SESSION LOCK, WAKE QUEUE, SUPERVISION OPERATING INSTRUCTIONS,
-// READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT, NEXT STEP. It is what
-// `cfo session-start` prints by hand; a hook prints ComposeBrief, because a
-// session is handed a hook's output whole only up to Limit.
+// order: SESSION LOCK, AFK MODE while it is on, WAKE QUEUE, SUPERVISION
+// OPERATING INSTRUCTIONS, READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT,
+// NEXT STEP. It is what `cfo session-start` prints by hand; a hook prints
+// ComposeBrief, because a session is handed a hook's output whole only up to
+// Limit.
 //
 // A read failure anywhere below SESSION LOCK - a per-file read inside FLEET
 // STATE or CONTEXT (a path that exists but cannot be read as text, e.g. a
@@ -161,6 +163,7 @@ func writeCompleteMarker(stateDir string, ownerPID int) error {
 // The read-once contract comes before the sections it speaks for, so those
 // are composed first: the contract names the files they actually printed.
 func composeLong(h home.Home, ew *werr) {
+	writeAFKMode(h.State, ew)
 	writeWakeQueue(h.State, math.MaxInt, math.MaxInt, ew)
 	writeSupervisionInstructions(h.Data, false, ew)
 
@@ -178,10 +181,13 @@ func composeLong(h home.Home, ew *werr) {
 }
 
 // ComposeBrief writes the digest a session is handed whole: within Budget
-// however large the home is, in the order a CFO needs it. SESSION LOCK, WAKE
-// QUEUE with its ack line, SUPERVISION OPERATING INSTRUCTIONS, FLEET with one
-// line a goblin, READ THIS NEXT naming the file that holds the long digest,
-// READ-ONCE CONTRACT, NEXT STEP.
+// however large the home is, in the order a CFO needs it. SESSION LOCK, AFK
+// MODE while it is on, WAKE QUEUE with its ack line, SUPERVISION OPERATING
+// INSTRUCTIONS, FLEET with one line a goblin, READ THIS NEXT naming the file
+// that holds the long digest, READ-ONCE CONTRACT, NEXT STEP.
+//
+// AFK mode's notice is printed whole, as the long digest prints it: its terms
+// are what a session starting from this digest decides under.
 //
 // A wake queue or fleet too long for its share keeps its first lines and
 // says how many it left out; a wake queue cut short prints no ack line,
@@ -211,7 +217,8 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 		}
 	}
 
-	var instructions bytes.Buffer
+	var afkMode, instructions bytes.Buffer
+	writeAFKMode(h.State, &werr{w: &afkMode})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	tail := func(isWholeQueue, isWholeFleet bool) []byte {
 		var text bytes.Buffer
@@ -225,7 +232,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
-	room := Budget - lockSection.Len() - instructions.Len() - len(tail(false, false))
+	room := Budget - lockSection.Len() - afkMode.Len() - instructions.Len() - len(tail(false, false))
 	fleetTable, isWholeFleet := briefFleet(h.State, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
@@ -235,6 +242,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 
 	ew := &werr{w: w}
 	ew.write(lockSection.Bytes())
+	ew.write(afkMode.Bytes())
 	ew.write(wakeQueue.Bytes())
 	ew.write(instructions.Bytes())
 	ew.write(fleetTable)
@@ -377,6 +385,22 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 	return false
 }
 
+// writeAFKMode prints AFK mode's notice while it is on, ahead of the wake
+// queue, so the CFO reads what it decides itself and what stays the
+// Overlord's alone before anything that waits on it: who turned it on, when
+// and from where, and its terms. It prints nothing while AFK mode is off, and
+// says so inline when its switch cannot be read.
+func writeAFKMode(stateDir string, ew *werr) {
+	lines := afk.NoticeFor(stateDir)
+	if len(lines) == 0 {
+		return
+	}
+	ew.println("== AFK MODE ==")
+	for _, line := range lines {
+		ew.println(line)
+	}
+}
+
 // writeWakeQueue reads the raw pending wake records and current episode,
 // then hands them to wake.Render, the same renderer `cfo drain` uses, so the
 // two presentations can never drift in format. This section never acks:
@@ -417,7 +441,7 @@ func writeWakeQueue(stateDir string, room, errorWidth int, ew *werr) bool {
 }
 
 // writeSupervisionInstructions prints the fixed operating-instructions
-// block: v1 cuts (AFK gate, gate-agent refusal, network stage, *.check.sh
+// block: v1 cuts (gate-agent refusal, network stage, *.check.sh
 // sweeps, pane/window staleness, procevent sources, X-mode) mean this text
 // stays short relative to upstream's equivalent. It names the memory folder
 // by its full path, because a CFO often runs in a project rather than in the
