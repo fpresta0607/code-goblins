@@ -299,6 +299,10 @@ func (a Admission) take() (slot, took string, err error) {
 // now. The card is replaced whole, so a run reading it never finds it half
 // written and takes its holder for one that named no budget.
 func (a Admission) say(slot, now string) {
+	if _, err := lock.AcquireExclusiveNamed(a.Dir, "takeover"); err != nil {
+		return
+	}
+	defer lock.ReleaseExclusiveNamed(a.Dir, "takeover")
 	if !lock.HeldByNamed(a.Dir, slot, os.Getpid()) {
 		return
 	}
