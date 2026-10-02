@@ -9,9 +9,9 @@ import "../../src/styles.css";
 // whose keys reach dictation as the real terminal's do, and what dictation or
 // the bubble types shows under it.
 function Pane({ pane, label, shown }: { pane: string; label: string; shown: boolean }) {
-  const voice = useVoice("fixture", pane, shown);
+  const voice = useVoice(pane);
   const [typed, setTyped] = useState<string[]>([]);
-  const dictation = useDictation((text) => { setTyped((prior) => [...prior, text]); voice.remember(text); }, voice.defers);
+  const dictation = useDictation((text) => { setTyped((prior) => [...prior, text]); voice.remember(text); });
   return <main style={{ display: shown ? "flex" : "none", flexDirection: "column", height: 760 }}>
     <section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
