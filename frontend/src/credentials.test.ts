@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { credentialAsk, credentialHeading, credentialSettled, destination, linkLabel, onThisMachine, stillNeeded, storeCommand, terminalNames, valueWarnings } from "./credentials.ts";
-import { boardAlerts } from "./alertRules.ts";
+import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
 import { waitingItems } from "./commandQueue.ts";
 import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
@@ -92,6 +92,15 @@ test("a new request alerts once, naming who asks and what, and opens its card", 
   assert.equal(cfo.speaker, "CFO");
   assert.equal(cfo.text, "The CFO asks: Paste STRIPE_SECRET_KEY for precisiondocs");
   assert.deepEqual(boardAlerts(board([filed]), board([filed])), [], "a request already there alerts nothing");
+});
+
+test("a request's alert has nothing left to open once the request is saved or expired", () => {
+  const filed = request({ names: ["STRIPE_SECRET_KEY"] });
+  const [alert] = boardAlerts(board([]), board([filed]));
+  assert.equal(outlived(alert, board([filed])), false, "an open request still has its card");
+  assert.equal(outlived(alert, board([{ ...filed, state: "saved", saved: ["STRIPE_SECRET_KEY"] }])), true);
+  assert.equal(outlived(alert, board([{ ...filed, state: "expired" }])), true);
+  assert.equal(outlived(alert, board([])), false, "a request the snapshot does not hold is not known to be closed");
 });
 
 test("the CFO bar says what a request waits for", () => {
