@@ -411,10 +411,11 @@ These stay his alone and are never decided for him, in AFK mode or out of it: a 
 Leave each for him as a `cfo question`, or as a `cfo run-request` with the exact command, and tell a goblin blocked only on it to move to its next piece of work; `cfo notify --waiting-on overlord` tells a goblin the same while AFK mode is on.
 The commands hold what they can check: while it is on `cfo pr merge` never deletes a branch and never merges a teammate's pull request, and `cfo answer --record-only --in <where>` records no answer as his, so a question only he answers stays open until he does.
 
-Nothing prompts him while it is on.
+The board does not prompt him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
 Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
 What the board asked to announce while he was away is not announced once he is back either.
+The desktop window is not silenced yet: `goblins-window.exe` reads the board's snapshot itself and raises a Windows notification for each thing that newly waits on him, without asking the supervisor, so while the window runs each question, review item or command you leave for him still notifies him.
 
 Turning it off produces the report of the stretch, which `cfo afk off` prints for him and `cfo afk report` prints again: what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, what is held for him with what became of it and what its goblin did meanwhile, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
@@ -422,13 +423,13 @@ You are woken when it turns off: write that report into your terminal with `cfo 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
 Only he resets the switch, with `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
-Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and the pauses at an allowance floor and at the memory floor.
+Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, silence in the desktop window, and the pauses at an allowance floor and at the memory floor.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command or the pipe; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
 ## Escalation
 
 Talk in outcomes, not mechanics. Reach the Supreme Overlord immediately for: work ready for review (full PR URL), a decision only they can make, a real blocker after you've exhausted the playbook, anything destructive, irreversible, or security-sensitive, or a needed credential.
-While [AFK mode](#afk-mode) is on nothing reaches him: what is his alone is held for him, and everything else is yours to decide and log.
+While [AFK mode](#afk-mode) is on you take nothing to him: what is his alone is held for him, and everything else is yours to decide and log.
 
 ## Cut from this build
 
