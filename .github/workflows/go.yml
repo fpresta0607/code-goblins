@@ -134,59 +134,47 @@ jobs:
           $system = $env:SystemRoot
           $shell = "$system\System32\WindowsPowerShell\v1.0\powershell.exe"
           function New-Folder { $d = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $d | Out-Null; $d }
-          function Stripped([string]$modules) {
+          function Stripped {
             $local = New-Folder; $temp = New-Folder; $profile = New-Folder
-            $e = [ordered]@{
+            [ordered]@{
               SystemRoot = $system; windir = $system; SystemDrive = $env:SystemDrive; ComSpec = $env:ComSpec; PATHEXT = $env:PATHEXT
               ProgramFiles = $env:ProgramFiles; ProgramData = $env:ProgramData
               PATH = "$system\System32;$system\System32\WindowsPowerShell\v1.0"
+              PSModulePath = "$system\System32\WindowsPowerShell\v1.0\Modules"
               USERPROFILE = $profile; APPDATA = "$profile\Roaming"; LOCALAPPDATA = $local; TEMP = $temp; TMP = $temp
             }
-            if ($modules) { $e.PSModulePath = $modules }
-            $e
           }
-          function Time([string]$name, $environment, [string]$command, [int]$times = 1) {
-            for ($i = 1; $i -le $times; $i++) {
-              $psi = New-Object System.Diagnostics.ProcessStartInfo
-              $psi.FileName = $shell
-              $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"$command`""
-              $psi.UseShellExecute = $false
-              $psi.RedirectStandardOutput = $true
-              if ($environment) {
-                $psi.EnvironmentVariables.Clear()
-                foreach ($k in $environment.Keys) { $psi.EnvironmentVariables[$k] = $environment[$k] }
-              }
-              $watch = [Diagnostics.Stopwatch]::StartNew()
-              $p = [Diagnostics.Process]::Start($psi)
-              $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
-              "{0,-58} run {1}: {2,6:N1} s cpu {3,5:N1} s  {4}" -f $name, $i, $watch.Elapsed.TotalSeconds, $p.TotalProcessorTime.TotalSeconds, ($out.Trim() -replace '\s+', ' ')
-            }
+          # Seconds one stripped session takes to run its first cmdlet, with
+          # the runner's own values of the named variables added.
+          function Time($names) {
+            $environment = Stripped
+            foreach ($name in $names) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $shell
+            $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"Join-Path a b`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.EnvironmentVariables.Clear()
+            foreach ($k in $environment.Keys) { $psi.EnvironmentVariables[$k] = $environment[$k] }
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $p = [Diagnostics.Process]::Start($psi)
+            [void]$p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+            $watch.Elapsed.TotalSeconds
           }
-          $own = "$system\System32\WindowsPowerShell\v1.0\Modules"
-          "machine PSModulePath entries: " + (([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine') -split ';').Count)
-          "modules under System32: " + (Get-ChildItem $own -Directory).Count + ", under Program Files: " + (Get-ChildItem "$env:ProgramFiles\WindowsPowerShell\Modules" -Directory -ErrorAction SilentlyContinue).Count
-          Time 'runner environment, nothing but startup' $null "'ok'"
-          Time 'runner environment, a cmdlet and a missing tool' $null "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          Time 'stripped, own modules, nothing but startup' (Stripped $own) "'ok'"
-          Time 'stripped, own modules, one cmdlet' (Stripped $own) "Join-Path a b; 'ok'"
-          Time 'stripped, own modules, a missing tool' (Stripped $own) "Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          Time 'stripped, machine modules, nothing but startup' (Stripped '') "'ok'"
-          Time 'stripped, machine modules, one cmdlet' (Stripped '') "Join-Path a b; 'ok'"
-          Time 'stripped, machine modules, a missing tool' (Stripped '') "Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $twice = Stripped $own
-          Time 'stripped, own modules, same folders twice' $twice "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'" 2
-          $kept = Stripped $own; $kept.LOCALAPPDATA = $env:LOCALAPPDATA
-          Time 'stripped but the runner LOCALAPPDATA' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $kept = Stripped $own; $kept.USERPROFILE = $env:USERPROFILE; $kept.APPDATA = $env:APPDATA
-          Time 'stripped but the runner USERPROFILE and APPDATA' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $kept = Stripped $own; $kept.TEMP = $env:TEMP; $kept.TMP = $env:TMP
-          Time 'stripped but the runner TEMP' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.LOCALAPPDATA = New-Folder
-          Time 'runner environment but a fresh LOCALAPPDATA' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.USERPROFILE = New-Folder
-          Time 'runner environment but a fresh USERPROFILE' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
-          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.TEMP = New-Folder; $all.TMP = $all.TEMP
-          Time 'runner environment but a fresh TEMP' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $kept = @((Stripped).Keys)
+          $candidates = @(Get-ChildItem env: | ForEach-Object Name | Where-Object { $kept -notcontains $_ } | Sort-Object)
+          "stripped as the tests strip it: {0:N1} s" -f (Time @())
+          "stripped plus all {0} other variables of the runner: {1:N1} s" -f $candidates.Count, (Time $candidates)
+          "stripped with the runner's PATH: {0:N1} s" -f (Time @('PATH'))
+          "stripped with the runner's PSModulePath: {0:N1} s" -f (Time @('PSModulePath'))
+          while ($candidates.Count -gt 1) {
+            $half = @($candidates[0..([int][Math]::Floor($candidates.Count / 2) - 1)])
+            $seconds = Time $half
+            "{0,3} variables ({1} .. {2}): {3:N1} s" -f $half.Count, $half[0], $half[-1], $seconds
+            if ($seconds -lt 8) { $candidates = $half } else { $candidates = @($candidates | Where-Object { $half -notcontains $_ }) }
+          }
+          "left: $($candidates -join ', ')"
+          "stripped plus $($candidates -join ', '): {0:N1} s" -f (Time $candidates)
       - if: matrix.shard == 'rest'
         run: go vet ./...
       - name: Run Go tests with isolated CFO state
