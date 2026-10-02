@@ -10,6 +10,10 @@ const since = "2026-10-02T09:00:00Z";
 // longest tips they have.
 const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, paged_pool: 0.6 * GB, nonpaged_pool: 0.4 * GB, available: 3.4 * GB, commit_available: 2.5 * GB };
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
+// The title whose tip lay over the memory meter on 2026-10-02, and the longest
+// title the queue held that day.
+const SEEN = "Paused goblins resume by themselves when the reason for the pause clears; Claude Code";
+const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
   task("queued-one", "queued", { title: LONG, generation: "", brief: true, queue_revision: "q1" }),
@@ -153,22 +157,33 @@ test("every tip on the Orchestration canvas is whole, solid and inside the windo
 });
 
 // On 2026-10-02 the tip of the first queued card lay over the memory meter.
+// What a card's tip covers of the meter and of the cards' controls and links.
+async function covers(page: Page, title: string, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  const queued = (id: string, fields: Record<string, unknown> = {}) => task(id, "queued", { generation: "", brief: true, queue_revision: "q1", ...fields });
+  await open(page, [queued("queued-one", { title }), ...["two", "three", "four", "five"].map((name) => queued("queued-" + name)), ...TASKS.slice(2)]);
+  const tasks = page.getByRole("region", { name: "Tasks", exact: true });
+  await expect(tasks.getByRole("group", { name: "Memory" })).toBeVisible();
+  await tasks.locator("[data-sort-id='queued-one'] .task-card").hover();
+  const tip = page.getByRole("tooltip");
+  await expect(tip).toHaveText(title);
+  return tip.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const meets = (other: DOMRect) => Math.min(box.right, other.right) - Math.max(box.left, other.left) > 1 && Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) > 1;
+    return [...document.querySelectorAll(".memory, .task-card-shell a, .task-card-shell button:not(.task-card)")].filter((part) => meets(part.getBoundingClientRect()))
+      .map((part) => part.getAttribute("aria-label") || part.className);
+  });
+}
+
 for (const [layout, width] of [["side by side", 2400], ["stacked", 1000]] as const) {
   test(`with the columns ${layout}, the first queued card's tip covers neither the memory meter nor another card's controls`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 });
-    await open(page, [...TASKS.slice(0, 2), ...Array.from({ length: 3 }, (_, index) => task("queued-" + (index + 3), "queued", { generation: "", brief: true, queue_revision: "q1" })), ...TASKS.slice(2)]);
-    const tasks = page.getByRole("region", { name: "Tasks", exact: true });
-    await expect(tasks.getByRole("group", { name: "Memory" })).toBeVisible();
-    await tasks.locator("[data-sort-id='queued-one'] .task-card").hover();
-    const tip = page.getByRole("tooltip");
-    await expect(tip).toHaveText(LONG);
-    const covered = await tip.evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      const meets = (other: DOMRect) => Math.min(box.right, other.right) - Math.max(box.left, other.left) > 1 && Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) > 1;
-      return [...document.querySelectorAll(".memory, .task-card-shell a, .task-card-shell button:not(.task-card)")].filter((part) => meets(part.getBoundingClientRect()))
-        .map((part) => part.getAttribute("aria-label") || part.className);
-    });
-    expect(covered).toEqual([]);
+    expect(await covers(page, SEEN, width)).toEqual([]);
+  });
+
+  // A title this long makes a tip taller than the room between two cards, so
+  // it covers the least it can, and that is never the meter.
+  test(`with the columns ${layout}, the tip of the longest title keeps off the memory meter`, async ({ page }) => {
+    expect(await covers(page, LONGEST, width)).not.toContain("Memory");
   });
 }
 

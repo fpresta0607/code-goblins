@@ -25,7 +25,8 @@ async function open(page: Page) {
   await expect(page.locator(".board-column").first()).toBeVisible();
 }
 
-const card = (page: Page, id: string) => page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) }).locator(".task-card");
+// A card on the board: the CFO's panel lists the queued tasks too.
+const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) }).locator(".task-card");
 const title = (page: Page) => page.locator("#panel-title");
 const back = (page: Page) => page.getByRole("button", { name: "Back to the CFO", exact: true });
 const close = (page: Page) => page.getByRole("button", { name: "Close panel", exact: true });

@@ -5,17 +5,27 @@ const GAP = 8;
 // cards.
 const KEPT_CLEAR = ".memory, .task-card-shell a, .task-card-shell button:not(.task-card)";
 
+// A part at least this wide, such as a card's title, keeps its tip within its
+// own width.
+const WIDE_PART = 200;
+
 // Puts a tip beside its part: over or under the part, or for a part of a task
 // card over or under the whole card, so it never lies on the card. A card's
 // tip opens on the side of the card its part is nearer; any other tip opens
 // under its part unless its place asks for over with --tip-side. It moves to
 // the other side when the first has no room on the screen or would cover what
 // KEPT_CLEAR names, and before that slides along its card past what is in its
-// way. Along its part it sits where data-tip-align says, start, end or
-// centered, and it is kept inside the screen on every side.
+// way. A tip too tall to be clear anywhere, as a very long title's can be
+// between two cards, takes the place where it covers least. Along its part it
+// sits where data-tip-align says, start, end or centered, and it is kept
+// inside the screen on every side. The tip of a wide part is no wider than
+// the part: on a card whose controls sit beside its text, that keeps a title's
+// tip over the text of the cards around it and off their controls.
 function place(node: HTMLElement, part: HTMLElement) {
   const shell = part.closest<HTMLElement>(".task-card-shell") ?? part;
-  const own = node.getBoundingClientRect(), box = shell.getBoundingClientRect(), anchor = part.getBoundingClientRect();
+  const anchor = part.getBoundingClientRect();
+  node.style.maxWidth = anchor.width >= WIDE_PART ? `min(${anchor.width}px, 320px, calc(100vw - 16px))` : "";
+  const own = node.getBoundingClientRect(), box = shell.getBoundingClientRect();
   const { clientWidth: width, clientHeight: height } = document.documentElement;
   const kept = [...document.querySelectorAll(KEPT_CLEAR)].filter((other) => !shell.contains(other)).map((other) => other.getBoundingClientRect());
   const align = part.getAttribute("data-tip-align");
@@ -24,18 +34,25 @@ function place(node: HTMLElement, part: HTMLElement) {
   const under = box.bottom + GAP, over = box.top - GAP - own.height;
   const isUnderFirst = shell === part ? getComputedStyle(part).getPropertyValue("--tip-side").trim() !== "over" : anchor.top + anchor.height / 2 > box.top + box.height / 2;
   const sides = (isUnderFirst ? [under, over] : [over, under]).filter((top) => top >= GAP && top + own.height <= height - GAP);
-  // Where along its part the tip is clear at this height: where it was asked
-  // to sit, or within the card's sides just left or right of everything in
-  // its way; undefined when it is clear nowhere.
-  const clearAt = (top: number) => {
+  // How much of what is kept clear a tip at this place would cover, in square
+  // pixels; a pixel of overlap either way does not count.
+  const covered = (left: number, top: number) => kept.reduce((sum, other) => sum
+    + Math.max(0, Math.min(left + own.width, other.right) - Math.max(left, other.left) - 1) * Math.max(0, Math.min(top + own.height, other.bottom) - Math.max(top, other.top) - 1), 0);
+  // The places the tip may take, best first: on each side with room on the
+  // screen, where it was asked to sit, then within the card's sides just left
+  // or right of everything in its way at that height.
+  const places = sides.flatMap((top) => {
     const row = kept.filter((other) => other.bottom - top > 1 && top + own.height - other.top > 1);
-    const meets = (left: number) => row.some((other) => Math.min(left + own.width, other.right) - Math.max(left, other.left) > 1);
-    return [aligned, Math.min(...row.map((other) => other.left)) - own.width, Math.max(...row.map((other) => other.right))]
-      .find((left, slid) => !meets(left) && (!slid || left >= Math.max(GAP, box.left) && left + own.width <= Math.min(width - GAP, box.right)));
-  };
-  const top = sides.find((side) => clearAt(side) !== undefined) ?? sides[0] ?? Math.max(GAP, Math.min(under, height - GAP - own.height));
-  node.style.left = (clearAt(top) ?? aligned) + "px";
-  node.style.top = top + "px";
+    const slid = [Math.min(...row.map((other) => other.left)) - own.width, Math.max(...row.map((other) => other.right))]
+      .filter((left) => left >= Math.max(GAP, box.left) && left + own.width <= Math.min(width - GAP, box.right));
+    return [aligned, ...slid].map((left) => ({ left, top }));
+  });
+  // The first place that covers nothing, or failing that the one that covers
+  // least; with no room on the screen on either side, under, held on the screen.
+  let best = places[0] ?? { left: aligned, top: Math.max(GAP, Math.min(under, height - GAP - own.height)) };
+  for (const place of places) if (covered(place.left, place.top) < covered(best.left, best.top)) best = place;
+  node.style.left = best.left + "px";
+  node.style.top = best.top + "px";
 }
 
 // Shows the board's tips until the function it returns is called. Every part

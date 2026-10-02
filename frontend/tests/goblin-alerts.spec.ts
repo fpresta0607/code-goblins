@@ -107,12 +107,14 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
 });
 
 // Whether the tip showing is drawn over everything else where it lies: the
-// page's top element at its middle and at each corner is the tip itself.
+// page's top element at its middle and just inside the middle of each edge,
+// clear of its rounded corners, is the tip itself.
 async function tipOnTop(page: Page) {
   await page.addStyleTag({ content: ".tip { pointer-events: auto; }" });
   return page.getByRole("tooltip").evaluate((tip) => {
     const box = tip.getBoundingClientRect();
-    const spots = [[box.left + box.width / 2, box.top + box.height / 2], [box.left + 2, box.top + 2], [box.right - 2, box.top + 2], [box.left + 2, box.bottom - 2], [box.right - 2, box.bottom - 2]];
+    const across = box.left + box.width / 2, down = box.top + box.height / 2;
+    const spots = [[across, down], [across, box.top + 3], [across, box.bottom - 3], [box.left + 3, down], [box.right - 3, down]];
     return spots.every(([x, y]) => document.elementFromPoint(x, y) === tip);
   });
 }
