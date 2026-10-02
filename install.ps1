@@ -700,30 +700,31 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     }
 
     # Code Goblins in the Start menu opens the app. Where the home holds the
-    # desktop window, it opens the board in it, starting the supervisor when
-    # none runs and no CFO; its console shows only minimized, for as long as
-    # that takes. A home with no window, as a build from source that built
-    # none leaves, runs the quick start in a window of its own: it starts the
-    # supervisor and the CFO when they are not running and ends on a screen
-    # that offers the CFO's terminal and the board. In a terminal, goblins is
-    # the quick start either way.
+    # desktop window, the entry starts that program alone: it runs goblins out
+    # of sight, which finds the supervisor or starts it, and opens the board in
+    # the window, so no terminal shows; it starts no CFO, which the board's
+    # first-run page does. A home with no window, as a build from source that
+    # built none leaves, runs the quick start in a window of its own: it
+    # starts the supervisor and the CFO when they are not running and ends on
+    # a screen that offers the CFO's terminal and the board. In a terminal,
+    # goblins is the quick start either way.
     $goblins = Join-Path $InstallDir "goblins.exe"
-    $opensWindow = Test-Path -LiteralPath (Join-Path $InstallDir "goblins-window.exe")
+    $window = Join-Path $InstallDir "goblins-window.exe"
+    $opensWindow = Test-Path -LiteralPath $window
     $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
     $shortcutPath = Join-Path $programs "Code Goblins.lnk"
     try {
         New-Item -ItemType Directory -Force -Path $programs -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $goblins
         $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.Arguments = ""
+        $shortcut.WindowStyle = 1
         if ($opensWindow) {
-            $shortcut.Arguments = "--window"
-            $shortcut.WindowStyle = 7
+            $shortcut.TargetPath = $window
             $shortcut.Description = "Open Code Goblins"
         }
         else {
-            $shortcut.Arguments = ""
-            $shortcut.WindowStyle = 1
+            $shortcut.TargetPath = $goblins
             $shortcut.Description = "Start Code Goblins"
         }
         $shortcut.Save()

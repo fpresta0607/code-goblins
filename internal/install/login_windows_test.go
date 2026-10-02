@@ -94,8 +94,8 @@ func TestUninstallWithNoStartAtLoginEntryChangesNothing(t *testing.T) {
 }
 
 // An install that takes an earlier window's place makes Start at login start
-// this home where it started that window, as the window itself writes the
-// entry when this home's goblins starts it. An entry that starts anything
+// this home's window where it started that one, as the window itself writes
+// the entry when this home's goblins starts it. An entry that starts anything
 // else is left as it is, and none is made where there was none.
 func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testing.T) {
 	for name, test := range map[string]struct {
@@ -131,7 +131,7 @@ func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testin
 			// Assert
 			want := command
 			if test.adopted {
-				want = `"` + filepath.Join(f.root, "goblins.exe") + `" --window --background`
+				want = `"` + filepath.Join(f.root, "goblins-window.exe") + `" --background`
 			}
 			got, _, err := key.GetStringValue(startAtLoginValue)
 			if want == "" && !errors.Is(err, registry.ErrNotExist) {

@@ -71,9 +71,9 @@ func (s Service) removeStartAtLogin(report *reporter) error {
 }
 
 // adoptStartAtLogin makes Start at login start this home where it started the
-// earlier copy of the desktop window. The entry becomes the one the window
-// writes when this home's goblins starts it, so the window still shows its
-// Start at login as on.
+// earlier copy of the desktop window. The entry becomes the one this home's
+// window writes when goblins starts it, the window alone for the tray, so the
+// window still shows its Start at login as on.
 func (s Service) adoptStartAtLogin(report *reporter) error {
 	key, command, ok, err := s.startAtLogin()
 	if err != nil || !ok {
@@ -83,7 +83,7 @@ func (s Service) adoptStartAtLogin(report *reporter) error {
 	if !startsIn(command, s.EarlierWindow) {
 		return nil
 	}
-	adopted := `"` + filepath.Join(s.Root, "goblins.exe") + `" --window --background`
+	adopted := `"` + filepath.Join(s.Root, windowName) + `" --background`
 	if err := key.SetStringValue(startAtLoginValue, adopted); err != nil {
 		return fmt.Errorf("install: make Start at login start this home: %w", err)
 	}
