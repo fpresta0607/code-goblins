@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -24,8 +26,10 @@ type overlapSpawn struct {
 	brief    string
 	activity tickets.Activity
 	readErr  error
-	spawnErr error
-	spawned  bool
+	// readHangs makes the repository read return only when its context ends.
+	readHangs bool
+	spawnErr  error
+	spawned   bool
 }
 
 func newOverlapSpawn(t *testing.T, task string) *overlapSpawn {
@@ -43,7 +47,16 @@ func newOverlapSpawn(t *testing.T, task string) *overlapSpawn {
 
 func (f *overlapSpawn) run(extra ...string) (int, string, string) {
 	deps := testCommandRuntimeForHome(f.home)
-	deps.repoActivity = func(context.Context, string, time.Time) (tickets.Activity, error) { return f.activity, f.readErr }
+	deps.repoActivity = func(ctx context.Context, _ string, _ time.Time) (tickets.Activity, error) {
+		if f.readHangs {
+			<-ctx.Done()
+			return tickets.Activity{}, ctx.Err()
+		}
+		return f.activity, f.readErr
+	}
+	if f.readHangs {
+		deps.overlapTimeout = time.Millisecond
+	}
 	deps.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
 		f.spawned = f.spawnErr == nil
 		return spawn.Result{Output: "spawned nw-sync"}, f.spawnErr
@@ -89,6 +102,12 @@ func TestSpawnRefusesWhenATeammateHasWorkInTheBriefsArea(t *testing.T) {
 func TestSpawnStartsBesideATeammateWhenTheCFOSaysWhy(t *testing.T) {
 	// Arrange
 	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	if err := os.MkdirAll(fixture.home.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(fixture.home.State, "nw-sync", "working: started"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	code, _, stderr := fixture.run("--overlap-ok", "it only adds a log line")
@@ -102,8 +121,14 @@ func TestSpawnStartsBesideATeammateWhenTheCFOSaysWhy(t *testing.T) {
 		t.Fatalf("overlap note = %q, %v, want what it overlaps and why, for the ticket", note, err)
 	}
 	lines, err := state.TailStatus(fixture.home.State, "nw-sync", 10)
-	if err != nil || len(lines) != 1 || !strings.Contains(lines[0], "overlap accepted: it only adds a log line") || !strings.Contains(lines[0], "PR #412 by ana-teammate changes tasks/billing_sync.py") {
+	if err != nil || len(lines) != 2 || !strings.Contains(lines[1], "overlap-accepted: it only adds a log line (PR #412 by ana-teammate changes tasks/billing_sync.py)") {
 		t.Fatalf("status log = %q, %v, want the reason and the overlap it accepted", lines, err)
+	}
+	if !crewstate.IsCFOAudit(lines[1]) {
+		t.Fatalf("status line %q reads as the task's own report, want the CFO's record", lines[1])
+	}
+	if verb, ok := crewstate.LatestVerb(lines); !ok || verb != "working" {
+		t.Fatalf("latest verb = %q, %v, want the task's own working report, not the CFO's record", verb, ok)
 	}
 }
 
@@ -147,6 +172,12 @@ func TestSpawnStartsWithoutAWordWhereNoTeammateOverlaps(t *testing.T) {
 		{name: "a teammate works there but only the Overlord's own pull request overlaps", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
 			f.activity.PullRequests[0].Author = overlord
 		}},
+		{name: "a teammate works there but only a bot's pull request overlaps", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests[0].Author = tickets.Actor{Login: "dependabot[bot]"}
+		}},
+		{name: "the project has no GitHub repository", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.readErr = fmt.Errorf("origin https://git.northwind.example/api.git of %s is %w", f.checkout, tickets.ErrNotGitHub)
+		}},
 		{name: "the one overlap is the issue the brief says the task is for", task: "Resolve issue #415: say why the billing sync reports a mismatch.", change: func(f *overlapSpawn) {
 			f.activity.PullRequests = nil
 			f.activity.Issues = []tickets.Issue{{Number: 415, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently}}
@@ -161,6 +192,9 @@ func TestSpawnStartsWithoutAWordWhereNoTeammateOverlaps(t *testing.T) {
 		{name: "GitHub cannot be read", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
 			f.readErr = errors.New("gh api graphql exited 1: HTTP 502")
 		}, wantStderr: "HTTP 502"},
+		{name: "the GitHub read does not finish in time", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.readHangs = true
+		}, wantStderr: "deadline exceeded"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

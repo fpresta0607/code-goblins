@@ -14,20 +14,24 @@ import (
 // TeammateOverlaps is the part of the report's overlaps that someone other
 // than the Overlord has in flight: what a dispatch stops for. The Overlord's
 // own pull requests and issues are his fleet's, which the CFO already sees
-// on the board, so they stay in the report and out of this.
+// on the board, and a bot is not a teammate, so theirs stay in the report
+// and out of this.
 func (r Report) TeammateOverlaps() Overlaps {
 	theirs := Overlaps{Files: []FileOverlap{}, Issues: []IssueMatch{}}
 	if r.Overlaps == nil {
 		return theirs
 	}
 	theirs.Area = r.Overlaps.Area
+	isTeammate := func(author Actor) bool {
+		return !strings.EqualFold(author.Login, r.Overlord) && !isBot(author)
+	}
 	for _, overlap := range r.Overlaps.Files {
-		if !strings.EqualFold(overlap.Author.Login, r.Overlord) {
+		if isTeammate(overlap.Author) {
 			theirs.Files = append(theirs.Files, overlap)
 		}
 	}
 	for _, match := range r.Overlaps.Issues {
-		if !strings.EqualFold(match.Author.Login, r.Overlord) {
+		if isTeammate(match.Author) {
 			theirs.Issues = append(theirs.Issues, match)
 		}
 	}

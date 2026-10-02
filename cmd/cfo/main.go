@@ -179,6 +179,9 @@ type commandRuntime struct {
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
+	// overlapTimeout bounds the repoActivity read cfo spawn makes. Zero, in
+	// every runtime but a test's, is the overlapTimeout constant.
+	overlapTimeout time.Duration
 	// repositoryOf names the GitHub repository a checkout's origin is, for
 	// cfo tickets --allow-public-tickets.
 	repositoryOf func(ctx context.Context, checkout string) (string, error)

@@ -48,6 +48,31 @@ func TestTeammateOverlapsLeavesOutTheOverlordsOwnWork(t *testing.T) {
 	}
 }
 
+func TestTeammateOverlapsLeavesOutBotsWork(t *testing.T) {
+	// Arrange
+	activity := overlordActivity()
+	activity.PullRequests = []PullRequest{
+		{Number: 440, HeadRef: "dependabot/pip/requests-2.32", Author: Actor{Login: "dependabot[bot]"}, Files: []string{"tasks/billing_sync.py"}},
+	}
+	activity.Branches = append(activity.Branches, Branch{Name: "bot/format-sync", Head: "f3", Author: Actor{Login: "northwind-formatter", IsBot: true}, CommittedAt: daysAgo(1), Files: []string{"tasks/billing_sync.py"}})
+	activity.Issues = []Issue{
+		{Number: 441, Title: "Scheduled check of tasks/billing_sync.py failed", Author: Actor{Login: "github-actions"}},
+	}
+	area := BriefArea(syncBrief, syncCheckout)
+	report := Build(activity, testNow, &area)
+
+	// Act
+	teammates := report.TeammateOverlaps()
+
+	// Assert
+	if len(report.Overlaps.Files) != 2 || len(report.Overlaps.Issues) != 1 {
+		t.Fatalf("report overlaps = %+v, want the bots' pull request, branch and issue in the full report", report.Overlaps)
+	}
+	if len(teammates.Files) != 0 || len(teammates.Issues) != 0 {
+		t.Fatalf("teammate overlaps = %+v, want none: a bot is not a teammate", teammates)
+	}
+}
+
 func TestTeammateOverlapsOfAReportWithNoAreaIsEmpty(t *testing.T) {
 	teammates := Build(overlordActivity(), testNow, nil).TeammateOverlaps()
 	if len(teammates.Files) != 0 || len(teammates.Issues) != 0 || len(teammates.Lines()) != 0 {

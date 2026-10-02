@@ -23,11 +23,18 @@ import (
 //
 // The issue the task itself is for is not an overlap: the one its ticket is
 // on, or the one its brief names. A runtime with no repository read (a
-// test's) checks nothing.
-func teammateOverlap(ctx context.Context, runtime commandRuntime, h home.Home, id, checkout, brief string, now time.Time) (tickets.Overlaps, error) {
+// test's) checks nothing. The read runs under overlapTimeout, so one that
+// hangs is a failed read.
+func teammateOverlap(runtime commandRuntime, h home.Home, id, checkout, brief string, now time.Time) (tickets.Overlaps, error) {
 	if runtime.repoActivity == nil {
 		return tickets.Overlaps{}, nil
 	}
+	timeout := overlapTimeout
+	if runtime.overlapTimeout > 0 {
+		timeout = runtime.overlapTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	activity, err := runtime.repoActivity(ctx, checkout, now)
 	if err != nil {
 		return tickets.Overlaps{}, err
@@ -79,6 +86,6 @@ func recordOverlapAccepted(h home.Home, id, why string, overlap tickets.Overlaps
 	note := strings.Join(beside, ", ") + ": " + why
 	return errors.Join(
 		tickets.WriteOverlapNote(h.State, id, note),
-		state.AppendStatus(h.State, id, fmt.Sprintf("overlap accepted: %s (%s)", why, strings.Join(overlap.Lines(), "; "))),
+		state.AppendStatus(h.State, id, fmt.Sprintf("overlap-accepted: %s (%s)", why, strings.Join(overlap.Lines(), "; "))),
 	)
 }

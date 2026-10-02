@@ -22,11 +22,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 // quotaTimeout bounds the quota-axi call a spawn makes before picking a
 // lane: a slow or hung quota-axi is no evidence, not a stalled dispatch.
 const quotaTimeout = 20 * time.Second
+
+// overlapTimeout bounds the GitHub read a spawn makes for teammates' work in
+// the brief's area: a read that does not finish in time is a failed read.
+const overlapTimeout = 30 * time.Second
 
 func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
@@ -93,11 +98,13 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	// A dispatch never waits on GitHub: a read that fails starts the task
-	// unchecked and says so.
-	overlap, err := teammateOverlap(context.Background(), runtime, h, args[0], checkout, string(briefText), time.Now())
+	// A dispatch never waits on GitHub: a read that fails or runs past its
+	// bound starts the task unchecked and says so. A project with no GitHub
+	// repository has no teammates to read, which is nothing to say.
+	overlap, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
 	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
 	switch {
+	case errors.Is(err, tickets.ErrNotGitHub):
 	case err != nil:
 		fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
 	case hasOverlap && strings.TrimSpace(*overlapOK) == "":
