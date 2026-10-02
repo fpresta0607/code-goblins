@@ -22,15 +22,22 @@ import (
 
 // AFK mode is the Overlord's switch for running the fleet while he is away.
 // The supervisor is the only writer of it: it turns the switch for a process
-// it has proven is his own terminal, logs a decision for a process it has
-// proven is the registered CFO, records each item that waits on him as held,
-// and hands the board nothing to announce while the switch is on
-// (announce.go).
+// it has proven is his own terminal, and for one it has proven is the
+// registered CFO when the request carries the words he asked for it with,
+// logs a decision for a process it has proven is the registered CFO, records
+// each item that waits on him as held, and hands the board nothing to
+// announce while the switch is on (announce.go).
 //
 // The proof names its adversary: an agent that follows its contract and tries
 // the command, the pipe or a wrapper around either. Every process of this
 // Windows user can still write state/afk.json itself, which is the same
 // boundary the board's other items have (docs/native-board.md).
+//
+// A switch at his ask proves who asks, never whose words those are: the CFO
+// quotes them, and the supervisor cannot tell an ask of his from one the CFO
+// misread or was handed by a goblin, a page or a tool's output. The CFO's
+// contract stands there, and the switch, the log, the board and the report
+// keep the words, so he sees what it was switched for.
 
 // gateAgentVariable is set by no-mistakes on every agent it starts for a gate
 // step.
@@ -51,18 +58,33 @@ var agentVariables = []string{"CLAUDECODE", "AI_AGENT"}
 // whose parents reach neither had them cut off on the way.
 var desktopPrograms = []string{"explorer", "windowsterminal"}
 
-// onlyHis ends every refusal of the switch with whose it is.
-const onlyHis = ": only he turns it on or off, from a terminal or a board of his own"
+// onlyHis ends every refusal of the switch with who makes it.
+const onlyHis = ": he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words"
 
 // SwitchAFK asks the supervisor to turn AFK mode on or off for the process
 // that calls it. The supervisor makes the switch only once it has proven that
 // process runs in a terminal of the Overlord's own.
 func SwitchAFK(h home.Home, on bool) error {
-	kind := "afk-off"
-	if on {
-		kind = "afk-on"
+	return sendPipeRequest(h.State, runPipeRequest{Kind: afkSwitchKind(on)})
+}
+
+// SwitchAFKAtHisAsk asks the supervisor to turn AFK mode on or off for the
+// registered CFO, which makes the switch at the Overlord's ask: asked is his
+// words as the CFO quotes them. The supervisor makes the switch only once it
+// has proven the calling process runs under that CFO.
+func SwitchAFKAtHisAsk(h home.Home, on bool, asked string) error {
+	asked, err := afk.HisWords(asked)
+	if err != nil {
+		return err
 	}
-	return sendPipeRequest(h.State, runPipeRequest{Kind: kind})
+	return sendPipeRequest(h.State, runPipeRequest{Kind: afkSwitchKind(on), Asked: asked})
+}
+
+func afkSwitchKind(on bool) string {
+	if on {
+		return "afk-on"
+	}
+	return "afk-off"
 }
 
 // LogAFKDecision records a decision the registered CFO made under AFK mode's
@@ -114,18 +136,7 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 // whose parents it cannot follow to the desktop, is refused too, never taken
 // for his.
 func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entry, error) {
-	inspect := s.inspectCaller
-	if inspect == nil {
-		inspect = func(pid int) ([]proc.Entry, []string, error) {
-			ancestry, err := proc.Ancestry(pid, 32)
-			if err != nil {
-				return nil, nil, err
-			}
-			env, err := proc.Environment(pid)
-			return ancestry, env, err
-		}
-	}
-	ancestry, env, err := inspect(pid)
+	ancestry, env, err := s.inspect(pid)
 	// A process that started after the request took the PID of the one that
 	// sent it, and proves nothing. A terminal run as administrator is one the
 	// supervisor cannot read, and it is the Overlord who meets that, so the
@@ -182,23 +193,94 @@ func fromDesktop(ancestry []proc.Entry) int {
 	})
 }
 
+// inspect reads the process pid: its parents, itself first, and its
+// environment.
+func (s *Service) inspect(pid int) ([]proc.Entry, []string, error) {
+	if s.inspectCaller != nil {
+		return s.inspectCaller(pid)
+	}
+	ancestry, err := proc.Ancestry(pid, 32)
+	if err != nil {
+		return nil, nil, err
+	}
+	env, err := proc.Environment(pid)
+	return ancestry, env, err
+}
+
+// cfoAtHisAsk proves the process pid, which was running at connected, runs
+// under the registered primary CFO and is neither a goblin's nor a gate
+// agent's, and says who it is. The registration stays open, so it cannot
+// change, until release is called. It is the proof of a switch whose request
+// carries the words the Overlord asked for it with: who asks is proven here,
+// and whose words those are is not.
+func (s *Service) cfoAtHisAsk(ctx context.Context, pid int, connected time.Time) (string, func(), error) {
+	refuse := func(why string) (string, func(), error) {
+		return "", nil, errors.New("AFK mode is the Supreme Overlord's switch, and " + why + onlyHis)
+	}
+	_, env, err := s.inspect(pid)
+	switch {
+	case err != nil:
+		return refuse("the supervisor could not read the process that asked for it with his words")
+	case environmentValue(env, harness.RoleVariable) == harness.RoleGoblin:
+		return refuse(askingCommand.runs + " in a goblin's terminal")
+	case environmentValue(env, gateAgentVariable) != "":
+		return refuse(askingCommand.runs + " as a gate agent")
+	case s.Options.CFO == nil:
+		return refuse("this supervisor cannot verify the CFO")
+	}
+	_, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	if err != nil {
+		return refuse("the supervisor could not prove the process that asked for it with his words is the registered CFO's (" + err.Error() + ")")
+	}
+	primary, _, err := readPrimary(s.Store.Home.State)
+	if err != nil {
+		release()
+		return refuse("the supervisor could not read who the registered CFO is (" + err.Error() + ")")
+	}
+	return fmt.Sprintf("the CFO at his ask (%s pid %d)", primary.Agent, primary.Process.PID), release, nil
+}
+
 // switchAFK turns AFK mode on or off for the process at the other end of the
-// pipe, once that process is proven to be the Overlord's own terminal.
-func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, on bool) error {
-	from, err := s.overlordsTerminal(pid, connected)
+// pipe: once that process is proven to be the Overlord's own terminal, or,
+// when the request carries the words he asked for the switch with, once it is
+// proven to be the registered CFO's.
+func (s *Service) switchAFK(ctx context.Context, pid int, connected time.Time, on bool, asked string) error {
+	if asked == "" {
+		from, err := s.overlordsTerminal(pid, connected)
+		if err != nil {
+			return err
+		}
+		return s.switchAFKAs(ctx, from, "", on)
+	}
+	asked, err := afk.HisWords(asked)
 	if err != nil {
 		return err
 	}
-	return s.switchAFKAs(ctx, from, on)
+	by, release, err := s.cfoAtHisAsk(ctx, pid, connected)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return s.switchAFKAs(ctx, by, asked, on)
 }
 
-// switchAFKAs turns AFK mode on or off from where the Overlord did it, which
-// its caller has proven: a terminal of his own, or a board of his own. Turning
+// switchedSays opens the CFO's notice of a switch with who made it: the
+// Overlord from where he did, or the CFO at his ask with his words.
+func switchedSays(from, asked, to string) string {
+	if asked == "" {
+		return "the Overlord turned AFK mode " + to + " from " + from
+	}
+	return "AFK mode was turned " + to + " " + afk.SwitchedBy(from, asked)
+}
+
+// switchAFKAs turns AFK mode on or off for who its caller has proven asks: the
+// Overlord from a terminal or a board of his own, which from names, or the
+// registered CFO at his ask, which from names with his words in asked. Turning
 // it on reads the allowance and tells the CFO through its wake queue; turning
 // it off keeps the report of the stretch first, so a stretch never ends
 // without one, and tells the CFO to write it into its terminal. Its caller
 // holds runRequests.
-func (s *Service) switchAFKAs(ctx context.Context, from string, on bool) error {
+func (s *Service) switchAFKAs(ctx context.Context, from, asked string, on bool) error {
 	stateDir := s.Store.Home.State
 	// quota-axi is read with afkChange free, so the supervisor's cycle never
 	// waits behind it, and only for a switch that will be made. Requests for
@@ -215,8 +297,9 @@ func (s *Service) switchAFKAs(ctx context.Context, from string, on bool) error {
 	current, err := afk.Read(stateDir)
 	if err != nil {
 		// His off always works: it puts a switch that cannot be read back to
-		// off. His on does not, since it would guess at what the switch held.
-		if on {
+		// off. His on does not, since it would guess at what the switch held,
+		// and the CFO's switch does neither: the reset is his alone.
+		if on || asked != "" {
 			return err
 		}
 		if err := afk.Reset(stateDir, from, err, time.Now()); err != nil {
@@ -232,19 +315,29 @@ func (s *Service) switchAFKAs(ctx context.Context, from string, on bool) error {
 	}
 	now := time.Now().UTC()
 	if on {
-		if _, _, err := afk.TurnOn(stateDir, from, allowance, now); err != nil {
+		if asked == "" {
+			_, _, err = afk.TurnOn(stateDir, from, allowance, now)
+		} else {
+			_, _, err = afk.TurnOnAtHisAsk(stateDir, from, asked, allowance, now)
+		}
+		if err != nil {
 			return err
 		}
-		return s.afkNotice("the Overlord turned AFK mode on from " + from + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide what its authority covers yourself and log each decision, and leave what stays his alone held for him. Its terms stand above this queue.")
+		return s.afkNotice(switchedSays(from, asked, "on") + ": he is away until he turns it off, and nothing prompts him meanwhile. Decide what its authority covers yourself and log each decision, and leave what stays his alone held for him. Its terms stand above this queue.")
 	}
-	current.Ended, current.EndedFrom = now, from
+	current.Ended, current.EndedFrom, current.EndedAsked = now, from, asked
 	if err := afk.SaveReport(stateDir, s.afkReport(current, allowance, unread)); err != nil {
 		return fmt.Errorf("AFK mode stays on: the report of its stretch could not be kept: %w", err)
 	}
-	if _, err := afk.TurnOff(stateDir, from, now); err != nil {
+	if asked == "" {
+		_, err = afk.TurnOff(stateDir, from, now)
+	} else {
+		_, err = afk.TurnOffAtHisAsk(stateDir, from, asked, now)
+	}
+	if err != nil {
 		return err
 	}
-	return s.afkNotice("the Overlord turned AFK mode off from " + from + ": he is back and decides again, so the standing rules apply. Write the report of the stretch into your terminal: cfo afk report")
+	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. Write the report of the stretch into your terminal: cfo afk report")
 }
 
 // afkNotice tells the CFO of the Overlord's switch through its wake queue,
@@ -353,7 +446,7 @@ func (s *Service) holdForOverlord(now time.Time) error {
 // the allowance read when it turned on beside after, read now.
 func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread string) afk.Report {
 	stateDir := s.Store.Home.State
-	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, EndedFrom: ended.EndedFrom, Before: ended.Allowance, After: after}
+	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
 	entries, unreadable, err := afk.Entries(stateDir, ended.Session)
 	switch {
 	case err != nil:
@@ -413,9 +506,11 @@ type AFKView struct {
 	// State is off, on, or unreadable for a switch that cannot be read, which
 	// is never taken for on.
 	State string `json:"state"`
-	// Since and From say when the Overlord turned it on and from where.
+	// Since and From say when it turned on and who turned it on: the Overlord
+	// from where he did, or the CFO at his ask, with his words in Asked.
 	Since *time.Time `json:"since,omitempty"`
 	From  string     `json:"from,omitempty"`
+	Asked string     `json:"asked,omitempty"`
 	// Decided counts the decisions the CFO logged in the stretch that is on,
 	// and Held is what the log holds for the Overlord in it, each with what
 	// became of it.
@@ -439,7 +534,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 	case err != nil:
 		view.State, view.Problem = "unreadable", bounded(err.Error(), 1000)
 	case switched.On:
-		view.State, view.Since, view.From = "on", &switched.Since, switched.From
+		view.State, view.Since, view.From, view.Asked = "on", &switched.Since, switched.From, switched.Asked
 		entries, _, err := s.afkLog.Entries(stateDir, switched.Session)
 		if err != nil {
 			return view, fmt.Errorf("AFK mode's log could not be read, so the board cannot say what was decided or held: %w", err)

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ const (
 	// maxWhat and maxEvidence bound one line of the log.
 	maxWhat     = 2000
 	maxEvidence = 8000
+	// maxAsked bounds the Overlord's words that a switch made at his ask
+	// carries.
+	maxAsked = 500
 )
 
 // State is the switch. A home where it was never turned on reads as the zero
@@ -36,10 +40,14 @@ type State struct {
 	Session string    `json:"session,omitempty"`
 	Since   time.Time `json:"since,omitzero"`
 	// From is where the Overlord turned it on, and EndedFrom where he turned
-	// it off.
-	From      string    `json:"from,omitempty"`
-	Ended     time.Time `json:"ended,omitzero"`
-	EndedFrom string    `json:"ended_from,omitempty"`
+	// it off. A switch the CFO made at his ask names the CFO there, and Asked
+	// or EndedAsked holds his words as the CFO quoted them; both are empty
+	// for a switch he made himself.
+	From       string    `json:"from,omitempty"`
+	Asked      string    `json:"asked,omitempty"`
+	Ended      time.Time `json:"ended,omitzero"`
+	EndedFrom  string    `json:"ended_from,omitempty"`
+	EndedAsked string    `json:"ended_asked,omitempty"`
 	// Allowance is what quota-axi read when it turned on, which the report
 	// sets beside the reading when it turned off.
 	Allowance []Allowance `json:"allowance,omitempty"`
@@ -130,18 +138,63 @@ func write(stateDir string, state State) error {
 	return fsx.AtomicWriteFile(filepath.Join(stateDir, stateFile), append(data, '\n'))
 }
 
+// HisWords are the Overlord's words asking for a switch, as the CFO quotes
+// them, on one line. A switch made at his ask carries them, so none, or more
+// than their bound, is refused.
+func HisWords(asked string) (string, error) {
+	asked = strings.Join(strings.Fields(asked), " ")
+	if asked == "" || len(asked) > maxAsked {
+		return "", fmt.Errorf("a switch the CFO makes at the Overlord's ask carries his words, in at most %d characters", maxAsked)
+	}
+	return asked, nil
+}
+
+// SwitchedBy says who made a switch, to follow "turned on" or "off": the
+// Overlord, from where he did it, or the CFO at his ask, with the words of
+// his the CFO quoted.
+func SwitchedBy(from, asked string) string {
+	if asked == "" {
+		return "from " + from
+	}
+	return "by " + from + ", in his words " + strconv.Quote(asked)
+}
+
+// asEvidence is what a switch's line in the log stands on: his words when the
+// CFO made it at his ask, and nothing when he made it himself.
+func asEvidence(asked string) string {
+	if asked == "" {
+		return ""
+	}
+	return "his words: " + asked
+}
+
 // TurnOn turns AFK mode on from where the Overlord did it, with the allowance
 // read then, and reports whether it changed anything: one already on stays as
 // it is. The log line is written first, so a switch the log does not hold
 // never happened.
 func TurnOn(stateDir, from string, allowance []Allowance, now time.Time) (State, bool, error) {
+	return turnOn(stateDir, from, "", allowance, now)
+}
+
+// TurnOnAtHisAsk is TurnOn for a switch the CFO made at the Overlord's ask:
+// by names the CFO, and asked is his words as the CFO quoted them, which the
+// switch and the log keep.
+func TurnOnAtHisAsk(stateDir, by, asked string, allowance []Allowance, now time.Time) (State, bool, error) {
+	asked, err := HisWords(asked)
+	if err != nil {
+		return State{}, false, err
+	}
+	return turnOn(stateDir, by, asked, allowance, now)
+}
+
+func turnOn(stateDir, from, asked string, allowance []Allowance, now time.Time) (State, bool, error) {
 	state, err := Read(stateDir)
 	if err != nil || state.On {
 		return state, false, err
 	}
 	now = now.UTC()
-	state = State{On: true, Session: "afk-" + now.Format("20060102T150405.000Z"), Since: now, From: from, Allowance: allowance}
-	if err := appendEntry(stateDir, Entry{At: now, Session: state.Session, Kind: KindOn, What: from}); err != nil {
+	state = State{On: true, Session: "afk-" + now.Format("20060102T150405.000Z"), Since: now, From: from, Asked: asked, Allowance: allowance}
+	if err := appendEntry(stateDir, Entry{At: now, Session: state.Session, Kind: KindOn, What: from, Evidence: asEvidence(asked)}); err != nil {
 		return State{}, false, err
 	}
 	if err := write(stateDir, state); err != nil {
@@ -153,6 +206,20 @@ func TurnOn(stateDir, from string, allowance []Allowance, now time.Time) (State,
 // TurnOff turns AFK mode off from where the Overlord did it. The state keeps
 // the stretch it ended, which its report is built from.
 func TurnOff(stateDir, from string, now time.Time) (State, error) {
+	return turnOff(stateDir, from, "", now)
+}
+
+// TurnOffAtHisAsk is TurnOff for a switch the CFO made at the Overlord's ask,
+// with his words as the CFO quoted them.
+func TurnOffAtHisAsk(stateDir, by, asked string, now time.Time) (State, error) {
+	asked, err := HisWords(asked)
+	if err != nil {
+		return State{}, err
+	}
+	return turnOff(stateDir, by, asked, now)
+}
+
+func turnOff(stateDir, from, asked string, now time.Time) (State, error) {
 	state, err := Read(stateDir)
 	if err != nil {
 		return State{}, err
@@ -160,8 +227,8 @@ func TurnOff(stateDir, from string, now time.Time) (State, error) {
 	if !state.On {
 		return state, ErrNotOn
 	}
-	state.On, state.Ended, state.EndedFrom = false, now.UTC(), from
-	if err := appendEntry(stateDir, Entry{At: state.Ended, Session: state.Session, Kind: KindOff, What: from}); err != nil {
+	state.On, state.Ended, state.EndedFrom, state.EndedAsked = false, now.UTC(), from, asked
+	if err := appendEntry(stateDir, Entry{At: state.Ended, Session: state.Session, Kind: KindOff, What: from, Evidence: asEvidence(asked)}); err != nil {
 		return State{}, err
 	}
 	if err := write(stateDir, state); err != nil {

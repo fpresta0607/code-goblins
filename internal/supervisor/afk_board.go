@@ -87,7 +87,7 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), runRequestTimeout)
 	defer cancel()
 	h.Service.runRequests.Lock()
-	err = h.Service.switchAFKAs(ctx, from, *input.On)
+	err = h.Service.switchAFKAs(ctx, from, "", *input.On)
 	h.Service.runRequests.Unlock()
 	// Off while it is already off asks for nothing new.
 	if err != nil && !errors.Is(err, afk.ErrNotOn) {
@@ -106,20 +106,24 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 
 // afkReportPage is the report of a stretch as the board's page reads it: the
 // decisions under their headings, how long it lasted and what was spent in
-// the words the CFO's text uses, and no list left out.
+// the words the CFO's text uses, and no list left out. Asked and EndedAsked
+// are the Overlord's words for a switch the CFO made at his ask, and empty
+// for one he made himself.
 type afkReportPage struct {
-	Found     bool          `json:"found"`
-	Session   string        `json:"session"`
-	Since     time.Time     `json:"since"`
-	Ended     time.Time     `json:"ended"`
-	Lasted    string        `json:"lasted"`
-	From      string        `json:"from"`
-	EndedFrom string        `json:"ended_from"`
-	Sections  []afk.Section `json:"sections"`
-	Finished  []afk.Finish  `json:"finished"`
-	Held      []afk.Held    `json:"held"`
-	Spent     []string      `json:"spent"`
-	Notes     []string      `json:"notes"`
+	Found      bool          `json:"found"`
+	Session    string        `json:"session"`
+	Since      time.Time     `json:"since"`
+	Ended      time.Time     `json:"ended"`
+	Lasted     string        `json:"lasted"`
+	From       string        `json:"from"`
+	Asked      string        `json:"asked"`
+	EndedFrom  string        `json:"ended_from"`
+	EndedAsked string        `json:"ended_asked"`
+	Sections   []afk.Section `json:"sections"`
+	Finished   []afk.Finish  `json:"finished"`
+	Held       []afk.Held    `json:"held"`
+	Spent      []string      `json:"spent"`
+	Notes      []string      `json:"notes"`
 }
 
 // afkReport serves GET /api/afk/report: the report of the last stretch of AFK
@@ -137,7 +141,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, afkReportPage{
-		Found: true, Session: report.Session, Since: report.Since, Ended: report.Ended, Lasted: report.Lasted(), From: report.From, EndedFrom: report.EndedFrom,
+		Found: true, Session: report.Session, Since: report.Since, Ended: report.Ended, Lasted: report.Lasted(), From: report.From, EndedFrom: report.EndedFrom, Asked: report.Asked, EndedAsked: report.EndedAsked,
 		Sections: report.Sections(),
 		Finished: append([]afk.Finish{}, report.Finished...),
 		Held:     append([]afk.Held{}, report.Held...),

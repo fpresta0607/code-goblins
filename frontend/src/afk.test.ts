@@ -1,17 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldSays, heldWho, offersOff, parseAfkReport, safeLink, stillHeld, turnedOff, yours, type AfkDecision } from "./afk.ts";
+import { AFK_OFF, AWAY_MS, afkLine, afkTime, decisionSays, heldSays, heldWho, offersOff, parseAfkReport, safeLink, stillHeld, switchedBy, turnedOff, type AfkDecision } from "./afk.ts";
 import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
 const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", ...changes });
-const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [], report: "", ended: "", problem: "", ...changes });
+const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], report: "", ended: "", problem: "", ...changes });
+// AFK mode as the CFO turned it on at his ask.
+const ASKED = "I'm stepping away, turn AFK on";
+const BY_THE_CFO = { from: "the CFO at his ask (claude pid 4242)", asked: ASKED };
 const snapshot = (value: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, instance: "fixture", ...value });
 
 test("a supervisor from before AFK mode reached the board reads as off, and one that sends it is read whole", () => {
   assert.deepEqual(snapshot().afk, AFK_OFF);
   assert.deepEqual(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", decided: 2, held: [{ item: "run:restart-db", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded" }] } }).afk,
-    { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", decided: 2, held: [{ item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "" }], report: "", ended: "", problem: "" });
+    { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", asked: "", decided: 2, held: [{ item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "" }], report: "", ended: "", problem: "" });
+  assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CFO } }).afk.asked, ASKED);
 });
 
 test("a state the board does not know stops the board rather than read as off", () => {
@@ -19,10 +23,11 @@ test("a state the board does not know stops the board rather than read as off", 
   assert.throws(() => snapshot({ afk: { state: "on", held: [{ item: "question:q", waiting: "yes" }] } }), /Invalid response boolean/);
 });
 
-test("the bar says since when AFK mode is on and where it was turned on, how much the CFO decided and how much still waits on him", () => {
+test("the bar says since when AFK mode is on and who turned it on, how much the CFO decided and how much still waits on him", () => {
   const cases: [string, Afk, string][] = [
     ["off says nothing", afk({ state: "off", since: "" }), ""],
     ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided, 0 held for you."],
+    ["on by the CFO at his ask, without his words, which the offer and the report quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided, 0 held for you."],
     ["on from his terminal, counting only what still waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided, 2 held for you."],
     ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided, 0 held for you."],
     ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "", problem: "unexpected EOF" }), ""],
@@ -76,11 +81,12 @@ test("a decision says whose and what and what it stood on, names a pull request 
   assert.equal(decisionSays(decision({ kind: "other", what: "note", link: "javascript:alert(1)" })).href, "");
 });
 
-test("where the switch was turned is said to the Overlord as his own, without the program and its process", () => {
-  assert.equal(yours("his own board (goblins-window.exe pid 4242)"), "your board");
-  assert.equal(yours("his own terminal (powershell.exe pid 5151)"), "your terminal");
-  assert.equal(yours("the board"), "the board");
-  assert.equal(yours(""), "");
+test("who made a switch is said to the Overlord: his own board or terminal without the program and its process, or the CFO at his ask with his words", () => {
+  assert.equal(switchedBy("his own board (goblins-window.exe pid 4242)", ""), "from your board");
+  assert.equal(switchedBy("his own terminal (powershell.exe pid 5151)", ""), "from your terminal");
+  assert.equal(switchedBy("the board", ""), "from the board");
+  assert.equal(switchedBy("", ""), "");
+  assert.equal(switchedBy(BY_THE_CFO.from, ASKED), "by the CFO at your ask: “I'm stepping away, turn AFK on”");
 });
 
 test("the report is shown when AFK mode turns off with a report kept, and at no other change", () => {
@@ -104,6 +110,9 @@ test("the report is read with its sections in the supervisor's order, and none w
   assert.deepEqual(report?.sections.map((section) => section.title + " " + section.entries.length), ["Merged 1", "Deployed 0"]);
   assert.deepEqual(report?.sections[0].entries[0], { at: "2026-10-02T03:14:00Z", kind: "merge", what: "https://github.com/you/northwind-api/pull/412", link: "https://github.com/you/northwind-api/pull/412", evidence: "gate run 41 passed", outcome: "merged", task: "" });
   assert.equal(report?.lasted, "10h21m");
+  assert.deepEqual([report?.asked, report?.ended_asked], ["", ""], "he made both switches himself");
   assert.deepEqual(report?.held, [held()]);
+  const asked = parseAfkReport({ found: true, ...BY_THE_CFO, ended_from: "the CFO at his ask (claude pid 4242)", ended_asked: "I'm back, turn AFK off", sections: [], finished: [], held: [], spent: [], notes: [] });
+  assert.deepEqual([asked?.asked, asked?.ended_asked], [ASKED, "I'm back, turn AFK off"]);
   assert.throws(() => parseAfkReport({ found: true, sections: "none" }), /Invalid response list/);
 });

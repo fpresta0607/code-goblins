@@ -168,7 +168,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		case "":
 			err = s.acceptRunRequest(ctx, int(pid), connected, req)
 		case "afk-on", "afk-off":
-			err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+			err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
 		default:
 			err = s.acceptCFOItem(ctx, int(pid), connected, req)
 		}

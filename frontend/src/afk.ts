@@ -19,8 +19,10 @@ export interface AfkFinish {
 }
 // AfkReport is the report of a stretch of AFK mode: what the CFO decided, what
 // each goblin finished, what is held for the Overlord and what was spent.
+// asked and ended_asked hold his words when the CFO made that switch at his
+// ask, and are empty when he made it himself.
 export interface AfkReport {
-  session: string; since: string; ended: string; lasted: string; from: string; ended_from: string;
+  session: string; since: string; ended: string; lasted: string; from: string; asked: string; ended_from: string; ended_asked: string;
   sections: AfkSection[]; finished: AfkFinish[]; held: AfkHeld[]; spent: string[]; notes: string[];
 }
 
@@ -30,7 +32,7 @@ export function parseAfkReport(value: unknown): AfkReport | null {
   const v = object(value);
   if (v.found !== true) return null;
   return {
-    session: string(v.session), since: string(v.since), ended: string(v.ended), lasted: string(v.lasted), from: string(v.from), ended_from: string(v.ended_from),
+    session: string(v.session), since: string(v.since), ended: string(v.ended), lasted: string(v.lasted), from: string(v.from), asked: string(v.asked), ended_from: string(v.ended_from), ended_asked: string(v.ended_asked),
     sections: array(v.sections).map((value) => {
       const s = object(value);
       return {
@@ -65,20 +67,32 @@ export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) =>
 export const stillHeld = (afk: Afk): AfkHeld[] => stillWaiting(afk.held);
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
-export const AFK_OFF: Afk = { state: "off", since: "", from: "", decided: 0, held: [], report: "", ended: "", problem: "" };
+export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "", ended: "", problem: "" };
 
-// yours is where the switch was turned, in the words the Overlord reads. The
+// yours is where the Overlord made the switch, in the words he reads. The
 // supervisor words it for the CFO, as his own terminal or board with the
 // program and its process, which the log keeps.
-export const yours = (from: string): string => from.replace(/^his own /, "your ").replace(/ \(.*\)$/, "");
+const yours = (from: string): string => from.replace(/^his own /, "your ").replace(/ \(.*\)$/, "");
 
-// afkLine is what the CFO's bar says while AFK mode is on: since when, where
-// it was turned on, how much the CFO decided and how much still waits on him.
-// It is empty while AFK mode is not on.
+// AT_YOUR_ASK is who made a switch the CFO made at the Overlord's ask.
+const AT_YOUR_ASK = "by the CFO at your ask";
+
+// switchedBy says who made a switch, to follow "turned on" or "off": the
+// Overlord, from where he did it, or the CFO at his ask, with the words of
+// his the CFO quoted. It is empty when the supervisor said neither.
+export function switchedBy(from: string, asked: string): string {
+  if (asked) return AT_YOUR_ASK + ": “" + asked + "”";
+  return from ? "from " + yours(from) : "";
+}
+
+// afkLine is what the CFO's bar says while AFK mode is on: since when, who
+// turned it on and from where, how much the CFO decided and how much still
+// waits on him. His words are left to the offer and the report, which have
+// the room for them. It is empty while AFK mode is not on.
 export function afkLine(afk: Afk, now: number, zone?: string, locale?: string): string {
   if (afk.state !== "on") return "";
-  const where = yours(afk.from);
-  return "AFK since " + afkTime(afk.since, now, zone, locale) + (where ? ", from " + where : "") + ". " + afk.decided + " decided, " + stillHeld(afk).length + " held for you.";
+  const who = afk.asked ? "turned on " + AT_YOUR_ASK : switchedBy(afk.from, "");
+  return "AFK since " + afkTime(afk.since, now, zone, locale) + (who ? ", " + who : "") + ". " + afk.decided + " decided, " + stillHeld(afk).length + " held for you.";
 }
 
 // UNREADABLE is what the CFO panel's header says under its toggle while the

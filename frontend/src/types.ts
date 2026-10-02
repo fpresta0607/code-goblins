@@ -173,11 +173,13 @@ export interface AfkHeld {
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
 // While on it says since when and from where, how many decisions the CFO
-// logged and what is held for him; while off, report names the last stretch
-// that ended and ended says when, once its report is kept.
+// logged and what is held for him; asked holds his words when the CFO turned
+// it on at his ask, and is empty when he turned it on himself. While off,
+// report names the last stretch that ended and ended says when, once its
+// report is kept.
 export interface Afk {
   state: "off" | "on" | "unreadable";
-  since: string; from: string; decided: number; held: AfkHeld[];
+  since: string; from: string; asked: string; decided: number; held: AfkHeld[];
   report: string; ended: string; problem: string;
 }
 export interface Question {
@@ -400,7 +402,7 @@ function parseAfk(value: unknown): Afk {
   const a = value == null ? {} : object(value);
   const state = a.state == null ? "off" : string(a.state);
   if (state !== "off" && state !== "on" && state !== "unreadable") throw new Error("Invalid AFK state");
-  return { state, since: string(a.since), from: string(a.from), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), report: string(a.report), ended: string(a.ended), problem: string(a.problem) };
+  return { state, since: string(a.since), from: string(a.from), asked: string(a.asked), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), report: string(a.report), ended: string(a.ended), problem: string(a.problem) };
 }
 // The Command Center's items as the supervisor's stream sends them between
 // snapshots: its questions, review items, runs, credential requests and

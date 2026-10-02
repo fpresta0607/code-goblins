@@ -3,7 +3,7 @@ import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
 import { ShowMore } from "./ShowMore";
 import { AfkHeldList } from "./afk-held";
-import { afkTime, decisionSays, parseAfkReport, safeLink, stillWaiting, yours, type AfkReport } from "./afk";
+import { afkTime, decisionSays, parseAfkReport, safeLink, stillWaiting, switchedBy, type AfkReport } from "./afk";
 import { useResource } from "./api";
 import { pullRequestLabel } from "./workflow";
 import type { Task } from "./types";
@@ -12,12 +12,12 @@ import "./afk.css";
 // The mark each kind of decision wears in the report.
 const MARKS: Record<string, IconName> = { merge: "merge", deploy: "external", migration: "database", install: "download", answer: "comment", other: "check" };
 
-// The report of the last stretch of AFK mode, as one page over the board: how
-// many of each thing the CFO did, then what it merged, deployed, migrated,
-// installed and answered, each with its link and the evidence it stood on,
-// what each goblin finished, what is held for the Overlord and what became of
-// it, and what was spent. It opens when AFK mode turns off, and again from the
-// CFO's bar.
+// The report of the last stretch of AFK mode, as one page over the board: who
+// turned it on and off, how many of each thing there is, what is held for the
+// Overlord and what became of it, which he reads first, then what the CFO
+// merged, deployed, migrated, installed and answered, each with its link and
+// the evidence it stood on, what each goblin finished, and what was spent. It
+// opens when AFK mode turns off, and again from the CFO panel's header.
 export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[]; now: number; onClose: () => void; onCommand: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
@@ -29,14 +29,14 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
   const waiting = data ? stillWaiting(data.held).length : 0;
-  const tally: [string, number][] = data ? [...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length], ["Held for you", data.held.length]] : [];
+  const tally: [string, number][] = data ? [["Held for you", data.held.length], ...data.sections.map((section): [string, number] => [section.title, section.entries.length]), ["Goblins finished", data.finished.length]] : [];
   return <dialog ref={dialog} className="question-modal afk-report" aria-labelledby={title} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="command-center-heading">
       <Avatar persona="cfo" />
       <div className="afk-report-title">
         <h2 id={title}>AFK report</h2>
         {data && <p>On from {afkTime(data.since, now)} to {afkTime(data.ended, now)}, {data.lasted}.</p>}
-        {data && <p className="muted">Turned on from {yours(data.from)}, off from {yours(data.ended_from)}.</p>}
+        {data && <p className="muted">Turned on {switchedBy(data.from, data.asked)}, off {switchedBy(data.ended_from, data.ended_asked)}.</p>}
       </div>
       <button className="icon-button" aria-label="Close the report" data-tip="Close" data-tip-align="end" onClick={onClose}><Icon name="close" /></button>
     </div>
@@ -45,6 +45,10 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
     {data === null && <p className="muted">No stretch of AFK mode has ended yet, so there is no report.</p>}
     {data && <>
       <ul className="afk-tally" aria-label="In all">{tally.map(([name, count]) => <li key={name} className={count ? undefined : "none"}>{name} <span className="column-count">{count}</span></li>)}</ul>
+      <section aria-label="Held for you">
+        <h3>Held for you <span className="column-count">{data.held.length}</span></h3>
+        <AfkHeldList held={data.held} tasks={tasks} />
+      </section>
       {data.sections.filter((section) => section.entries.length > 0).map((section) => <section key={section.title} aria-label={section.title}>
         <h3>{section.title} <span className="column-count">{section.entries.length}</span></h3>
         <ul className="inbox-list afk-decisions">{section.entries.map((entry) => {
@@ -68,10 +72,6 @@ export function AfkReportPage({ tasks, now, onClose, onCommand }: { tasks: Task[
           <time dateTime={finish.at}>{afkTime(finish.at, now)}</time>
         </li>)}</ul>
       </section>}
-      <section aria-label="Held for you">
-        <h3>Held for you <span className="column-count">{data.held.length}</span></h3>
-        <AfkHeldList held={data.held} tasks={tasks} />
-      </section>
       <section aria-label="Spent">
         <h3>Spent</h3>
         {data.spent.length ? <ul className="inbox-list afk-lines">{data.spent.map((line) => <li key={line}>{line}</li>)}</ul> : <p className="muted">No allowance was read.</p>}

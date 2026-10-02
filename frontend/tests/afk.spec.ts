@@ -35,7 +35,8 @@ const REPORT = {
   spent: ["claude week: 41% used when it turned on, 49% when it turned off (8 points)"],
   notes: [],
 };
-const REFUSAL = "AFK mode is the Supreme Overlord's switch, and this board was opened by a program an agent started (node.exe pid 5120): only he turns it on or off, from a board or a terminal of his own";
+// The supervisor's own words for a board that an agent's program shows.
+const REFUSAL = "AFK mode is the Supreme Overlord's switch, and the program that shows this board runs under an agent harness (node.exe pid 5120): he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words";
 
 interface Asked { on: unknown; token: string }
 interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
@@ -242,14 +243,32 @@ test("a press on the toggle itself is his answer, so it offers nothing", async (
   await expect(offer(page)).toHaveCount(0);
 });
 
-test("the report says how much of each thing the CFO did, each decision with its link and what it stood on, what is held and what was spent, and opens again from the header", async ({ page }) => {
+test("a stretch the CFO turned on at his ask says so on the bar, and the offer and the report quote his words", async ({ page }) => {
+  await page.clock.install();
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
+  await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CFO at your ask\. 1 decided, 0 held for you\.$/);
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  await expect(offer(page)).toContainText("turned on by the CFO at your ask: “I'm stepping away, turn AFK on”. The CFO decided 1 and holds 0 for you.");
+  await offer(page).getByRole("button", { name: "Stay AFK" }).click();
+
+  // He turns it off himself, from the board, and the report says who made
+  // each switch.
+  await page.route("**/api/afk/report", (route) => route.fulfill({ json: { ...REPORT, ...byTheCFO, ended_from: BOARD, ended_asked: "" } }));
+  await push(page, snapshot({ afk: KEPT }));
+  await expect(report(page).locator(".afk-report-title")).toContainText("Turned on by the CFO at your ask: “I'm stepping away, turn AFK on”, off from your board.");
+});
+
+test("the report lists what is held first, then how much of each thing the CFO did, each decision with its link and what it stood on, and what was spent, and opens again from the header", async ({ page }) => {
   await open(page, snapshot({ afk: KEPT }));
   // A page that opens after AFK mode turned off shows no report by itself.
   await expect(report(page)).toHaveCount(0);
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Goblins finished 1", "Held for you 2"]);
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Goblins finished 1"]);
+  // Coming back he reads what is held before what was decided.
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
 

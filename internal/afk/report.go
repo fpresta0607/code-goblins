@@ -29,11 +29,16 @@ const sameWindow = 10 * time.Minute
 // CFO decided under the authority with the evidence of each, what each goblin
 // finished, what is held for the Overlord and why, and what was spent.
 type Report struct {
-	Session   string    `json:"session"`
-	Since     time.Time `json:"since"`
-	Ended     time.Time `json:"ended"`
-	From      string    `json:"from"`
-	EndedFrom string    `json:"ended_from"`
+	Session string    `json:"session"`
+	Since   time.Time `json:"since"`
+	Ended   time.Time `json:"ended"`
+	// From and EndedFrom say who turned it on and off, and Asked and
+	// EndedAsked hold the Overlord's words for a switch the CFO made at his
+	// ask, as the switch kept them.
+	From       string `json:"from"`
+	Asked      string `json:"asked,omitempty"`
+	EndedFrom  string `json:"ended_from"`
+	EndedAsked string `json:"ended_asked,omitempty"`
 	// Decisions are the stretch's decisions in the order they were made.
 	Decisions []Entry  `json:"decisions"`
 	Finished  []Finish `json:"finished"`
@@ -203,12 +208,29 @@ func span(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
-// Render writes the report as the text the CFO puts in its terminal.
+// Render writes the report as the text the CFO puts in its terminal: who
+// turned it on and off, what is held for the Overlord, which he reads first,
+// then what the CFO decided, what each goblin finished and what was spent.
 func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
 	say("AFK MODE REPORT")
-	say("AFK mode was on from %s to %s (%s): turned on from %s, off from %s.", at(r.Since), at(r.Ended), r.Lasted(), r.From, r.EndedFrom)
+	say("AFK mode was on from %s to %s (%s): turned on %s, off %s.", at(r.Since), at(r.Ended), r.Lasted(), SwitchedBy(r.From, r.Asked), SwitchedBy(r.EndedFrom, r.EndedAsked))
+
+	say("")
+	say("Held for you (%d)", len(r.Held))
+	for _, held := range r.Held {
+		whose := "the CFO's"
+		if held.Task != "" {
+			whose = held.Task + "'s"
+		}
+		say("- %s, %s: %s", held.Item, whose, held.What)
+		line := "  Now: " + held.Now + "."
+		if held.Meanwhile != "" {
+			line += " Meanwhile: " + held.Meanwhile + "."
+		}
+		say("%s", line)
+	}
 
 	for _, section := range r.Sections() {
 		say("")
@@ -237,21 +259,6 @@ func Render(w io.Writer, r Report) error {
 	say("Goblins finished (%d)", len(r.Finished))
 	for _, finish := range r.Finished {
 		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
-	}
-
-	say("")
-	say("Held for you (%d)", len(r.Held))
-	for _, held := range r.Held {
-		whose := "the CFO's"
-		if held.Task != "" {
-			whose = held.Task + "'s"
-		}
-		say("- %s, %s: %s", held.Item, whose, held.What)
-		line := "  Now: " + held.Now + "."
-		if held.Meanwhile != "" {
-			line += " Meanwhile: " + held.Meanwhile + "."
-		}
-		say("%s", line)
 	}
 
 	say("")

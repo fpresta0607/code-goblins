@@ -235,12 +235,12 @@ The glow breathes, and holds still for a reader who asked for reduced motion.
 While no CFO runs the bar says so and offers Start the CFO instead.
 Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
-While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when and from where it is on, how many decisions the CFO logged and how many items are held.
+While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, how many decisions the CFO logged and how many items are held.
 Held for you, a disclosure under the bar's line, lists each held item that still waits on him as the Command Center's inbox draws one: whose it is, what it asks, what became of it and its goblin's latest report since, and a button that opens that item in the Command Center.
 It never opens by itself, and shows Nothing is held for you when it is empty.
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
-The offer takes the focus itself, so keys he was typing press neither button, and Escape stays.
-When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: how many of each thing the CFO did, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished, what was held with what became of it, and what was spent.
+The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
+When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what was held with what became of it, which he reads first, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
 An answer is named by its goblin, since the log keeps a question's id.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
@@ -922,8 +922,8 @@ The supervisor is the only writer of AFK mode's three files in `state/`:
 
 | File | What it holds |
 | --- | --- |
-| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. |
-| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch. |
+| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
+| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch, and a switch the CFO made at his ask carries his words as its evidence. |
 | `afk-report.json` | The report of the last stretch that ended. |
 
 `cfo afk on` and `cfo afk off` send `afk-on` or `afk-off` over the supervisor's pipe, the one a run item travels over, and need `cfo serve` running.
@@ -932,6 +932,16 @@ It refuses, in this order, a process whose environment carries `CFO_ROLE=goblin`
 A process it cannot read, or one that started after the request, is refused too, never taken for his; a terminal run as administrator is one it cannot read, and the refusal says so.
 So is a process whose ancestry reaches neither the Windows desktop (`explorer`) nor Windows Terminal (`WindowsTerminal`): its parents were cut off, as Git Bash's `env` leaves a command with those variables removed too, and as Git Bash leaves the Overlord's own command, so the refusal tells him to run it in PowerShell or cmd.
 What it accepts is recorded with the shell the command was typed in, such as `his own terminal (powershell.exe pid 4242)`.
+
+A request that carries `asked`, the words `cfo afk on --asked` or `cfo afk off --asked` passes, is the registered CFO making the switch at the Overlord's ask, and takes another proof.
+The supervisor refuses a process whose environment carries `CFO_ROLE=goblin` or `NO_MISTAKES_GATE`, then proves the process runs under the registered primary CFO, the proof a question takes, and refuses one it cannot prove.
+The words are kept on one line, and words that are blank or longer than 500 characters are refused.
+What it accepts is recorded as `the CFO at his ask (claude pid 4242)`, with his words as `asked` in `afk.json`, as the evidence of the switch's line in `afk.audit`, in the notice in the CFO's wake queue and in the report.
+It does not reset a switch that cannot be read, which stays the Overlord's.
+This proof says who asks and nothing of whose words those are: the CFO quotes them, and the supervisor cannot tell an ask of his from one the CFO misread or was handed by a goblin, a page or a tool's output.
+`AGENTS.md` holds that part, and the record shows him what it was switched for.
+His own switch, from the board or a terminal of his own, turns it either way whoever made the last one.
+
 Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
 The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
@@ -949,10 +959,11 @@ An agent that drives the Overlord's own running browser is his browser to the su
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on and carries the reason as `problem`.
-While it is on it carries `since` and `from`, `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it and its goblin's latest report since.
+While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it and its goblin's latest report since.
 While it is off it carries `report` and `ended`, the last stretch that ended, whose report is kept.
 The log's file is read for a snapshot only when it has changed since the last one, and a log that cannot be read is said as the snapshot's error.
-`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held, how long it lasted and what was spent in the same words, with every list present.
+`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held, how long it lasted and what was spent in the same words, with every list present.
+The page and the text list what is held for him first, then what the CFO decided.
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
 A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
