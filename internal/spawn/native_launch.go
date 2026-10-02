@@ -217,6 +217,13 @@ func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary stri
 	return nil
 }
 
+// AnswerDialog answers one recognized startup dialog in the native terminal
+// record names, as a spawn answers it, for a harness spawn did not start,
+// such as the CFO's.
+func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
+	return Service{}.answerDialog(ctx, record, dialog, screen)
+}
+
 // answerDialog answers one recognized startup dialog. It moves the focus down
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow
@@ -502,12 +509,11 @@ func (s Service) readNativeScreen(ctx context.Context, record host.Record) ([]st
 }
 
 // nativeProgram is the command line a native terminal starts the harness with.
-// A harness Herdr starts itself, rather than typing its launch, must be a
-// program: one found only as a script shim is refused. A typed launch runs
-// through cmd /c, which finds its program in the user environment the host
-// runs with.
+// A harness installed as a script shim names it as its Executable and runs
+// through cmd /c, which finds it in the user environment the host runs with.
+// Any other must be a program: one found only as a script shim is refused.
 func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
-	if launch.TypedLaunch {
+	if launch.Executable != "" {
 		return cmdProgram(launch.Executable, launch.Args...)
 	}
 	path, err := exec.LookPath(string(kind))
@@ -561,14 +567,12 @@ func cmdProgram(name string, args ...string) ([]string, error) {
 var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable, host.ProofVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
-// harness run with, built the way a Herdr goblin's is: userEnv, the
-// environment Windows gives a new process of this user, never the spawning
-// process's own, so nothing of the session that ran cfo spawn reaches the
-// goblin; without the harness billing keys or any session marker; then the
-// project's credentials, then the launch's variables (CFO_ROLE=goblin and the
-// task's identity among them) and CFO_STATE_OVERRIDE, which win. A native
-// task has no credentials script: this block is how its credentials reach the
-// harness.
+// harness run with: userEnv, the environment Windows gives a new process of
+// this user, never the spawning process's own, so nothing of the session that
+// ran cfo spawn reaches the goblin; without the harness billing keys or any
+// session marker; then the project's credentials, then the launch's variables
+// (CFO_ROLE=goblin and the task's identity among them) and CFO_STATE_OVERRIDE,
+// which win. This block is how its credentials reach the harness at start.
 // Names compare without case, as Windows compares them.
 func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, credentials map[string]string) []string {
 	names := map[string]string{}

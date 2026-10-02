@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import type { CodeRenderer } from "./messageText";
 import "./message-values.css";
@@ -9,7 +10,7 @@ const COPIED_MS = 1400;
 // DNS record's name, with one button that copies exactly it.
 export function CopyValue({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {});
+  const copy = () => copyText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {});
   return <span className="copy-value">
     <code>{value}</code>
     <button type="button" className="icon-button" aria-label={"Copy " + value} data-tip={copied ? "Copied" : "Copy"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>

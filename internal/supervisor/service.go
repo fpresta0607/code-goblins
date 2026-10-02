@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -56,6 +57,14 @@ type Options struct {
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
+	// Credentials opens the credential store cfo auth store writes, which a
+	// credential request's card saves into; without it the board takes no
+	// value.
+	Credentials func() (auth.Store, error)
+	// RefreshCredentials regenerates auth.ps1 for a project's running goblins
+	// and tells each to re-source it, as cfo auth store does after it writes,
+	// and returns the tasks it told.
+	RefreshCredentials func(ctx context.Context, project string) ([]string, error)
 }
 
 type Service struct {
@@ -83,9 +92,11 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// historyErr is what the last history refresh met; the loop reports it
-	// with its next recovery cycle.
+	// historyErr is what the last history refresh met, and cfoWakeErr what
+	// every typed CFO wake met since the last recovery cycle; the loop
+	// reports them with its next recovery cycle.
 	historyErr error
+	cfoWakeErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -98,6 +109,11 @@ type Service struct {
 	startErrors  map[string]string
 	changing     map[string]string
 	changeErrors map[string]taskChangeError
+	// credentialSaves takes one credential save at a time, and
+	// credentialWork waits for the refresh and the CFO's notice each save
+	// starts after it answers.
+	credentialSaves sync.Mutex
+	credentialWork  sync.WaitGroup
 	// pages stops each open item's page poller; pageWork waits for them.
 	pagesMu  sync.Mutex
 	pages    map[string]context.CancelFunc
@@ -239,6 +255,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	awakeDone := make(chan struct{})
+	go func() {
+		defer close(awakeDone)
+		s.keepCFOAwake(ctx, cfoWakeEvery)
+	}()
+	defer func() { s.cancel(); <-awakeDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -309,9 +331,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
+	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
+	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	s.reconcilePresentations(ctx)
@@ -322,10 +348,12 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr)
+		s.cfoWakeErr = nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
+		reconcileErr = errors.Join(reconcileErr, s.Store.pruneCredentials(time.Now()))
 		s.mu.Lock()
 		s.reconciled = time.Now().UTC()
 		s.mu.Unlock()
@@ -802,6 +830,8 @@ type Snapshot struct {
 	Activity   []BoardActivity `json:"activity"`
 	Reviews    []Review        `json:"reviews"`
 	Runs       []Run           `json:"runs"`
+	// Credentials are the credential requests: names, never a value.
+	Credentials []CredentialRequest `json:"credentials"`
 
 	// Attention is the Overlord's order of the live goblins, top first; a
 	// goblin it does not name has not been placed.
@@ -891,6 +921,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
 		out.Runs[i] = r
 	}
+	out.Credentials = append([]CredentialRequest{}, d.Credentials...)
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

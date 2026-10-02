@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -38,8 +41,7 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 	if err := fsx.AtomicWriteFile(args[len(args)-1], runner); err != nil {
 		return RunStarted{}, err
 	}
-	cmd := execx.Command(shell, args...)
-	flags := uint32(createNewConsole)
+	var started RunStarted
 	if l.Admin {
 		helper, err := runShellPath("powershell", exec.LookPath, exists, systemRoot)
 		if err != nil {
@@ -49,20 +51,42 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 		if err := fsx.AtomicWriteFile(elevate, elevateScript(shell, args, filepath.Join(l.Dir, "declined.txt"))); err != nil {
 			return RunStarted{}, err
 		}
-		cmd = execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
-		flags = createNoWindow
+		cmd := execx.Command(helper, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", elevate)
+		cmd.Dir = l.Cwd
+		cmd.SysProcAttr.CreationFlags |= createNoWindow
+		if err := cmd.Start(); err != nil {
+			return RunStarted{}, err
+		}
+		go func() { _ = cmd.Wait() }()
+		started.PID = cmd.Process.Pid
+	} else {
+		// exec.Cmd always hands a process standard handles, NUL where none is
+		// given, so the window would read nothing typed in it. Started without
+		// any, it takes its new console's, and CREATE_NEW_CONSOLE shows that
+		// window even from a supervisor with no console.
+		application, err := windows.UTF16PtrFromString(shell)
+		if err != nil {
+			return RunStarted{}, err
+		}
+		commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{shell}, args...)))
+		if err != nil {
+			return RunStarted{}, err
+		}
+		dir, err := windows.UTF16PtrFromString(l.Cwd)
+		if err != nil {
+			return RunStarted{}, err
+		}
+		startup := windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
+		var info windows.ProcessInformation
+		if err := windows.CreateProcess(application, commandLine, nil, nil, false, createNewConsole, nil, dir, &startup, &info); err != nil {
+			return RunStarted{}, err
+		}
+		windows.CloseHandle(info.Thread)
+		windows.CloseHandle(info.Process)
+		started.PID = int(info.ProcessId)
 	}
-	cmd.Dir = l.Cwd
-	// CREATE_NEW_CONSOLE outranks the CREATE_NO_WINDOW execx may have set, so
-	// the run's window shows even from a supervisor with no console.
-	cmd.SysProcAttr.CreationFlags |= flags
-	if err := cmd.Start(); err != nil {
-		return RunStarted{}, err
-	}
-	go func() { _ = cmd.Wait() }()
 	// A process already gone reports no start time, so the item ends at once
 	// unless its run wrote an exit code.
-	started := RunStarted{PID: cmd.Process.Pid}
 	if entries, err := proc.Ancestry(started.PID, 1); err == nil && len(entries) == 1 {
 		started.Start = entries[0].Start
 	}
@@ -72,12 +96,25 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 // runnerScript is what the window runs: the item's script in the same shell,
 // its output shown and kept in output.log, and its exit code written to
 // exit.txt, after which the window stays open until the Overlord closes it.
+// An interactive item's script runs in the window itself instead, with
+// nothing between it and the console, so a sign-in or cfo attach works; its
+// exit code is written the same, nothing is kept of its output, and the
+// shell stays for him to use.
 // It returns the script and the arguments that run it, ending with its path.
 func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 	output, exit := filepath.Join(l.Dir, "output.log"), filepath.Join(l.Dir, "exit.txt")
+	const stays = "This window stays open for you; close it when you are done."
 	if l.Shell == "bash" {
 		quote := func(path string) string { return "'" + strings.ReplaceAll(filepath.ToSlash(path), "'", `'\''`) + "'" }
 		runner := filepath.Join(l.Dir, "runner.sh")
+		if l.Interactive {
+			return []byte("cd " + quote(l.Cwd) + " || exit 1\n" +
+				`"$BASH" ` + quote(l.Script) + "\n" +
+				"code=$?\n" +
+				"printf '%s' \"$code\" > " + quote(exit) + "\n" +
+				"printf '\\nFinished with exit code %s. " + stays + "\\n' \"$code\"\n" +
+				`exec "$BASH" -i` + "\n"), []string{filepath.ToSlash(runner)}
+		}
 		return []byte("cd " + quote(l.Cwd) + " || exit 1\n" +
 			`"$BASH" ` + quote(l.Script) + " 2>&1 | tee " + quote(output) + "\n" +
 			"code=${PIPESTATUS[0]}\n" +
@@ -87,6 +124,17 @@ func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 	}
 	quote := func(text string) string { return "'" + strings.ReplaceAll(text, "'", "''") + "'" }
 	runner := filepath.Join(l.Dir, "runner.ps1")
+	if l.Interactive {
+		return []byte("\xef\xbb\xbf" +
+			"Set-Location -LiteralPath " + quote(l.Cwd) + "\r\n" +
+			"$global:LASTEXITCODE = $null\r\n" +
+			"$ran = $true\r\n" +
+			"try { & " + quote(l.Script) + "; $ran = $? } catch { Write-Host $_ -ForegroundColor Red; $ran = $false }\r\n" +
+			"$code = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } elseif ($ran) { 0 } else { 1 }\r\n" +
+			"[System.IO.File]::WriteAllText(" + quote(exit) + ", \"$code\", [System.Text.UTF8Encoding]::new($false))\r\n" +
+			"Write-Host ''\r\n" +
+			"Write-Host \"Finished with exit code $code. " + stays + "\"\r\n"), []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", runner}
+	}
 	return []byte("\xef\xbb\xbf" +
 		"$ErrorActionPreference = 'Stop'\r\n" +
 		"$start = [System.Diagnostics.ProcessStartInfo]::new(" + quote(shell) + ", " + quote(`-NoProfile -ExecutionPolicy Bypass -File "`+l.Script+`"`) + ")\r\n" +

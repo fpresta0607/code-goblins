@@ -1,6 +1,7 @@
 import type { Snapshot } from "./types.ts";
 import { waitingItems, waitReason, type Item } from "./commandQueue.ts";
 import { messageBlocks } from "./messageText.ts";
+import { credentialAsk } from "./credentials.ts";
 
 // The pinned CFO bar says what the CFO needs from the Overlord, since every
 // question and review reaches him through the CFO, and otherwise how many
@@ -20,6 +21,7 @@ function lead(text: string): string {
 function title(item: Item): string {
   if (item.kind === "review") return lead(waitReason(item.review));
   if (item.kind === "run") return item.run.title;
+  if (item.kind === "credential") return credentialAsk(item.request);
   return lead(item.question.text);
 }
 

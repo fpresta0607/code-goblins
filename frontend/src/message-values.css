@@ -1,12 +1,21 @@
 /* A goblin's values to enter somewhere: a table of them, as a message's
-   Markdown pipe table renders, and each code value with its copy button. */
-.message-table { max-width: 100%; margin: 4px 0 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); white-space: normal; }
+   Markdown pipe table renders, and each code value with its copy button.
+   A table too wide for a phone scrolls sideways alone, its words kept whole
+   and each value at a width that still reads; the card's body keeps the
+   card's width, so the table cannot push the card wider. */
+.question-card > .question-body { min-width: 0; }
+.message-table { max-width: 100%; margin: 4px 0 12px; border: 1px solid var(--border); border-radius: var(--radius); white-space: normal; overflow-wrap: break-word; overflow-x: auto; overflow-y: hidden; }
 .message-table table { width: 100%; border-collapse: collapse; font-size: 1rem; }
 .message-table th { padding: 10px 14px; color: var(--muted); font-size: .8125rem; font-weight: 700; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
-.message-table td { padding: 10px 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); vertical-align: middle; overflow-wrap: anywhere; }
+.message-table td { padding: 10px 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); vertical-align: middle; }
 .message-table th + th, .message-table td + td { border-left: 1px solid var(--border); }
 .copy-value { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; vertical-align: middle; }
 .copy-value code { min-width: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .message-table .copy-value { display: flex; justify-content: space-between; }
+.message-table .copy-value code { min-width: 12ch; }
+/* A copy label opens over the row above, inside the table, so the table's
+   scrolling edge never cuts it off. */
+.message-table [data-tip]::after { top: auto; bottom: calc(100% + 8px); left: auto; right: 0; transform: translateY(4px); }
+.message-table [data-tip]:hover::after, .message-table [data-tip]:focus-visible::after { transform: none; }
 .copy-value .icon-button { flex: none; }
 .copy-value .icon-button[data-tip="Copied"] { color: var(--mint); border-color: var(--mint); }

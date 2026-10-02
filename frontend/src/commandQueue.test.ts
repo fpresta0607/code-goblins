@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -228,6 +228,20 @@ test("a question answered on the page that carried it says so", () => {
   assert.equal(answeredLabel(cleared), "You answered on its page");
 });
 
+test("a goblin's command waits with its goblin's items, after the CFO's own", () => {
+  // Arrange
+  const run = (id: string, task: string, created_at: string) => ({ id, identity: "i-" + id, task, title: "Run " + id, shell: "powershell", command: "Get-Date", state: "ready", created_at });
+  const snapshot = parseSnapshot({ healthy: true, attention: ["notes", "billing"],
+    questions: [question("q", "notes", "2026-10-02T01:00:00Z")],
+    runs: [run("run-billing-7", "billing", "2026-10-02T00:50:00Z"), run("install-main", "", "2026-10-02T01:10:00Z")] });
+
+  // Act
+  const order = waitingItems(snapshot).map((item) => item.key);
+
+  // Assert
+  assert.deepEqual(order, ["run:install-main", "question:q", "run:run-billing-7"]);
+});
+
 test("a run item waits in the stack while ready or running and settles with its exit code", () => {
   const run = (id: string, state: string, extra: Record<string, unknown> = {}) => ({ id, identity: "cfo-1", title: "Run " + id, shell: "powershell", command: "Get-Date", state, created_at: "2026-09-24T00:0" + id.length + ":00Z", ...extra });
   const snapshot = parseSnapshot({ healthy: true,
@@ -416,4 +430,21 @@ test("a run item the CFO withdrew leaves the Command Center, and its history say
   // Assert
   assert.deepEqual(waiting, []);
   assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
+});
+
+test("a wait's one-line row reads the goblin's words alone, and any other review item keeps its title", () => {
+  // Arrange
+  const page = "http://127.0.0.1:4387/session/f26e";
+  const table = "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |";
+  const wait = (title: string, lavish = "") => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title, lavish }) as unknown as Review;
+
+  // Act
+  const endsWithTable = reviewLine(wait("Waiting on you: Add the **records**\n" + table + " (page " + page + ")", page));
+  const opensWithTable = reviewLine(wait("Waiting on you: " + table + "\nAdd these records (page " + page + ")", page));
+  const other = reviewLine(review("plan-billing", "billing", "2026-09-27T10:00:00Z", "open", { title: "Look at the **plan**" }) as unknown as Review);
+
+  // Assert
+  assert.equal(endsWithTable, "Add the records");
+  assert.equal(opensWithTable, "Add these records");
+  assert.equal(other, "Look at the plan");
 });

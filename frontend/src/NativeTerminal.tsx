@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { message, request } from "./api";
+import { copyText } from "./clipboard";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
@@ -68,8 +69,8 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
-  const voice = useVoice(instance, task?.id || "cfo", shown);
-  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); }, voice.defers);
+  const voice = useVoice(task?.id || "cfo");
+  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); });
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -358,7 +359,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
     pastElement.addEventListener("paste", paste, true);
     const copy = (from: Terminal = showing ? past : term) => {
       if (!from.hasSelection()) return;
-      navigator.clipboard.writeText(from.getSelection()).then(() => {
+      copyText(from.getSelection()).then(() => {
         setCopied(true);
         clearTimeout(copiedTimer);
         copiedTimer = setTimeout(() => setCopied(false), 1400);

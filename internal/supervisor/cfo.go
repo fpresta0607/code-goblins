@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -54,6 +55,14 @@ type CFOConnection struct {
 	State string
 	// Terminals opens the terminal backend the CFO and its goblins run in.
 	Terminals terminal.Opener
+	// ReadScreen reads a native terminal's console for a typed wake; nil
+	// reads it through its host. Deliver submits a typed wake; nil delivers
+	// it as cfo send does.
+	ReadScreen func(host.Record) ([]string, error)
+	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
+	// typing lets one writer at a time read and type into the CFO's native
+	// terminal, so a typed wake and a board send never share its composer.
+	typing sync.Mutex
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
@@ -155,16 +164,26 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 
 // nativeHarness proves this process runs under the program in native
 // terminal id, whose host must answer, and names that program's harness:
-// harness when the caller names it, or else the program's own name.
+// harness when the caller names it, or else the name the program runs.
 func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.Entry, int, error) {
 	ancestry, at, err := nativeProgram(stateDir, id)
 	if err != nil {
 		return primaryRegistration{}, nil, 0, err
 	}
 	if harness == "" {
-		harness = strings.TrimSuffix(strings.ToLower(ancestry[at].ExeBase), ".exe")
+		program := ancestry[at].ExeBase
+		harness = strings.TrimSuffix(strings.ToLower(program), ".exe")
+		// Codex and pi install as npm script shims, which a native terminal
+		// runs as cmd /c <name> (spawn.NativeProgram), so cmd's own command
+		// line names the harness.
+		if harness == "cmd" {
+			if identity, err := proc.Identify(ancestry[at].PID, ancestry[at].Start); err == nil && len(identity.Arguments) >= 3 && strings.EqualFold(identity.Arguments[1], "/c") {
+				program += " /c " + identity.Arguments[2]
+				harness = strings.ToLower(identity.Arguments[2])
+			}
+		}
 		if harness != "claude" && harness != "codex" && harness != "pi" {
-			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, ancestry[at].ExeBase)
+			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, program)
 		}
 	}
 	return primaryRegistration{Host: id, Agent: harness}, ancestry, at, nil
@@ -564,6 +583,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
+	c.typing.Lock()
+	defer c.typing.Unlock()
 	submitted := time.Now()
 	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
