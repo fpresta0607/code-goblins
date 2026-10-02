@@ -15,13 +15,14 @@ test("with nothing waiting on the Overlord the CFO says how many goblins it supe
   assert.deepEqual(cfoSummary(snapshot()), { asking: false, line: "All quiet. No goblins are at work." });
 });
 
-test("what the CFO needs from the Overlord leads, the CFO's own first, in plain words", () => {
+test("what the CFO needs from the Overlord leads, the CFO's own first, in plain words, and a goblin's question to the CFO is not counted", () => {
   const needs = cfoSummary(snapshot({
     tasks: [task("goblin-a")],
     questions: [question("goblin", "Which **layout** should I use?\n\n- A: stacked", { task: "goblin-a", created_at: "2026-09-25T09:00:00Z" }), question("own", "Merge **PR 91** now?")],
     reviews: [review("look", "Check the onboarding mockup")],
   }));
-  assert.deepEqual(needs, { asking: true, line: "Waiting on you: Merge PR 91 now? and 2 more" });
+  assert.deepEqual(needs, { asking: true, line: "Waiting on you: Merge PR 91 now? and 1 more" });
+  assert.deepEqual(cfoSummary(snapshot({ tasks: [task("goblin-a")], questions: [question("goblin", "Which layout should I use?", { task: "goblin-a" })] })), { asking: false, line: "All quiet. The CFO supervises 1 goblin." }, "only a goblin's question waits, and it waits on the CFO");
 });
 
 test("a review or a command to run is named by its title, and answered items no longer count", () => {

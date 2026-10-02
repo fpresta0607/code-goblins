@@ -4,7 +4,7 @@ import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, S
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
-const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "a", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
+const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
 const review = (id: string): Review => ({ id, title: "Review the plan", state: "open", task: "a", created_at: "2026-09-27T01:00:00Z" }) as Review;
 const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the board", state, created_at: "2026-09-27T01:00:00Z" }) as Run;
 const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Review[]; runs?: Run[] }): Snapshot => ({ tasks: parts.tasks || [task("a", "working")], questions: parts.questions || [], reviews: parts.reviews || [], runs: parts.runs || [], attention: [] as string[] }) as Snapshot;
@@ -92,14 +92,15 @@ test("a goblin waiting on the Overlord says so once, and a review item asks for 
   assert.equal(plan.text, "Goblin a wants your review: Review the plan");
 });
 
-test("a goblin's own question alerts once, as its question, whichever reaches the board first", () => {
+test("a goblin's question to the CFO alerts nothing, whichever reaches the board first", () => {
   // As the supervisor serves it: the goblin's blocked notify sets its task
   // blocked, Waiting on the CFO, before or as its question reaches the
-  // Command Center, and both say the same thing.
+  // board. The CFO answers it, so neither its question nor its blocked task
+  // is news for the Overlord.
   const asked = "May I finish the remaining heavy steps now, or stay paused?";
   const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
   const blocked = task("a", "blocked", { report: "blocked", reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
-  const pending = question("notify-a-7", { text: asked });
+  const pending = question("notify-a-7", { task: "a", text: asked });
   const orders: [string, Snapshot[]][] = [
     ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
     ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
@@ -107,7 +108,7 @@ test("a goblin's own question alerts once, as its question, whichever reaches th
   ];
   for (const [name, snapshots] of orders) {
     const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
-    assert.deepEqual(alerts.map((alert) => alert.text), ["Goblin a asks: " + asked], name);
+    assert.deepEqual(alerts.map((alert) => alert.text), [], name);
   }
 });
 
@@ -263,8 +264,8 @@ test("each alert names who speaks by its goblin's title, as its card does, says 
   const before = snapshot({});
   const cfoQuestion = question("q2", { task: "", text: "Merge the release now?\n\n- details" });
   const cases: [string, Snapshot, { speaker: string; text: string; action: string }][] = [
-    ["a goblin's question", snapshot({ questions: [question("q1")] }), { speaker: "Goblin a", text: "Goblin a asks: Which option?", action: "Open Command Center" }],
-    ["a question from a goblin no longer on the board", snapshot({ questions: [question("q1", { task: "gone" })] }), { speaker: "gone", text: "gone asks: Which option?", action: "Open Command Center" }],
+    ["a goblin's review item", snapshot({ reviews: [review("r1")] }), { speaker: "Goblin a", text: "Goblin a wants your review: Review the plan", action: "Open Command Center" }],
+    ["a review item from a goblin no longer on the board", snapshot({ tasks: [], reviews: [review("r1")] }), { speaker: "a", text: "a wants your review: Review the plan", action: "Open Command Center" }],
     ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?", action: "Open Command Center" }],
     ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board", action: "Open Command Center" }],
     ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "Goblin a", text: "Goblin a is blocked: Needs a key", action: "Open Command Center" }],
@@ -291,11 +292,10 @@ test("fresh alerts stack below the ones on screen, at most four, the oldest leav
 
 test("an alert names who asks and what, in a few words", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**? " + "x".repeat(300) + "\n\nThe details." })] }));
-  assert.equal(alert.speaker, "Goblin a");
-  assert.ok(alert.text.startsWith("Goblin a asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
-  const [cfo] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2", { task: "" })] }));
-  assert.equal(cfo.speaker, "CFO");
-  assert.equal(cfo.text, "The CFO asks: Which option?");
+  assert.equal(alert.speaker, "CFO");
+  assert.ok(alert.text.startsWith("The CFO asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
+  const [short] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2")] }));
+  assert.equal(short.text, "The CFO asks: Which option?");
 });
 
 test("a Windows notification is only for a board he is not looking at, once allowed", () => {
