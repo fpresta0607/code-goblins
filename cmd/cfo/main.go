@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
@@ -31,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -86,6 +88,7 @@ commands:
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
+  cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
@@ -175,6 +178,9 @@ type commandRuntime struct {
 	// names resolved: refused where a checkout is needed, a literal scope
 	// where a credential scope is.
 	projectsRoot func() (string, error)
+	// repoActivity reads what GitHub says is happening in the repository a
+	// checkout's origin names, for cfo tickets.
+	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -296,6 +302,7 @@ func defaultCommandRuntime() commandRuntime {
 		restartCFO:         restartCFO,
 		setupAgent:         setupAgent,
 		choose:             onboarding.ChooseConsole,
+		repoActivity:       readRepositoryActivity,
 	}
 }
 
@@ -421,6 +428,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runFleet(args[1:], stdout, stderr, runtime)
 	case "runtime":
 		return runRuntime(args[1:], stdout, stderr, runtime)
+	case "tickets":
+		return runTickets(args[1:], stdout, stderr, runtime)
 	case "brief":
 		return runBrief(args[1:], stdout, stderr, runtime)
 	case "pr":

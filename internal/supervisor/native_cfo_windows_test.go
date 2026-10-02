@@ -17,7 +17,6 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -384,9 +383,9 @@ func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 }
 
 // A delivery to a native CFO whose screen turns to work but whose prompt hook
-// never reports taking it is unconfirmed, not delivered, since Enter may have
-// chosen a dialog's option instead.
-func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsUnconfirmed(t *testing.T) {
+// has not reported taking it is sent, not delivered, since Enter may have
+// chosen a dialog's option instead: it waits for the hook's report.
+func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
@@ -396,10 +395,10 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsUnconfirmed(
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "check") {
-		t.Errorf("Send = %v, want it unconfirmed, naming what to check before sending again", err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO {
+		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, not an error", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
@@ -407,7 +406,7 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsUnconfirmed(
 }
 
 // A delivery to a native CFO already in a turn waits behind that turn: it is
-// typed and submitted once and reported queued, not delivered, when no hook
+// typed and submitted once and reported sent, not delivered, while no hook
 // reports it taken.
 func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	stateDir := t.TempDir()
@@ -420,20 +419,21 @@ func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 		t.Fatalf("the program recorded %q, want its registration and then a turn under way", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if !errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		t.Errorf("Send = %v, want it queued behind the CFO's turn", err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO {
+		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, not an error", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want the message typed once", typed)
 	}
 }
 
-// A delivery the native CFO's hook never reports taking is typed
-// and submitted once and reported unconfirmed, never delivered and never
-// typed again.
-func TestADeliveryANativeCFONeverShowsTakingIsUnconfirmed(t *testing.T) {
+// The Overlord, 2026-10-01: "Delivery unconfirmed ... I get these command
+// center blips and errors, fix". A CFO that takes a typed answer later than
+// the confirmation window is not an error: the delivery is typed and
+// submitted once and reported sent, awaiting the hook, never typed again.
+func TestADeliveryTheNativeCFOHasNotTakenYetIsSentNotAnError(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
@@ -442,10 +442,10 @@ func TestADeliveryANativeCFONeverShowsTakingIsUnconfirmed(t *testing.T) {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
 
-	_, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, fleet.ErrQueuedBehindTurn) || !strings.Contains(err.Error(), "check") {
-		t.Errorf("Send = %v, want it unconfirmed, naming what to check before sending again", err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO {
+		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, not an error", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want the message typed once", typed)
@@ -666,6 +666,7 @@ func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *test
 	h.Service.Options.CFO = &CFOConnection{State: stateDir}
 	h.Service.checkRegistration(context.Background())
 	nativePrimary(t, stateDir)
+	recordHost(t, stateDir, os.Getpid())
 
 	// Act
 	snapshot, err := h.Service.Snapshot()
@@ -676,6 +677,94 @@ func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *test
 	}
 	if !snapshot.CFORuns || snapshot.Registration != "" {
 		t.Errorf("with a CFO registered since the last check: runs %v, registration %q; want it running and no registration problem", snapshot.CFORuns, snapshot.Registration)
+	}
+}
+
+// The CFO was closed and opened again in its terminal. The recovery cycle that
+// ran while it was closed found its process gone, and that finding is about
+// the registration it read: once the new CFO registers, the board says it runs
+// and shows no problem, never the closed one's pid until the next cycle.
+func TestAReopenedCFOIsNotReportedWithTheProblemOfTheOneItReplaced(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	h.Service.Options.CFO = &CFOConnection{State: stateDir}
+	t.Setenv("HERDR_PANE_ID", "")
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited, err := json.Marshal(primaryRegistration{Host: NativeCFOTerminal, Agent: "claude", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), exited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.Service.checkRegistration(context.Background())
+	closed, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTerminal(t, stateDir, NativeCFOTerminal)
+	starting, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	terminal.typeLine(t, "register")
+	if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+	reopened, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.CFORuns || !strings.Contains(closed.Registration, "pid 37680") {
+		t.Errorf("with the CFO closed: runs %v, registration %q; want it not running and the problem naming its process", closed.CFORuns, closed.Registration)
+	}
+	if !starting.CFOStarting || starting.Registration != "" {
+		t.Errorf("with terminal cfo up again and no CFO registered: starting %v, registration %q; want starting and no registration problem", starting.CFOStarting, starting.Registration)
+	}
+	if !reopened.CFORuns || reopened.CFOStarting || reopened.Registration != "" {
+		t.Errorf("with the reopened CFO registered: runs %v, starting %v, registration %q; want it running and no registration problem", reopened.CFORuns, reopened.CFOStarting, reopened.Registration)
+	}
+}
+
+// A CFO whose process is gone is reported by the read that finds it gone: the
+// board never says no CFO runs while giving no reason until the next cycle.
+func TestAnExitedCFOIsReportedByTheReadThatFindsItGone(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	h.Service.Options.CFO = &CFOConnection{State: stateDir}
+	nativePrimary(t, stateDir)
+	recordHost(t, stateDir, os.Getpid())
+	h.Service.checkRegistration(context.Background())
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited, err := json.Marshal(primaryRegistration{Host: NativeCFOTerminal, Agent: "claude", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), exited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.CFORuns || snapshot.Registration == "" {
+		t.Errorf("with the registered process gone since the last check: runs %v, registration %q; want it not running and the reason", snapshot.CFORuns, snapshot.Registration)
 	}
 }
 
