@@ -639,6 +639,7 @@ func TestKeeperMovesATicketWhoseTaskHasLeftTheBoard(t *testing.T) {
 
 			// Act
 			keeper.reconcile(context.Background(), nil, ticketNow)
+			keeper.reconcile(context.Background(), nil, ticketNow.Add(ticketGoneGrace))
 
 			// Assert
 			if len(github.applied) != 1 || github.applied[0].ticket.TaskID != "nw-gone" || github.applied[0].ticket.State != tc.wantState || github.applied[0].ticket.Reason != tc.wantReason {
@@ -668,13 +669,76 @@ func TestKeeperAsksAboutAnOpenPullRequestOfAGoneTaskOnceAnHour(t *testing.T) {
 
 	// Act
 	keeper.reconcile(context.Background(), nil, ticketNow)
-	keeper.reconcile(context.Background(), nil, ticketNow.Add(30*time.Minute))
+	gone := ticketNow.Add(ticketGoneGrace)
+	keeper.reconcile(context.Background(), nil, gone)
+	keeper.reconcile(context.Background(), nil, gone.Add(30*time.Minute))
 	withinTheHour := github.pullAsks
-	keeper.reconcile(context.Background(), nil, ticketNow.Add(61*time.Minute))
+	keeper.reconcile(context.Background(), nil, gone.Add(61*time.Minute))
 
 	// Assert
 	if withinTheHour != 1 || github.pullAsks != 2 || len(github.applied) != 0 {
 		t.Fatalf("asks = %d within the hour and %d after it, applied = %+v, want 1, 2 and nothing written while the pull request is open", withinTheHour, github.pullAsks, github.applied)
+	}
+}
+
+func TestKeeperLeavesATicketAloneUntilItsTaskHasBeenOffTheBoardForTheGracePeriod(t *testing.T) {
+	back := func(pull string) []Task {
+		phase := "working"
+		if pull != "" {
+			phase = "ready"
+		}
+		return []Task{{ID: "nw-gone", Title: "Old work", Harness: "claude", Evaluation: Evaluation{Phase: phase, PR: pull}}}
+	}
+	type pass struct {
+		after        time.Duration
+		isOnTheBoard bool
+	}
+	short := []pass{{}, {after: ticketGoneGrace - time.Minute}}
+	returned := []pass{{}, {after: ticketGoneGrace / 2, isOnTheBoard: true}, {after: ticketGoneGrace + time.Minute}}
+	cases := []struct {
+		name   string
+		pull   string
+		passes []pass
+	}{
+		{name: "off the board for less than the period, no pull request", passes: short},
+		{name: "off the board for less than the period, a pull request merged", pull: ticketPull, passes: short},
+		{name: "back on the board within the period, no pull request", passes: returned},
+		{name: "back on the board within the period, a pull request merged", pull: ticketPull, passes: returned},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: a task just cleaned up, on neither of the board's lists
+			// until its history is rebuilt.
+			h, checkout, github := ticketHome(t)
+			github.pulls = map[string]string{ticketPull: "MERGED"}
+			want := orphanRecord(tc.pull)
+			if err := tickets.WriteRecord(h.State, want); err != nil {
+				t.Fatal(err)
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			for _, pass := range tc.passes {
+				var tasks []Task
+				if pass.isOnTheBoard {
+					tasks = back(tc.pull)
+				}
+				keeper.reconcile(context.Background(), tasks, ticketNow.Add(pass.after))
+			}
+
+			// Assert
+			for _, applied := range github.applied {
+				if !applied.ticket.IsOpen() || applied.ticket.State != want.State {
+					t.Fatalf("applied = %+v, want the ticket left %s", github.applied, want.State)
+				}
+			}
+			if github.pullAsks != 0 {
+				t.Fatalf("pull request asks = %d, want GitHub not asked", github.pullAsks)
+			}
+			if record, err := tickets.ReadRecord(h.State, "nw-gone"); err != nil || record.IsDone || record.State != want.State || record.Status != want.Status {
+				t.Fatalf("record = %+v, %v, want it untouched", record, err)
+			}
+		})
 	}
 }
 
@@ -838,6 +902,7 @@ func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStil
 
 	// Act
 	keeper.reconcile(context.Background(), nil, ticketNow)
+	keeper.reconcile(context.Background(), nil, ticketNow.Add(ticketGoneGrace))
 
 	// Assert
 	if len(github.applied) != 1 || github.applied[0].ticket.State != tickets.Merged {
