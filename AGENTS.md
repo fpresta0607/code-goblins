@@ -140,6 +140,7 @@ The manifest holds names, probes, and links - never a credential.
 - `identity` proves the target. Declare exactly one of `var` (a resolved variable whose value must contain `expect`, which needs no tool installed) or `command` (a command whose output must contain `expect`). A service with no `identity` stays liveness-only and the report says so.
 - `login` is a non-interactive command `--fix` may run; `url` and `confirm` are what the browser fallback and the sign-in request use.
 - `optional: true` keeps a service a project can run without out of the blocking column.
+- `formats`, beside `services`, is an optional list of hints for what credential values look like, which a credential request's card warns with and never refuses a value for (see [Credential requests](docs/native-board.md#credential-requests)).
 - Unknown fields are refused. `"shared": true` sat in two manifests doing nothing for as long as there was no field to receive it, so a manifest that does not mean what it says now fails to load instead of failing at the incident it causes.
 
 ### The credential store
