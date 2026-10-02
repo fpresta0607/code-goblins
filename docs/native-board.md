@@ -849,7 +849,8 @@ What the switch held is not known then, so no stretch ends and no report is buil
 His `cfo afk on` is refused until the switch reads again, since it would guess at what the switch held.
 
 The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
-A held question the CFO answered is a decision, so the report lists it there and not as held.
+A held question the log holds an answer decision for is a decision, so the report and `cfo afk status` list it there and not as held.
+Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report as held, not waiting, and says no decision was logged for it.
 What could not be read, a log line or an allowance, is named in the report rather than left out.
 
 ## Nonblocking presentation notices
