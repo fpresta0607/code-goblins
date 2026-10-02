@@ -296,6 +296,171 @@ func TestGateTestPlansEveryPackageAtTheFullLevel(t *testing.T) {
 	}
 }
 
+// classifyingPolicy is a policy that says what every changed file is: b's
+// tests read the scripts, and no Go check reads the documentation.
+const classifyingPolicy = `{
+	"version": 1,
+	"contracts": [{"paths": ["scripts/*.ps1"], "packages": ["b"], "why": "b's tests run the scripts"}],
+	"outside": [{"paths": ["README.md", "docs/**"], "why": "documentation no Go check reads"}]
+}`
+
+// A file no package owns selects the packages a contract of the policy names
+// for it, and the plan gives the contract's reason and the file: b, which no
+// import leads to from a script.
+func TestGateTestPlanNamesThePackagesAContractSelectsWithItsReason(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": classifyingPolicy, "scripts/setup.ps1": "exit 0\n"},
+		map[string]string{"scripts/setup.ps1": "exit 1\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr, "--plan")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"cfo gate test: level affected: the default for a change",
+		"cfo gate test: the change since " + revision(t, dir, "origin/main")[:8] + " reaches 1 package(s); CI runs every package",
+		"- example.com/m/b (b's tests run the scripts: scripts/setup.ps1)",
+		"would run: go vet example.com/m/b",
+		"would run: go test -count=1 -p 2 -timeout 45m example.com/m/b",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+// A changed file the policy puts outside the Go checks selects nothing, and
+// the plan says so with the policy's reason, so what this step does not check
+// is read here and not assumed.
+func TestGateTestPlanSaysWhichChangedFilesAreOutsideTheGoChecks(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": classifyingPolicy},
+		map[string]string{"README.md": "more\n", "docs/guide.md": "a guide\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr, "--plan")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"cfo gate test: level affected: the default for a change",
+		"no Go package changed",
+		"changed files outside the Go checks:\n- README.md, docs/guide.md (documentation no Go check reads)\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+	if strings.Contains(stdout.String(), "would run") || strings.Contains(stdout.String(), "does not account for") {
+		t.Errorf("stdout %q plans a command or names a file as unaccounted for; want neither for documentation", stdout.String())
+	}
+}
+
+// A changed file that is in no package, under no contract and not listed as
+// outside the Go checks is one nobody has said anything about, so the change
+// requires every package, and the plan names the file.
+func TestGateTestPlanRequiresEveryPackageForAFileThePolicyDoesNotAccountFor(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": classifyingPolicy},
+		map[string]string{"tools/new.sh": "exit 0\n", "README.md": "more\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr, "--plan")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"cfo gate test: level full: tools/new.sh is in no package, under no contract and not listed as outside the Go checks",
+		"cfo gate test: every package is tested",
+		"changed files outside the Go checks:\n- README.md (documentation no Go check reads)\n",
+		"changed files the policy does not account for:\n- tools/new.sh\n",
+		"would run: go vet ./...",
+		"would run: go test -count=1 -p 2 -timeout 45m ./...",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+// The plan names ten of the files the policy does not account for and counts
+// the rest, so a change that adds a folder of them stays readable.
+func TestGateTestPlanCountsTheUnaccountedFilesPastTen(t *testing.T) {
+	// Arrange
+	change := map[string]string{}
+	for index := range 12 {
+		change[fmt.Sprintf("tools/new-%02d.sh", index)] = "exit 0\n"
+	}
+	dir := testStepModule(t, map[string]string{"config/verify.json": classifyingPolicy}, change)
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr, "--plan")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	if want := "- tools/new-09.sh\n- and 2 more\n"; !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "new-10.sh") {
+		t.Errorf("stdout %q; want the first ten files named, then %q", stdout.String(), want)
+	}
+}
+
+// A run records what the plan said of the change's files: the package a
+// contract selected with the contract's reason, the files outside the Go
+// checks, and the files the policy does not account for, which keep the
+// change requiring the full level when a narrower one was asked for and
+// passed.
+func TestGateTestRecordsWhatIsOutsideAndWhatIsUnaccountedForInItsReport(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t,
+		map[string]string{"config/verify.json": classifyingPolicy, "scripts/setup.ps1": "exit 0\n"},
+		map[string]string{"scripts/setup.ps1": "exit 1\n", "README.md": "more\n", "tools/new.sh": "exit 0\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(standIn(), &stdout, &stderr, "--level", "affected")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	report, _ := lastReport(t)
+	if report.Level != "affected" || report.RequiredLevel != "full" || report.Status != "passed" {
+		t.Errorf("the report says level %q, required %q, status %q; want affected, full, passed", report.Level, report.RequiredLevel, report.Status)
+	}
+	if want := []verify.Selection{{Package: "example.com/m/b", Why: "b's tests run the scripts: scripts/setup.ps1"}}; !slices.Equal(report.Selected, want) {
+		t.Errorf("the report selected %+v; want %+v", report.Selected, want)
+	}
+	if len(report.Outside) != 1 || report.Outside[0].Why != "documentation no Go check reads" || !slices.Equal(report.Outside[0].Files, []string{"README.md"}) {
+		t.Errorf("the report puts %+v outside the Go checks; want README.md, as documentation no Go check reads", report.Outside)
+	}
+	if !slices.Equal(report.Unknown, []string{"tools/new.sh"}) {
+		t.Errorf("the report names %q as unaccounted for; want tools/new.sh", report.Unknown)
+	}
+	if want := "cfo gate test: the change still requires the full level before it merges"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout %q lacks %q", stdout.String(), want)
+	}
+}
+
 // The fast level leaves a slow package's tests to the affected level and
 // says so: c's test always fails and is not run, the run passes, and both
 // its last line and its report say the change still requires affected.

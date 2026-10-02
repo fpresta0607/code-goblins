@@ -85,7 +85,8 @@ See [the native board guide](docs/native-board.md) for hook setup, build require
 The `no-mistakes` path owns review, bounded repair cycles, tests, lint, documentation, push, PR creation, and CI. Review budgets are frozen per task so changing global policy cannot silently weaken an in-flight job.
 
 This repository's own test step is `cfo gate test`, which plans before it runs.
-It says which level a change requires (`affected`, the changed Go packages and the packages that import them, or `full`, every package, once `go.mod` or `go.sum` changed), why each package is in the plan, and it leaves a report of what it ran.
+It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
+It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn and which wait.
 See [Verification levels](docs/pipeline.md#verification-levels).

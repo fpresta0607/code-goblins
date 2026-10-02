@@ -1,6 +1,7 @@
 // Package gatetest chooses what a no-mistakes gate's local test step runs in
-// this repository: the Go packages a branch changed and the packages that
-// import them directly. CI still runs every package; this bounds the local
+// this repository: the Go packages a branch changed, the packages that import
+// them directly, and the packages the repository's policy names for a changed
+// file their tests read. CI still runs every package; this bounds the local
 // step so that it fits the gate on a loaded machine.
 package gatetest
 
@@ -34,14 +35,21 @@ type Choice struct {
 	Why        string
 }
 
-func (c Choice) String() string {
+// Reason says why the package is tested: it changed, it imports a changed
+// package, or its tests read a changed file, given with the contract's
+// reason.
+func (c Choice) Reason() string {
 	switch {
 	case c.Imports != "":
-		return c.ImportPath + " (imports " + c.Imports + ")"
+		return "imports " + c.Imports
 	case c.Reads != "":
-		return c.ImportPath + " (" + c.Why + ": " + andMore([]string{c.Reads}, c.More) + ")"
+		return c.Why + ": " + andMore([]string{c.Reads}, c.More)
 	}
-	return c.ImportPath + " (changed)"
+	return "changed"
+}
+
+func (c Choice) String() string {
+	return c.ImportPath + " (" + c.Reason() + ")"
 }
 
 // andMore names the files, and counts those left out.

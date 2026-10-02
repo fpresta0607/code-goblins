@@ -195,7 +195,7 @@ func TestTheRepositoryPolicyAccountsForEveryTrackedFile(t *testing.T) {
 		t.Fatalf("the check read a policy that classifies: %v, %d tracked files and %d packages; it proves nothing unless the policy classifies and the repository was read", policy.Classifies(), len(tracked), len(packages))
 	}
 	if reach.Everything || len(reach.Unknown) != 0 {
-		t.Errorf("%s accounts for all but %d of the %d files this repository tracks, and a change to one of these would require the full level: %q", PolicyPath, len(reach.Unknown), len(tracked), reach.Unknown)
+		t.Errorf("%s accounts for all but %d of the %d files this repository tracks, and a change to one of these would require the full level: %q. Name each in that file: under contracts, with the packages whose tests read it, or under outside, with why no Go check reads it", PolicyPath, len(reach.Unknown), len(tracked), reach.Unknown)
 	}
 }
 

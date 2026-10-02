@@ -64,12 +64,15 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 // runs go vet and go test at the planned level without the fleet's CFO_HOME
 // and CFO_STATE_OVERRIDE, which a gate step inherits from the goblin's pane,
 // and leaves a report of what it ran. With no --level it runs the level the
-// change requires, the changed packages and the packages that import them
-// directly, or every package once a module file changed, while CI runs every
-// package; --level runs another level and still says what is required, and
-// --plan prints the plan and runs nothing. Above the fast level the tests wait
-// for the run's turn on the machine, and tests that ran past their level's
-// budget do not pass.
+// change requires: the changed packages, the packages that import them
+// directly and the packages a contract of the policy names for a changed
+// file, or every package once a module file changed or a changed file is one
+// the policy does not account for, while CI runs every package. The plan
+// also lists the changed files the policy puts outside the Go checks, so what
+// the step does not check is said. --level runs another level and still says
+// what is required, and --plan prints the plan and runs nothing. Above the
+// fast level the tests wait for the run's turn on the machine, and tests that
+// ran past their level's budget do not pass.
 func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -130,15 +133,15 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		Start:         start,
 	}
 	for _, choice := range plan.Choices {
-		why := "changed"
-		if choice.Imports != "" {
-			why = "imports " + choice.Imports
-		}
-		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: why})
+		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: choice.Reason()})
 	}
 	for _, left := range plan.Left {
 		report.Left = append(report.Left, verify.Left{Check: left.Check, Why: left.Why})
 	}
+	for _, set := range plan.Outside {
+		report.Outside = append(report.Outside, verify.Outside{Why: set.Why, Files: set.Files})
+	}
+	report.Unknown = plan.Unknown
 	log, reportPath, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
@@ -335,9 +338,14 @@ func runGateTurns(stdout, stderr io.Writer, available func() (uint64, error)) in
 	return 0
 }
 
+// unknownShown is how many of the files the policy does not account for a
+// plan names before it counts the rest; the report holds them all.
+const unknownShown = 10
+
 // printGatePlan prints the level a plan runs and why, each package the
-// change reaches with why, and each test run the level leaves to a broader
-// one.
+// change reaches with why, each test run the level leaves to a broader one,
+// the changed files the policy puts outside the Go checks, under its reason
+// for each, and the changed files it does not account for.
 func printGatePlan(w io.Writer, plan gatetest.Plan) {
 	if plan.Level == plan.Required {
 		fmt.Fprintf(w, "cfo gate test: level %s: %s\n", plan.Level, plan.Why)
@@ -350,9 +358,9 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 	case plan.Everything:
 		fmt.Fprintf(w, "cfo gate test: go.mod or go.sum changed since %.8s, which reaches every package\n", plan.Base)
 	case plan.Level == gatetest.Full:
-		fmt.Fprintf(w, "cfo gate test: every package is tested; %d changed since %.8s or import one that did\n", len(plan.Choices), plan.Base)
+		fmt.Fprintf(w, "cfo gate test: every package is tested; the change since %.8s reaches %d package(s)\n", plan.Base, len(plan.Choices))
 	default:
-		fmt.Fprintf(w, "cfo gate test: %d package(s) changed since %.8s or import one directly; CI runs every package\n", len(plan.Choices), plan.Base)
+		fmt.Fprintf(w, "cfo gate test: the change since %.8s reaches %d package(s); CI runs every package\n", plan.Base, len(plan.Choices))
 	}
 	for _, choice := range plan.Choices {
 		fmt.Fprintln(w, "- "+choice.String())
@@ -361,6 +369,21 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)
 		for _, left := range plan.Left {
 			fmt.Fprintln(w, "- "+left.String())
+		}
+	}
+	if len(plan.Outside) > 0 {
+		fmt.Fprintln(w, "changed files outside the Go checks:")
+		for _, set := range plan.Outside {
+			fmt.Fprintln(w, "- "+set.String())
+		}
+	}
+	if len(plan.Unknown) > 0 {
+		fmt.Fprintln(w, "changed files the policy does not account for:")
+		for _, file := range plan.Unknown[:min(len(plan.Unknown), unknownShown)] {
+			fmt.Fprintln(w, "- "+file)
+		}
+		if more := len(plan.Unknown) - unknownShown; more > 0 {
+			fmt.Fprintf(w, "- and %d more\n", more)
 		}
 	}
 }

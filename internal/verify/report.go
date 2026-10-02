@@ -48,6 +48,11 @@ type Report struct {
 	// level left to a broader one, each with why.
 	Selected []Selection `json:"selected,omitempty"`
 	Left     []Left      `json:"left,omitempty"`
+	// Outside are the changed files the policy puts outside the checks, by
+	// its reason, and Unknown the changed files the policy does not account
+	// for, which make the change require the full level.
+	Outside []Outside `json:"outside,omitempty"`
+	Unknown []string  `json:"unknown,omitempty"`
 	// Checks are the commands of the level, each with what became of it.
 	Checks []Result `json:"checks"`
 	// Status is passed only when every check ran and passed.
@@ -75,6 +80,13 @@ type Selection struct {
 type Left struct {
 	Check string `json:"check"`
 	Why   string `json:"why"`
+}
+
+// Outside is the changed files one rule of the policy puts outside the
+// checks, and why.
+type Outside struct {
+	Why   string   `json:"why"`
+	Files []string `json:"files"`
 }
 
 // StoreDir is the folder verification runs record into: the one

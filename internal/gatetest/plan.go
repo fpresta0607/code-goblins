@@ -154,11 +154,11 @@ func gather(ctx context.Context, runner execx.Runner, dir string) (findings, err
 }
 
 // build makes the plan from what was found. The change requires the affected
-// level, or the full one when a module file changed or the policy cannot be
-// read: what the build cannot be sure of widens the run. The plan runs asked,
-// or the required level when asked is empty. The policy is the default
-// branch's, as the commit at base has it, so a branch cannot loosen the
-// policy it is planned by.
+// level, or the full one when a module file changed, the policy cannot be
+// read, or a changed file is one the policy does not account for: what the
+// build cannot be sure of widens the run. The plan runs asked, or the required
+// level when asked is empty. The policy is the default branch's, as the commit
+// at base has it, so a branch cannot loosen the policy it is planned by.
 func build(found findings, asked Level) Plan {
 	plan := Plan{
 		Root:        found.root,
