@@ -219,9 +219,10 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 }
 
 // The Overlord's answer reaches the item's reporter once: a live goblin in its
-// own terminal, or the CFO that reported it, even inside a long turn, where it
-// waits in the input until the turn ends. An answer for a goblin that
-// restarted goes to the CFO instead, and the item reads undelivered.
+// own terminal, or the CFO that reported it. Inside a long turn it is typed
+// once and waits in the input, sent and not yet delivered, until the
+// reporter's hook reports taking it. An answer for a goblin that restarted
+// goes to the CFO instead, and the item reads undelivered.
 func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 	for _, c := range []struct {
 		name         string
@@ -230,12 +231,13 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 		isBusy       bool
 		wantText     string
 		wantDelivery bool
+		wantStatus   string
 	}{
-		{"a live goblin", true, false, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"a live goblin inside a long turn", true, false, true, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"a respawned goblin", true, true, false, "which came to you because task-1 restarted or ended: Go with the grid", false},
-		{"the CFO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"the CFO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true},
+		{"a live goblin", true, false, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
+		{"a live goblin inside a long turn", true, false, true, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
+		{"a respawned goblin", true, true, false, "which came to you because task-1 restarted or ended: Go with the grid", false, "succeeded"},
+		{"the CFO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
+		{"the CFO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			store, h := testStore(t)
@@ -288,8 +290,8 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 			if review := got.Reviews[0]; review.State != "answered" || review.Answer != "Go with the grid" || review.AnswerID != a.ID || review.Delivered != c.wantDelivery {
 				t.Fatalf("review = %+v, want answered with delivered=%v", review, c.wantDelivery)
 			}
-			if action := got.Actions[len(got.Actions)-1]; action.Status != "succeeded" {
-				t.Fatalf("answer action = %+v, want succeeded", action)
+			if action := got.Actions[len(got.Actions)-1]; action.Status != c.wantStatus || (action.Awaiting != nil) != c.isBusy {
+				t.Fatalf("answer action = %+v, want %s, awaiting its reporter's report only inside a long turn", action, c.wantStatus)
 			}
 			if _, err := store.Queue(Action{ID: "answer-review-2", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Actually the list"}); err == nil {
 				t.Fatal("an answered review took a second answer")
