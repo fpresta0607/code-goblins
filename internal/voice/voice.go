@@ -44,7 +44,6 @@ type Settings struct {
 	Model   Part     `json:"model"`
 	Program string   `json:"program"`
 	Args    []string `json:"args"`
-	Threads int      `json:"threads"`
 }
 
 // Voice runs Settings from Dir, the folder its downloads are kept in. Memory
@@ -115,9 +114,6 @@ func (s Settings) check() error {
 	}
 	if s.Program == "" || filepath.Base(s.Program) != s.Program {
 		return fmt.Errorf("program %q must be the name of one of the engine's files", s.Program)
-	}
-	if s.Threads < 1 {
-		return errors.New("threads must be at least 1")
 	}
 	return nil
 }
@@ -216,7 +212,7 @@ func (v *Voice) Recognize(ctx context.Context, sound []byte) (string, error) {
 		return "", err
 	}
 	engine := v.folder(v.Settings.Engine)
-	args := []string{fmt.Sprintf("--num-threads=%d", v.Settings.Threads)}
+	args := make([]string, 0, len(v.Settings.Args)+1)
 	for _, arg := range v.Settings.Args {
 		args = append(args, strings.ReplaceAll(arg, "{model}", v.folder(v.Settings.Model)))
 	}

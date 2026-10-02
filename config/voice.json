@@ -15,11 +15,11 @@
   },
   "program": "sherpa-onnx-offline.exe",
   "args": [
+    "--num-threads=2",
     "--encoder={model}/encoder.int8.onnx",
     "--decoder={model}/decoder.int8.onnx",
     "--joiner={model}/joiner.int8.onnx",
     "--tokens={model}/tokens.txt",
     "--model-type=nemo_transducer"
-  ],
-  "threads": 2
+  ]
 }

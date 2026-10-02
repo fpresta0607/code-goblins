@@ -190,17 +190,17 @@ func TestTheFirstDictationFetchesTheModelOnceAndSaysSo(t *testing.T) {
 	handler := dictationBoard(t, speech)
 	response := dictate(handler, []byte("RIFF-sound"), nil)
 	_, _, problem := answer(t, response)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being downloaded") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(problem, "being set up") {
 		t.Fatalf("the first dictation answered %d %s", response.Code, response.Body)
 	}
 	// While it downloads, another dictation starts no second download and
 	// the status says how far it is.
 	<-speech.started
 	response = dictate(handler, []byte("RIFF-sound"), nil)
-	if _, _, problem = answer(t, response); !strings.Contains(problem, "45 of 103 MB") {
+	if _, _, problem = answer(t, response); !strings.Contains(problem, "downloading model, 45 of 103 MB") {
 		t.Fatalf("a dictation during the download answered %s", response.Body)
 	}
-	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "45 of 103 MB") {
+	if _, state, note := dictationStatus(t, handler); state != "fetching" || !strings.Contains(note, "downloading model, 45 of 103 MB") {
 		t.Fatalf("the status reads %s %q", state, note)
 	}
 	close(speech.fetching)

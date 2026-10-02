@@ -41,8 +41,10 @@ const dictationPatience = 30 * time.Minute
 type dictationFetch struct {
 	mu      sync.Mutex
 	running bool
-	done    int64
-	total   int64
+	// part is the download that is arriving, the engine or the model.
+	part  string
+	done  int64
+	total int64
 	// problem is why the last download failed, until the next one starts.
 	problem string
 }
@@ -50,9 +52,9 @@ type dictationFetch struct {
 // note says how far the download is.
 func (f *dictationFetch) note() string {
 	if f.total <= 0 {
-		return "The speech model is being downloaded, once. Dictate again when it is there."
+		return "Dictation is being set up, once. Dictate again when it is there."
 	}
-	return fmt.Sprintf("The speech model is being downloaded, once: %d of %d MB. Dictate again when it is there.", f.done>>20, f.total>>20)
+	return fmt.Sprintf("Dictation is being set up, once: downloading %s, %d of %d MB. Dictate again when it is there.", f.part, f.done>>20, f.total>>20)
 }
 
 // fetchDictation starts the engine's download unless one runs, and returns
@@ -66,7 +68,7 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		return fetch.note()
 	}
 	note := fetch.problem
-	fetch.running, fetch.done, fetch.total, fetch.problem = true, 0, 0, ""
+	fetch.running, fetch.part, fetch.done, fetch.total, fetch.problem = true, "", 0, 0, ""
 	if note == "" {
 		note = fetch.note()
 	}
@@ -76,9 +78,9 @@ func (h *HTTP) fetchDictation(speech Dictation) string {
 		// The download outlives the request that started it.
 		ctx, cancel := context.WithTimeout(context.Background(), h.dictationPatience)
 		defer cancel()
-		err := speech.Fetch(ctx, func(_ string, done, total int64) {
+		err := speech.Fetch(ctx, func(part string, done, total int64) {
 			fetch.mu.Lock()
-			fetch.done, fetch.total = done, total
+			fetch.part, fetch.done, fetch.total = part, done, total
 			fetch.mu.Unlock()
 		})
 		fetch.mu.Lock()
