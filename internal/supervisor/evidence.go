@@ -365,7 +365,7 @@ func supersedesQuestion(report string) bool {
 }
 
 // reportedProgress is what a goblin last said it is doing: working on
-// something, or waiting on another task, the Overlord, CI or a deploy. A wait
+// something, or waiting on another task, the Overlord, CI, a deploy or memory. A wait
 // on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CFO; any other wait lasts until the goblin reports again.
