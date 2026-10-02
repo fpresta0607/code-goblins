@@ -216,6 +216,24 @@ A tab left open across an install notices the newer board: a hidden tab reloads 
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
+### The desktop app
+
+The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
+It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
+It lives in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), the private repository where the desktop app is built before it comes here; no release of this repository ships it yet.
+To get it, build it from a clone of that repository, which needs Go, and add it beside your CFO home with that repository's `tools\install-window.ps1`:
+
+```powershell
+go build -trimpath -ldflags "-H windowsgui" -o C:\build\goblins-window.exe ./cmd/goblins-window
+(Get-FileHash C:\build\goblins-window.exe -Algorithm SHA256).Hash
+.\tools\install-window.ps1 -Window C:\build\goblins-window.exe -Sha256 <the hash it printed> -CfoHome C:\path\to\the\home
+```
+
+The script refuses a file whose SHA-256 is not the one given, says that the build is unsigned and what Windows shows for it, copies it to `%LOCALAPPDATA%\CodeGoblinsWindow` and adds **Code Goblins Window** to the Start menu, which starts it; it stops or starts no process itself.
+Closing the window hides it to the tray, and `.\tools\install-window.ps1 -Remove`, once the window is quit from the tray, takes it away again.
+Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
+That repository's README has the rest: what Windows shows for an unsigned build, how the window differs from the browser board, and troubleshooting.
+
 ### Board and Orchestration
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
@@ -580,6 +598,7 @@ Code Goblins is becoming a native Windows desktop app.
 - **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts Claude Code, pi and codex goblins this way by default, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
+  Its first build, a desktop window for the board, exists outside this repository's releases: [The desktop app](#the-desktop-app).
 
 ## Development
 
