@@ -182,7 +182,7 @@ func TestPRMergeDeletesTheRemoteRefEvenWhenTheLocalBranchIsHeldByAWorktree(t *te
 	}
 
 	var stdout, stderr bytes.Buffer
-	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner)
+	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil)
 
 	if exit != 0 {
 		t.Fatalf("exit=%d, want 0 - the merge landed, so a leftover local branch is not a failure; stderr=%s", exit, stderr.String())
@@ -213,7 +213,7 @@ func TestPRMergeNeverForwardsDeleteBranchToGH(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	for _, request := range runner.requests {
@@ -232,7 +232,7 @@ func TestPRMergeDeletesBothWhenNoWorktreeHoldsTheBranch(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "deleted remote branch fix/x") || !strings.Contains(stdout.String(), "deleted local branch fix/x") {
@@ -252,7 +252,7 @@ func TestPRMergeStaysSilentWhenTheRemoteRefIsAlreadyGone(t *testing.T) {
 	runner := &prMergeRunner{deleteExit: 1, deleteStderr: prMergeRefGone, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if stderr.Len() != 0 {
@@ -272,7 +272,7 @@ func TestPRMergeReportsAFailedRemoteDeletionWithoutClaimingIt(t *testing.T) {
 	runner := &prMergeRunner{deleteExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d, want 0 - the merge still landed; stderr=%s", exit, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "deleted remote branch") {
@@ -291,7 +291,7 @@ func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {
 	runner := &prMergeRunner{mergeExit: 1, localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 1 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 1 {
 		t.Fatalf("exit=%d, want 1 for a refused merge", exit)
 	}
 	if runner.ran("gh", "api") || runner.ran("git", "branch") {
@@ -304,7 +304,7 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeHeadOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if len(runner.requests) != 2 {
@@ -323,7 +323,7 @@ func TestPRMergeLeavesALocalBranchOnADifferentCommitAlone(t *testing.T) {
 	runner := &prMergeRunner{localOid: prMergeOtherOID}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if runner.ran("git", "branch", "-D", "fix/x") {
@@ -341,7 +341,7 @@ func TestPRMergeStaysSilentWhenThereIsNoLocalBranch(t *testing.T) {
 	runner := &prMergeRunner{localOid: ""}
 
 	var stdout, stderr bytes.Buffer
-	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner); exit != 0 {
+	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
 	if runner.ran("git", "branch", "-D", "fix/x") {

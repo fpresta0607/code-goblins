@@ -121,4 +121,7 @@ func TestBannerColourIsOnlyForAConsoleWithoutNoColor(t *testing.T) {
 	if bannerColor(console) {
 		t.Error("NO_COLOR set to nothing still got colour")
 	}
+	if !consoleTakesEscapes(console) {
+		t.Error("NO_COLOR made a console plain, though it is about colour alone")
+	}
 }

@@ -38,6 +38,25 @@ type Provider struct {
 	Scopes map[string]Scope
 	// Resets maps a window id to when it resets, for naming a wall's end.
 	Resets map[string]time.Time
+	// Windows are the provider's windows with what each has used, and Credits
+	// its credit balance when it reports one.
+	Windows []Window
+	Credits *Credits
+}
+
+// Window is one of a provider's allowance windows and how much of it is used.
+type Window struct {
+	ID          string
+	Label       string
+	PercentUsed float64
+	ResetsAt    time.Time
+}
+
+// Credits is a provider's credit balance.
+type Credits struct {
+	Remaining float64
+	Unlimited bool
+	Unit      string
 }
 
 // Scope is the effective headroom for one scope of a provider.
@@ -154,9 +173,16 @@ type payload struct {
 	Providers   []struct {
 		Provider string `json:"provider"`
 		Windows  []struct {
-			ID       string `json:"id"`
-			ResetsAt string `json:"resetsAt"`
+			ID          string          `json:"id"`
+			Label       string          `json:"label"`
+			PercentUsed json.RawMessage `json:"percentUsed"`
+			ResetsAt    string          `json:"resetsAt"`
 		} `json:"windows"`
+		Credits *struct {
+			Remaining json.RawMessage `json:"remaining"`
+			Unlimited bool            `json:"unlimited"`
+			Unit      string          `json:"unit"`
+		} `json:"credits"`
 		State struct {
 			Stale bool `json:"stale"`
 		} `json:"state"`
@@ -196,8 +222,18 @@ func Parse(data []byte, now time.Time) (Report, error) {
 	for _, p := range in.Providers {
 		provider := Provider{Name: p.Provider, Stale: p.State.Stale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
 		for _, w := range p.Windows {
-			if at, err := time.Parse(time.RFC3339Nano, w.ResetsAt); err == nil {
+			at, err := time.Parse(time.RFC3339Nano, w.ResetsAt)
+			if err == nil {
 				provider.Resets[w.ID] = at
+			}
+			// A window whose use quota-axi could not measure is no reading.
+			if used, ok := number(w.PercentUsed); ok {
+				provider.Windows = append(provider.Windows, Window{ID: w.ID, Label: w.Label, PercentUsed: used, ResetsAt: at.UTC()})
+			}
+		}
+		if p.Credits != nil {
+			if remaining, ok := number(p.Credits.Remaining); ok || p.Credits.Unlimited {
+				provider.Credits = &Credits{Remaining: remaining, Unlimited: p.Credits.Unlimited, Unit: p.Credits.Unit}
 			}
 		}
 		for _, e := range p.QuotaSemantics.EffectiveAvailability {
