@@ -123,6 +123,9 @@ type Database struct {
 	// not take them yet: still arriving, or held by the Overlord's own board
 	// answer on its way. Only the pipe adds to them, so each is proven.
 	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
+	// Announced is every Command Center key the board has announced, so no
+	// item is announced twice.
+	Announced []Announcement `json:"announced,omitempty"`
 }
 
 type Store struct {
@@ -239,6 +242,7 @@ func cloneDatabase(d Database) Database {
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
+	d.Announced = slices.Clone(d.Announced)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}

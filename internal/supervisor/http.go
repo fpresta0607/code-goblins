@@ -146,6 +146,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.action(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
+	case r.URL.Path == "/api/announce" && r.Method == "POST":
+		h.announceItems(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
