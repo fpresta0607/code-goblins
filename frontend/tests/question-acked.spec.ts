@@ -1,31 +1,33 @@
 import { expect, test } from "./site";
 
 // The Overlord, 2026-10-01: "they shouldn't say withdrawn it should say
-// complete". A goblin's question he answered in chat, which the CFO relayed
-// and retired with --ack-blocking, read "The CFO already handled this
-// question." beside an X. It finishes as answered, with the check, on its
-// open card and in History. Since 2026-10-02 the open card finishes as one he
-// sent from does: its check with Answered, then it leaves.
-test("a question the CFO answered and acked reads answered with the check, on its card and in History", async ({ page }) => {
+// complete", and 2026-10-02: "The Command Center should only give me
+// questions that the CFO has for the Overlord, for me." A goblin's question
+// to the CFO is never a card of his and never waits on him. Once the CFO has
+// answered and acked it, it is in History as answered, with the check.
+test("a goblin's question the CFO answered and acked was never his to answer, and is in History with the check", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/question-acked.html");
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("Which accent should the board use?")).toBeVisible();
+  const menu = page.getByLabel("Command Center", { exact: true });
+  const history = page.locator(".inbox-history");
+
+  // Assert: while it waits on the CFO, nothing waits on him and nothing of
+  // it shows.
+  await expect(menu).toBeVisible();
+  await expect(dialog).toBeHidden();
+  await menu.click();
+  await expect(page.locator(".command-center-menu")).toContainText("Nothing is waiting on you.");
+  await expect(history).toHaveCount(0);
 
   // Act
   await page.evaluate(() => window.ackByCFO?.());
 
   // Assert
-  // The check shows for three quarters of a second, so one look reads it all.
-  await expect(dialog.locator(".done-card:has(svg.check-anim)")).toHaveText(/^Answered\s*The CFO answered it$/);
   await expect(dialog).toBeHidden();
-
-  // Act
-  await page.getByLabel("Command Center", { exact: true }).click();
-  const history = page.locator(".inbox-history");
+  await expect(menu).toBeVisible();
   await history.locator("summary").click();
-
-  // Assert
+  await expect(history).toContainText("Which accent should the board use?");
   await expect(history).toContainText("The CFO answered it");
   await expect(history.locator(".delivery.succeeded")).toHaveCount(1);
 });
