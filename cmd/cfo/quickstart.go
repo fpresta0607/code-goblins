@@ -176,11 +176,11 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if len(resume) > 0 {
 		conversation := resume[len(resume)-1]
 		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
-		if err := runtime.startNativeCFO(h, h.Root, agent, resume); err != nil {
+		held, err := comeBack(h, agent, resume, runtime.startNativeCFO, runtime.nativeTerminalRuns)
+		if err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
-		cfoResumeWait(cfoResumeSettle)
-		if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		if held {
 			notes := runtime.settleCFO(ctx, h.State, agent)
 			list.Done("CFO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCFOTerminal))
 			for _, note := range append(wakePath(agent), notes...) {

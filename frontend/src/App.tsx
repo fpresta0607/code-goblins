@@ -143,12 +143,15 @@ export function App() {
   // A CFO starting in its terminal waits there for Claude Code's sign-in, so
   // the board opens that terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
+  // A CFO that was closed starts again in its terminal when it is reopened,
+  // and that terminal opens by itself once more.
+  if (snapshot?.cfo_closed && startingShown) setStartingShown(false);
   // A task the Overlord started opens on its terminal once its session is up;
   // a start that failed shows why on its card instead.
   const outcome = awaitingStart && snapshot ? startOutcome(awaitingStart, snapshot) : "wait";
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
   // The board's root is the first-run page whenever no CFO runs.
-  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, choice: firstRunChoice });
+  const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, choice: firstRunChoice });
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());

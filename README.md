@@ -195,7 +195,8 @@ So a Codex or pi CFO always starts in a native terminal, and the first prompt go
 It has none of the hooks a Claude Code CFO has: nothing gives it the session digest, nothing guards its turns, and a closed pi CFO starts a new conversation.
 Claude Code is the recommended one, the choice of agent says in a few words what each gets, and `cfo doctor` lists what the home's CFO goes without.
 Each starts on the model its own configuration names, so a Codex whose configured model the signed-in account cannot use fails its first turn and never registers: change the model with Codex's `/model`, then tell it to run `cfo register`.
-Without a terminal, `goblins --board` opens the board, and whenever no CFO runs the board shows its first-run screen.
+Without a terminal, `goblins --board` opens the board, and in a home that has had no CFO the board shows its first-run screen while none runs.
+A home whose CFO was closed, however it ended, keeps its board: the CFO's bar says the CFO is closed, with one action, **Reopen the CFO**, which brings it back as `goblins` does, and no message names a process or tells you to run `cfo register`.
 It shows as done what the quick start already knows, the home and the agent you chose there, offers the agents as one row of icon tabs, and **Start the CFO** starts it in the home, never in a project, and opens it in the board's terminal.
 The folder that holds your projects is optional there.
 The page starts only Claude Code as the CFO, for the same reason, and still shows Codex and Pi with whether each is installed and signed in.

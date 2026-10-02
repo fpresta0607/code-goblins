@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Snapshot } from "./types";
+import { message, request } from "./api";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { DialogueBox } from "./DialogueBox";
@@ -14,11 +16,35 @@ import { harnessTip } from "./workflow";
 // dialogue box, saying what it needs from him, with Open Command Center, where
 // its questions are. With no CFO running, which he sees only after choosing
 // the board without one, the box's button leads back to the first-run page to
-// start one. A CFO still starting waits in its terminal for Claude Code's
-// sign-in. The mark of the harness the registered CFO runs sits beside its
+// start one. A CFO that was closed, however it ended, is said to be closed,
+// with Reopen as its one action, which brings it back as goblins does. A CFO
+// still starting waits in its terminal for Claude Code's sign-in. The mark of
+// the harness the registered CFO runs sits beside its
 // portrait, with the model of its newest session in that harness in its tip.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { asking, line } = cfoSummary(snapshot);
+  const [reopening, setReopening] = useState(false);
+  const [failure, setFailure] = useState("");
+  // The board shows the reopened CFO from its next snapshot, so a reopen
+  // that worked has nothing more to do here.
+  const reopen = async () => {
+    setReopening(true);
+    setFailure("");
+    try {
+      await request("/api/cfo/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: "{}" });
+    } catch (error) {
+      setFailure(message(error));
+    } finally {
+      setReopening(false);
+    }
+  };
+  if (snapshot.cfo_closed) return <div className="cfo-pin">
+    <div className="cfo-rest" role="group" aria-label="CFO">
+      <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
+      <p>The CFO is closed. Goblins keep running.{failure && <span className="warning-text" role="alert"> {failure}</span>}</p>
+      <button className="pixel-button" disabled={reopening} onClick={reopen}><Icon name="play" />{reopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
+    </div>
+  </div>;
   const absent = !snapshot.cfo_runs;
   const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: sign in to Claude Code in its terminal." : line;
   const terminal = "Open the CFO's terminal";

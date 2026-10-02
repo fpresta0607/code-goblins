@@ -847,6 +847,10 @@ type Snapshot struct {
 	// yet; the board opens that terminal for its sign-in, and no registration
 	// problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
+	// CFOClosed says the home's CFO registered and has since ended, with no
+	// terminal up for a new one. The board then shows no first-run page and
+	// no registration problem: it says the CFO is closed and offers Reopen.
+	CFOClosed bool `json:"cfo_closed"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
@@ -872,7 +876,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	s.mu.Unlock()
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it

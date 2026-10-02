@@ -36,10 +36,12 @@ type FirstRun struct {
 	ProjectsRoot    func() (string, error)
 	SetProjectsRoot func(root string) error
 	// CFORuns says a CFO is registered or its native terminal is up;
-	// StartCFO starts agent as the CFO in native terminal cfo, in the home.
-	CFORuns  func() bool
-	StartCFO func(agent string) error
-	mu       sync.Mutex
+	// StartCFO starts agent as the CFO in native terminal cfo, in the home;
+	// ReopenCFO brings the home's closed CFO back as goblins does.
+	CFORuns   func() bool
+	StartCFO  func(agent string) error
+	ReopenCFO func() error
+	mu        sync.Mutex
 }
 
 // StartRefusal is a start the board cannot make, of the CFO from the
@@ -217,6 +219,42 @@ func (f *FirstRun) Start(root, agent string) error {
 		return fmt.Errorf("the CFO could not be started: %w", err)
 	}
 	return nil
+}
+
+// Reopen brings the home's closed CFO back, as running goblins does: as the
+// agent the home remembers, on the conversation it last registered with where
+// its harness resumes one. It starts none beside a CFO that runs or is
+// starting.
+func (f *FirstRun) Reopen() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.CFORuns() {
+		return StartRefusal{Reason: "The CFO already runs; open its terminal from the board"}
+	}
+	if err := f.ReopenCFO(); err != nil {
+		return fmt.Errorf("the CFO could not be reopened: %w", err)
+	}
+	return nil
+}
+
+// reopenCFO serves POST /api/cfo/reopen, the board's Reopen for a closed CFO.
+func (h *HTTP) reopenCFO(w http.ResponseWriter, _ *http.Request) {
+	if h.Service.Options.FirstRun == nil {
+		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		return
+	}
+	if err := h.Service.Options.FirstRun.Reopen(); err != nil {
+		status := http.StatusInternalServerError
+		if errors.As(err, new(StartRefusal)) {
+			status = http.StatusConflict
+		}
+		apiError(w, status, err.Error())
+		return
+	}
+	h.Service.notify()
+	respond(w, http.StatusOK, struct {
+		Reopened bool `json:"reopened"`
+	}{true})
 }
 
 // setup serves GET /api/setup, the first-run page for the folder in ?root.
