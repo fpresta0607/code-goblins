@@ -175,8 +175,9 @@ async function covers(page: Page, title: string, width: number) {
   });
 }
 
-// At 900 px the board is narrow enough to stack and to shorten that title.
-for (const [layout, width] of [["side by side", 2400], ["stacked", 900]] as const) {
+// At 820 px the board is narrow enough to stack and to shorten that title to
+// its three lines.
+for (const [layout, width] of [["side by side", 2400], ["stacked", 820]] as const) {
   test(`with the columns ${layout}, the first queued card's tip covers neither the memory meter nor another card's controls`, async ({ page }) => {
     expect(await covers(page, SEEN, width)).toEqual([]);
   });
