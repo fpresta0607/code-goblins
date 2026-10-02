@@ -995,3 +995,21 @@ func TestKeeperClosesTheTicketOfAFinishedTaskThatAgedOffTheBoardWithItsBriefStil
 		t.Fatalf("applied = %+v, want the ticket closed by its merge", github.applied)
 	}
 }
+
+func TestKeeperPutsTheOverlapTheCFOAcceptedOnTheTicket(t *testing.T) {
+	// Arrange: cfo spawn started the task beside a teammate's pull request
+	// and kept the CFO's reason; only the supervisor writes tickets.
+	h, checkout, github := ticketHome(t)
+	if err := tickets.WriteOverlapNote(h.State, "nw-sync", "PR #412: it only adds a log line"); err != nil {
+		t.Fatal(err)
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{liveTask("working", "")}, ticketNow)
+
+	// Assert
+	if len(github.applied) != 1 || github.applied[0].ticket.Overlap != "PR #412: it only adds a log line" {
+		t.Fatalf("applied = %+v, want the ticket to carry the accepted overlap", github.applied)
+	}
+}
