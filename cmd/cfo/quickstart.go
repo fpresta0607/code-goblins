@@ -155,7 +155,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
 		fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", agent, h.Root, supervisor.NativeCFOTerminal)
-		warnNoWakePath(stdout, agent)
+		sayWakePath(stdout, agent, true)
 		for _, note := range runtime.settleCFO(ctx, h.State, agent) {
 			fmt.Fprintln(stdout, note)
 		}
@@ -170,7 +170,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
 	fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s.\n", agent, h.Root)
-	warnNoWakePath(stdout, agent)
+	sayWakePath(stdout, agent, false)
 	for _, note := range unreached(agent, nil) {
 		fmt.Fprintln(stdout, note)
 	}
