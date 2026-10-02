@@ -37,13 +37,28 @@ func TestACFOWithNoSessionStartHookStartsWithAPromptThatRegistersIt(t *testing.T
 	}
 }
 
-// The prompt names the one command that registers the CFO, and holds nothing
-// cmd would read as its own when the harness starts through its npm shim.
+// The prompt names the one command that registers the CFO, and a harness
+// started through its npm shim, by cmd /c, is given it whole as its last
+// argument: cmd reads nothing in it as its own.
 func TestTheFirstPromptNamesTheRegisterCommandInWordsCmdLeavesAlone(t *testing.T) {
 	if !strings.Contains(cfoFirstPrompt, "cfo register") {
 		t.Errorf("the first prompt %q does not name cfo register", cfoFirstPrompt)
 	}
-	if strings.ContainsAny(cfoFirstPrompt, "&|<>^%\"'`\n") {
-		t.Errorf("the first prompt %q holds a character cmd or a shell would act on", cfoFirstPrompt)
+	for _, harness := range []string{"codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			harnessesOnPath(t, harness)
+
+			// Act
+			program, err := nativeCFOProgram(harness, cfoStartArguments(harness, nil)...)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("nativeCFOProgram(%s) with the first prompt: %v", harness, err)
+			}
+			if len(program) == 0 || program[len(program)-1] != cfoFirstPrompt {
+				t.Errorf("nativeCFOProgram(%s) = %q, want the first prompt whole as its last argument", harness, program)
+			}
+		})
 	}
 }

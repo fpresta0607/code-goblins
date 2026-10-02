@@ -711,11 +711,12 @@ func TestTheBoardShowsTheCFOsTerminalBeforeTheCFORegisters(t *testing.T) {
 	}
 }
 
-// A CFO started in native terminal cfo registers only after Claude Code's
-// own onboarding and sign-in, so until then the snapshot says it is starting
-// and carries no registration problem: the board opens its terminal for the
-// sign-in instead of telling the Overlord to run cfo register. With no
-// terminal cfo up, the problem stands.
+// A CFO started in native terminal cfo has not registered yet: Claude Code
+// registers through its SessionStart hook after its onboarding and sign-in, a
+// Codex or pi CFO when its first prompt runs cfo register. Until then the
+// snapshot says it is starting and carries no registration problem: the board
+// opens its terminal for whatever it asks there instead of telling the
+// Overlord to run cfo register. With no terminal cfo up, the problem stands.
 func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")
@@ -743,7 +744,7 @@ func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
 	}
 }
 
-// A CFO that registers after sign-in is not reported as unregistered until
+// A CFO that registers after starting is not reported as unregistered until
 // the next registration check: the check that found none no longer stands.
 func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *testing.T) {
 	// Arrange

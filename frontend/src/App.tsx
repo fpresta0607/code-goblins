@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRuntimeStream } from "./stream";
+import { useItemState } from "./use-item-state";
 import { Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
 import { Orchestration } from "./Orchestration";
@@ -23,6 +24,7 @@ import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 import { panelViews } from "./cards";
 import { startOutcome, type AcceptedStart } from "./start";
 import { useStart } from "./useStart";
+import { watchTips } from "./tips";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
@@ -48,9 +50,16 @@ function store(key: string, value: string) {
 
 // The board's layout, kept in this browser: kanban unless stacked was chosen.
 const BOARD_LAYOUT_KEY = "cfo-board-layout";
+// The board's area at or under this width is one column whatever the layout:
+// the 960 px container rule on .task-board in styles.css, which
+// tests/kanban-board.spec.ts holds to this number.
+const KANBAN_NEEDS_OVER = 960;
 
 export function App() {
-  const { snapshot, connection, error } = useRuntimeStream();
+  const { snapshot: received, connection, error } = useRuntimeStream();
+  // What the board draws holds closed every item it knows to be closed, so
+  // nothing he acted on waits for the next snapshot to leave.
+  const { snapshot, sent } = useItemState(received);
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
@@ -60,6 +69,8 @@ export function App() {
   const [selected, setSelected] = useState<Selection | null>(null);
   // The CFO chosen by name, which the Board shows in the panel too.
   const [cfoOpen, setCfoOpen] = useState(false);
+  // The view the CFO's own panel last showed, which Back returns to.
+  const [cfoPanelView, setCfoPanelView] = useState<PanelView | null>(null);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
@@ -81,6 +92,11 @@ export function App() {
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLElement>(null);
+  // Whether the board's area is too narrow for its columns side by side; a
+  // board hidden behind a maximized panel has no width to judge.
+  const [boardNarrow, setBoardNarrow] = useState(false);
+  useEffect(watchTips, []);
   useEffect(() => {
     const query = matchMedia("(max-width: 40rem)");
     const changed = () => setCompact(query.matches);
@@ -140,8 +156,9 @@ export function App() {
     setSwitchFocus((prior) => prior + 1);
   };
   if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
-  // A CFO starting in its terminal waits there for Claude Code's sign-in, so
-  // the board opens that terminal by itself, once.
+  // A CFO starting in its terminal has not registered yet and may be asking
+  // something there, such as Claude Code's sign-in, so the board opens that
+  // terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
   // A CFO that was closed starts again in its terminal when it is reopened,
   // and that terminal opens by itself once more.
@@ -152,6 +169,12 @@ export function App() {
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, choice: firstRunChoice });
+  useEffect(() => {
+    if (!canvas.current) return;
+    const observer = new ResizeObserver(([entry]) => setBoardNarrow(entry.contentRect.width > 0 && entry.contentRect.width <= KANBAN_NEEDS_OVER));
+    observer.observe(canvas.current);
+    return () => observer.disconnect();
+  }, [firstRun]);
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
@@ -162,10 +185,27 @@ export function App() {
   const shownView: PanelView = panelViews(selected ? task : undefined, selected ? selectedSession : undefined).includes(panelView) ? panelView : "task";
   const terminalShown = showsPanel && shownView === "terminal";
   if (terminalShown && !terminalOpened) setTerminalOpened(true);
+  if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizeView, maximizedChoice[maximizeView]);
   const panelWide = paneOpen && maximized && !compact;
+  // Back, on the panel of anything but the CFO, returns the panel to the
+  // CFO's on the view it last showed, still maximized if it was, and hands
+  // the keyboard back to where the panel was opened from, or to the panel
+  // when that is out of sight behind it.
+  const backShown = showsPanel && !!selected;
+  const back = () => {
+    const target = cfoPanelView ?? (view === "Board" ? "task" : "terminal");
+    if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(view, target)]: "true" }));
+    setSelected(null);
+    setCfoOpen(true);
+    setPanelView(target);
+    requestAnimationFrame(() => {
+      returnFocus.current?.focus();
+      if (document.activeElement !== returnFocus.current) pane.current?.focus({ preventScroll: true });
+    });
+  };
   const divided = paneOpen && !panelWide && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
@@ -183,10 +223,12 @@ export function App() {
     {shownWindow && <button className="icon-button" aria-label="Open in Windows Terminal" data-tip="Open in terminal" data-tip-align="end" onClick={() => void openWindow()}><Icon name="external" /></button>}
     {shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>}
     {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
-    <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
+    {backShown
+      ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
+      : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>}
   </>;
   return <div className="app-shell" onKeyDown={(event) => {
-    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); close(); }
+    if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
     <header className="topbar">
       <a className="brand" href="/" aria-label="Code Goblins home">
@@ -197,9 +239,14 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {!firstRun && view === "Board" && <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
-          onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>}
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} />}
+        {/* A kanban board too narrow for columns side by side is stacked, so
+            there the button changes nothing and says why; a board stacked by
+            choice keeps its way back, since the panel yields to a kanban. */}
+        {!firstRun && view === "Board" && (boardNarrow && boardLayout === "kanban"
+          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
+          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
+            onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
+        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} onSent={sent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
         </div>
@@ -210,8 +257,8 @@ export function App() {
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
-    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
-      <main className="canvas-region" aria-label={view} hidden={panelWide}>
+    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
+      <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
@@ -228,8 +275,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)}
-            leading={view === "Orchestration" && selected ? <button className="icon-button" aria-label="Back to CFO" data-tip="Back to CFO" data-tip-align="start" onClick={() => setSelected(null)}><Icon name="back" /></button> : undefined} />)}
+            onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
           <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
             onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />

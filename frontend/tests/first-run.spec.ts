@@ -215,4 +215,20 @@ test.describe("at the desktop window's size", () => {
     expect(overflows).toEqual({ sideways: false, down: false });
     await page.screenshot({ path: testInfo.outputPath("first-run-window.png") });
   });
+
+  test("a Codex CFO chosen there shows what it gets and can start, with nothing cut off", async ({ page }, testInfo) => {
+    // Arrange
+    await open(page, setup({ agent: "codex" }));
+
+    // Act
+    const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+
+    // Assert
+    await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel")).toContainText("woken by a typed line; no digest or guards");
+    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
+    expect(sideways).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("first-run-window-codex.png") });
+  });
 });

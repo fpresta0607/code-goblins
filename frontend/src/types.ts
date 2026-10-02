@@ -143,8 +143,10 @@ export interface Snapshot {
   // cfo_runs says a CFO is registered and running or starting; without one
   // the board shows its first-run page.
   cfo_runs: boolean;
-  // cfo_starting says the CFO runs in its terminal but has not registered,
-  // which it does only after Claude Code's sign-in there.
+  // cfo_starting says the CFO runs in its terminal but has not registered
+  // yet: Claude Code registers through its SessionStart hook after its
+  // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
+  // register.
   cfo_starting: boolean;
   // cfo_closed says the home's CFO registered and has since ended, with no
   // terminal up for a new one: the board says so and offers Reopen, and
@@ -381,6 +383,40 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }
+// The Command Center's items as the supervisor's stream sends them between
+// snapshots: its questions, review items, runs, credential requests and
+// actions, with the supervisor they are from and its revision.
+export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; actions: Action[] }
+function itemLists(v: Record<string, unknown>) {
+  return {
+    questions: array(v.questions).map((value) => {
+      const q = object(value);
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
+    }),
+    reviews: array(v.reviews).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
+        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
+        state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
+        created_at: string(r.created_at), updated_at: string(r.updated_at) };
+    }),
+    runs: array(v.runs).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
+        command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
+        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
+        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
+    }),
+    credentials: array(v.credentials).map(parseCredentialRequest),
+    actions: array(v.actions).map(parseAction),
+  };
+}
+export function parseItems(value: unknown): Items {
+  const v = object(value);
+  return { instance: string(v.instance), revision: number(v.revision), ...itemLists(v) };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -409,27 +445,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     issues: strings(v.issues),
     attention: strings(v.attention),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
-    questions: array(v.questions).map((value) => {
-      const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
-    }),
-    reviews: array(v.reviews).map((value) => {
-      const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
-        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
-        state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
-        created_at: string(r.created_at), updated_at: string(r.updated_at) };
-    }),
-    runs: array(v.runs).map((value) => {
-      const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
-        command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
-        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
-        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
-    }),
-    credentials: array(v.credentials).map(parseCredentialRequest),
+    ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
@@ -491,7 +507,6 @@ export function parseSnapshot(value: unknown): Snapshot {
         updated_at: string(s.updated_at),
       };
     }),
-    actions: array(v.actions).map(parseAction),
     decisions: array(v.decisions).map((value) => {
       const d = object(value);
       return {

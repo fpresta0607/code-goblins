@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -62,6 +63,8 @@ type Options struct {
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
+	// CI runs gh and git for the CI wakes; without it no CI is watched.
+	CI execx.Runner
 	// Credentials opens the credential store cfo auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
@@ -101,11 +104,16 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// historyErr is what the last history refresh met, and cfoWakeErr what
-	// every typed CFO wake met since the last recovery cycle; the loop
-	// reports them with its next recovery cycle.
-	historyErr error
-	cfoWakeErr error
+	// historyErr is what the last history refresh met, and cfoWakeErr and
+	// fleetErr what every typed CFO wake and every fleet wake reading met
+	// since the last recovery cycle; the loop reports them with its next
+	// recovery cycle. ciUnreadable is why each watched repository's CI
+	// cannot be read, as of the last fleet reading; every recovery cycle
+	// reports it for as long as the failure lasts.
+	historyErr   error
+	cfoWakeErr   error
+	fleetErr     error
+	ciUnreadable error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -285,6 +293,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepCFOAwake(ctx, cfoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
+	fleetDone := make(chan struct{})
+	go func() {
+		defer close(fleetDone)
+		s.keepFleetWakes(ctx, fleetWatchEvery)
+	}()
+	defer func() { s.cancel(); <-fleetDone }()
 	ticketsDone := make(chan struct{})
 	go func() {
 		defer close(ticketsDone)
@@ -382,8 +396,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr)
-		s.cfoWakeErr = nil
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))
@@ -614,8 +628,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "review_answer" {
 		return s.answerReview(ctx, a)
 	}
-	// The CFO asked a dismissed question, or holds the goblin's notify that
-	// did, so it hears that the Overlord dismissed it.
+	// A clear closed its item when the board took it. The CFO asked a
+	// dismissed question, or holds the goblin's notify that did, so it hears
+	// here that the Overlord dismissed it.
 	tellDismissed := func(evaluation Evaluation, dismissed Question) Evaluation {
 		whose := "your question " + dismissed.ID
 		if dismissed.Task != "" {
@@ -626,22 +641,17 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		}
 		return evaluation
 	}
-	if a.Kind == "review_clear" {
-		evaluation, dismissed, err := s.Store.clearReview(a.ReviewID, a.Generation, a.Text)
-		if err != nil {
-			return evaluation, err
+	if a.Kind == "review_clear" || a.Kind == "question_clear" {
+		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
+		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
+			evaluation.Reason = "Dismissed from the Command Center."
 		}
-		for _, q := range dismissed {
-			evaluation = tellDismissed(evaluation, q)
+		for _, q := range s.Store.Snapshot().Questions {
+			if slices.Contains(a.Dismissed, q.ID) {
+				evaluation = tellDismissed(evaluation, q)
+			}
 		}
 		return evaluation, nil
-	}
-	if a.Kind == "question_clear" {
-		evaluation, dismissed, err := s.Store.clearQuestion(a.QuestionID, a.Generation)
-		if err != nil || dismissed == nil {
-			return evaluation, err
-		}
-		return tellDismissed(evaluation, *dismissed), nil
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
@@ -872,8 +882,8 @@ type Snapshot struct {
 	// terminal; without one the board shows its first-run page.
 	CFORuns bool `json:"cfo_runs"`
 	// CFOStarting says native terminal cfo is up for a CFO not registered
-	// yet; the board opens that terminal for its sign-in, and no registration
-	// problem is shown while it lasts.
+	// yet; the board opens that terminal for whatever it asks there, and no
+	// registration problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOClosed says the home's CFO registered and has since ended, with no
 	// terminal up for a new one. The board then shows no first-run page and
@@ -889,6 +899,11 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+}
+
+// setItems makes items the snapshot's Command Center items.
+func (snapshot *Snapshot) setItems(items Items) {
+	snapshot.Questions, snapshot.Reviews, snapshot.Runs, snapshot.Credentials, snapshot.Actions = items.Questions, items.Reviews, items.Runs, items.Credentials, items.Actions
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -918,43 +933,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Registration = checked
 		}
 	}
-	// The board sees how many images a question has, never where they are.
-	out.Questions = make([]Question, len(d.Questions))
-	for i, q := range d.Questions {
-		q.ImageCount, q.Images = len(q.Images), nil
-		out.Questions[i] = q
-	}
+	out.setItems(boardItems(d))
 	out.Activity = d.Activity
-	// The board sees how many images a review has and what its document is,
-	// never their digests.
-	out.Reviews = make([]Review, len(d.Reviews))
-	for i, r := range d.Reviews {
-		r.ImageCount, r.ImageSums = len(r.ImageSums), nil
-		if r.Document != nil {
-			document := *r.Document
-			document.Sum = ""
-			r.Document = &document
-		}
-		out.Reviews[i] = r
-	}
-	// A goblin's question asked while its review page is open is that page's
-	// item, so the Command Center shows one card: each names the other, the
-	// page its newest pending question.
-	for i := range out.Reviews {
-		r := &out.Reviews[i]
-		for j := range out.Questions {
-			if q := &out.Questions[j]; carriesQuestion(*r, *q) {
-				q.Page, r.Question = r.ID, q.ID
-			}
-		}
-	}
-	// The board sees what runs and how it went, never the process or digest.
-	out.Runs = make([]Run, len(d.Runs))
-	for i, r := range d.Runs {
-		r.ScriptSum, r.RunAction, r.PID, r.Started = "", "", 0, nil
-		out.Runs[i] = r
-	}
-	out.Credentials = append([]CredentialRequest{}, d.Credentials...)
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {

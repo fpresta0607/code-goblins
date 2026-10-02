@@ -446,8 +446,9 @@ type cfoState struct {
 	// registered says a CFO is registered and running.
 	registered bool
 	// starting says native terminal cfo is up for a CFO that has not
-	// registered yet: Claude Code registers the CFO only once its onboarding
-	// and sign-in are done, in that terminal.
+	// registered yet: Claude Code registers through its SessionStart hook
+	// after its onboarding and sign-in, in that terminal, and a Codex or pi
+	// CFO when its first prompt runs cfo register.
 	starting bool
 	// terminal is the native terminal the board shows the CFO in: the one the
 	// registered CFO names or, while it is starting, native terminal cfo,
@@ -467,7 +468,7 @@ type cfoState struct {
 	closed bool
 	// problem says why the board cannot reach the CFO this read found, with
 	// the fix. It is empty while the board can, while the CFO is starting and
-	// registers itself after sign-in, and while the CFO is closed.
+	// has not registered yet, and while the CFO is closed.
 	problem string
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -397,6 +397,50 @@ test("a question he answered elsewhere finishes its open card as answered, like 
 
   // Assert
   assert.deepEqual(elsewhere, [true, false]);
+});
+
+test("a card whose item closed without it sending anything finishes as Answered or Closed, and stays for an answer that did not arrive", () => {
+  // Arrange
+  const at = "2026-10-02T11:00:00Z";
+  const snapshot = parseSnapshot({ healthy: true,
+    actions: [{ id: "lost", kind: "cfo_answer", status: "uncertain" }, { id: "sent", kind: "review_answer", status: "queued" }],
+    questions: [
+      question("open", "", at),
+      question("on-another-board", "", at, "queued", { answer: "Merge it", answer_kind: "option", answer_id: "a1" }),
+      question("by-the-cfo", "billing", at, "succeeded", { answer: "Merge it", answered_by: "cfo" }),
+      question("dismissed", "", at, "cleared", { message: "You dismissed it: answered elsewhere or no longer needed." }),
+      question("superseded", "billing", at, "superseded"),
+      question("not-delivered", "", at, "failed", { answer: "Merge it", answer_id: "a2" }),
+      question("not-confirmed", "", at, "uncertain", { answer: "Merge it", answer_id: "lost" }),
+    ],
+    reviews: [
+      review("answered-on-another-board", "", at, "answered", { answer: "They read well", answer_id: "sent" }),
+      review("waiting-billing-7", "billing", at, "withdrawn", { reason: "billing reported again" }),
+      review("cleared", "", at, "cleared"),
+    ],
+    runs: [{ id: "install", identity: "c", title: "Install the build", state: "succeeded", created_at: at }],
+  });
+  const cases: [string, "" | "Answered" | "Closed"][] = [
+    ["question:open", ""],
+    ["question:on-another-board", "Answered"],
+    ["question:by-the-cfo", "Answered"],
+    ["question:dismissed", "Closed"],
+    ["question:superseded", "Closed"],
+    ["question:not-delivered", ""],
+    ["question:not-confirmed", ""],
+    ["review:answered-on-another-board", "Answered"],
+    ["review:waiting-billing-7", "Closed"],
+    ["review:cleared", "Closed"],
+    ["run:install", ""],
+  ];
+
+  for (const [key, want] of cases) {
+    // Act
+    const finishes = closedElsewhere(itemFor(snapshot, key)!, snapshot.actions);
+
+    // Assert
+    assert.equal(finishes, want, key);
+  }
 });
 
 test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
