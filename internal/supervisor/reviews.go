@@ -110,7 +110,7 @@ func validReview(r Review) error {
 	}
 	if r.Lavish != "" {
 		if problem := PresentationURLProblem(r.Lavish); problem != "" {
-			return errors.New("a review's Lavish link " + problem)
+			return errors.New("a review's Scrawl link " + problem)
 		}
 	}
 	if r.Link != "" {
@@ -121,12 +121,12 @@ func validReview(r Review) error {
 	if r.LavishPage != "" {
 		extension := strings.ToLower(filepath.Ext(r.LavishPage))
 		if r.Lavish == "" || !filepath.IsAbs(r.LavishPage) || filepath.Clean(r.LavishPage) != r.LavishPage || extension != ".html" && extension != ".htm" {
-			return errors.New("a review's Lavish page must be the absolute path of an HTML page, beside its link")
+			return errors.New("a review's Scrawl page must be the absolute path of an HTML page, beside its link")
 		}
 	}
 	if r.Document != nil {
 		if len(r.ImageSums) > 0 || r.Lavish != "" {
-			return errors.New("a document item carries no images or Lavish page")
+			return errors.New("a document item carries no images or Scrawl page")
 		}
 		return validDocument(*r.Document)
 	}
@@ -799,23 +799,32 @@ func (s *Store) pruneReviews(now time.Time) error {
 }
 
 // clearReview closes an open item the Overlord cleared, with how he closed it
-// when he opened or downloaded its document. Clearing one already closed
-// changes nothing.
-func (s *Store) clearReview(id, identity, reason string) (Evaluation, error) {
+// when he opened or downloaded its document. A page's card shows the question
+// its goblin asked beside the page, so clearing it dismisses that question in
+// the same step, and the questions dismissed come back for the CFO to hear
+// of. Clearing one already closed changes nothing.
+func (s *Store) clearReview(id, identity, reason string) (Evaluation, []Question, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.Identity == identity })
 	if i < 0 {
-		return Evaluation{}, fmt.Errorf("%w: the review is gone; nothing was cleared", ErrRejected)
+		return Evaluation{}, nil, fmt.Errorf("%w: the review is gone; nothing was cleared", ErrRejected)
 	}
 	if s.db.Reviews[i].State != "open" {
-		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil
+		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil, nil
+	}
+	var dismissed []Question
+	for j := range s.db.Questions {
+		if q := &s.db.Questions[j]; carriesQuestion(s.db.Reviews[i], *q) && q.AnswerID == "" {
+			q.Status, q.Message = "cleared", "You cleared its page's card."
+			dismissed = append(dismissed, *q)
+		}
 	}
 	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, time.Now().UTC()
 	if err := s.save(); err != nil {
-		return Evaluation{}, err
+		return Evaluation{}, nil, err
 	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, nil
+	return Evaluation{Reason: "Cleared from the Command Center."}, dismissed, nil
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
@@ -836,6 +845,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	r := reviews[i]
 	var result Evaluation
 	var err error
+	sent := time.Now().UTC()
 	if r.Task == "" {
 		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
@@ -845,7 +855,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		}
 	}
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = Evaluation{Reason: "Submitted while its reporter was working; it takes the answer when its current turn ends."}, nil
+		result, err = s.behindGoblinsTurn(r.Task, sent, "Submitted while its reporter was working; it takes the answer when its current turn ends."), nil
 	}
 	if err != nil {
 		return result, err
@@ -856,6 +866,10 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 		if err := noticeAnswerToCFO(s.Store.Home.State, r, a.Text); err != nil {
 			s.publish(err)
 		}
+	}
+	if result.Awaiting != nil {
+		// Sent, and delivered once its reporter's hook says it took it.
+		return result, nil
 	}
 	return result, s.Store.markReviewDelivered(r.ID, a.ID)
 }
@@ -884,6 +898,9 @@ func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string
 	result, err := s.Options.CFO.Send(ctx, identity, fmt.Sprintf("Answer to %s's review item %s (%s), which came to you because %s restarted or ended: %s", r.Task, r.ID, r.Title, r.Task, answer))
 	if err != nil {
 		return result, err
+	}
+	if result.Awaiting != nil {
+		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which reads it when its current turn ends.", Awaiting: result.Awaiting}, nil
 	}
 	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
 }
@@ -1061,6 +1078,19 @@ func (s *Store) answerQuestionsOnPage(r Review, answer string) error {
 		err = errors.Join(err, wake.MarkAnswered(s.Home.State, seq, wake.AnsweredByOverlord, "on its page: "+bounded(answer, 2000)))
 	}
 	return err
+}
+
+// closeWaitsOfQuestion closes a goblin's waits on the Overlord up to its
+// question q, which his answer to q gives it; a wait filed after q is its
+// own request. The caller holds the store lock.
+func (s *Store) closeWaitsOfQuestion(q Question, reason string) {
+	prefix := "waiting-" + q.Task + "-"
+	for i := range s.db.Reviews {
+		r := &s.db.Reviews[i]
+		if n, err := strconv.Atoi(strings.TrimPrefix(r.ID, prefix)); q.Task != "" && r.State == "open" && r.Task == q.Task && strings.HasPrefix(r.ID, prefix) && err == nil && n <= q.Seq {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", "overlord", "question", bounded(reason, 2000), time.Now().UTC()
+		}
+	}
 }
 
 // closePagesOfQuestion closes the open items whose page carries question q,

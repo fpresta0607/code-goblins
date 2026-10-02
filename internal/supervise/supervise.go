@@ -332,22 +332,6 @@ func ChargeBudget(stateDir, session string) (int, error) {
 	return count, err
 }
 
-// removeWithRetry deletes path, retrying up to 10 times at 50ms on a
-// transient Windows sharing violation (antivirus/indexer scans). A missing
-// file is success: there is nothing left to remove.
-func removeWithRetry(path string) error {
-	var lastErr error
-	for attempt := 0; attempt < 10; attempt++ {
-		err := os.Remove(path)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		lastErr = err
-		time.Sleep(50 * time.Millisecond)
-	}
-	return lastErr
-}
-
 // ResetBudget removes both failure markers, then the budget record, as one
 // group under the budget lock. Markers first, budget last: a crash (or a
 // removal that exhausts its retries) partway through then always leaves
@@ -358,7 +342,8 @@ func removeWithRetry(path string) error {
 func ResetBudget(stateDir string) error {
 	return withBudgetLock(stateDir, func() error {
 		for _, name := range []string{notifiedFile, alarmedFile, budgetFile} {
-			if err := removeWithRetry(filepath.Join(stateDir, name)); err != nil {
+			// A missing marker is already reset.
+			if err := fsx.Remove(filepath.Join(stateDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 		}

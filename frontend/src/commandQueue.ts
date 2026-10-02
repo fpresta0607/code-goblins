@@ -81,6 +81,12 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
+// Every item still open, a question its page's card carries too: what the
+// board has already announced, whichever card shows it.
+export function openKeys(snapshot: Snapshot): Set<string> {
+  return new Set(asItems(snapshot).filter(isOpen).map((item) => item.key));
+}
+
 // The newest item a goblin has waiting on the Overlord, if any.
 export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
   return asItems(snapshot).filter((item) => isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
@@ -101,8 +107,8 @@ export interface SentDraft { submission: Submission | null; sending: boolean; er
 // SendState is what an item's card shows after Send. A send is done the moment
 // it is made: its check shows at once and delivery goes on quietly. It is
 // confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, the one case the card shows again. Once
-// its action is known, the action alone decides; a draft edited after a
+// delivery failed or went unconfirmed, which a card still on screen shows.
+// Once its action is known, the action alone decides; a draft edited after a
 // refusal has sent nothing.
 export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
 
@@ -121,6 +127,15 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   };
 }
 
+// notSent says whether a send left nothing behind: the board refused it, or it
+// failed before the board took it, so no action exists and its item, still
+// open, waits on him as before.
+export function notSent(draft: SentDraft, item: Item | undefined, actions: Action[]): boolean {
+  const { submission } = draft;
+  const accepted = !!draft.receipt || actions.some((action) => action.id === submission?.id);
+  return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
+}
+
 // holdsUnsent says whether any card of an item still waiting keeps a choice
 // or written text the Overlord has not sent, or whose send failed, which a
 // reload would lose.
@@ -132,11 +147,6 @@ export function holdsUnsent(drafts: Record<string, SentDraft & { selection: stri
   });
 }
 
-// failedSends is the items sent and moved past whose send then failed, which
-// come back into view with what went wrong.
-export function failedSends(sent: ReadonlySet<string>, drafts: Record<string, SentDraft>, actions: Action[]): string[] {
-  return [...sent].filter((key) => !!drafts[key] && !!sendState(drafts[key], actions)?.failed);
-}
 
 // The page a question's card may open: its asker's most recent live review
 // page, from the same goblin session or the CFO registration that asked, so a
@@ -178,7 +188,7 @@ export function answeredLabel(question: Question): string {
     case "superseded": return question.message || "Superseded; the asker was replaced";
     case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
-    case "uncertain": return "Delivery unconfirmed";
+    case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
   }
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
@@ -186,7 +196,9 @@ export function answeredLabel(question: Question): string {
   // A question the CFO answered and retired with --ack-blocking closed
   // without the board learning which choice.
   if (!question.answer) return who + " answered it";
-  return question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer;
+  // A board answer still on its way says so until its reader has it.
+  const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
+  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer) + onItsWay;
 }
 
 export function outcomeIcon(outcome: QuestionOutcome): IconName {
@@ -198,18 +210,23 @@ export function outcomeIcon(outcome: QuestionOutcome): IconName {
 // outcome, a review item by its state. The backend marks a review answered as
 // soon as it queues the answer and sets delivered only once the goblin has it,
 // so only delivered says it arrived. An answer action that succeeded without
-// delivery was handed to the CFO because the goblin was replaced, and an
-// answer whose action has aged out of the snapshot is no longer recorded.
-function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed" | "pending" | "failed" | "uncertain" | "unrecorded" {
+// delivery was handed to the CFO because the goblin was replaced, one of a
+// goblin's items that awaits the CFO is being handed to it, and an answer
+// whose action has aged out of the snapshot is no longer recorded.
+function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed" | "handing" | "pending" | "failed" | "uncertain" | "unrecorded" {
   if (review.delivered) return "delivered";
-  const status = actions.find((action) => action.id === review.answer_id)?.status;
-  if (!status) return "unrecorded";
-  if (status === "succeeded") return "handed";
-  return status === "failed" || status === "uncertain" ? status : "pending";
+  const action = actions.find((candidate) => candidate.id === review.answer_id);
+  if (!action) return "unrecorded";
+  if (action.status === "succeeded") return "handed";
+  if (action.status === "failed" || action.status === "uncertain") return action.status;
+  return review.task && action.awaiting === "the CFO" ? "handing" : "pending";
 }
 
+// A delivery that never arrived reads as what to do about it, in the
+// supervisor's words, while its action is still recorded.
 export function settledLabel(item: Item, actions: Action[]): string {
-  if (item.kind === "question") return answeredLabel(item.question);
+  const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
+  if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
   if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
@@ -218,8 +235,9 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (answeredElsewhere(item)) return reason;
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
-    case "uncertain": return "Delivery unconfirmed: inspect " + asker + "'s pane before answering again";
+    case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
+    case "handing": return "You wrote: " + answer + " (not yet delivered to the CFO)";
     case "handed": return "Sent to the CFO: " + answer;
     case "unrecorded": return "You wrote: " + answer + " (delivery no longer recorded)";
     case "delivered": return "You wrote: " + answer;
@@ -229,6 +247,8 @@ export function settledLabel(item: Item, actions: Action[]): string {
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
+    // One check while a board answer is on its way, two once it is delivered.
+    if (outcome === "answered" && item.question.status !== "succeeded") return { icon: "check", tone: "queued" };
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
   if (item.kind === "run") return { icon: runMark(item.run).icon, tone: item.run.state };

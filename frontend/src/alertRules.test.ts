@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrive, asksPermission, boardAlerts, notifies, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
+import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
 import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
@@ -141,6 +141,69 @@ test("an event alerts once however often a snapshot or a reconnect brings it bac
   assert.deepEqual(shown(done, waiting), ["Goblin a is waiting on you: Look at the card"]);
   assert.deepEqual(shown(waiting, refiled), [], "the same wait filed again");
   assert.deepEqual(shown(refiled, nextPR), ["Goblin a finished: r #8 is ready."], "its next pull request is news");
+});
+
+test("a question its page's card carried alerts nothing when the page closes and it shows as a card of its own", () => {
+  // Arrange
+  const page = { ...review("plan-1"), lavish: "http://127.0.0.1:4387/session/a", lavish_page: "C:\\work\\plan.html" };
+  const carried = snapshot({ reviews: [page], questions: [question("notify-a-4", { page: "plan-1" })] });
+  const alone = snapshot({ reviews: [{ ...page, state: "cleared" }], questions: [question("notify-a-4")] });
+
+  // Act
+  const alerts = boardAlerts(carried, alone);
+
+  // Assert
+  assert.deepEqual(alerts.map((alert) => alert.key), []);
+});
+
+test("an alert leaves with its item only once the snapshot shows the item closed", () => {
+  // Arrange
+  const asks = boardAlerts(snapshot({}), snapshot({ questions: [question("notify-a-4")] }))[0];
+  const blocked = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "blocked", { reason: GATE_BLOCK })] }))[0];
+  const cases: [string, BoardAlert, Snapshot, boolean][] = [
+    ["its question still waits", asks, snapshot({ questions: [question("notify-a-4")] }), false],
+    ["its question was answered", asks, snapshot({ questions: [question("notify-a-4", { status: "succeeded" })] }), true],
+    ["its answer is on its way", asks, snapshot({ questions: [question("notify-a-4", { status: "running" })] }), true],
+    ["the supervisor is restarting and holds no items", asks, snapshot({ tasks: [] }), false],
+    ["a goblin's news, which is no item", blocked, snapshot({ tasks: [task("a", "working")] }), false],
+  ];
+
+  for (const [name, alert, next, want] of cases) {
+    // Act
+    const gone = outlived(alert, next);
+
+    // Assert
+    assert.equal(gone, want, name);
+  }
+});
+
+test("an alert is announced under its key, cut short when a goblin's reason is long", () => {
+  // Arrange
+  const asks = boardAlerts(snapshot({}), snapshot({ questions: [question("notify-a-4")] }))[0];
+  const long = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "blocked", { reason: "It stopped because ".repeat(40) })] }))[0];
+
+  // Act
+  const names = [announceKey(asks), announceKey(long)];
+
+  // Assert
+  assert.equal(names[0], "alert:question:notify-a-4");
+  assert.equal(names[1].length, 160);
+  assert.ok(names[1].startsWith("alert:task:a:a-1:blocked:It stopped because "));
+});
+
+test("an alert's key is cut between characters, so the supervisor records it as the board sent it", () => {
+  // Arrange: the emoji's two halves sit either side of the cut.
+  const reason = "x".repeat(160 - "alert:task:a:a-1:blocked:".length - 1) + "🚀 and more";
+  const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "blocked", { reason })] }));
+
+  // Act
+  const name = announceKey(alert);
+  const recorded = new TextDecoder().decode(new TextEncoder().encode(name));
+
+  // Assert
+  assert.equal(recorded, name);
+  assert.ok(name.length <= 160, String(name.length));
+  assert.ok(name.endsWith("x"));
 });
 
 test("a browser remembers the newest alerts it showed, a bounded few, and one snapshot shows each once", () => {

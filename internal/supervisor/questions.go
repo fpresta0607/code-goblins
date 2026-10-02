@@ -241,9 +241,10 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	if a.AnswerKind == "other" {
 		label = "Answer (Other)"
 	}
+	sent := time.Now().UTC()
 	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-		result, err = Evaluation{Reason: "Submitted to the goblin while it was working; it takes the answer when its current turn ends."}, nil
+		result, err = s.behindGoblinsTurn(q.Task, sent, "Submitted to the goblin while it was working; it takes the answer when its current turn ends."), nil
 	}
 	if err != nil {
 		return result, err
@@ -876,6 +877,13 @@ func (s *Store) acceptQuestion(q Question) error {
 	q.Status, q.AnswerID, q.Message = "pending", "", ""
 	q.Answer, q.AnswerKind = "", ""
 	q.Options = slices.Clone(q.Options)
+	// A goblin that asks again has moved past its earlier question, so the
+	// newer one replaces it and the Command Center shows one card.
+	for i := range s.db.Questions {
+		if old := &s.db.Questions[i]; q.Task != "" && old.Task == q.Task && old.Identity == q.Identity && old.Status == "pending" && old.AnswerID == "" && old.Seq < q.Seq {
+			old.Status, old.Message = "superseded", "The goblin asked again, so its newer question replaces this one."
+		}
+	}
 	s.db.Questions = append(s.db.Questions, q)
 	return s.save()
 }
