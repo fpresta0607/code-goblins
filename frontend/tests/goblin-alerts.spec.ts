@@ -1,12 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-const LANTERN = "rgb(242, 180, 71)", MOSS = "rgb(134, 179, 107)";
+const LANTERN = "rgb(242, 180, 71)";
 
 // Headless Chromium reports notifications as denied, so this browser starts as
 // one the board has never asked, which is when it offers them.
-async function open(page: Page, query = "") {
+async function open(page: Page) {
   await page.addInitScript(() => Object.defineProperty(Notification, "permission", { get: () => "default" }));
-  await page.goto("/tests/fixtures/goblin-alerts.html" + query);
+  await page.goto("/tests/fixtures/goblin-alerts.html");
   await expect(page.getByRole("group", { name: "Alerts" }).or(page.locator(".toasts"))).toBeVisible();
   await expect(page.locator(".toasts .dialogue")).toHaveCount(4);
 }
@@ -14,34 +14,47 @@ const box = (page: Page, text: string) => page.locator(".dialogue").filter({ has
 const tab = (dialogue: Locator) => dialogue.locator(".dialogue-tab");
 const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
 
-test("the CFO's banner offers the Command Center, filled only while something waits, and its terminal as an icon", async ({ page }) => {
+test("the CFO's banner is a plain bar with only its terminal until something waits, and then the lantern box with Open Command Center", async ({ page }) => {
   await open(page);
-  const needs = box(page, "Waiting on you"), quiet = box(page, "All quiet.");
+  const needs = box(page, "Waiting on you"), rest = page.locator(".cfo-rest");
   await expect(tab(needs)).toHaveText("CFO");
   await expect(tab(needs)).toHaveCSS("color", LANTERN);
-  await expect(tab(quiet)).toHaveCSS("color", MOSS);
   expect(await filled(needs.getByRole("button", { name: "Open Command Center" }))).toBe(LANTERN);
-  expect(await filled(quiet.getByRole("button", { name: "Open Command Center" }))).toBe("rgba(0, 0, 0, 0)");
   await needs.locator(".dialogue-actions").getByRole("button", { name: "Open the CFO's terminal" }).click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
   await needs.locator("button.dialogue-portrait").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
+  // At rest: the same card as the column under it, no lantern box, no name
+  // tab and no Open Command Center; only its terminal, on the icon and the
+  // portrait.
+  await expect(rest).toContainText("All quiet. The CFO supervises 3 goblins.");
+  await expect(page.locator(".dialogue").filter({ hasText: "All quiet." })).toHaveCount(0);
+  await expect(rest.getByRole("button")).toHaveCount(2);
+  await expect(rest.getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
+  const look = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element); return [style.backgroundColor, style.borderTopColor, style.borderRadius].join(" "); });
+  expect(await look(rest)).toBe(await look(page.locator(".board-column")));
+  await rest.locator("button.icon-button").click();
+  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
+  await rest.locator("button.cfo-rest-portrait").click();
+  await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
 });
 
-test("Open Command Center opens the first item waiting, or the inbox when nothing waits", async ({ page, browser }) => {
+test("the bar at rest keeps its line and its button inside it on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  const inside = await page.locator(".cfo-rest").evaluate((bar) => {
+    const box = bar.getBoundingClientRect();
+    return [...bar.children].every((child) => { const part = child.getBoundingClientRect(); return part.left >= box.left && part.right <= box.right && part.top >= box.top && part.bottom <= box.bottom; });
+  });
+  expect(inside).toBe(true);
+  expect(await page.locator(".cfo-rest p").evaluate((line) => parseFloat(getComputedStyle(line).fontSize))).toBeGreaterThanOrEqual(16);
+});
+
+test("Open Command Center opens the first item waiting", async ({ page }) => {
   await open(page);
   await box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" }).click();
   await expect(page.locator("dialog.question-modal")).toBeVisible();
   await expect(page.locator("dialog.question-modal")).toContainText("Pick the waveform");
-  // A browser that has seen these alerts never shows them again, so the
-  // board with nothing waiting opens in a browser of its own.
-  const quiet = await browser.newPage();
-  await open(quiet, "?nothing");
-  await box(quiet, "All quiet.").getByRole("button", { name: "Open Command Center" }).click();
-  await expect(quiet.locator("details.command-center-menu")).toHaveAttribute("open", "");
-  await expect(quiet.getByText("Nothing is waiting on you.")).toBeVisible();
-  await expect(quiet.locator("dialog.question-modal")).toBeHidden();
-  await quiet.close();
 });
 
 test("each alert says its news once, in its speaker's box: what needs him opens the Command Center, a goblin's news opens the goblin", async ({ page }) => {
@@ -90,7 +103,7 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
   const button = box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" });
   await button.focus();
   await expect(button).toHaveCSS("outline-style", "solid");
-  await expect(button).toHaveCSS("outline-width", "2px");
+  await expect(button).toHaveCSS("outline-width", "3px");
 });
 
 test("the banner's portrait tooltip shows over the board column under it", async ({ page }) => {
@@ -139,13 +152,12 @@ test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) =>
 test("with reduced motion the boxes just appear", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
-  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(6).fill("none"));
+  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(5).fill("none"));
 });
 
 test("the CFO's banner wears the mark of the harness the CFO runs, and no goblin's alert does", async ({ page }) => {
   await open(page);
-  for (const text of ["Waiting on you", "All quiet."]) {
-    const mark = box(page, text).locator(".dialogue-who [role=img]");
+  for (const mark of [box(page, "Waiting on you").locator(".dialogue-who [role=img]"), page.locator(".cfo-rest [role=img]")]) {
     await expect(mark).toHaveAttribute("aria-label", "Claude Code · claude-opus-5-5");
     await expect(mark).toHaveAttribute("data-tip", "Claude Code · claude-opus-5-5");
   }

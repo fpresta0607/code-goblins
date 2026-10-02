@@ -218,6 +218,39 @@ func TestTheBoardNamesItsBuildInThePageAndTheSnapshot(t *testing.T) {
 	}
 }
 
+// The board serves its web app manifest, so Chrome and Edge offer to install
+// it as its own window; other files at the root stay unserved.
+func TestTheBoardServesItsManifestAndNoOtherRootFile(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	manifest := `{"name":"Code Goblins","display":"standalone"}`
+	h := NewHTTP(&Service{Store: store}, "board.local", fstest.MapFS{
+		"index.html":           &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")},
+		"manifest.webmanifest": &fstest.MapFile{Data: []byte(manifest)},
+		"notes.txt":            &fstest.MapFile{Data: []byte("not for the board")},
+	})
+	get := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
+		return response
+	}
+
+	// Act
+	served := get("/manifest.webmanifest")
+	other := get("/notes.txt")
+
+	// Assert
+	if served.Code != http.StatusOK || served.Body.String() != manifest {
+		t.Fatalf("GET /manifest.webmanifest = %d %q", served.Code, served.Body.String())
+	}
+	if kind := served.Header().Get("Content-Type"); kind != "application/manifest+json" {
+		t.Fatalf("the manifest is served as %q", kind)
+	}
+	if other.Code != http.StatusNotFound {
+		t.Fatalf("GET /notes.txt = %d, want 404", other.Code)
+	}
+}
+
 // The event stream the board runs on names the build in every snapshot.
 func TestTheEventStreamNamesTheBoardBuild(t *testing.T) {
 	// Arrange
