@@ -125,19 +125,10 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	p.say("cfo serve --example pid %d", serve.Process.Pid)
 	p.await(t, "the board record", time.Minute, func() bool { return exists(filepath.Join(p.home.State, "board.json")) })
 
-	cfo := p.startCFO(t)
-	p.cfoTerminal = &cfo
-	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, cfo.HostPID, cfo.ChildPID)
-	if p.cfo == "claude" {
-		p.await(t, "the Claude Code CFO's Stop hook to arm", 5*time.Minute, func() bool { return exists(filepath.Join(p.home.State, ".claude-autoarm.lock")) })
-	} else {
-		p.await(t, "the CFO to register", 5*time.Minute, func() bool {
-			primary, live := livePrimaryFile(p.home.State)
-			return live && primary == p.cfo
-		})
-	}
-	p.say("CFO ready")
-
+	// The goblin is spawned before the CFO starts, as a CFO's own goblins are
+	// spawned in its turn: a Claude Code CFO's Stop hook arms only while a
+	// task is in flight, so one whose first turn ended with none would never
+	// stop again to arm it, and no wake could reach it.
 	goblin := "idle-" + p.goblin
 	// A proof that fails still ends its goblin, whose terminal's host would
 	// otherwise outlive it; the log is still open while deferred calls run.
@@ -165,6 +156,23 @@ func proveWakes(t *testing.T, p *wakeProof) {
 		}
 	}()
 	p.cfoCommand(t, "spawn", goblin, "--project", p.project, "--brief", p.brief(t, goblin, "This is a supervision fixture. Run the command git status once, then reply with the single word ready and end your turn. Change no files and run no cfo command."), "--mode", "local-only", "--harness", p.goblin, "--model", proofModel(p.goblin))
+
+	cfo := p.startCFO(t)
+	p.cfoTerminal = &cfo
+	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, cfo.HostPID, cfo.ChildPID)
+	if p.cfo == "claude" {
+		// The hook holds its lock only until it rewakes the CFO, and records
+		// every arming in its epoch ledger.
+		p.await(t, "the Claude Code CFO's Stop hook to arm", 5*time.Minute, func() bool {
+			return exists(filepath.Join(p.home.State, ".claude-autoarm.lock")) || exists(filepath.Join(p.home.State, ".claude-autoarm-epoch"))
+		})
+	} else {
+		p.await(t, "the CFO to register", 5*time.Minute, func() bool {
+			primary, live := livePrimaryFile(p.home.State)
+			return live && primary == p.cfo
+		})
+	}
+	p.say("CFO ready")
 	idle := p.expectOneWake(t, "the idle goblin", 10*time.Minute, func(r wake.Record) bool {
 		return r.Kind == "stale" && r.Key == goblin && (strings.HasPrefix(r.Detail, "goblin_idle:") || strings.HasPrefix(r.Detail, "awaiting_answer:"))
 	})
