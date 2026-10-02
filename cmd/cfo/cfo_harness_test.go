@@ -39,11 +39,11 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "The CFO starts as codex in "+f.project+".") || !strings.Contains(out, "A codex CFO has no wake path in Herdr") {
+		if !strings.Contains(out, "The CFO starts as codex in "+f.home.Root+".") || !strings.Contains(out, "A codex CFO has no wake path in Herdr") {
 			t.Errorf("stdout = %q, want the codex start and its missing wake path in Herdr", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.project+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
+	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.home.Root+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
 		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
 	}
 	if strings.Contains(nativeOut, "no wake path") {
@@ -147,9 +147,13 @@ func TestGoblinsRefusesAHarnessItCannotStartTheCFOAs(t *testing.T) {
 	if err := os.WriteFile(cfoHarnessPath(f.home.State), []byte("kimi\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	f.agent = "pi"
 	exit, _, stderr = f.launch()
-	if exit != 1 || !strings.Contains(stderr, "choose again with goblins --harness") || len(f.harnesses) != 0 {
-		t.Errorf("exit=%d stderr=%q harnesses=%q, want the unreadable choice refused", exit, stderr, f.harnesses)
+	if exit != 0 || !slices.Equal(f.harnesses, []string{"pi"}) {
+		t.Errorf("exit=%d stderr=%q harnesses=%q, want the choice asked again and pi started", exit, stderr, f.harnesses)
+	}
+	if harness, err := cfoHarness(f.home.State); err != nil || harness != "pi" {
+		t.Errorf("remembered harness = %q, %v; want the choice replacing kimi", harness, err)
 	}
 }
 
@@ -165,19 +169,19 @@ func TestGoblinsNamesAnArgumentItDoesNotTake(t *testing.T) {
 	}
 }
 
-// A harness whose program is not on PATH is refused before it is remembered,
-// so a choice that cannot start never sticks.
-func TestGoblinsRefusesAHarnessNotOnPath(t *testing.T) {
+// A harness that is not installed goes to its install step, and a choice that
+// never became ready is not remembered and starts nothing.
+func TestGoblinsRemembersNoHarnessThatNeverBecameReady(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
-	harnessesOnPath(t)
+	f.missing = []string{"codex"}
 
 	// Act
 	exit, _, stderr := f.launch("--harness", "codex")
 
 	// Assert
-	if exit != 1 || !strings.Contains(stderr, "codex is not on PATH") || len(f.harnesses) != 0 {
-		t.Fatalf("exit=%d stderr=%q harnesses=%q, want codex refused and nothing started", exit, stderr, f.harnesses)
+	if exit != 1 || !strings.Contains(stderr, "setup was cancelled") || len(f.harnesses) != 0 {
+		t.Fatalf("exit=%d stderr=%q harnesses=%q, want codex's install step cancelled and nothing started", exit, stderr, f.harnesses)
 	}
 	if _, err := os.Stat(cfoHarnessPath(f.home.State)); !os.IsNotExist(err) {
 		t.Errorf("a harness not on PATH was remembered: %v", err)
