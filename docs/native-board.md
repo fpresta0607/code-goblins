@@ -206,6 +206,18 @@ At rest the bar is a plain card like the columns under it, with no lantern and n
 While something waits on the Overlord, or no CFO runs, the bar is the CFO's dialogue box, drawn like the alerts below with the CFO's name on a tab: Open Command Center, filled lantern, opens the Command Center on the first item waiting.
 In both, its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
+The bar carries the switch of [AFK mode](#afk-mode) in both forms: the label AFK and two sides, Off and On, the pressed one saying which it is, with On in the board's green.
+On asks first, in a question whose Cancel has the focus, and Off asks nothing; a refusal is shown under the bar's controls in the supervisor's words, and a switch that cannot be read presses neither side and says that Off resets it.
+With no CFO running the switch shows only while it is not off, so it can still be turned off.
+While AFK mode is on the bar stays in its plain form whatever waits on the Overlord, and its line says since when and from where it is on, how many decisions the CFO logged and how many items are held.
+Held for you, a disclosure under the bar's line, lists each held item that still waits on him as the Command Center's inbox draws one: whose it is, what it asks, what became of it and its goblin's latest report since, and a button that opens that item in the Command Center.
+It never opens by itself, and shows Nothing is held for you when it is empty.
+A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
+The offer takes the focus itself, so keys he was typing press neither button, and Escape stays.
+When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: how many of each thing the CFO did, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished, what was held with what became of it, and what was spent.
+An answer is named by its goblin, since the log keeps a question's id.
+While AFK mode is off and a report is kept, an icon button beside the switch opens that report again.
+On a bar under 640 pixels wide the line takes the first row and the controls the second.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
 The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
@@ -889,6 +901,7 @@ Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh
 While AFK mode is on, `POST /api/announce` records every key it is asked about and claims none, so the board shows no alert, sends no Windows notification and never opens the Command Center by itself.
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
 What a page asked about then stays recorded, so it is not announced once he is back either.
+The page holds the same line by itself: while its snapshot says AFK mode is on, a claim it could not ask for hands its alerts and its Command Center nothing, where with AFK mode off it falls back on what the browser remembers.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
 [The desktop window](#the-desktop-window) is not silenced yet: while it runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
 Its own reading of `/api/snapshot` raises a Windows notification for each thing that newly waits on the Overlord without passing through this endpoint; the fix is for the window to claim what it notifies here before it notifies, as the page does.

@@ -452,8 +452,10 @@ A request takes one save and expires after 24 hours.
 ### AFK mode
 
 AFK mode runs the fleet while you are away.
-Turn it on with `cfo afk on` in a terminal of your own, and off with `cfo afk off`.
-It is your switch: the same command is refused in a goblin's or the CFO's terminal.
+Turn it on with the **AFK** switch on the board's CFO bar, or with `cfo afk on` in a terminal of your own, and off the same two ways.
+It is your switch: the supervisor reads the program that asks, and refuses a goblin's or the CFO's terminal and a browser an agent opened.
+On the board, **On** asks first and **Off** does not.
+Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
 
@@ -465,12 +467,15 @@ While it is on:
   They are never decided for you.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
+  The CFO's bar says since when AFK is on, how much the CFO decided and how much is held, and **Held for you** under it lists each thing with what its goblin did meanwhile; the button on a row opens it in the Command Center.
   The desktop app is the exception: while its window runs, AFK mode does not silence the window's own Windows notifications for what newly waits on you, until the window ships a fix.
 
+At your first click or key on the board after five minutes with none, the board offers to turn it off.
+Turning it off shows the report of the stretch on the board as one page: how much of each thing the CFO did, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
+The page button beside the switch opens the last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
-`cfo afk off` prints the report of the stretch: what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
-`cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-If the switch itself ever cannot be read, `cfo afk off` puts it back to off.
+`cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
+If the switch itself ever cannot be read, **Off** on the board or `cfo afk off` puts it back to off.
 
 ```text
 AFK MODE REPORT
@@ -499,7 +504,7 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The toggle on the board, the Held for you list and the report page are not built yet, and neither are silence in the desktop app and the pauses at an allowance floor and at the memory floor.
+Silence in the desktop app and the pauses at an allowance floor and at the memory floor are not built yet.
 
 ### Open in VS Code
 
@@ -659,7 +664,7 @@ Code Goblins is designed for high autonomy without pretending that an LLM saying
 - Local delivery is fast-forward only.
 - PR delivery is expected to be backed by machine-readable CI evidence.
 - Human approval remains the default for merges; `yolo` is an explicit posture, not an implicit permission.
-- AFK mode is your switch alone: the supervisor refuses it from a goblin's or the CFO's terminal, every decision the CFO makes under it is logged with its evidence, and what stays yours is held for you, never decided.
+- AFK mode is your switch alone: the supervisor refuses it from a goblin's or the CFO's terminal and from a browser an agent opened, every decision the CFO makes under it is logged with its evidence, and what stays yours is held for you, never decided.
 - Only the registered CFO process can put a question, item or answer on the board as the CFO: the supervisor proves the sender from the process at the other end of its pipe, and a goblin, running as the same Windows user, cannot pass its own items off as the CFO's by writing files.
 - The CFO never waits on a native question prompt: its pre-tool hook refuses Claude Code's `AskUserQuestion` in the registered CFO session and points it to `cfo question` and `cfo run-request`, so every question reaches the Command Center and supervision keeps running while it waits.
 
