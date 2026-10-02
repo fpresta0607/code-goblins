@@ -84,8 +84,18 @@ jobs:
         # here: internal/spawn takes about 6.5 minutes on this runner, and the
         # root package reached the limit before its repeated installs were
         # cut. 20 minutes is about three times the slowest package.
-        run: go test ./... -count=1 -timeout 20m
+        shell: bash
+        run: go test ./... -json -count=1 -timeout 20m > "$RUNNER_TEMP/go-test-all.json"
         env:
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      # Measurement only, removed before merge: every test this job ran, with
+      # its time, to compare with the split jobs.
+      - name: Keep the test inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-inventory-all
+          path: ${{ runner.temp }}/go-test-all.json
+          retention-days: 14
       - run: go build ./cmd/cfo
