@@ -55,6 +55,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
 	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
+	givenTitle := fs.String("title", "", "the task's short title for the board and its ticket; omitted, its backlog row's title")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -77,6 +78,14 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !pipeline.ValidClass(*class) {
 		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
 		return 2
+	}
+	title := ""
+	if *givenTitle != "" {
+		var err error
+		if title, err = shortTitle(*givenTitle); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: --title: %v\n", err)
+			return 2
+		}
 	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
 		fmt.Fprintln(stderr, "cfo spawn: command runtime is incomplete")
@@ -214,14 +223,17 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			return augmented, nil
 		}
 	}
-	// A task dispatched from the backlog keeps its row's short title for the
-	// board. The title only names the task, so a backlog that cannot be read
-	// spawns it without one.
-	title := ""
-	if backlog, err := fleet.ReadBacklog(h); err != nil {
-		fmt.Fprintf(stderr, "cfo spawn: the backlog could not be read for the task's title: %v\n", err)
-	} else if i := slices.IndexFunc(backlog.Queued, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == args[0] }); i >= 0 {
-		title = backlog.Queued[i].Title
+	// A task keeps the short title it was dispatched under for the board and
+	// its ticket: the one given with --title, else its backlog row's. A task
+	// with neither is named by its id; its brief's text is never its title.
+	// The title only names the task, so a backlog that cannot be read spawns
+	// it without one.
+	if title == "" {
+		if backlog, err := fleet.ReadBacklog(h); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: the backlog could not be read for the task's title: %v\n", err)
+		} else if i := slices.IndexFunc(backlog.Queued, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == args[0] }); i >= 0 {
+			title = backlog.Queued[i].Title
+		}
 	}
 	result, err := runtime.spawn(context.Background(), h, spawn.Request{
 		ID:        args[0],
