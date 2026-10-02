@@ -86,6 +86,9 @@ func TestClassifySaysWhatEveryChangedFileReaches(t *testing.T) {
 			files:   []string{"internal/retired/old.go"},
 			choices: []string{"example.com/repo/internal/herdr (the guard scans every Go file: internal/retired/old.go)"},
 		},
+		"a build input of a package that is gone is that package's, under no contract and still not unknown": {
+			files: []string{"internal/retired/old_amd64.s"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
