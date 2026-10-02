@@ -216,6 +216,15 @@ A tab left open across an install notices the newer board: a hidden tab reloads 
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
+### The desktop app
+
+The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
+It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
+It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
+The window is unsigned, and its install says so.
+Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
+
 ### Board and Orchestration
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
@@ -620,6 +629,7 @@ Code Goblins is becoming a native Windows desktop app.
 - **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts every goblin this way, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
+  Its first build, a desktop window for the board, exists outside this repository's releases: [The desktop app](#the-desktop-app).
 
 ## Development
 
