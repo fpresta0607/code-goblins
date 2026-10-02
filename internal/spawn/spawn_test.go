@@ -4,28 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
-	f := newFixture(t)
+	f := newQuickFixture(t)
 	f.service.PolicyPath = filepath.Join("..", "..", "config", "pipeline.json")
 	f.request.Class = "high-risk"
 	result, err := f.service.Spawn(context.Background(), f.request)
@@ -45,7 +45,7 @@ func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
 // The task's short title is published with its metadata, so the board names
 // it from the moment it exists.
 func TestSpawnPublishesTheTaskTitle(t *testing.T) {
-	f := newFixture(t)
+	f := newQuickFixture(t)
 	f.request.Title = "Install and run on any machine, no setup"
 	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatal(err)
@@ -147,6 +147,27 @@ func TestSpawnRefusesUnsupportedHarnessBeforeFilesystemMutation(t *testing.T) {
 	}
 }
 
+// A harness whose screens no native terminal knows yet is refused before
+// anything is created, since a spawn never types into a screen it cannot
+// read.
+func TestSpawnRefusesAHarnessWithNoNativeScreensBeforeFilesystemMutation(t *testing.T) {
+	f := newFixture(t)
+	const unscreened = harness.Kind("unscreened")
+	f.service.Harness.Adapters[unscreened] = fixtureAdapter{events: &f.events}
+	f.request.Harness = unscreened
+	stateDir := filepath.Join(t.TempDir(), "state")
+	f.service.StateDir = stateDir
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "unscreened cannot run in a native terminal yet") {
+		t.Fatalf("Spawn error = %v, want the harness refused", err)
+	}
+	if _, statErr := os.Stat(stateDir); !errors.Is(statErr, os.ErrNotExist) || len(f.events) != 0 {
+		t.Fatalf("the refusal created state (%v) or ran %v", statErr, f.events)
+	}
+}
+
 func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
@@ -171,157 +192,84 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 	}
 }
 
-func TestSpawnShipPublishesMetadataAndLaunchesInOrder(t *testing.T) {
+// A ship task is published as native, with its terminal the host named by its
+// id and no Herdr pane, and its harness starts there with the task's identity
+// and its brief.
+func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	for _, key := range []string{"CODEX_THREAD_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
 		t.Setenv(key, "")
 	}
-	fixture := newFixture(t)
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	f := newQuickFixture(t)
+
+	result, err := f.service.Spawn(context.Background(), f.request)
+
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-
-	wantOutput := fmt.Sprintf("spawned task-7 harness=claude kind=ship mode=no-mistakes yolo=on window=fleet:pane-1 worktree=%s", fixture.worktree)
-	if result.Output != wantOutput {
-		t.Errorf("Output = %q\nwant %q", result.Output, wantOutput)
+	first, _, _ := strings.Cut(result.Output, "\n")
+	if want := fmt.Sprintf("spawned task-7 harness=codex kind=ship mode=no-mistakes yolo=on window=native worktree=%s", f.worktree); first != want {
+		t.Errorf("Output = %q\nwant %q", first, want)
 	}
-	if result.Endpoint != (herdr.Endpoint{
-		Target:      herdr.Target{Session: "fleet", Pane: "pane-1"},
-		WorkspaceID: "workspace-1",
-		TabID:       "tab-1",
-		PaneID:      "pane-1",
-	}) {
-		t.Errorf("Endpoint = %#v, want created Herdr endpoint", result.Endpoint)
-	}
-
-	meta, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID)
+	meta, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
 	if err != nil {
 		t.Fatalf("ReadTaskMeta: %v", err)
 	}
-	if meta.Window != "fleet:pane-1" || meta.EndpointTaskID != fixture.request.ID || meta.Worktree != fixture.worktree || meta.Project != fixture.project || meta.Harness != "claude" || meta.Kind != "ship" || meta.Mode != "no-mistakes" || meta.Yolo != "on" || meta.Model != "model-a" || meta.Effort != "high" || meta.Backend != "herdr" || meta.HerdrSession != "fleet" || meta.HerdrWorkspaceID != "workspace-1" || meta.HerdrTabID != "tab-1" || meta.HerdrPaneID != "pane-1" {
-		t.Errorf("metadata = %+v, want complete ship record", meta)
+	if meta.Window != "native" || meta.EndpointTaskID != f.request.ID || meta.Worktree != f.worktree || meta.Project != f.project || meta.Harness != "codex" || meta.Kind != "ship" || meta.Mode != "no-mistakes" || meta.Yolo != "on" || meta.Model != "default" || meta.Effort != "default" || meta.Backend != "native" || meta.HerdrSession != "" || meta.HerdrPaneID != "" {
+		t.Errorf("metadata = %+v, want a complete native ship record", meta)
 	}
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if info, statErr := os.Stat(goTmpDir(t, fixture.stateDir, meta.ID)); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmpDir(t, fixture.stateDir, meta.ID), statErr)
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("metadata keys = %v, want %v", got, want)
+	}
+	goTmp := goTmpDir(t, f.stateDir, meta.ID)
+	if info, statErr := os.Stat(goTmp); statErr != nil || !info.IsDir() {
+		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmp, statErr)
 	}
 	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
 	// included. Pointed inside the checkout it made every test a goblin ran
 	// create files in the tree the goblin was editing.
-	for _, inside := range []string{fixture.stateDir, fixture.worktree, fixture.project} {
-		if rel, relErr := filepath.Rel(inside, goTmpDir(t, fixture.stateDir, meta.ID)); relErr == nil && !strings.HasPrefix(rel, "..") {
-			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmpDir(t, fixture.stateDir, meta.ID), inside)
+	for _, inside := range []string{f.stateDir, f.worktree, f.project} {
+		if rel, relErr := filepath.Rel(inside, goTmp); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmp, inside)
 		}
 	}
-	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("metadata keys = %v, want %v", got, want)
+	env := named(f.events(t), "env")[0].Env
+	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmp, "CFO_STATE_OVERRIDE": f.stateDir} {
+		if got := env[name]; got == nil || *got != want {
+			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
+		}
 	}
-
-	if got, want := fixture.events, []string{
-		"status",
-		"schema",
-		"status",
-		"session-list",
-		"agent-manifests",
-		"workspace-list",
-		"tab-list",
-		"tab-create",
-		"worktree-acquire",
-		"validate-worktree",
-		"validate-harness",
-		"build-harness",
-		"send-literal",
-		"settle",
-		"send-enter",
-		"settle",
-		"agent-start",
-		"capture",
-		"settle",
-		"capture",
-		"settle",
-		// The instruction is submitted through the native agent channel and
-		// confirmed from herdr's agent state: read the counters, prompt, read
-		// them again. There is deliberately no send-literal/capture/send-enter
-		// here any more - typing into the composer and reading the text back
-		// is the defect this change removes, because a harness may render a
-		// submitted prompt as a collapsed placeholder and never show the text.
-		"agent-working",
-		"agent-prompt",
-		"agent-working",
-		"agent-working",
-	}; !reflect.DeepEqual(got, want) {
-		t.Errorf("operation order = %v\nwant %v", got, want)
+	submitted := named(f.events(t), "submitted")
+	if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Read the brief at "+f.brief) {
+		t.Errorf("submitted = %+v, want the brief instruction once", submitted)
 	}
-	// The prefix dot-sources the secrets script right after the location, so
-	// the billing-key strip lands before the launch contract and the harness.
-	if got, want := fixture.runner.literals[0], "Set-Location -LiteralPath '"+fixture.worktree+"'; . '"+filepath.Join(meta.TaskTmp, "auth.ps1")+"'; $env:CFO_PARENT_HARNESS = ''; $env:CFO_PARENT_SESSION_ID = ''; $env:CFO_ROOT_SESSION_ID = ''; $env:CFO_SPAWN_GEN = '"+meta.SpawnGen+"'; $env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'; $env:CFO_TASK_ID = 'task-7'; $env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, meta.ID)+"'"; got != want {
-		t.Errorf("launch prefix = %q\nwant %q", got, want)
-	}
-	if got, want := fixture.runner.startName, "gb-task-7"; got != want {
-		t.Errorf("agent start name = %q, want %q", got, want)
-	}
-	if got, want := fixture.runner.startKind, "claude"; got != want {
-		t.Errorf("agent start kind = %q, want %q", got, want)
-	}
-	if got, want := fixture.runner.startArgs, []string{"--dangerously-skip-permissions"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("agent start args = %q, want %q", got, want)
-	}
-	// Content is pinned on the prompt now. Proving a prompt was sent says
-	// nothing if it carried the wrong brief.
-	if got, want := fixture.runner.prompt, "Read the brief "+fixture.brief; !strings.HasPrefix(got, "Read the brief ") || !strings.Contains(got, fixture.brief) {
-		t.Errorf("delivered instruction = %q"+"\n"+"want the brief instruction naming %q", got, want)
-	}
-	// Counts pinned directly: one typed literal (the launch prefix) and one
-	// Enter to submit it. Re-adding a composer write fails here even if the
-	// operation-order list above were updated to match it.
-	if got := len(fixture.runner.literals); got != 1 {
-		t.Errorf("pane literals = %d (%q), want only the launch prefix", got, fixture.runner.literals)
-	}
-	if got := fixture.runner.enterKeys; got != 1 {
-		t.Errorf("Enter sends = %d, want only the launch prefix submit", got)
-	}
-	if _, statErr := os.Stat(filepath.Join(fixture.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(f.stateDir, ".spawn.lock")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("spawn lock persists after success: stat error = %v", statErr)
 	}
 }
 
 func TestSpawnScoutOmitsShipFields(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.ID = "scout-7"
-	fixture.request.Kind = "scout"
-	fixture.request.Mode = ""
-	fixture.request.Yolo = false
-	writeFile(t, fixture.brief, "Investigate the reported behavior.\n")
+	f := newQuickFixture(t)
+	f.request.Kind = "scout"
+	f.request.Mode = ""
+	f.request.Yolo = false
+	writeFile(t, f.brief, "Investigate the reported behavior.\n")
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("Spawn scout: %v", err)
 	}
-	wantOutput := fmt.Sprintf("spawned scout-7 harness=claude kind=scout window=fleet:pane-1 worktree=%s", fixture.worktree)
-	if result.Output != wantOutput {
-		t.Errorf("Output = %q\nwant %q", result.Output, wantOutput)
+	first, _, _ := strings.Cut(result.Output, "\n")
+	if want := fmt.Sprintf("spawned task-7 harness=codex kind=scout window=native worktree=%s", f.worktree); first != want {
+		t.Errorf("Output = %q\nwant %q", first, want)
 	}
 	if result.Meta.Mode != "" || result.Meta.Yolo != "" {
 		t.Errorf("scout metadata = %+v, want omitted mode and yolo", result.Meta)
 	}
-	if got, want := sortedKeys(t, fixture.stateDir, fixture.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "herdr_pane_id", "herdr_session", "herdr_tab_id", "herdr_workspace_id", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("scout metadata keys = %v, want %v", got, want)
-	}
-}
-
-func TestSpawnUsesRequestedHerdrSession(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Session = "task-session"
-	fixture.runner.session = "task-session"
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if result.Endpoint.Target.Session != "task-session" || result.Meta.HerdrSession != "task-session" || !strings.Contains(result.Output, "window=task-session:pane-1") {
-		t.Errorf("Spawn did not use requested session: endpoint=%+v meta=%+v output=%q", result.Endpoint, result.Meta, result.Output)
 	}
 }
 
@@ -354,12 +302,12 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newFixture(t)
-			writeFile(t, filepath.Join(fixture.project, ".mcp.json"), test.config)
-			writeFile(t, filepath.Join(fixture.worktree, ".mcp.json"), test.config)
-			fixture.runner.mcpTracked = true
+			f := newQuickFixture(t)
+			writeFile(t, filepath.Join(f.project, ".mcp.json"), test.config)
+			writeFile(t, filepath.Join(f.worktree, ".mcp.json"), test.config)
+			f.runner.mcpTracked = true
 
-			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			result, err := f.service.Spawn(context.Background(), f.request)
 			if err != nil {
 				t.Fatalf("Spawn: %v", err)
 			}
@@ -373,7 +321,7 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
 	const warning = "does not ignore .worktrees/"
 
-	covered := newFixture(t)
+	covered := newQuickFixture(t)
 	result, err := covered.service.Spawn(context.Background(), covered.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
@@ -382,7 +330,7 @@ func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
 		t.Errorf("a checkout whose .gitignore covers .worktrees/ was warned:\n%s", result.Output)
 	}
 
-	uncovered := newFixture(t)
+	uncovered := newQuickFixture(t)
 	uncovered.runner.worktreesUncovered = true
 	if result, err = uncovered.service.Spawn(context.Background(), uncovered.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
@@ -395,7 +343,7 @@ func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
 	}
 
 	// A checkout that already holds a worktree has had its warning.
-	later := newFixture(t)
+	later := newQuickFixture(t)
 	later.runner.worktreesUncovered = true
 	makeDir(t, filepath.Join(later.project, ".worktrees", "gb-earlier"))
 	if result, err = later.service.Spawn(context.Background(), later.request); err != nil {
@@ -407,22 +355,22 @@ func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
 }
 
 func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
-	fixture := newFixture(t)
+	f := newQuickFixture(t)
 	// The project commits .env, so git worktree add checks it out before
 	// provisioning runs. The default link set is not a declaration, so the
 	// occupied path is left alone and named on the spawn output instead of
 	// tearing the dispatch down.
-	writeFile(t, filepath.Join(fixture.project, ".env"), "K=primary\n")
-	writeFile(t, filepath.Join(fixture.worktree, ".env"), "K=checked-out\n")
+	writeFile(t, filepath.Join(f.project, ".env"), "K=primary\n")
+	writeFile(t, filepath.Join(f.worktree, ".env"), "K=checked-out\n")
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v, want the goblin dispatched with its checked-out .env", err)
 	}
 	if !strings.Contains(result.Output, "link: .env already present in the worktree") {
 		t.Errorf("output = %q, want the skipped default share reported", result.Output)
 	}
-	data, err := os.ReadFile(filepath.Join(fixture.worktree, ".env"))
+	data, err := os.ReadFile(filepath.Join(f.worktree, ".env"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,18 +380,17 @@ func TestSpawnReportsADefaultLinkSkippedForACheckedOutFile(t *testing.T) {
 }
 
 func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
-	fixture := newFixture(t)
-	// The pane is PowerShell, where environment names are case-insensitive,
-	// so a redirect that differs from a reserved name only by case is the
-	// same variable. CFO_STATE_OVERRIDE is only written at harness start,
-	// after the manifest is merged, so it proves the reserved set does not
-	// depend on what the launch map happens to hold at merge time.
-	// LOCALAPPDATA, XDG_CACHE_HOME and HOME are reserved for a different
-	// reason: the launch never writes them, but os.UserCacheDir reads them to
-	// derive the task's Go temporary directory, so a redirect would leave any
-	// cfo command run from the pane computing a different directory than
-	// spawn created.
-	writeWorktreeManifest(t, fixture.dataDir, fixture.project, worktree.Manifest{
+	f := newQuickFixture(t)
+	// Windows compares environment names without case, so a redirect that
+	// differs from a reserved name only by case is the same variable.
+	// CFO_STATE_OVERRIDE is only written at harness start, after the manifest
+	// is merged, so it proves the reserved set does not depend on what the
+	// launch map happens to hold at merge time. LOCALAPPDATA, XDG_CACHE_HOME
+	// and HOME are reserved for a different reason: the launch never writes
+	// them, but os.UserCacheDir reads them to derive the task's Go temporary
+	// directory, so a redirect would leave any cfo command the goblin runs
+	// computing a different directory than spawn created.
+	writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"gotmpdir":                 `C:\hijacked-gotmpdir`,
@@ -456,685 +403,95 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 		},
 	})
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
+
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	line := fixture.runner.literals[0]
-	if strings.Contains(line, "hijacked") || strings.Contains(line, "overlord") {
-		t.Errorf("pane line = %q, want every case-aliased reserved redirect dropped", line)
-	}
-	if !strings.Contains(line, "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") ||
-		!strings.Contains(line, "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
-		t.Errorf("pane line = %q, want the launch contract's own values intact", line)
-	}
-	// The launch never sets the cache root itself, so a dropped redirect leaves
-	// it absent entirely and the pane inherits the operator's own.
-	for _, reserved := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
-		if strings.Contains(strings.ToUpper(line), "$ENV:"+reserved+" =") {
-			t.Errorf("pane line = %q, want no %s assignment: a manifest must not redirect the cache root", line, reserved)
+	env := named(f.events(t), "env")[0].Env
+	for name, value := range env {
+		if value != nil && (strings.Contains(*value, "hijacked") || *value == "overlord") {
+			t.Errorf("the harness started with %s = %q, want every case-aliased reserved redirect dropped", name, *value)
 		}
 	}
-	if !strings.Contains(line, `$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\cache\ms-playwright'`) {
-		t.Errorf("pane line = %q, want the unrelated redirect kept", line)
+	for name, want := range map[string]string{
+		"GOTMPDIR":                 goTmpDir(t, f.stateDir, result.Meta.ID),
+		"CFO_STATE_OVERRIDE":       f.stateDir,
+		"CFO_ROLE":                 harness.RoleGoblin,
+		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
+	} {
+		if got := env[name]; got == nil || *got != want {
+			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
+		}
 	}
 }
 
 func TestSpawnDispatchesAndReportsWhenTheDependencyInstallFails(t *testing.T) {
-	fixture := newFixture(t)
+	f := newQuickFixture(t)
 	// Strategy install is the default and its command is auto-detected from a
 	// lockfile, so no project opted into it. A drifted lockfile must not turn
 	// every dispatch into this repo into a failure.
-	writeFile(t, filepath.Join(fixture.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
-	fixture.runner.installer = "pnpm"
-	fixture.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
+	writeFile(t, filepath.Join(f.worktree, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
+	f.runner.installer = "pnpm"
+	f.runner.installerStderr = "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile\n"
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v, want the goblin dispatched anyway", err)
 	}
-	if !slices.Contains(fixture.events, "install") {
-		t.Fatalf("events = %v, want the detected installer to have run", fixture.events)
+	if !slices.Contains(f.fixture.events, "install") {
+		t.Fatalf("events = %v, want the detected installer to have run", f.fixture.events)
 	}
 	if !strings.Contains(result.Output, "pnpm install --frozen-lockfile") ||
 		!strings.Contains(result.Output, "ERR_PNPM_OUTDATED_LOCKFILE") {
 		t.Errorf("output = %q, want the failed install command and its cause reported", result.Output)
 	}
-	// Nothing was torn down: the task is published, the tab is open, and the
-	// harness got its brief.
-	if _, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); err != nil {
+	// Nothing was torn down: the task is published, its worktree kept, and
+	// the harness got its brief.
+	if _, err := state.ReadTaskMeta(f.stateDir, f.request.ID); err != nil {
 		t.Fatalf("read metadata after a failed install: %v", err)
 	}
-	if slices.Contains(fixture.events, "tab-close") || fixture.git.returned != 0 {
-		t.Errorf("events = %v, worktree returns = %d; want the dispatch left intact", fixture.events, fixture.git.returned)
+	if f.git.returned != 0 {
+		t.Errorf("worktree returns = %d; want the dispatch left intact", f.git.returned)
 	}
-	if fixture.runner.prompt == "" && fixture.runner.literal == "" {
-		t.Error("no harness was launched after the failed install")
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+		t.Errorf("submitted = %+v, want the brief delivered after the failed install", submitted)
 	}
 }
 
 func TestSpawnRefusesUnvalidatableWorktreeWithoutLaunching(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.git.topErr = errors.New("worktree: not a git worktree")
-	primaryMarker := filepath.Join(fixture.project, "primary-marker.txt")
+	f := newFixture(t)
+	f.git.topErr = errors.New("worktree: not a git worktree")
+	primaryMarker := filepath.Join(f.project, "primary-marker.txt")
 	writeFile(t, primaryMarker, "unchanged")
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil || !strings.Contains(err.Error(), "not a git worktree") {
 		t.Fatalf("Spawn unvalidatable worktree error = %v, want a validation refusal", err)
 	}
-	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
-		t.Fatalf("unvalidatable worktree launched a harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
+	if slices.Contains(f.events, "build-harness") || hasTerminal(f.stateDir, f.request.ID) {
+		t.Fatalf("unvalidatable worktree launched a harness: events=%v", f.events)
 	}
 	if got, readErr := os.ReadFile(primaryMarker); readErr != nil || string(got) != "unchanged" {
 		t.Fatalf("primary project changed after the refusal: %q, %v", got, readErr)
 	}
-	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
+	if _, statErr := os.Stat(f.worktree); statErr != nil {
 		t.Fatalf("refusal removed acquired worktree: %v", statErr)
 	}
-	if fixture.git.returned != 1 {
-		t.Fatalf("refusal returned the lease %d times, want 1", fixture.git.returned)
-	}
-}
-
-func TestSpawnLaunchTimeoutAdoptsALivePane(t *testing.T) {
-	fixture := newFixture(t)
-	// The agent never reports "working", but is alive and idle: a healthy
-	// harness sitting at its prompt. Spawn must adopt it, not declare failure
-	// and orphan a live pane.
-	fixture.runner.agentStatus = "idle"
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the live pane adopted as launched", result.Output)
-	}
-	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("adopted launch removed worktree: %v", statErr)
-	}
-	if fixture.git.returned != 0 {
-		t.Fatalf("adopted launch returned the lease %d times, want 0", fixture.git.returned)
-	}
-	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); metaErr != nil {
-		t.Fatalf("adopted launch lost metadata: %v", metaErr)
-	}
-}
-
-// Failing a readiness timeout is destructive - it closes the tab, returns the
-// worktree, and retires the metadata - so it needs proof the pane is empty.
-// An unreadable probe is herdr admitting it does not know, and tearing down on
-// that destroys a goblin that may well be running at its prompt.
-func TestSpawnLaunchTimeoutAdoptsAPaneItCannotProveIsEmpty(t *testing.T) {
-	fixture := newFixture(t)
-	// The agent never reports "working", and the liveness probe herdr answers
-	// afterwards is untrustworthy rather than a clean "no agent here".
-	fixture.runner.agentStatus = "idle"
-	fixture.runner.paneUnreadable = true
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the unverifiable pane adopted as launched", result.Output)
-	}
-	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("unverifiable launch removed worktree: %v", statErr)
-	}
-	if fixture.git.returned != 0 {
-		t.Fatalf("unverifiable launch returned the lease %d times, want 0", fixture.git.returned)
-	}
-	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); metaErr != nil {
-		t.Fatalf("unverifiable launch lost metadata: %v", metaErr)
-	}
-	if slices.Contains(fixture.events, "tab-close") {
-		t.Errorf("events = %v, want no teardown of a pane herdr could not read", fixture.events)
-	}
-}
-
-// Herdr recognizes a harness by matching pane output against a per-harness
-// detection manifest. A manifest that has fallen behind its harness matches
-// nothing, and the healthy goblin then holds no agent at all: nothing names it
-// in the fleet view, cleanup is free to reclaim its worktree as dead, and the
-// launch burns its whole readiness budget before being adopted. CFO started
-// the harness and the operating system can prove it is running, so CFO
-// registers it - as unknown, which is the honest state for a harness whose
-// screen Herdr cannot read.
-func TestSpawnRegistersAHarnessHerdrCannotDetect(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Pi
-	fixture.request.Model = ""
-	fixture.request.Effort = ""
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
-	}
-	typedScreens(fixture.runner, harness.Pi)
-	fixture.runner.agentNotFound = true
-	fixture.runner.harnessRunning = true
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Fatalf("Output = %q, want the undetected harness launched", result.Output)
-	}
-	want := []string{
-		"pane", "report-agent", "pane-1",
-		"--source", "cfo",
-		"--agent", "pi",
-		"--state", "unknown",
-		"--agent-session-id", "gb-task-7",
-		"--agent-session-path", fixture.worktree,
-	}
-	if got := fixture.runner.reportedAgent; !reflect.DeepEqual(got, want) {
-		t.Errorf("reported agent = %v\nwant %v", got, want)
-	}
-}
-
-// Reporting over a harness Herdr already recognizes would replace its live
-// working, idle, and blocked transitions with one state CFO stamped at launch
-// and never updates, so detection always wins where it works.
-func TestSpawnLeavesADetectedHarnessToHerdr(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.harnessRunning = true
-
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if fixture.runner.reportedAgent != nil {
-		t.Errorf("reported agent = %v, want herdr's own detection left alone", fixture.runner.reportedAgent)
-	}
-}
-
-// No agent and nothing but the shell running is a launch that failed, not a
-// harness Herdr cannot see. Registering on the first half alone would turn the
-// readiness gate into a launch that always succeeds.
-func TestSpawnDoesNotRegisterAPaneStillAtItsShell(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.agentNotFound = true
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	// The refusal now lands at delivery rather than at launch confirmation: a
-	// pane herdr proves holds no agent cannot accept a prompt, so spawn fails
-	// there instead of spending the whole delivery budget first.
-	if err == nil || !strings.Contains(err.Error(), "holds no agent") {
-		t.Fatalf("Spawn error = %v, want the launch refused", err)
-	}
-	if fixture.runner.reportedAgent != nil {
-		t.Errorf("reported agent = %v, want no registration for a pane at its shell", fixture.runner.reportedAgent)
-	}
-}
-
-func TestSpawnLaunchFailureTearsDownPaneAndWorktree(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.agentNotFound = true
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "holds no agent") {
-		t.Fatalf("Spawn launch verification error = %v, want the launch refused", err)
-	}
-	status, readErr := state.TailStatus(fixture.stateDir, fixture.request.ID, 2)
-	if readErr != nil {
-		t.Fatalf("TailStatus: %v", readErr)
-	}
-	events := make([]string, len(status))
-	for i, line := range status {
-		_, events[i] = state.SplitStatus(line)
-	}
-	if want := []string{"failed: " + err.Error()}; !reflect.DeepEqual(events, want) {
-		t.Errorf("status = %v, want %v", status, want)
-	}
-	if fixture.git.returned != 1 {
-		t.Fatalf("launch failure returned the lease %d times, want 1 for a proven-dead agent", fixture.git.returned)
-	}
-	if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
-		t.Fatalf("launch failure left metadata behind: %v", metaErr)
-	}
-	if !slices.Contains(fixture.events, "tab-close") {
-		t.Errorf("events = %v, want the tab closed on a proven-dead launch", fixture.events)
-	}
-	if marker, readErr := os.ReadFile(filepath.Join(fixture.project, "primary-marker.txt")); readErr != nil || string(marker) != "unchanged" {
-		t.Fatalf("launch failure rewrote primary project: %q, %v", marker, readErr)
-	}
-}
-
-func TestSpawnConfirmsBlockingTrustDialogThenLaunches(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.agentStatus = "blocked"
-	fixture.runner.trustDialog = true
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn with trust dialog: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want successful spawn", result.Output)
-	}
-	// Prefix submit then trust confirmation, and nothing else: the instruction
-	// is submitted natively, so there is no third Enter for a composer.
-	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit then trust confirmation", got)
-	}
-	if !slices.Contains(fixture.events, "capture") {
-		t.Errorf("events = %v, want a pane capture before trust confirmation", fixture.events)
-	}
-}
-
-func TestSpawnConfirmsDialogWithAdapterKeys(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.agentStatus = "blocked"
-	fixture.runner.trustDialog = true
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, confirmKeys: []string{"up", "enter"}}
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn with adapter dialog keys: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want successful spawn", result.Output)
-	}
-	if got, want := fixture.runner.keys, []string{"enter", "up", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want prefix submit then the adapter confirm keys", got)
-	}
-}
-
-func TestSpawnAgentStartFailureReturnsWorktree(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.startErr = errors.New("herdr binary unavailable")
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "herdr binary unavailable") {
-		t.Fatalf("Spawn error = %v, want runner failure surfaced", err)
-	}
-	if got := fixture.runner.prompt; got != "" {
-		t.Errorf("prompt = %q, want no prompt after a failed agent start", got)
-	}
-	if fixture.git.returned != 1 {
-		t.Fatalf("agent start failure returned the lease %d times, want 1 before any agent launched", fixture.git.returned)
-	}
-}
-
-func TestSpawnStartsNamedAgentThenPromptsNatively(t *testing.T) {
-	fixture := newFixture(t)
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want successful spawn", result.Output)
-	}
-	// One literal only: the launch prefix. The instruction is not typed at
-	// all now - it is submitted natively, which is what this test's name has
-	// always claimed and what the composer read-back never actually did.
-	if len(fixture.runner.literals) != 1 || !strings.Contains(fixture.runner.literals[0], "Set-Location") {
-		t.Fatalf("literals = %q, want only the launch prefix", fixture.runner.literals)
-	}
-	if !strings.Contains(fixture.runner.prompt, "Read the brief") {
-		t.Fatalf("prompt = %q, want the brief instruction delivered natively", fixture.runner.prompt)
-	}
-	start := slices.Index(fixture.events, "agent-start")
-	working := slices.Index(fixture.events, "agent-working")
-	if start < 0 || working < 0 || !(start < working) {
-		t.Errorf("events = %v, want agent-start before agent-working", fixture.events)
-	}
-}
-
-func TestSpawnPiTypedLaunchTypesFullCommandAndSkipsNativeStart(t *testing.T) {
-	for _, key := range []string{"CODEX_THREAD_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
-		t.Setenv(key, "")
-	}
-	fixture := newFixture(t)
-	typedScreens(fixture.runner, harness.Pi)
-	fixture.request.Harness = harness.Pi
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Pi: typedFixtureAdapter{events: &fixture.events, kind: harness.Pi},
-	}
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn pi: %v", err)
-	}
-	if !strings.Contains(result.Output, "harness=pi") {
-		t.Errorf("Output = %q, want pi harness", result.Output)
-	}
-	if got := len(fixture.runner.literals); got != 2 {
-		t.Fatalf("literals = %q, want the typed launch line and then the brief", fixture.runner.literals)
-	}
-	wantLine := "Set-Location -LiteralPath '" + fixture.worktree + "'; . '" + filepath.Join(result.Meta.TaskTmp, "auth.ps1") + "'; $env:CFO_PARENT_HARNESS = ''; $env:CFO_PARENT_SESSION_ID = ''; $env:CFO_ROOT_SESSION_ID = ''; $env:CFO_SPAWN_GEN = '" + result.Meta.SpawnGen + "'; $env:CFO_STATE_OVERRIDE = '" + fixture.stateDir + "'; $env:CFO_TASK_ID = 'task-7'; $env:GOTMPDIR = '" + goTmpDir(t, fixture.stateDir, result.Meta.ID) + "'; & 'pi' '--tui-mode' 'regular'"
-	if got := fixture.runner.literals[0]; !strings.HasPrefix(got, wantLine) {
-		t.Errorf("typed launch line = %q\nwant prefix %q", got, wantLine)
-	}
-	if fixture.runner.startName != "" || fixture.runner.startKind != "" || fixture.runner.startArgs != nil {
-		t.Errorf("typed launch used native agent start: name=%q kind=%q args=%q", fixture.runner.startName, fixture.runner.startKind, fixture.runner.startArgs)
-	}
-	if fixture.runner.brief != spawnInstruction(fixture.brief, fixture.request.ID) || fixture.runner.briefWrites != 1 {
-		t.Errorf("typed launch typed the brief %d times as %q, want the complete brief once", fixture.runner.briefWrites, fixture.runner.brief)
-	}
-	if slices.Contains(fixture.events, "agent-start") || slices.Contains(fixture.events, "agent-prompt") {
-		t.Errorf("events = %v, want the typed launch and its brief typed into the pane, with no native agent start or prompt", fixture.events)
-	}
-	if !slices.Contains(fixture.events, "send-enter") || !slices.Contains(fixture.events, "agent-working") {
-		t.Errorf("events = %v, want typed submit followed by working confirmation", fixture.events)
-	}
-}
-
-// On 2026-09-28 a Codex goblin's pane was back at PowerShell when the spawn
-// typed its brief, which ran as shell commands. A typed launch hands over its
-// brief only once the harness shows its composer; a pane at its shell never
-// does, so the spawn stops with the pane's screen and types nothing.
-func TestATypedLaunchWhoseHarnessNeverStartsIsNotHandedItsBrief(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	fixture.runner.composerScreen = "PS C:\\work> \n"
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") || !strings.Contains(err.Error(), `PS C:\work>`) {
-		t.Fatalf("Spawn error = %v, want the harness that never started named with its pane", err)
-	}
-	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.brief != "" {
-		t.Errorf("events = %v, brief %q: the brief reached a pane at its shell", fixture.events, fixture.runner.brief)
-	}
-}
-
-// On 2026-09-28 a Codex goblin's brief, typed by herdr, sat in Codex's
-// composer as "[Pasted Content 1031 chars]": Codex read the fast typing as a
-// paste and took the Enter that ended it as part of the paste. The brief
-// still showing in the composer is submitted with one more Enter, and the
-// spawn waits to see Codex working on it.
-func TestABriefCodexLeftInItsComposerIsSubmittedWithOneEnter(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.promptedScreen = "› [Pasted Content 1031 chars]\n\n  tab to queue message    100% context left\n"
-	fixture.runner.enteredScreen = codexWorking
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if fixture.runner.briefWrites != 1 || slices.Contains(fixture.events, "agent-prompt") {
-		t.Errorf("the brief was typed %d times (events %v), want once as pane text", fixture.runner.briefWrites, fixture.events)
-	}
-	if fixture.runner.entersAfterBrief < 2 {
-		t.Errorf("Enters after the brief = %d, want the brief left in Codex's composer submitted again", fixture.runner.entersAfterBrief)
-	}
-}
-
-// Herdr's counters move on any redraw, so they cannot say a typed harness
-// took its brief: on 2026-09-28 a spawn reported a Codex goblin started whose
-// brief never reached a turn. A harness that never shows a turn on its brief
-// stops the spawn instead.
-func TestATypedBriefIsNotReportedTakenUntilItsHarnessWorksOnIt(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.promptedScreen = codexComposer
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err == nil || !strings.Contains(err.Error(), "codex never showed it took its brief") {
-		t.Fatalf("Spawn error = %v, want the brief no turn took reported", err)
-	}
-}
-
-// A same-harness switch quits the old Codex in its pane and types the new
-// one's launch there, so the old Codex's composer footer is still in the
-// pane's recent rows while the pane shows only its shell. That footer is not
-// the new harness's composer: the relaunch is not handed its brief.
-func TestATypedRelaunchIsNotHandedItsBriefOnTheOldHarnesssComposer(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.scrollback = codexComposer
-	fixture.runner.composerScreen = "PS C:\\work> \n"
-	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
-		TypedLaunch: true, Resumed: true, Executable: "codex", Args: []string{"resume", "--last"},
-		Instruction: "Resume task-7 and continue from the handoff.",
-		Dir:         fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
-	}}
-
-	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
-
-	if err == nil || !strings.Contains(err.Error(), "codex never showed its composer") {
-		t.Fatalf("startHarness error = %v, want the relaunch that never showed its composer named", err)
-	}
-	if slices.Contains(fixture.events, "agent-prompt") || fixture.runner.brief != "" {
-		t.Errorf("events = %v, brief %q: the brief was typed on the old harness's leftover screen", fixture.events, fixture.runner.brief)
-	}
-}
-
-// Herdr briefly busy refuses a write and types nothing, so a refused brief is
-// typed again, and it still reaches the harness exactly once.
-func TestARefusedTypedBriefIsSubmittedAgainAndDeliveredOnce(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	typedScreens(fixture.runner, harness.Codex)
-	// The typed launch line is the first write, so the brief's first two
-	// writes are refused.
-	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 2
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if fixture.runner.briefWrites != 1 || fixture.runner.sendTextCount != 4 {
-		t.Errorf("brief typed %d times in %d writes, want two refused and one taken", fixture.runner.briefWrites, fixture.runner.sendTextCount)
-	}
-	if fixture.runner.brief != spawnInstruction(fixture.brief, fixture.request.ID) {
-		t.Errorf("brief = %q, want the brief delivered", fixture.runner.brief)
-	}
-}
-
-// A write Herdr refuses for the whole budget fails the spawn with Herdr's own
-// refusal rather than a claim that the harness ignored its brief.
-func TestATypedBriefHerdrKeepsRefusingFailsWithTheRefusal(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 1_000_000
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err == nil || !strings.Contains(err.Error(), "could not type codex's brief") || !strings.Contains(err.Error(), "pane busy") {
-		t.Fatalf("Spawn error = %v, want Herdr's refusal of the brief", err)
-	}
-	if fixture.runner.brief != "" {
-		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
-	}
-}
-
-// A write Herdr refuses may have typed all the same. With the read after it
-// refused too, the brief is read again rather than typed again, so the
-// composer never holds it twice.
-func TestARefusedWriteThatTypedIsNotTypedAgain(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Harness = harness.Codex
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-	}
-	typedScreens(fixture.runner, harness.Codex)
-	fixture.runner.failSendTextAt, fixture.runner.failSendTexts = 2, 1
-	fixture.runner.refusedWritesType = true
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if fixture.runner.briefWrites != 1 || fixture.runner.sendTextCount != 2 {
-		t.Errorf("brief typed %d times in %d writes, want the refused write that typed never written again", fixture.runner.briefWrites, fixture.runner.sendTextCount)
-	}
-}
-
-// Herdr briefly busy refuses an Enter and nothing is pressed, so neither a
-// refused first submit nor a refused later one fails the spawn: each is
-// pressed again, and the brief is still delivered once.
-func TestARefusedEnterOnATypedBriefIsPressedAgain(t *testing.T) {
-	for name, test := range map[string]struct {
-		refused  []int
-		prompted string
-		enters   int
-	}{
-		"the first submit":      {[]int{1}, codexWorking, 1},
-		"a submit left pending": {[]int{2}, "› [Pasted Content 1031 chars]\n\n  tab to queue message    100% context left\n", 2},
-	} {
-		t.Run(name, func(t *testing.T) {
-			fixture := newFixture(t)
-			fixture.request.Harness = harness.Codex
-			fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-				harness.Codex: typedFixtureAdapter{events: &fixture.events, kind: harness.Codex},
-			}
-			typedScreens(fixture.runner, harness.Codex)
-			fixture.runner.promptedScreen, fixture.runner.enteredScreen = test.prompted, codexWorking
-			fixture.runner.refuseBriefEnters = test.refused
-
-			_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-			if err != nil {
-				t.Fatalf("Spawn: %v", err)
-			}
-			if fixture.runner.briefWrites != 1 || fixture.runner.entersAfterBrief != test.enters {
-				t.Errorf("brief typed %d times with %d Enters taken, want once with %d", fixture.runner.briefWrites, fixture.runner.entersAfterBrief, test.enters)
-			}
-		})
-	}
-}
-
-// A trust prompt Codex draws after the startup checks is confirmed with one
-// Enter; a read before it redraws still shows the prompt and takes no second
-// key, which would answer the hook review Codex draws next. That prompt is
-// never a spawn's to answer, so the spawn stops there with its name.
-func TestALateTrustPromptTakesOneEnterAndTheHookReviewStopsTheSpawn(t *testing.T) {
-	fixture := newFixture(t)
-	trust := "Do you trust the contents of this directory?\n\n› 1. Yes, continue\n  2. No, quit\n"
-	fixture.runner.composerScreen = "PS C:\\work> \n"
-	fixture.runner.lateScreens = []string{trust, trust, "Hooks need review\n\n› 1. Review hooks\n"}
-	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
-		TypedLaunch: true, Executable: "codex", Instruction: "Read the brief.",
-		Dir: fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
-		ConfirmMarkers: []string{"Do you trust the contents of this directory?"}, ConfirmKeys: []string{"enter"},
-	}}
-
-	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
-
-	if err == nil || !strings.Contains(err.Error(), "the hook review prompt") {
-		t.Fatalf("startHarness error = %v, want the spawn stopped at the hook review", err)
-	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want the launch's submit and one Enter for the late trust prompt", got)
-	}
-	if fixture.runner.brief != "" {
-		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
-	}
-}
-
-// Codex 0.154 draws its composer a moment before its hook review, so a brief
-// typed at the first sight of the composer goes into the review. A typed
-// launch waits until the composer has shown throughout the settle, here sees
-// the review, and stops before typing anything.
-func TestATypedLaunchWaitsOutAComposerAReviewIsDrawnOver(t *testing.T) {
-	fixture := newFixture(t)
-	review := "Hooks need review\n  2 hooks are new or changed.\n\n› 1. Review hooks\n  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n"
-	fixture.runner.composerScreen = "PS C:\\work> \n"
-	fixture.runner.lateScreens = []string{codexComposer, codexComposer, review, review}
-	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
-		TypedLaunch: true, Executable: "codex", Instruction: "Read the brief.",
-		Dir: fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
-	}}
-
-	_, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan)
-
-	if err == nil || !strings.Contains(err.Error(), "the hook review prompt") {
-		t.Fatalf("startHarness error = %v, want the spawn stopped at the hook review", err)
-	}
-	if fixture.runner.brief != "" {
-		t.Errorf("brief = %q, want none typed", fixture.runner.brief)
-	}
-}
-
-func TestSpawnPiTypedLaunchConfirmsTrustDialog(t *testing.T) {
-	fixture := newFixture(t)
-	typedScreens(fixture.runner, harness.Pi)
-	fixture.request.Harness = harness.Pi
-	fixture.request.Model = ""
-	fixture.request.Effort = ""
-	fixture.runner.agentStatus = "blocked"
-	fixture.runner.trustDialog = true
-	fixture.runner.trustDialogText = "Accessing workspace:\n\n Trust project folder?\n"
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Pi: harness.DefaultRegistry().Adapters[harness.Pi],
-	}
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn pi with trust dialog: %v", err)
-	}
-	if !strings.Contains(result.Output, "harness=pi") {
-		t.Errorf("Output = %q, want pi harness", result.Output)
-	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want typed launch submit, pi trust confirmation, then the brief's submit", got)
-	}
-}
-
-// Pi draws its trust prompt in every fresh worktree, sometimes only after the
-// startup checks have read the pane. Its screens never answer that prompt, but
-// its launch confirms it, so a late one takes one Enter and the spawn goes on.
-func TestALatePiTrustPromptIsConfirmedAndTheBriefDelivered(t *testing.T) {
-	fixture := newFixture(t)
-	typedScreens(fixture.runner, harness.Pi)
-	fixture.request.Harness = harness.Pi
-	fixture.request.Model = ""
-	fixture.request.Effort = ""
-	fixture.runner.agentStatus = "blocked"
-	trust := "Accessing workspace:\n\n Trust project folder?\n"
-	fixture.runner.lateScreens = []string{trust, trust}
-	fixture.service.Harness.Adapters = map[harness.Kind]harness.Adapter{
-		harness.Pi: harness.DefaultRegistry().Adapters[harness.Pi],
-	}
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-
-	if err != nil {
-		t.Fatalf("Spawn pi with a late trust prompt: %v", err)
-	}
-	if got, want := fixture.runner.keys, []string{"enter", "enter", "enter"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("keys = %v, want typed launch submit, one Enter for the late trust prompt, then the brief's submit", got)
-	}
-	if fixture.runner.briefWrites != 1 {
-		t.Errorf("brief typed %d times, want once", fixture.runner.briefWrites)
+	if f.git.returned != 1 {
+		t.Fatalf("refusal returned the lease %d times, want 1", f.git.returned)
 	}
 }
 
 func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.agentErr = errors.New("preview unavailable\r\ndone: forged")
+	f := newFixture(t)
+	f.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &f.events, buildErr: errors.New("preview unavailable\r\ndone: forged")}
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil || !strings.Contains(err.Error(), "preview unavailable") {
-		t.Fatalf("Spawn launch verification error = %v, want propagated Herdr error", err)
+		t.Fatalf("Spawn launch error = %v, want the build refusal propagated", err)
 	}
-	raw, readErr := os.ReadFile(filepath.Join(fixture.stateDir, fixture.request.ID+".status"))
+	raw, readErr := os.ReadFile(filepath.Join(f.stateDir, f.request.ID+".status"))
 	if readErr != nil {
 		t.Fatalf("ReadFile status: %v", readErr)
 	}
@@ -1152,7 +509,7 @@ func TestSpawnNormalizesLaunchFailureStatusToOneFailedEvent(t *testing.T) {
 	}
 }
 
-func TestSpawnRejectsMetadataBearingControlsBeforeHerdrMutation(t *testing.T) {
+func TestSpawnRejectsMetadataBearingControlsBeforeAnyMutation(t *testing.T) {
 	tests := []struct {
 		name string
 		set  func(*Request)
@@ -1162,52 +519,24 @@ func TestSpawnRejectsMetadataBearingControlsBeforeHerdrMutation(t *testing.T) {
 		{"kind", func(req *Request) { req.Kind = "ship\nbad" }},
 		{"mode", func(req *Request) { req.Mode = "no-mistakes\nbad" }},
 		{"harness", func(req *Request) { req.Harness = harness.Kind("claude\nbad") }},
-		{"model", func(req *Request) { req.Model = "x\nherdr_pane_id=other" }},
+		{"model", func(req *Request) { req.Model = "x\nwindow=other" }},
 		{"effort", func(req *Request) { req.Effort = "high\rmalformed" }},
-		{"session", func(req *Request) { req.Session = "fleet\nbad" }},
+		{"title", func(req *Request) { req.Title = "a title\nbackend=other" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newFixture(t)
-			test.set(&fixture.request)
+			f := newFixture(t)
+			test.set(&f.request)
 
-			_, err := fixture.service.Spawn(context.Background(), fixture.request)
+			_, err := f.service.Spawn(context.Background(), f.request)
 			if err == nil || !strings.Contains(err.Error(), "control character") {
 				t.Fatalf("Spawn control injection error = %v, want control character refusal", err)
 			}
-			if fixture.runner.calls != 0 || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || len(fixture.events) != 0 {
-				t.Fatalf("control injection mutated Herdr: calls=%d literal=%q enter=%d events=%v", fixture.runner.calls, fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
+			if f.runner.calls != 0 || len(f.events) != 0 {
+				t.Fatalf("control injection ran work: calls=%d events=%v", f.runner.calls, f.events)
 			}
-			if _, statErr := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
+			if _, statErr := os.Stat(filepath.Join(f.stateDir, f.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("Spawn wrote injected metadata: stat error = %v", statErr)
-			}
-		})
-	}
-}
-
-func TestSpawnRejectsMalformedHerdrIDsBeforeDownstreamWork(t *testing.T) {
-	tests := []struct {
-		name   string
-		set    func(*herdrRunner)
-		events []string
-	}{
-		{"container", func(r *herdrRunner) { r.workspaceID = "workspace-1\nbad" }, []string{"status", "schema", "status", "session-list", "agent-manifests", "workspace-list"}},
-		{"endpoint", func(r *herdrRunner) { r.paneID = "pane-1\nbad" }, []string{"status", "schema", "status", "session-list", "agent-manifests", "workspace-list", "tab-list", "tab-create"}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFixture(t)
-			test.set(fixture.runner)
-
-			_, err := fixture.service.Spawn(context.Background(), fixture.request)
-			if err == nil || !strings.Contains(err.Error(), "control character") {
-				t.Fatalf("Spawn malformed Herdr ID error = %v, want control character refusal", err)
-			}
-			if slices.Contains(fixture.events, "worktree-acquire") || fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
-				t.Fatalf("malformed Herdr ID reached downstream work: literal=%q enter=%d events=%v", fixture.runner.literal, fixture.runner.enterKeys, fixture.events)
-			}
-			if !reflect.DeepEqual(fixture.events, test.events) {
-				t.Fatalf("malformed Herdr ID events = %v, want %v", fixture.events, test.events)
 			}
 		})
 	}
@@ -1234,141 +563,128 @@ func TestSpawnPostAcquisitionFailuresReturnPartialResultAndStatus(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newFixture(t)
-			test.set(fixture)
+			f := newFixture(t)
+			test.set(f)
 
-			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			result, err := f.service.Spawn(context.Background(), f.request)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Spawn error = %v, want %q", err, test.want)
 			}
-			if result.Meta.Worktree != fixture.worktree || result.Meta.Project != fixture.project || result.Endpoint.Target != (herdr.Target{Session: "fleet", Pane: "pane-1"}) {
-				t.Fatalf("partial result = %+v endpoint=%+v, want worktree, project, and target", result.Meta, result.Endpoint)
+			if result.Meta.Worktree != f.worktree || result.Meta.Project != f.project || result.Meta.Backend != "native" {
+				t.Fatalf("partial result = %+v, want the native task's worktree and project", result.Meta)
 			}
-			status, statusErr := state.TailStatus(fixture.stateDir, fixture.request.ID, 2)
+			status, statusErr := state.TailStatus(f.stateDir, f.request.ID, 2)
 			if statusErr != nil || len(status) != 1 {
 				t.Fatalf("status = %v, %v; want one failed event containing %q", status, statusErr, test.want)
 			}
 			if _, event := state.SplitStatus(status[0]); !strings.HasPrefix(event, "failed: ") || !strings.Contains(event, test.want) {
 				t.Fatalf("status = %v, %v; want one failed event containing %q", status, statusErr, test.want)
 			}
-			if _, metaErr := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
+			if _, metaErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(metaErr, os.ErrNotExist) {
 				t.Fatalf("post-acquisition failure wrote success metadata: %v", metaErr)
 			}
-			if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 {
-				t.Fatalf("post-acquisition failure launched harness: literal=%q enter=%d", fixture.runner.literal, fixture.runner.enterKeys)
+			if hasTerminal(f.stateDir, f.request.ID) {
+				t.Fatal("post-acquisition failure started a native terminal")
 			}
-			if fixture.git.returned != 1 {
-				t.Fatalf("post-acquisition failure returned the lease %d times, want 1", fixture.git.returned)
+			if f.git.returned != 1 {
+				t.Fatalf("post-acquisition failure returned the lease %d times, want 1", f.git.returned)
 			}
 		})
 	}
 }
 
 func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.git.topErr = errors.New("worktree: not a git worktree")
-	fixture.git.returnErr = errors.New("worktree: return refused")
+	f := newFixture(t)
+	f.git.topErr = errors.New("worktree: not a git worktree")
+	f.git.returnErr = errors.New("worktree: return refused")
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil || !strings.Contains(err.Error(), "not a git worktree") || !strings.Contains(err.Error(), "return refused") {
 		t.Fatalf("Spawn error = %v, want joined launch and return failures", err)
 	}
-	if fixture.git.returned != 1 {
-		t.Fatalf("post-acquire failure returned the lease %d times, want 1", fixture.git.returned)
+	if f.git.returned != 1 {
+		t.Fatalf("post-acquire failure returned the lease %d times, want 1", f.git.returned)
 	}
 }
 
 func TestSpawnSurfacesTaskLockReleaseFailure(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		fixture := newFixture(t)
-		fixture.service.ReleaseLock = func(string, string) error {
+		f := newQuickFixture(t)
+		f.service.ReleaseLock = func(string, string) error {
 			return errors.New("lock is still shared")
 		}
 
-		result, err := fixture.service.Spawn(context.Background(), fixture.request)
+		result, err := f.service.Spawn(context.Background(), f.request)
 		if err == nil || !strings.Contains(err.Error(), "release spawn lock") || !strings.Contains(err.Error(), "lock is still shared") {
 			t.Fatalf("Spawn release error = %v, want surfaced cleanup failure", err)
 		}
-		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
-			t.Fatalf("success result was discarded by cleanup error: %+v endpoint=%+v", result.Meta, result.Endpoint)
+		if result.Meta.Worktree != f.worktree || !strings.HasPrefix(result.Output, "spawned task-7") {
+			t.Fatalf("success result was discarded by cleanup error: %+v output=%q", result.Meta, result.Output)
 		}
-		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
+		if err := lock.ReleaseNamed(f.stateDir, spawnLockName); err != nil {
 			t.Fatalf("ReleaseNamed cleanup: %v", err)
 		}
 	})
 
 	t.Run("primary failure", func(t *testing.T) {
-		fixture := newFixture(t)
-		fixture.runner.agentNotFound = true
-		fixture.service.ReleaseLock = func(string, string) error {
+		f := newFixture(t)
+		f.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &f.events, buildErr: errors.New("harness build refused")}
+		f.service.ReleaseLock = func(string, string) error {
 			return errors.New("lock is still shared")
 		}
 
-		result, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if err == nil || !strings.Contains(err.Error(), "holds no agent") || !strings.Contains(err.Error(), "release spawn lock") {
+		result, err := f.service.Spawn(context.Background(), f.request)
+		if err == nil || !strings.Contains(err.Error(), "harness build refused") || !strings.Contains(err.Error(), "release spawn lock") {
 			t.Fatalf("Spawn release error = %v, want joined primary and cleanup failures", err)
 		}
-		if result.Meta.Worktree != fixture.worktree || result.Endpoint.Target.Pane != "pane-1" {
-			t.Fatalf("primary failure discarded recovery result: %+v endpoint=%+v", result.Meta, result.Endpoint)
+		if result.Meta.Worktree != f.worktree {
+			t.Fatalf("primary failure discarded recovery result: %+v", result.Meta)
 		}
-		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
+		if err := lock.ReleaseNamed(f.stateDir, spawnLockName); err != nil {
 			t.Fatalf("ReleaseNamed cleanup: %v", err)
 		}
 	})
 }
 
-func TestSpawnRejectsMissingHerdrIDsAndContendedLockThenReleases(t *testing.T) {
-	t.Run("missing Herdr IDs", func(t *testing.T) {
-		fixture := newFixture(t)
-		fixture.runner.missingPaneID = true
-		_, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if err == nil || !strings.Contains(err.Error(), "root pane_id") {
-			t.Fatalf("Spawn missing pane ID error = %v, want Herdr ID refusal", err)
-		}
-		if _, statErr := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("missing Herdr IDs wrote metadata: stat error = %v", statErr)
-		}
-	})
-
-	t.Run("contention releases", func(t *testing.T) {
-		fixture := newFixture(t)
-		if _, err := lock.AcquireExclusiveNamed(fixture.stateDir, spawnLockName); err != nil {
-			t.Fatalf("AcquireExclusiveNamed setup: %v", err)
-		}
-		_, err := fixture.service.Spawn(context.Background(), fixture.request)
-		if !errors.Is(err, lock.ErrHeld) {
-			t.Fatalf("Spawn contention error = %v, want ErrHeld", err)
-		}
-		if err := lock.ReleaseNamed(fixture.stateDir, spawnLockName); err != nil {
-			t.Fatalf("ReleaseNamed setup lock: %v", err)
-		}
-		if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
-			t.Fatalf("Spawn after lock release: %v", err)
-		}
-	})
+func TestSpawnRefusesAContendedLockAndSpawnsOnceItIsReleased(t *testing.T) {
+	f := newQuickFixture(t)
+	if _, err := lock.AcquireExclusiveNamed(f.stateDir, spawnLockName); err != nil {
+		t.Fatalf("AcquireExclusiveNamed setup: %v", err)
+	}
+	_, err := f.service.Spawn(context.Background(), f.request)
+	if !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("Spawn contention error = %v, want ErrHeld", err)
+	}
+	if err := lock.ReleaseNamed(f.stateDir, spawnLockName); err != nil {
+		t.Fatalf("ReleaseNamed setup lock: %v", err)
+	}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn after lock release: %v", err)
+	}
 }
 
-func TestSpawnRejectsCaseAliasBeforeHerdrOrWorktreeMutation(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.ID = "Foo"
-	first, err := fixture.service.Spawn(context.Background(), fixture.request)
+func TestSpawnRejectsCaseAliasBeforeTerminalOrWorktreeMutation(t *testing.T) {
+	f := newQuickFixture(t)
+	f.request.ID = "Foo"
+	closeTerminalAtEnd(t, f.stateDir, "Foo")
+	first, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("first Spawn: %v", err)
 	}
-	metaPath := filepath.Join(fixture.stateDir, "Foo.meta")
+	metaPath := filepath.Join(f.stateDir, "Foo.meta")
 	before, err := os.ReadFile(metaPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := fixture.runner.calls
+	calls, returned := f.runner.calls, f.git.returned
 
-	second := fixture.request
+	second := f.request
 	second.ID = "foo"
-	if _, err := fixture.service.Spawn(context.Background(), second); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+	if _, err := f.service.Spawn(context.Background(), second); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("case-alias Spawn error = %v, want case-insensitive collision refusal", err)
 	}
-	if fixture.runner.calls != calls {
-		t.Errorf("Herdr calls = %d after alias rejection, want %d before any second task mutation", fixture.runner.calls, calls)
+	if f.runner.calls != calls || f.git.returned != returned {
+		t.Errorf("commands = %d and worktree returns = %d after alias rejection, want %d and %d before any second task mutation", f.runner.calls, f.git.returned, calls, returned)
 	}
 	after, err := os.ReadFile(metaPath)
 	if err != nil {
@@ -1382,17 +698,17 @@ func TestSpawnRejectsCaseAliasBeforeHerdrOrWorktreeMutation(t *testing.T) {
 	}
 }
 
-func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutation(t *testing.T) {
-	fixture := newFixture(t)
-	writeFile(t, filepath.Join(fixture.stateDir, "Foo.META"), "window=fleet:pane-1\n")
+func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeTerminalOrWorktreeMutation(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, filepath.Join(f.stateDir, "Foo.META"), "window=native\n")
 
-	request := fixture.request
+	request := f.request
 	request.ID = "foo"
-	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal", err)
 	}
-	if fixture.runner.calls != 0 {
-		t.Errorf("Herdr calls = %d, want 0 before metadata-alias refusal", fixture.runner.calls)
+	if f.runner.calls != 0 || len(f.events) != 0 {
+		t.Errorf("commands = %d and events = %v, want none before the metadata-alias refusal", f.runner.calls, f.events)
 	}
 }
 
@@ -1402,19 +718,19 @@ func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeHerdrOrWorktreeMutati
 // anything afterwards - and it sits under the user cache directory, out of
 // sight of the state tree that would otherwise show it.
 func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &fixture.events, buildErr: errors.New("harness build refused")}
+	f := newFixture(t)
+	f.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &f.events, buildErr: errors.New("harness build refused")}
 
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil {
+	if _, err := f.service.Spawn(context.Background(), f.request); err == nil {
 		t.Fatal("Spawn succeeded, want the injected build failure")
 	}
-	goTmp := goTmpDir(t, fixture.stateDir, fixture.request.ID)
+	goTmp := goTmpDir(t, f.stateDir, f.request.ID)
 	if _, err := os.Stat(goTmp); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("go temporary directory %q survived a failed spawn: %v", goTmp, err)
 	}
 	// The metadata is gone, which is what makes the leak permanent: prove the
 	// removal happened before it rather than depending on a later cleanup.
-	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(f.stateDir, f.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed spawn kept metadata: %v", err)
 	}
 }
@@ -1423,7 +739,7 @@ func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
 // teardown - a killed process, a crashed host - still claims its id. On a
 // case-insensitive filesystem "Foo" and "foo" are the same directory, so
 // letting a new task take the alias would hand it a live task's credential
-// script directory. The guard has to fire before any Herdr or worktree
+// script directory. The guard has to fire before any terminal or worktree
 // mutation, or the collision is discovered after the damage.
 //
 // A failed spawn no longer feeds this guard: it removes its own tasktmp, and
@@ -1432,8 +748,8 @@ func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
 // The leftover directory below is therefore created directly, which is the
 // only way this state still arises.
 func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
-	fixture := newFixture(t)
-	leftover := filepath.Join(fixture.stateDir, "tasktmp", "Foo")
+	f := newFixture(t)
+	leftover := filepath.Join(f.stateDir, "tasktmp", "Foo")
 	if err := os.MkdirAll(leftover, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1443,59 +759,48 @@ func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
 	if info, err := os.Stat(leftover); err != nil || !info.IsDir() {
 		t.Fatalf("leftover tasktmp: info=%v err=%v, want a directory to collide with", info, err)
 	}
-	calls := fixture.runner.calls
 
-	request := fixture.request
+	request := f.request
 	request.ID = "foo"
-	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if fixture.runner.calls != calls {
-		t.Errorf("Herdr calls = %d after alias rejection, want %d before a second task mutation", fixture.runner.calls, calls)
+	if f.runner.calls != 0 || len(f.events) != 0 {
+		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
 
 // A live task still claims its id through its metadata, which is the durable
 // claim a failed spawn's removed tasktmp no longer has to stand in for.
 func TestSpawnRejectsCaseAliasOfALiveTask(t *testing.T) {
-	fixture := newFixture(t)
-	writeFile(t, filepath.Join(fixture.stateDir, "Foo.meta"), "id: Foo\n")
-	calls := fixture.runner.calls
+	f := newFixture(t)
+	writeFile(t, filepath.Join(f.stateDir, "Foo.meta"), "id: Foo\n")
 
-	request := fixture.request
+	request := f.request
 	request.ID = "foo"
-	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
 		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
 	}
-	if fixture.runner.calls != calls {
-		t.Errorf("Herdr calls = %d after alias rejection, want %d before a second task mutation", fixture.runner.calls, calls)
+	if f.runner.calls != 0 || len(f.events) != 0 {
+		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
 
-func TestSpawnRejectsUnsupportedHerdrKindBeforeMutation(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.manifests = []string{"codex", "pi", "kimi"}
+// refusingPreflight stops a dispatch the way a red blocking service does.
+type refusingPreflight struct{}
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), `does not support harness kind "claude"`) {
-		t.Fatalf("Spawn unsupported Herdr kind error = %v, want kind refusal", err)
-	}
-	if got, want := fixture.events, []string{"status", "schema", "status", "session-list", "agent-manifests"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("events = %v, want preflight plus kind discovery only", got)
-	}
-	if fixture.runner.literal != "" || fixture.runner.enterKeys != 0 || fixture.git.returned != 0 {
-		t.Fatalf("unsupported kind mutated Herdr or worktree state: literal=%q enter=%d returned=%d", fixture.runner.literal, fixture.runner.enterKeys, fixture.git.returned)
-	}
+func (refusingPreflight) Preflight(context.Context, string) (auth.Result, error) {
+	return auth.Result{Refusal: "a blocking service is red"}, nil
 }
 
 // The capsule is written into the id's own task temporary directory only after
 // the alias check, and a spawn that fails before its task is published takes
 // the capsule with it, so the retry is not refused by the failed attempt.
 func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.manifests = []string{"codex", "pi", "kimi"}
-	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", fixture.request.ID)
-	request := fixture.request
+	f := newQuickFixture(t)
+	f.request.Yolo = false
+	taskTmp := filepath.Join(f.stateDir, "tasktmp", f.request.ID)
+	request := f.request
 	request.Capsule = func(dir string) (string, error) {
 		if dir != taskTmp {
 			t.Errorf("capsule dir = %q, want %q", dir, taskTmp)
@@ -1506,16 +811,18 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 		}
 		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
 	}
+	credentials := f.service.Auth
+	f.service.Auth = refusingPreflight{}
 
-	if _, err := fixture.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), `does not support harness kind "claude"`) {
-		t.Fatalf("Spawn error = %v, want kind refusal", err)
+	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "a blocking service is red") {
+		t.Fatalf("Spawn error = %v, want the preflight refusal", err)
 	}
 	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("capsule directory %q survived the failed spawn: %v", taskTmp, err)
 	}
 
-	fixture.runner.manifests = []string{"claude"}
-	result, err := fixture.service.Spawn(context.Background(), request)
+	f.service.Auth = credentials
+	result, err := f.service.Spawn(context.Background(), request)
 	if err != nil {
 		t.Fatalf("retry Spawn error = %v, want the same id spawned with its capsule", err)
 	}
@@ -1524,885 +831,17 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 	}
 }
 
-func TestSpawnConfirmHarnessDialogsFailsFastOnTerminalCaptureError(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.trustDialog = true
-	fixture.runner.captureErr = errors.New("herdr binary unavailable")
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil || !strings.Contains(err.Error(), "herdr binary unavailable") {
-		t.Fatalf("Spawn terminal capture error = %v, want runner failure surfaced", err)
-	}
-	captures := 0
-	for _, event := range fixture.events {
-		if event == "capture" {
-			captures++
-		}
-	}
-	if captures != 1 {
-		t.Fatalf("capture attempts = %d, want one fail-fast capture", captures)
-	}
-	if strings.Contains(err.Error(), "did not clear") {
-		t.Fatalf("error = %v, want underlying failure instead of dialog timeout", err)
-	}
+// taskTmpProbe refuses to build the launch, after noting whether the task's
+// temporary directory existed by then.
+type taskTmpProbe struct {
+	fixtureAdapter
+	existed *bool
 }
 
-type fixture struct {
-	service  Service
-	request  Request
-	stateDir string
-	dataDir  string
-	project  string
-	worktree string
-	brief    string
-	events   []string
-	specs    []harness.LaunchSpec
-	runner   *herdrRunner
-	git      *worktreeGit
-}
-
-// goTmpDir returns the per-task Go temporary directory a spawn under the
-// isolated user cache directory creates.
-func goTmpDir(t *testing.T, stateDir, id string) string {
-	t.Helper()
-	dir, err := state.GoTmpDir(stateDir, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
-// isolateUserCacheDir points os.UserCacheDir at a directory of the test's own,
-// by setting the variables it reads. Without the isolation a spawn test writes
-// into the operator's own cache directory and leaves the per-task Go temporary
-// directory behind, which is the same class of leak as a test resolving the
-// live fleet home.
-// HOME is in the set because os.UserCacheDir reads it on darwin and on Linux
-// whenever XDG_CACHE_HOME is unset; without it the isolation is vacuous there.
-// The resolve afterwards is the premise assertion: an isolation helper that
-// silently stops isolating on a platform nobody runs it on is how a test comes
-// to write into the operator's own cache.
-func isolateUserCacheDir(t *testing.T) {
-	t.Helper()
-	cache := t.TempDir()
-	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
-		t.Setenv(name, cache)
-	}
-	resolved, err := os.UserCacheDir()
-	if err != nil {
-		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
-	}
-	if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
-		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
-	}
-}
-
-const fixtureStartCounters = 42
-
-func newFixture(t *testing.T) *fixture {
-	t.Helper()
-	isolateUserCacheDir(t)
-	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
-	// config.toml, which is never this machine's own.
-	t.Setenv("CODEX_HOME", t.TempDir())
-	root := t.TempDir()
-	stateDir := makeDir(t, filepath.Join(root, "state"))
-	dataDir := makeDir(t, filepath.Join(root, "data"))
-	project := makeDir(t, filepath.Join(root, "primary"))
-	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
-	brief := filepath.Join(root, "brief.md")
-	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
-	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
-
-	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
-	// The counters start well above zero, like the live kimi that sat at
-	// revision 1 before its prompt. A confirmation measured against a guessed
-	// zero baseline would read the first post-submit number as an advance, so
-	// that regression fails here instead of passing.
-	fixture.runner = &herdrRunner{events: &fixture.events, worktree: worktreeDir, agentStatus: "working", manifests: []string{"claude", "codex", "pi", "kimi"}, stateChangeSeq: fixtureStartCounters, revision: fixtureStartCounters}
-	fixture.runner.taskTmpPath = filepath.Join(stateDir, "tasktmp", "task-7")
-	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
-	fixture.service = Service{
-		Terminals: terminal.HerdrSessions(&herdr.Client{
-			Commands: fixture.runner,
-			Session:  "fleet",
-			Sleep:    func(context.Context, time.Duration) error { return nil },
-		}),
-		Worktrees: worktree.Service{
-			Commands: fixture.runner,
-			Git:      fixture.git,
-			DataDir:  dataDir,
-			Sleep:    func(context.Context, time.Duration) error { return nil },
-		},
-		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
-			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
-		}},
-		StateDir: stateDir,
-		Project:  project,
-		Sleep: func(context.Context, time.Duration) error {
-			fixture.events = append(fixture.events, "settle")
-			return nil
-		},
-	}
-	fixture.request = Request{
-		ID:        "task-7",
-		Project:   project,
-		BriefPath: brief,
-		Kind:      "ship",
-		Mode:      "no-mistakes",
-		Yolo:      true,
-		Harness:   harness.Claude,
-		Model:     "model-a",
-		Effort:    "high",
-		Session:   "fleet",
-	}
-	return fixture
-}
-
-type fixtureAdapter struct {
-	events      *[]string
-	specs       *[]harness.LaunchSpec
-	buildErr    error
-	confirmKeys []string
-	// control replaces the fixture's stop and resume control, for a test
-	// that needs a real harness's.
-	control *harness.Control
-}
-
-type typedFixtureAdapter struct {
-	events *[]string
-	kind   harness.Kind
-	// resumeArgs mirrors codex, the one typed harness that resumes through a
-	// subcommand whose first positional is a session identifier.
-	resumeArgs []string
-}
-
-// Control gives the fixture a resume so switch tests can exercise the
-// same-harness path; the stop sequence mirrors a real adapter's shape.
-func (a typedFixtureAdapter) Control() harness.Control {
-	return harness.Control{StopKeys: []string{"escape"}, StopCommand: "/quit", ResumeArgs: a.resumeArgs}
-}
-
-func (a typedFixtureAdapter) Kind() harness.Kind {
-	return a.kind
-}
-
-func (a typedFixtureAdapter) Validate(context.Context, execx.Runner) error {
-	*a.events = append(*a.events, "validate-harness")
-	return nil
-}
-
-func (a typedFixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
-	*a.events = append(*a.events, "build-harness")
-	return harness.Launch{
-		Args:        []string{"--tui-mode", "regular"},
-		Env:         map[string]string{"GOTMPDIR": spec.GoTmp},
-		PromptFile:  spec.BriefPath,
-		TypedLaunch: true,
-		Executable:  "pi",
-	}, nil
-}
-
-func (a fixtureAdapter) Control() harness.Control {
-	if a.control != nil {
-		return *a.control
-	}
-	return harness.Control{
-		StopKeys:      []string{"escape"},
-		StopCommand:   "/exit",
-		ResumeArgs:    []string{"--continue"},
-		ResumeMarkers: []string{"We recommend resuming from a summary"},
-	}
-}
-
-func (a fixtureAdapter) Kind() harness.Kind {
-	return harness.Claude
-}
-
-func (a fixtureAdapter) Validate(context.Context, execx.Runner) error {
-	*a.events = append(*a.events, "validate-harness")
-	return nil
-}
-
-func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
-	*a.events = append(*a.events, "build-harness")
-	if a.specs != nil {
-		*a.specs = append(*a.specs, spec)
-	}
-	if a.buildErr != nil {
-		return harness.Launch{}, a.buildErr
-	}
-	confirmKeys := a.confirmKeys
-	if len(confirmKeys) == 0 {
-		confirmKeys = []string{"enter"}
-	}
-	return harness.Launch{
-		Args:           []string{"--dangerously-skip-permissions"},
-		Env:            map[string]string{"GOTMPDIR": spec.GoTmp},
-		PromptFile:     spec.BriefPath,
-		ConfirmMarkers: []string{"Is this a project you created or one you trust?"},
-		ConfirmKeys:    confirmKeys,
-	}, nil
-}
-
-type worktreeGit struct {
-	events    *[]string
-	top       string
-	topErr    error
-	returnErr error
-	returned  int
-}
-
-func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
-	*g.events = append(*g.events, "worktree-acquire")
-	if !strings.HasPrefix(holder, "gb-") {
-		return "", fmt.Errorf("unexpected holder %q", holder)
-	}
-	if project == "" {
-		return "", fmt.Errorf("project is required")
-	}
-	return g.top, nil
-}
-
-func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
-	*g.events = append(*g.events, "validate-worktree")
-	if g.topErr != nil {
-		return "", g.topErr
-	}
-	return g.top, nil
-}
-
-func (g *worktreeGit) Return(context.Context, string, string) error {
-	g.returned++
-	return g.returnErr
-}
-
-func (g *worktreeGit) EnsureSeeded(context.Context, string) (bool, error) {
-	return false, nil
-}
-
-type herdrRunner struct {
-	events      *[]string
-	worktree    string
-	session     string
-	workspaceID string
-	paneID      string
-	agentStatus string
-	// agentKind, stateChangeSeq and revision model what herdr 0.9.0 reports
-	// for a registered agent. The counters advance ONLY when a prompt is
-	// accepted, which is what makes delivery provable: a fake that advanced
-	// them unconditionally would report every launch as delivered, including
-	// one where the instruction was never submitted.
-	agentKind string
-	// failPrompts refuses the first N `agent prompt` calls; failAgentGets
-	// refuses the first N `agent get` calls. Both model a herdr that is
-	// transiently busy while a harness boots, which must not tear down a
-	// launch that is coming up fine. failAgentGetsAfterPrompt refuses only the
-	// reads that follow an accepted prompt, so the baseline read before it
-	// still lands and a confirmation test measures a real advance rather than
-	// a baseline that was never established.
-	failPrompts              int
-	failAgentGets            int
-	failAgentGetsAfterPrompt int
-	promptCalls              int
-	// inertCounters models a herdr that accepts the prompt call but whose
-	// agent never advances - the shape a harness that swallowed the text
-	// would produce. Delivery must be refused, not assumed from the ok.
-	inertCounters  bool
-	promptAccepted bool
-	// acceptAfterGets delays the advance until N agent reads have happened,
-	// modelling a harness that takes a while to pick the prompt up.
-	acceptAfterGets int
-	// taskTmpPath and taskTmpExisted let a teardown test assert the premise
-	// that the directory was actually created before checking it is gone.
-	taskTmpPath      string
-	taskTmpExisted   bool
-	stateChangeSeq   int64
-	revision         int64
-	agentErr         error
-	startErr         error
-	captureErr       error
-	missingPaneID    bool
-	trustDialog      bool
-	trustDialogText  string
-	manifests        []string
-	calls            int
-	literal          string
-	literals         []string
-	startName        string
-	startKind        string
-	startArgs        []string
-	prompt           string
-	keys             []string
-	agentCalls       int
-	enterKeys        int
-	agentNotFound    bool
-	captureCount     int
-	corruptCaptureAt int
-	corruptCaptures  int
-	failCaptureAt    int
-	failCaptures     int
-	paneUnreadable   bool
-	harnessRunning   bool
-	// composerScreen is what a typed harness's pane shows before its brief,
-	// brief the text typed once that composer showed, briefWrites how many
-	// times it was typed, promptedScreen what the pane shows after the first
-	// Enter after the brief, and enteredScreen what it shows after a later one.
-	composerScreen   string
-	launched         bool
-	brief            string
-	briefWrites      int
-	entersAfterBrief int
-	promptedScreen   string
-	enteredScreen    string
-	// scrollback is what an earlier program left above those screens: a
-	// recent read includes it, and a read of the visible screen does not.
-	scrollback string
-	// lateScreens are what the visible screen shows in turn, one per read,
-	// before the typed harness's brief: a dialog drawn after the startup
-	// checks, which read recent rows. refuseBriefEnters are the Enters after
-	// the brief Herdr refuses, counted from 1 in briefEnterTries.
-	// refusedWritesType has a write Herdr refuses type all the same, with the
-	// read after it refused too.
-	lateScreens       []string
-	lateReads         int
-	refuseBriefEnters []int
-	briefEnterTries   int
-	refusedWritesType bool
-	reportedAgent     []string
-	sendTextCount     int
-	failSendTextAt    int
-	failSendTexts     int
-	failCtrlUs        int
-	installer         string
-	installerStderr   string
-	mcpTracked        bool
-	// worktreesUncovered models a checkout whose own .gitignore says nothing
-	// about .worktrees/, so only the clone's info/exclude hides it.
-	worktreesUncovered bool
-}
-
-func (r *herdrRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
-	r.calls++
-	wantSession := r.session
-	if wantSession == "" {
-		wantSession = "fleet"
-	}
-	// Provisioning drives the same runner: it asks git whether a path is
-	// already ignored, then runs the project's own installer.
-	if req.Name == "git" && len(req.Args) > 1 && req.Args[0] == "check-ignore" && req.Args[1] == "-v" {
-		// Spawn asks which file ignores .worktrees/; git answers with the
-		// deciding rule's source in front.
-		source := ".gitignore"
-		if r.worktreesUncovered {
-			source = ".git/info/exclude"
-		}
-		return execx.Result{Stdout: []byte(source + ":1:.worktrees/\t.worktrees/\n")}, nil
-	}
-	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
-		return execx.Result{}, nil
-	}
-	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
-		if r.mcpTracked {
-			return execx.Result{Stdout: []byte(".mcp.json\n")}, nil
-		}
-		return execx.Result{ExitCode: 1}, nil
-	}
-	if r.installer != "" && req.Name == r.installer {
-		*r.events = append(*r.events, "install")
-		return execx.Result{ExitCode: 1, Stderr: []byte(r.installerStderr)}, nil
-	}
-	if req.Name == "pi" {
-		*r.events = append(*r.events, "validate-harness")
-		if !reflect.DeepEqual(req.Args, []string{"--help"}) {
-			return execx.Result{}, fmt.Errorf("unexpected pi probe: %#v", req)
-		}
-		return execx.Result{Stdout: []byte("Usage: pi [options]\n\nOptions:\n  --tui-mode <mode>              TUI mode: regular (default) or fullscreen\n")}, nil
-	}
-	if req.Name != "herdr" {
-		return execx.Result{}, fmt.Errorf("unexpected Herdr request: %#v", req)
-	}
-	args := append([]string{}, req.Args...)
-	separator := slices.Index(args, "--")
-	sessionAt := slices.Index(args, "--session")
-	if sessionAt < 0 || sessionAt+1 >= len(args) || args[sessionAt+1] != wantSession || (separator >= 0 && sessionAt > separator) {
-		return execx.Result{}, fmt.Errorf("unexpected Herdr request: %#v", req)
-	}
-	args = slices.Delete(args, sessionAt, sessionAt+2)
-	switch {
-	case reflect.DeepEqual(args, []string{"status", "--json"}):
-		*r.events = append(*r.events, "status")
-		return execx.Result{Stdout: []byte(`{"client":{"protocol":22},"server":{"running":true,"protocol":22,"compatible":true}}`)}, nil
-	case reflect.DeepEqual(args, []string{"api", "schema", "--json"}):
-		*r.events = append(*r.events, "schema")
-		return execx.Result{Stdout: []byte(fixtureSchemaJSON())}, nil
-	case reflect.DeepEqual(args, []string{"session", "list", "--json"}):
-		*r.events = append(*r.events, "session-list")
-		return execx.Result{Stdout: []byte(`{"sessions":[{"name":` + quoteJSON(wantSession) + `,"running":true}]}`)}, nil
-	case reflect.DeepEqual(args, []string{"server", "agent-manifests", "--json"}):
-		*r.events = append(*r.events, "agent-manifests")
-		manifests := r.manifests
-		if len(manifests) == 0 {
-			manifests = []string{"claude", "codex", "pi", "kimi"}
-		}
-		entries := make([]string, 0, len(manifests))
-		for _, kind := range manifests {
-			entries = append(entries, `{"agent":`+quoteJSON(kind)+`}`)
-		}
-		return jsonResult(`{"manifests":[` + strings.Join(entries, ",") + `]}`), nil
-	case reflect.DeepEqual(args, []string{"workspace", "list"}):
-		*r.events = append(*r.events, "workspace-list")
-		workspaceID := r.workspaceID
-		if workspaceID == "" {
-			workspaceID = "workspace-1"
-		}
-		return jsonResult(`{"workspaces":[{"workspace_id":` + quoteJSON(workspaceID) + `,"label":"cfo"}]}`), nil
-	case reflect.DeepEqual(args, []string{"tab", "list", "--workspace", "workspace-1"}):
-		*r.events = append(*r.events, "tab-list")
-		return jsonResult(`{"tabs":[]}`), nil
-	case len(args) == 9 && args[0] == "tab" && args[1] == "create":
-		*r.events = append(*r.events, "tab-create")
-		paneID := r.paneID
-		if paneID == "" {
-			paneID = "pane-1"
-		}
-		if r.missingPaneID {
-			return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{}}`), nil
-		}
-		return jsonResult(`{"tab":{"tab_id":"tab-1"},"root_pane":{"pane_id":` + quoteJSON(paneID) + `}}`), nil
-	case len(args) == 4 && args[0] == "pane" && args[1] == "send-text" && args[2] == "pane-1":
-		*r.events = append(*r.events, "send-literal")
-		r.sendTextCount++
-		// A non-zero exit with no runner failure is the transient class:
-		// herdr refused this one write, and nothing was typed.
-		if r.failSendTextAt > 0 && r.sendTextCount >= r.failSendTextAt && r.sendTextCount < r.failSendTextAt+max(1, r.failSendTexts) {
-			if r.refusedWritesType && r.launched && r.composerScreen != "" {
-				r.brief = args[3]
-				r.briefWrites++
-				r.failCaptureAt, r.failCaptures = r.captureCount+1, 1
-			}
-			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-text: pane busy")}, nil
-		}
-		r.literal = args[3]
-		r.literals = append(r.literals, args[3])
-		// A typed launch line starts a harness; the text typed after it, once
-		// that harness shows its composer, is its brief.
-		switch {
-		case strings.Contains(args[3], "& '"):
-			r.launched, r.brief, r.entersAfterBrief = true, "", 0
-		case r.launched && r.composerScreen != "":
-			r.brief = args[3]
-			r.briefWrites++
-		}
-		return jsonResult(`{}`), nil
-	case reflect.DeepEqual(args, []string{"pane", "get", "pane-1"}):
-		// An unexpected error code is herdr answering the liveness probe
-		// without being trustworthy: neither "alive" nor "gone". Only
-		// AgentStatus reads pane get, so this leaves WaitForWorking alone.
-		if r.paneUnreadable {
-			return execx.Result{Stdout: []byte(`{"error":{"code":"herdr_unavailable"}}`), ExitCode: 1}, nil
-		}
-		return jsonResult(`{"pane":{"pane_id":"pane-1"}}`), nil
-	case len(args) == 4 && args[0] == "pane" && args[1] == "send-keys" && args[2] == "pane-1":
-		if args[3] == "ctrl+u" && r.failCtrlUs > 0 {
-			r.failCtrlUs--
-			return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
-		}
-		if args[3] == "enter" && r.brief != "" {
-			r.briefEnterTries++
-			if slices.Contains(r.refuseBriefEnters, r.briefEnterTries) {
-				return execx.Result{ExitCode: 1, Stderr: []byte("pane send-keys: pane busy")}, nil
-			}
-		}
-		r.keys = append(r.keys, args[3])
-		if args[3] == "enter" {
-			*r.events = append(*r.events, "send-enter")
-			r.enterKeys++
-			if r.brief != "" {
-				r.entersAfterBrief++
-			}
-			if r.trustDialog && r.enterKeys > 1 {
-				r.trustDialog = false
-				r.agentStatus = "working"
-			}
-		} else {
-			*r.events = append(*r.events, "send-key")
-		}
-		return jsonResult(`{}`), nil
-	case len(args) == 3 && args[0] == "tab" && args[1] == "close":
-		*r.events = append(*r.events, "tab-close")
-		return jsonResult(`{}`), nil
-	case len(args) >= 6 && args[0] == "agent" && args[1] == "start":
-		if r.taskTmpPath != "" {
-			if info, err := os.Stat(r.taskTmpPath); err == nil && info.IsDir() {
-				r.taskTmpExisted = true
-			}
-		}
-		*r.events = append(*r.events, "agent-start")
-		if r.startErr != nil {
-			return execx.Result{}, r.startErr
-		}
-		r.startName = args[2]
-		for index := 3; index < len(args); index++ {
-			switch args[index] {
-			case "--kind":
-				r.startKind = args[index+1]
-				index++
-			case "--pane":
-				index++
-			case "--":
-				r.startArgs = append([]string{}, args[index+1:]...)
-				index = len(args)
-			}
-		}
-		return jsonResult(`{"agent":{"name":` + quoteJSON(r.startName) + `,"agent_status":"idle"}}`), nil
-	case len(args) == 4 && args[0] == "agent" && args[1] == "prompt" && args[2] == "pane-1":
-		*r.events = append(*r.events, "agent-prompt")
-		r.promptCalls++
-		// A non-zero exit with no runner failure is the transient class:
-		// herdr refused this one submit, and nothing was delivered.
-		if r.failPrompts > 0 {
-			r.failPrompts--
-			return execx.Result{ExitCode: 1, Stderr: []byte("agent prompt: pane busy")}, nil
-		}
-		r.prompt = args[3]
-		r.promptAccepted = true
-		return jsonResult(`{"agent":{"agent_status":"working"}}`), nil
-	case len(args) >= 3 && args[0] == "pane" && args[1] == "read" && args[2] == "pane-1":
-		*r.events = append(*r.events, "capture")
-		r.captureCount++
-		if r.captureErr != nil {
-			return execx.Result{}, r.captureErr
-		}
-		// A non-zero exit with no runner failure is the transient class: the
-		// pane was momentarily unreadable, which herdr reports as retryable.
-		if r.failCaptureAt > 0 && r.captureCount >= r.failCaptureAt && r.captureCount < r.failCaptureAt+max(1, r.failCaptures) {
-			return execx.Result{ExitCode: 1, Stderr: []byte("pane read: pane busy")}, nil
-		}
-		if r.trustDialog {
-			text := r.trustDialogText
-			if text == "" {
-				text = "Accessing workspace:\n\n Quick safety check: Is this a project you created or\n one you trust?\n"
-			}
-			return execx.Result{Stdout: []byte(text)}, nil
-		}
-		if slices.Contains(args, "visible") && r.brief == "" && r.lateReads < len(r.lateScreens) {
-			r.lateReads++
-			return execx.Result{Stdout: []byte(r.lateScreens[r.lateReads-1])}, nil
-		}
-		screen := ""
-		switch {
-		case r.brief != "" && r.entersAfterBrief >= 2 && r.enteredScreen != "":
-			screen = r.enteredScreen
-		case r.brief != "" && r.entersAfterBrief >= 1 && r.promptedScreen != "":
-			screen = r.promptedScreen
-		case r.brief != "":
-			screen = "› " + r.brief + "\n" + r.composerScreen
-		case r.composerScreen != "":
-			screen = r.composerScreen
-		}
-		if screen != "" {
-			if !slices.Contains(args, "visible") {
-				screen = r.scrollback + screen
-			}
-			return execx.Result{Stdout: []byte(screen)}, nil
-		}
-		if r.literal != "" {
-			if r.corruptCaptureAt > 0 && r.captureCount >= r.corruptCaptureAt && r.captureCount < r.corruptCaptureAt+max(1, r.corruptCaptures) {
-				// Simulate the first-instruction corruption: leading characters
-				// eaten so the remainder reads as a bogus slash command.
-				return execx.Result{Stdout: []byte("/ef" + r.literal[2:] + "\n")}, nil
-			}
-			return execx.Result{Stdout: []byte(r.literal + "\n")}, nil
-		}
-		return execx.Result{Stdout: []byte("claude is running\n")}, nil
-	case reflect.DeepEqual(args, []string{"pane", "process-info", "--pane", "pane-1"}):
-		*r.events = append(*r.events, "process-info")
-		// A pane still sitting at the shell CFO prepared has that shell in the
-		// foreground; a pane running any harness does not.
-		if r.harnessRunning {
-			return jsonResult(`{"process_info":{"pane_id":"pane-1","shell_pid":100,"foreground_process_group_id":200}}`), nil
-		}
-		return jsonResult(`{"process_info":{"pane_id":"pane-1","shell_pid":100,"foreground_process_group_id":100}}`), nil
-	case len(args) >= 8 && args[0] == "pane" && args[1] == "report-agent":
-		*r.events = append(*r.events, "report-agent")
-		r.reportedAgent = append([]string{}, args...)
-		r.agentNotFound = false
-		return jsonResult(`{}`), nil
-	case reflect.DeepEqual(args, []string{"agent", "get", "pane-1"}):
-		r.agentCalls++
-		// Transient class again: the agent was momentarily unreadable, which
-		// is part of a harness booting and must not fail a live launch.
-		if r.failAgentGets > 0 {
-			r.failAgentGets--
-			return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}, nil
-		}
-		if r.promptAccepted && r.failAgentGetsAfterPrompt > 0 {
-			r.failAgentGetsAfterPrompt--
-			return execx.Result{ExitCode: 1, Stderr: []byte("agent get: pane busy")}, nil
-		}
-		// The counters move only for a prompt that was accepted, and only once
-		// any configured delay has elapsed. A fake that advanced them for any
-		// other reason would report an undelivered brief as delivered.
-		if r.promptAccepted && !r.inertCounters && r.agentCalls > r.acceptAfterGets {
-			r.stateChangeSeq++
-			r.revision++
-			if r.agentStatus == "idle" {
-				r.agentStatus = "working"
-			}
-		}
-		if r.agentNotFound {
-			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
-		}
-		if r.agentErr != nil {
-			return execx.Result{}, r.agentErr
-		}
-		if r.agentStatus == "working" {
-			*r.events = append(*r.events, "agent-working")
-		}
-		kind := r.agentKind
-		if kind == "" {
-			kind = "claude"
-		}
-		return jsonResult(`{"agent":{"agent":` + quoteJSON(kind) +
-			`,"agent_status":"` + r.agentStatus +
-			`","state_change_seq":` + strconv.FormatInt(r.stateChangeSeq, 10) +
-			`,"revision":` + strconv.FormatInt(r.revision, 10) + `}}`), nil
-	default:
-		return execx.Result{}, fmt.Errorf("unexpected Herdr args: %q", args)
-	}
-}
-
-func jsonResult(result string) execx.Result {
-	return execx.Result{Stdout: []byte(`{"result":` + result + `}`)}
-}
-
-// fixtureSchemaJSON is the minimal protocol-22 schema-1 document satisfying
-// the spawn compatibility preflight: both response envelopes plus every
-// method CFO uses.
-func fixtureSchemaJSON() string {
-	methods := herdr.RequiredMethods()
-	var b strings.Builder
-	b.WriteString(`{"protocol":22,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
-	for i, method := range methods {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		b.WriteString(`{"properties":{"method":{"const":` + quoteJSON(method) + `}}}`)
-	}
-	b.WriteString(`]}}}`)
-	return b.String()
-}
-
-func quoteJSON(value string) string {
-	return strconv.Quote(value)
-}
-
-func makeDir(t *testing.T, path string) string {
-	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := fsx.Canonical(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return canonical
-}
-
-func writeFile(t *testing.T, path, contents string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func sortedKeys(t *testing.T, stateDir, id string) []string {
-	t.Helper()
-	values, err := state.ReadMeta(filepath.Join(stateDir, id+".meta"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	return keys
-}
-
-// Delivery is proven, not assumed: the prompt is submitted and spawn returns
-// only once herdr's own agent counters move. A fake whose counters never move
-// must fail the launch, or every later test here would pass against a goblin
-// that received nothing.
-func TestSpawnRefusesDeliveryTheAgentNeverReportsAccepting(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.inertCounters = true
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil {
-		t.Fatal("Spawn = nil, want a launch refused when the agent never reported accepting")
-	}
-	if !strings.Contains(err.Error(), "never reported accepting") {
-		t.Errorf("err = %v, want the unproven delivery named", err)
-	}
-	// The premise: the prompt really was submitted. Without this the test would
-	// also pass if delivery had failed for some unrelated reason.
-	if fixture.runner.promptCalls == 0 {
-		t.Error("no prompt was submitted, so the refusal proves nothing about delivery")
-	}
-	if !slices.Contains(fixture.events, "tab-close") {
-		t.Errorf("events = %v, want the launch torn down", fixture.events)
-	}
-}
-
-// A native agent prompt submits on success, so a re-send hands the goblin its
-// brief a second time. The retry exists for a refused submit, not a slow agent.
-func TestSpawnSubmitsTheInstructionOnlyOnceWhileWaitingForAcceptance(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.acceptAfterGets = 4
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want a successful spawn", result.Output)
-	}
-	if got := fixture.runner.promptCalls; got != 1 {
-		t.Errorf("prompt submissions = %d, want exactly one - a re-send briefs the goblin twice", got)
-	}
-	// Premise: acceptance really was delayed, so "once" is a property of the
-	// loop rather than an artifact of the agent accepting immediately.
-	if fixture.runner.agentCalls < 3 {
-		t.Errorf("agent reads = %d, want the confirmation to have polled", fixture.runner.agentCalls)
-	}
-}
-
-// A herdr write refused mid-boot is transient: the harness is coming up fine.
-// Aborting the budget on one runs teardownLaunch, which closes the tab and
-// returns the worktree of a live goblin - a false spawn failure.
-func TestSpawnRetriesATransientlyRefusedPromptWhileTheHarnessIsBooting(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.failPrompts = 3
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the spawn to survive transient herdr writes", result.Output)
-	}
-	if got := fixture.runner.promptCalls; got != 4 {
-		t.Errorf("prompt submissions = %d, want three refusals then one that landed", got)
-	}
-	if _, statErr := os.Stat(fixture.worktree); statErr != nil {
-		t.Fatalf("transient write removed worktree: %v", statErr)
-	}
-	if slices.Contains(fixture.events, "tab-close") {
-		t.Errorf("events = %v, want no teardown from a transient herdr write", fixture.events)
-	}
-}
-
-// An agent read momentarily refused while the harness redraws is part of
-// booting, not a delivery failure, and it is not a failed submit either.
-func TestSpawnSurvivesATransientAgentReadDuringInstructionDelivery(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.failAgentGets = 4
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the spawn to survive an unreadable agent", result.Output)
-	}
-	if got := fixture.runner.promptCalls; got != 1 {
-		t.Errorf("prompt submissions = %d, want one - an unreadable agent is not a failed submit", got)
-	}
-}
-
-// When every submit is refused the instruction was never delivered, so
-// claiming the agent did not accept it is a false cause: the herdr stderr is
-// the operator's only real lead once it lands in the durable failed status.
-func TestSpawnReportsTheRefusedSubmitWhenTheInstructionNeverLands(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.failPrompts = 100000
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil {
-		t.Fatal("Spawn = nil, want the refused submit surfaced")
-	}
-	for _, want := range []string{"could not submit the instruction", "agent prompt: pane busy"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	if strings.Contains(err.Error(), "never reported accepting") {
-		t.Errorf("err = %v, want no acceptance claim when nothing was ever submitted", err)
-	}
-}
-
-// A submitted instruction whose confirmation reads were all refused must not
-// be reported as a bare non-acceptance: the retained herdr stderr explains it.
-func TestSpawnReportsTheRefusedAgentReadsAfterTheInstructionWasSubmitted(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.failAgentGetsAfterPrompt = 100000
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil {
-		t.Fatal("Spawn = nil, want the refused agent reads surfaced")
-	}
-	for _, want := range []string{"never reported accepting", "agent get: pane busy"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	// Premise: the refusals landed on the confirmation, so the baseline really
-	// was established and the instruction really was submitted against it.
-	if got := fixture.runner.promptCalls; got != 1 {
-		t.Errorf("prompt submissions = %d, want one submitted against a real baseline", got)
-	}
-}
-
-// A baseline that can never be read leaves nothing to measure acceptance
-// against, and a guessed zero would confirm whatever a booted agent reports.
-// The instruction is not submitted at all: a launch the caller can retry beats
-// a goblin reported briefed on a brief nothing proves it took.
-func TestSpawnRefusesAnUnreadableBaselineWithoutSubmittingTheInstruction(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.failAgentGets = 100000
-
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err == nil {
-		t.Fatal("Spawn = nil, want the unprovable delivery refused")
-	}
-	for _, want := range []string{"was not submitted", "agent get: pane busy"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to mention %q", err, want)
-		}
-	}
-	if got := fixture.runner.promptCalls; got != 0 {
-		t.Errorf("prompt submissions = %d, want none - acceptance could not be proven", got)
-	}
-}
-
-// A harness takes seconds to boot. The budget has to outlast that: a slow
-// agent that eventually accepts is a healthy launch, not a delivery failure.
-func TestSpawnKeepsWaitingForAcceptanceWhileTheHarnessIsStillBooting(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.acceptAfterGets = 20
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if !strings.Contains(result.Output, "spawned task-7") {
-		t.Errorf("Output = %q, want the spawn to survive a slow harness boot", result.Output)
-	}
-	if got := fixture.runner.promptCalls; got != 1 {
-		t.Errorf("prompt submissions = %d, want one across a slow boot", got)
-	}
+func (a taskTmpProbe) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	info, err := os.Stat(spec.TaskTmp)
+	*a.existed = err == nil && info.IsDir()
+	return harness.Launch{}, errors.New("harness build refused")
 }
 
 // A failed launch must leave no task temporary directory. cleanup finds a task
@@ -2410,100 +849,24 @@ func TestSpawnKeepsWaitingForAcceptanceWhileTheHarnessIsStillBooting(t *testing.
 // directory again - and while it survives it refuses the retry of the very
 // spawn that just failed. It also holds the rendered credential script.
 func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.runner.inertCounters = true
-	taskTmp := filepath.Join(fixture.stateDir, "tasktmp", fixture.request.ID)
+	f := newFixture(t)
+	existed := false
+	f.service.Harness.Adapters[harness.Claude] = taskTmpProbe{fixtureAdapter: fixtureAdapter{events: &f.events}, existed: &existed}
+	taskTmp := filepath.Join(f.stateDir, "tasktmp", f.request.ID)
 
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err == nil {
-		t.Fatal("Spawn succeeded, want the delivery failure")
+	if _, err := f.service.Spawn(context.Background(), f.request); err == nil {
+		t.Fatal("Spawn succeeded, want the build failure")
 	}
 	// Premise: the directory really was created, so its absence is a removal
 	// rather than a launch that never got far enough to make one.
-	if !fixture.runner.taskTmpExisted {
+	if !existed {
 		t.Fatal("tasktmp was never created, so its absence proves nothing")
 	}
 	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("task temporary directory %q survived a failed spawn: %v", taskTmp, err)
 	}
-	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(f.stateDir, f.request.ID+".meta")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed spawn kept metadata: %v", err)
-	}
-}
-
-// A typed harness that resumes through a subcommand cannot take its
-// instruction as a positional: `codex resume [OPTIONS] [SESSION_ID] [PROMPT]`
-// binds the first positional to SESSION_ID, so the instruction would be read
-// as a session name and the resumed goblin would start with nothing to do.
-// Omitting it from the line is only half correct - it has to reach the
-// composer instead, the way the native path already delivers it.
-func TestResumedTypedLaunchDeliversTheInstructionToTheComposer(t *testing.T) {
-	fixture := newFixture(t)
-	typedScreens(fixture.runner, harness.Pi)
-	target := herdr.Target{Session: "fleet", Pane: "pane-1"}
-	const instruction = "Resume task-7 and continue from the handoff."
-
-	plan := launchPlan{
-		AgentName: "gb-task-7",
-		Harness:   harness.Pi,
-		Launch: harness.Launch{
-			TypedLaunch: true,
-			Resumed:     true,
-			Executable:  "pi",
-			Args:        []string{"resume", "--last"},
-			Instruction: instruction,
-			Dir:         fixture.worktree,
-			Env:         map[string]string{"GOTMPDIR": t.TempDir()},
-		},
-	}
-
-	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), target, plan); err != nil {
-		t.Fatalf("startHarness: %v", err)
-	}
-
-	var launchLine string
-	for _, literal := range fixture.runner.literals {
-		if strings.Contains(literal, "& "+"'pi'") {
-			launchLine = literal
-		}
-	}
-	// The instruction reaches the resumed harness typed into its composer
-	// once the composer shows, never as a positional of the launch line.
-	delivered := fixture.runner.brief == instruction
-	if launchLine == "" {
-		t.Fatalf("no typed launch line was sent: %q", fixture.runner.literals)
-	}
-	if !strings.Contains(launchLine, "'resume'") {
-		t.Errorf("typed launch lost the resume subcommand:\n%s", launchLine)
-	}
-	if strings.Contains(launchLine, instruction) {
-		t.Errorf("the instruction was passed positionally to a resume, which binds it to SESSION_ID:\n%s", launchLine)
-	}
-	if !delivered {
-		t.Errorf("the instruction never reached the resumed harness, so the goblin has nothing to do: brief=%q", fixture.runner.brief)
-	}
-}
-
-func TestFreshTypedLaunchDeliversQuotedInstructionOnceThroughHerdr(t *testing.T) {
-	fixture := newFixture(t)
-	typedScreens(fixture.runner, fixture.request.Harness)
-	instruction := "Read C:\\task dir\\brief.md. Report --blocked \"question options: a | b\". Preserve O'Brien, $(), and `text`."
-	plan := launchPlan{AgentName: "gb-task-7", Harness: harness.Codex, Launch: harness.Launch{
-		TypedLaunch: true, Executable: "codex", Instruction: instruction,
-		Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"},
-		Dir:  fixture.worktree, Env: map[string]string{"GOTMPDIR": t.TempDir()},
-	}}
-	if _, err := fixture.service.startHarness(context.Background(), fixture.service.Terminals(""), herdr.Target{Session: "fleet", Pane: "pane-1"}, plan); err != nil {
-		t.Fatal(err)
-	}
-	if fixture.runner.brief != instruction || fixture.runner.briefWrites != 1 {
-		t.Fatalf("the brief was typed %d times as %q, want it once and intact", fixture.runner.briefWrites, fixture.runner.brief)
-	}
-	// Everything typed before the brief went to PowerShell, the brief itself
-	// to Codex's composer once it showed.
-	for _, line := range fixture.runner.literals[:len(fixture.runner.literals)-1] {
-		if strings.Contains(line, "--blocked") || strings.Contains(line, "options:") {
-			t.Fatalf("instruction reached PowerShell native argument parsing: %q", line)
-		}
 	}
 }
 
@@ -2559,8 +922,8 @@ func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 // Every Claude goblin runs Opus 5.5 unless a model is named (the Supreme
 // Overlord's directive of 2026-09-23), whether --harness claude came alone or
 // a lane named claude without a model. A named model still wins, and another
-// harness keeps its own default. The model the goblin runs is the one its
-// task records.
+// harness keeps its own default. The model the task records is the one its
+// launch is built with; the build is refused here so nothing starts.
 func TestSpawnRunsAClaudeGoblinWithNoNamedModelOnOpus55(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -2570,41 +933,297 @@ func TestSpawnRunsAClaudeGoblinWithNoNamedModelOnOpus55(t *testing.T) {
 	}{
 		{"claude with no model", harness.Claude, "", "claude-opus-5-5"},
 		{"claude with a named model", harness.Claude, "claude-sonnet-5", "claude-sonnet-5"},
-		{"another harness with no model", harness.Kimi, "", "default"},
+		{"another harness with no model", harness.Codex, "", "default"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			fixture := newFixture(t)
-			fixture.service.Harness.Adapters[harness.Kimi] = fixtureAdapter{events: &fixture.events, specs: &fixture.specs}
-			fixture.request.Harness, fixture.request.Model = c.kind, c.model
-			if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
-				t.Fatal(err)
+			f := newFixture(t)
+			f.service.Harness.Adapters[c.kind] = fixtureAdapter{events: &f.events, specs: &f.specs, buildErr: errors.New("nothing starts in this test")}
+			f.request.Harness, f.request.Model = c.kind, c.model
+
+			result, err := f.service.Spawn(context.Background(), f.request)
+
+			if err == nil || !strings.Contains(err.Error(), "nothing starts in this test") {
+				t.Fatalf("Spawn = %v, want the build refusal", err)
 			}
-			meta, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			launched := fixture.specs[len(fixture.specs)-1].Model
-			if meta.Model != c.want || valueOrDefault(launched) != c.want {
-				t.Fatalf("recorded model %q, launched %q; want %q", meta.Model, launched, c.want)
+			launched := f.specs[len(f.specs)-1].Model
+			if result.Meta.Model != c.want || valueOrDefault(launched) != c.want {
+				t.Fatalf("recorded model %q, launched %q; want %q", result.Meta.Model, launched, c.want)
 			}
 		})
 	}
 }
 
-// Codex's and pi's panes as a typed launch reads them: the composer waiting,
-// and a turn in progress.
-const (
-	codexComposer = "› Ask Codex to do anything\n\n  gpt-6-astra max · ~\\proof · 100% context left\n"
-	codexWorking  = "• Working (3s • esc to interrupt)\n\n› Ask Codex to do anything\n  100% context left\n"
-	piComposer    = "────────\n\n────────\n0.0%/1.0M (auto)\n"
-	piWorking     = "── ⠸ Working ──\n\n0.0%/1.0M (auto)\n"
-)
+type fixture struct {
+	service  Service
+	request  Request
+	stateDir string
+	dataDir  string
+	project  string
+	worktree string
+	brief    string
+	events   []string
+	specs    []harness.LaunchSpec
+	runner   *commandRunner
+	git      *worktreeGit
+}
 
-// typedScreens makes the fake pane show what a working typed harness shows:
-// its composer before the brief and a turn once the brief is taken.
-func typedScreens(r *herdrRunner, kind harness.Kind) {
-	r.composerScreen, r.promptedScreen = codexComposer, codexWorking
-	if kind == harness.Pi {
-		r.composerScreen, r.promptedScreen = piComposer, piWorking
+// goTmpDir returns the per-task Go temporary directory a spawn under the
+// isolated user cache directory creates.
+func goTmpDir(t *testing.T, stateDir, id string) string {
+	t.Helper()
+	dir, err := state.GoTmpDir(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return dir
+}
+
+// isolateUserCacheDir points os.UserCacheDir at a directory of the test's own,
+// by setting the variables it reads. Without the isolation a spawn test writes
+// into the operator's own cache directory and leaves the per-task Go temporary
+// directory behind, which is the same class of leak as a test resolving the
+// live fleet home.
+// HOME is in the set because os.UserCacheDir reads it on darwin and on Linux
+// whenever XDG_CACHE_HOME is unset; without it the isolation is vacuous there.
+// The resolve afterwards is the premise assertion: an isolation helper that
+// silently stops isolating on a platform nobody runs it on is how a test comes
+// to write into the operator's own cache.
+func isolateUserCacheDir(t *testing.T) {
+	t.Helper()
+	cache := t.TempDir()
+	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
+		t.Setenv(name, cache)
+	}
+	resolved, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("UserCacheDir = %v, want the isolated cache directory", err)
+	}
+	if rel, relErr := filepath.Rel(cache, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("UserCacheDir = %q, want it under the test's own directory %q", resolved, cache)
+	}
+}
+
+// newFixture readies a spawn of task-7 that stops before any terminal starts:
+// its claude adapter's screens are never drawn by anything here, so a test
+// that needs the harness running uses newNativeFixture instead.
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	isolateUserCacheDir(t)
+	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
+	// config.toml, which is never this machine's own.
+	t.Setenv("CODEX_HOME", t.TempDir())
+	root := t.TempDir()
+	stateDir := makeDir(t, filepath.Join(root, "state"))
+	dataDir := makeDir(t, filepath.Join(root, "data"))
+	project := makeDir(t, filepath.Join(root, "primary"))
+	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
+	brief := filepath.Join(root, "brief.md")
+	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
+	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
+
+	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
+	fixture.runner = &commandRunner{events: &fixture.events}
+	fixture.git = &worktreeGit{events: &fixture.events, top: worktreeDir}
+	fixture.service = Service{
+		Worktrees: worktree.Service{
+			Commands: fixture.runner,
+			Git:      fixture.git,
+			DataDir:  dataDir,
+			Sleep:    func(context.Context, time.Duration) error { return nil },
+		},
+		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
+			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
+		}},
+		StateDir:        stateDir,
+		Project:         project,
+		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
+		Sleep: func(context.Context, time.Duration) error {
+			fixture.events = append(fixture.events, "settle")
+			return nil
+		},
+	}
+	fixture.request = Request{
+		ID:        "task-7",
+		Project:   project,
+		BriefPath: brief,
+		Kind:      "ship",
+		Mode:      "no-mistakes",
+		Yolo:      true,
+		Harness:   harness.Claude,
+		Model:     "model-a",
+		Effort:    "high",
+	}
+	return fixture
+}
+
+// hasTerminal reports whether task id has a native terminal record.
+func hasTerminal(stateDir, id string) bool {
+	_, err := host.ReadRecord(stateDir, id)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// closeTerminalAtEnd closes task id's native terminal, whichever host it is
+// by then, when the test ends.
+func closeTerminalAtEnd(t *testing.T, stateDir, id string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if record, err := host.ReadRecord(stateDir, id); err == nil {
+			if err := host.Close(stateDir, record, nativeCloseWait); err != nil {
+				t.Errorf("close native terminal %s: %v", id, err)
+			}
+		}
+	})
+}
+
+type fixtureAdapter struct {
+	events   *[]string
+	specs    *[]harness.LaunchSpec
+	buildErr error
+	// control replaces the fixture's stop and resume control, for a test
+	// that needs a real harness's.
+	control *harness.Control
+}
+
+func (a fixtureAdapter) Control() harness.Control {
+	if a.control != nil {
+		return *a.control
+	}
+	return harness.Control{
+		StopKeys:    []string{"escape"},
+		StopCommand: "/exit",
+		ResumeArgs:  []string{"--continue"},
+	}
+}
+
+func (a fixtureAdapter) Kind() harness.Kind {
+	return harness.Claude
+}
+
+func (a fixtureAdapter) Validate(context.Context, execx.Runner) error {
+	*a.events = append(*a.events, "validate-harness")
+	return nil
+}
+
+func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	*a.events = append(*a.events, "build-harness")
+	if a.specs != nil {
+		*a.specs = append(*a.specs, spec)
+	}
+	if a.buildErr != nil {
+		return harness.Launch{}, a.buildErr
+	}
+	return harness.Launch{
+		Args:       []string{"--dangerously-skip-permissions"},
+		Env:        map[string]string{"GOTMPDIR": spec.GoTmp},
+		PromptFile: spec.BriefPath,
+	}, nil
+}
+
+type worktreeGit struct {
+	events    *[]string
+	top       string
+	topErr    error
+	returnErr error
+	returned  int
+}
+
+func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
+	*g.events = append(*g.events, "worktree-acquire")
+	if !strings.HasPrefix(holder, "gb-") {
+		return "", fmt.Errorf("unexpected holder %q", holder)
+	}
+	if project == "" {
+		return "", fmt.Errorf("project is required")
+	}
+	return g.top, nil
+}
+
+func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
+	*g.events = append(*g.events, "validate-worktree")
+	if g.topErr != nil {
+		return "", g.topErr
+	}
+	return g.top, nil
+}
+
+func (g *worktreeGit) Return(context.Context, string, string) error {
+	g.returned++
+	return g.returnErr
+}
+
+func (g *worktreeGit) EnsureSeeded(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+// commandRunner answers the commands a spawn runs besides its terminal:
+// provisioning's git questions and the project's own installer.
+type commandRunner struct {
+	events          *[]string
+	calls           int
+	installer       string
+	installerStderr string
+	mcpTracked      bool
+	// worktreesUncovered models a checkout whose own .gitignore says nothing
+	// about .worktrees/, so only the clone's info/exclude hides it.
+	worktreesUncovered bool
+}
+
+func (r *commandRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	r.calls++
+	if req.Name == "git" && len(req.Args) > 1 && req.Args[0] == "check-ignore" && req.Args[1] == "-v" {
+		// Spawn asks which file ignores .worktrees/; git answers with the
+		// deciding rule's source in front.
+		source := ".gitignore"
+		if r.worktreesUncovered {
+			source = ".git/info/exclude"
+		}
+		return execx.Result{Stdout: []byte(source + ":1:.worktrees/\t.worktrees/\n")}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
+		return execx.Result{}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
+		if r.mcpTracked {
+			return execx.Result{Stdout: []byte(".mcp.json\n")}, nil
+		}
+		return execx.Result{ExitCode: 1}, nil
+	}
+	if r.installer != "" && req.Name == r.installer {
+		*r.events = append(*r.events, "install")
+		return execx.Result{ExitCode: 1, Stderr: []byte(r.installerStderr)}, nil
+	}
+	return execx.Result{}, fmt.Errorf("unexpected command: %#v", req)
+}
+
+func makeDir(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := fsx.Canonical(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
+}
+
+func writeFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sortedKeys(t *testing.T, stateDir, id string) []string {
+	t.Helper()
+	values, err := state.ReadMeta(filepath.Join(stateDir, id+".meta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }

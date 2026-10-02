@@ -82,8 +82,8 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
-  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--native]   change a running goblin's harness/model/effort in place, or with --native alone move a Herdr goblin into a native terminal
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
+  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
@@ -191,13 +191,11 @@ func defaultCommandRuntime() commandRuntime {
 		resolveHome: home.Resolve,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.Result{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -211,13 +209,11 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.SwitchResult{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -258,7 +254,7 @@ func defaultCommandRuntime() commandRuntime {
 			return spawn.AuthRefresher{
 				StateDir: h.State,
 				DataDir:  h.Data,
-				Panes:    spawn.BackendLiveness{StateDir: h.State, Herdr: spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}}},
+				Panes:    spawn.NativeLiveness{StateDir: h.State},
 			}
 		},
 		peek: peekTerminal,
