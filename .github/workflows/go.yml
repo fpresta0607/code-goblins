@@ -74,8 +74,12 @@ jobs:
         include:
           - shard: root
             packages: .
-          - shard: cmd-cfo
+          - shard: cmd-cfo-1
             packages: ./cmd/cfo
+            run: Update|Recover
+          - shard: cmd-cfo-2
+            packages: ./cmd/cfo
+            skip: Update|Recover
           - shard: spawn-1
             packages: ./internal/spawn
             run: Spawn
@@ -121,6 +125,68 @@ jobs:
             }
           }
           sqlite3 --version
+      # Measurement only, removed before merge: what makes a stripped Windows
+      # PowerShell session slow on this runner.
+      - name: Time stripped PowerShell sessions
+        if: matrix.shard == 'rest'
+        shell: pwsh
+        run: |
+          $system = $env:SystemRoot
+          $shell = "$system\System32\WindowsPowerShell\v1.0\powershell.exe"
+          function New-Folder { $d = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $d | Out-Null; $d }
+          function Stripped([string]$modules) {
+            $local = New-Folder; $temp = New-Folder; $profile = New-Folder
+            $e = [ordered]@{
+              SystemRoot = $system; windir = $system; SystemDrive = $env:SystemDrive; ComSpec = $env:ComSpec; PATHEXT = $env:PATHEXT
+              ProgramFiles = $env:ProgramFiles; ProgramData = $env:ProgramData
+              PATH = "$system\System32;$system\System32\WindowsPowerShell\v1.0"
+              USERPROFILE = $profile; APPDATA = "$profile\Roaming"; LOCALAPPDATA = $local; TEMP = $temp; TMP = $temp
+            }
+            if ($modules) { $e.PSModulePath = $modules }
+            $e
+          }
+          function Time([string]$name, $environment, [string]$command, [int]$times = 1) {
+            for ($i = 1; $i -le $times; $i++) {
+              $psi = New-Object System.Diagnostics.ProcessStartInfo
+              $psi.FileName = $shell
+              $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"$command`""
+              $psi.UseShellExecute = $false
+              $psi.RedirectStandardOutput = $true
+              if ($environment) {
+                $psi.EnvironmentVariables.Clear()
+                foreach ($k in $environment.Keys) { $psi.EnvironmentVariables[$k] = $environment[$k] }
+              }
+              $watch = [Diagnostics.Stopwatch]::StartNew()
+              $p = [Diagnostics.Process]::Start($psi)
+              $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+              "{0,-58} run {1}: {2,6:N1} s cpu {3,5:N1} s  {4}" -f $name, $i, $watch.Elapsed.TotalSeconds, $p.TotalProcessorTime.TotalSeconds, ($out.Trim() -replace '\s+', ' ')
+            }
+          }
+          $own = "$system\System32\WindowsPowerShell\v1.0\Modules"
+          "machine PSModulePath entries: " + (([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine') -split ';').Count)
+          "modules under System32: " + (Get-ChildItem $own -Directory).Count + ", under Program Files: " + (Get-ChildItem "$env:ProgramFiles\WindowsPowerShell\Modules" -Directory -ErrorAction SilentlyContinue).Count
+          Time 'runner environment, nothing but startup' $null "'ok'"
+          Time 'runner environment, a cmdlet and a missing tool' $null "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          Time 'stripped, own modules, nothing but startup' (Stripped $own) "'ok'"
+          Time 'stripped, own modules, one cmdlet' (Stripped $own) "Join-Path a b; 'ok'"
+          Time 'stripped, own modules, a missing tool' (Stripped $own) "Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          Time 'stripped, machine modules, nothing but startup' (Stripped '') "'ok'"
+          Time 'stripped, machine modules, one cmdlet' (Stripped '') "Join-Path a b; 'ok'"
+          Time 'stripped, machine modules, a missing tool' (Stripped '') "Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $twice = Stripped $own
+          Time 'stripped, own modules, same folders twice' $twice "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'" 2
+          $kept = Stripped $own; $kept.LOCALAPPDATA = $env:LOCALAPPDATA
+          Time 'stripped but the runner LOCALAPPDATA' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $kept = Stripped $own; $kept.USERPROFILE = $env:USERPROFILE; $kept.APPDATA = $env:APPDATA
+          Time 'stripped but the runner USERPROFILE and APPDATA' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $kept = Stripped $own; $kept.TEMP = $env:TEMP; $kept.TMP = $env:TMP
+          Time 'stripped but the runner TEMP' $kept "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.LOCALAPPDATA = New-Folder
+          Time 'runner environment but a fresh LOCALAPPDATA' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.USERPROFILE = New-Folder
+          Time 'runner environment but a fresh USERPROFILE' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
+          $all = [ordered]@{}; foreach ($v in Get-ChildItem env:) { $all[$v.Name] = $v.Value }; $all.TEMP = New-Folder; $all.TMP = $all.TEMP
+          Time 'runner environment but a fresh TEMP' $all "Join-Path a b; Get-Command no-such-tool -ErrorAction SilentlyContinue; 'ok'"
       - if: matrix.shard == 'rest'
         run: go vet ./...
       - name: Run Go tests with isolated CFO state
@@ -163,38 +229,12 @@ jobs:
       - if: matrix.shard == 'rest'
         run: go build ./cmd/cfo
 
-  # Measurement only, removed before merge: every package in one job, as
-  # before the split, to compare what it runs with what the jobs above run.
-  inventory-all:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - shell: pwsh
-        run: |
-          choco install sqlite --yes --no-progress
-          sqlite3 --version
-      - name: Run Go tests with isolated CFO state
-        shell: pwsh
-        run: go test ./... -json -count=1 -timeout 20m > "$env:RUNNER_TEMP\go-test-all.json"
-        env:
-          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
-          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-test-inventory-all
-          path: ${{ runner.temp }}/go-test-all.json
-          retention-days: 14
-
   # The check branch protection requires. It runs whatever happened above,
   # and fails unless every job it needs succeeded: a job that failed, was
   # cancelled or was skipped is not a pass.
   test:
     if: always()
-    needs: [frontend, go, inventory-all]
+    needs: [frontend, go]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed
