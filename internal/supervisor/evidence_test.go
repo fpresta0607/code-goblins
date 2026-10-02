@@ -265,7 +265,7 @@ func TestQueuedBriefsListOnlyBriefsNothingStarted(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	queued := queuedBriefs(h, briefProject)
+	queued := queuedBriefs(h, diskBriefs)
 	if len(queued) != 1 || queued[0].ID != "queued" || queued[0].Phase != "queued" {
 		t.Fatalf("queued = %+v, want only the brief nothing started", queued)
 	}

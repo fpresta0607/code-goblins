@@ -903,6 +903,10 @@ func (snapshot *Snapshot) setItems(items Items) {
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
+	// The build reads the folders of task records whole, once, to learn
+	// which of their files changed.
+	directory := s.Store.Home.State
+	defer s.reads.begin(directory, filepath.Dir(state.LifecyclePath(directory, "task")), filepath.Dir(monitor.ObservationPath(directory, "task")))()
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
@@ -1013,7 +1017,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1048,10 +1052,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
-			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: briefWritten(s.Store.Home, row.ID), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
+			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
-	for _, brief := range queuedBriefs(s.Store.Home, s.briefProject) {
+	for _, brief := range queuedBriefs(s.Store.Home, briefReader{s.reads.look, s.briefProject}) {
 		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
 		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
@@ -1073,7 +1077,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 					task.Notes = append(task.Notes, strings.TrimPrefix(record.Detail, "task note: "))
 				}
 			}
-			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+			task.Brief = briefErr == nil
 			task.StartError = s.startErrors[task.ID]
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)

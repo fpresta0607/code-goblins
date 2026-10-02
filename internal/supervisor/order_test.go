@@ -227,7 +227,7 @@ func TestQueuedBriefNamesItsProject(t *testing.T) {
 			writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\r\n\r\n## Project\r\n\r\n"+tc.project+"\r\n")
 
 			// Act
-			briefs := queuedBriefs(h, briefProject)
+			briefs := queuedBriefs(h, diskBriefs)
 
 			// Assert
 			if len(briefs) != 1 || briefs[0].Project != tc.want {

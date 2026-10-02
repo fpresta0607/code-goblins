@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -700,22 +701,39 @@ func newestHistory(tasks []Task) []Task {
 	return tasks
 }
 
+// briefReader is how queuedBriefs asks the disk about a brief: stat as
+// os.Stat does, and project as briefProject does.
+type briefReader struct {
+	stat    func(path string) (fs.FileInfo, error)
+	project func(path string) string
+}
+
+// diskBriefs asks the disk itself, each time.
+var diskBriefs = briefReader{os.Stat, briefProject}
+
 // queuedBriefs are briefs nothing has started: no live task record, and no
-// status log or archive entry, which every dispatched task leaves. project
-// reads the checkout a brief names, as briefProject does.
-func queuedBriefs(h home.Home, project func(brief string) string) []Task {
+// status log or archive entry, which every dispatched task leaves.
+func queuedBriefs(h home.Home, briefs briefReader) []Task {
 	entries, err := os.ReadDir(h.Data)
 	if err != nil {
 		return nil
 	}
 	archived, _ := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
+	// One listing of the task records says which briefs were dispatched,
+	// in place of two questions to the disk for every brief.
+	records, _ := os.ReadDir(h.State)
+	recorded := func(name string) bool {
+		return slices.ContainsFunc(records, func(record os.DirEntry) bool { return strings.EqualFold(record.Name(), name) })
+	}
 	tasks := []Task{}
 	for _, entry := range entries {
 		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil || !exists(filepath.Join(h.Data, id, "brief.md")) {
+		if !entry.IsDir() || state.ValidTaskID(id) != nil {
 			continue
 		}
-		if exists(filepath.Join(h.State, id+".meta")) || exists(filepath.Join(h.State, id+".status")) {
+		brief := filepath.Join(h.Data, id, "brief.md")
+		info, err := briefs.stat(brief)
+		if err != nil || recorded(id+".meta") || recorded(id+".status") {
 			continue
 		}
 		dispatched := false
@@ -726,30 +744,14 @@ func queuedBriefs(h home.Home, project func(brief string) string) []Task {
 			}
 		}
 		if !dispatched {
-			checkout := project(filepath.Join(h.Data, id, "brief.md"))
+			checkout := briefs.project(brief)
 			if checkout != "" {
 				checkout = filepath.Base(checkout)
 			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Dependencies: []string{}, Since: briefWritten(h, id), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Dependencies: []string{}, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks
-}
-
-// sessionStarted is when a goblin started: its worktree is made fresh by cfo
-// spawn and kept across a switch, which writes a new spawn generation, so
-// the generation's time dates the session only when the folder cannot.
-func sessionStarted(meta state.TaskMeta) time.Time {
-	if created := fileCreated(meta.Worktree); !created.IsZero() {
-		return created
-	}
-	return spawnTime(meta.SpawnGen)
-}
-
-// briefWritten is when data/<id>/brief.md was written, which is when its
-// task was queued, or zero without one.
-func briefWritten(h home.Home, id string) time.Time {
-	return fileCreated(filepath.Join(h.Data, id, "brief.md"))
 }
 
 // briefProject is the checkout a brief's Project section names, without a

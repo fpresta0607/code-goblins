@@ -20,12 +20,27 @@ import (
 // they were. A snapshot reads several hundred files, nearly all unchanged
 // since the one before, and on 2026-10-02 opening a file cost the fleet's
 // machine 20 to 80 ms in bursts, while asking for its size and time cost
-// almost nothing: one build took 3 to 13 seconds. Every file kept this way
-// is written whole and renamed into place, or appended to and closed, so a
-// change always shows in its size or its time.
+// little: one build took 3 to 13 seconds. Every file kept this way is written
+// whole and renamed into place, or appended to and closed, so a change always
+// shows in its size or its time.
 type keptReads struct {
 	mu    sync.Mutex
 	reads map[string]keptRead
+	// While a snapshot is being built, the disk is asked about each path
+	// once, and about the files of the folders the build reads whole
+	// together, in one listing of each folder: builds counts the builds in
+	// progress, looks is what this build has asked so far, and lists holds
+	// the listing of each folder in folders once it was read.
+	builds  int
+	folders []string
+	looks   map[string]look
+	lists   map[string]map[string]fs.FileInfo
+}
+
+// look is what the disk said of a path, as os.Stat gives it.
+type look struct {
+	info fs.FileInfo
+	err  error
 }
 
 // fileSign is what tells one state of a file from another without opening it.
@@ -44,6 +59,79 @@ type keptRead struct {
 // keptLimit bounds what is remembered; past it everything is read again.
 const keptLimit = 4096
 
+// begin starts a build that reads folders whole, and the function it returns
+// ends it. What an earlier build asked of the disk is asked again.
+func (k *keptReads) begin(folders ...string) func() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.builds++
+	k.folders, k.looks, k.lists = folders, map[string]look{}, map[string]map[string]fs.FileInfo{}
+	return func() {
+		k.mu.Lock()
+		defer k.mu.Unlock()
+		if k.builds--; k.builds == 0 {
+			k.looks, k.lists = nil, nil
+		}
+	}
+}
+
+// look is what the disk says of path now, as os.Stat gives it. During a
+// build it is asked once, whoever asks and whatever for, and for a file in a
+// folder the build reads whole it is taken from that folder's listing. A
+// folder is always asked itself: a listing shows a folder's time as it was
+// before the last changes inside it.
+func (k *keptReads) look(path string) (fs.FileInfo, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.builds == 0 {
+		return os.Stat(path)
+	}
+	if seen, ok := k.looks[path]; ok {
+		return seen.info, seen.err
+	}
+	info, err := k.ask(path)
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		k.looks[path] = look{info, err}
+	}
+	return info, err
+}
+
+// ask is look for a path this build has not asked about. The caller holds
+// the lock.
+func (k *keptReads) ask(path string) (fs.FileInfo, error) {
+	folder := filepath.Dir(path)
+	if !slices.Contains(k.folders, folder) {
+		return os.Stat(path)
+	}
+	list, ok := k.lists[folder]
+	if !ok {
+		entries, err := os.ReadDir(folder)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		list = make(map[string]fs.FileInfo, len(entries))
+		for _, entry := range entries {
+			info, err := entry.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			list[strings.ToLower(entry.Name())] = info
+		}
+		k.lists[folder] = list
+	}
+	info, ok := list[strings.ToLower(filepath.Base(path))]
+	switch {
+	case !ok:
+		return nil, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
+	case info.IsDir():
+		return os.Stat(path)
+	}
+	return info, nil
+}
+
 // kept returns what read gave the last time for these paths, while each of
 // them is as it was then, and otherwise calls read and remembers its result.
 // kind tells apart two readings of the same file. A missing file is a state
@@ -52,7 +140,7 @@ const keptLimit = 4096
 func kept[T any](k *keptReads, kind string, paths []string, read func() (T, error)) (T, error) {
 	signs := make([]fileSign, len(paths))
 	for i, path := range paths {
-		info, err := os.Stat(path)
+		info, err := k.look(path)
 		switch {
 		case err == nil:
 			signs[i] = fileSign{size: info.Size(), mod: info.ModTime()}
@@ -81,6 +169,25 @@ func kept[T any](k *keptReads, kind string, paths []string, read func() (T, erro
 		k.mu.Unlock()
 	}
 	return value, err
+}
+
+// created is when the file at path was created, zero when it is not there.
+func (s *Service) created(path string) time.Time {
+	info, err := s.reads.look(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return created(info)
+}
+
+// sessionStarted is when a goblin started: its worktree is made fresh by cfo
+// spawn and kept across a switch, which writes a new spawn generation, so
+// the generation's time dates the session only when the folder cannot.
+func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {
+	if at := s.created(meta.Worktree); !at.IsZero() {
+		return at
+	}
+	return spawnTime(meta.SpawnGen)
 }
 
 // The readers below are the snapshot's: each reads as the function it names
@@ -114,11 +221,26 @@ func (s *Service) backlog() (fleet.BacklogRows, error) {
 
 // queuedTask reads a queued task from everything fleet.ReadQueuedTask
 // consults: the backlog, the task's brief, its task record and status log,
-// and the archive's listing.
+// and the archive's listing. That a task is not queued is an answer like any
+// other, and is kept.
 func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
+	type answer struct {
+		task      fleet.QueuedTask
+		notQueued bool
+	}
 	h := s.Store.Home
 	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName)}
-	return kept(&s.reads, "queued", paths, func() (fleet.QueuedTask, error) { return fleet.ReadQueuedTask(h, id) })
+	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
+		task, err := fleet.ReadQueuedTask(h, id)
+		if errors.Is(err, fleet.ErrNotQueued) {
+			return answer{notQueued: true}, nil
+		}
+		return answer{task: task}, err
+	})
+	if read.notQueued {
+		return fleet.QueuedTask{}, fleet.ErrNotQueued
+	}
+	return read.task, err
 }
 
 func (s *Service) briefProject(path string) string {
