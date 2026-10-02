@@ -207,6 +207,10 @@ func (f *launcherFixture) record(board string) {
 	}
 }
 
+// alreadyRunning is what goblins says when it finds this home's supervisor
+// and its CFO running.
+const alreadyRunning = "\nThe supervisor and the CFO of this home already run: nothing new was started.\n"
+
 const busySnapshot = `{"registration":"","tasks":[{"phase":"working"},{"phase":"working"},{"phase":"waiting"}],"questions":[{"status":"pending"},{"status":"succeeded"}],"reviews":[{"state":"open"},{"state":"answered"}],"runs":[{"state":"ready"},{"state":"succeeded"}]}`
 
 // With a supervisor already serving, goblins starts nothing and opens
@@ -224,7 +228,7 @@ func TestGoblinsFindsTheRunningSupervisorAndOnlyPrintsItsLink(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you"); stdout != want {
+	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you") + alreadyRunning; stdout != want {
 		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
@@ -255,7 +259,7 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)"); stdout != want {
+	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)") + alreadyRunning; stdout != want {
 		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
