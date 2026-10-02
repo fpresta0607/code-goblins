@@ -26,6 +26,13 @@ export function speechRecognition(): RecognizerClass | null {
   return scope.SpeechRecognition || scope.webkitSpeechRecognition || null;
 }
 
+// inDesktopApp says whether the desktop app, not a browser, shows the board.
+// The app shows it in WebView2, which gives every page window.chrome.webview;
+// no browser has it.
+export function inDesktopApp(scope: unknown = window): boolean {
+  return Boolean((scope as { chrome?: { webview?: unknown } }).chrome?.webview);
+}
+
 // dictationKey says what a key event means for dictation: whether it starts
 // or stops listening, and whether the terminal must not see it. Releasing
 // Ctrl or Shift first also stops, and that release still reaches the terminal.
@@ -87,30 +94,36 @@ function captureProblem(error: unknown): string {
 }
 
 const UNSUPPORTED = "This browser has no speech recognition, so dictation is unavailable. Edge and Chrome have it.";
+// The desktop app has no speech recognition of its own, and no other browser
+// to send the Overlord to: dictation there waits for the board's own engine.
+const NOT_IN_APP = "Dictation is not in the desktop app yet. It is being built.";
 
 export class Dictation {
   private readonly events: DictationEvents;
   private readonly recognition: () => RecognizerClass | null;
   private readonly lang: string;
   private readonly microphone: (() => Promise<Capture>) | null;
+  private readonly inApp: () => boolean;
   private recognizer: Recognizer | null = null;
   private started = false;
   private capture: Capture | null = null;
   private phrases: string[] = [];
 
   // With a microphone, the recognizer listens to the track that microphone
-  // opens, so the waveform and the words come from one capture.
-  constructor(events: DictationEvents, recognition: () => RecognizerClass | null, lang: string, microphone: (() => Promise<Capture>) | null = null) {
+  // opens, so the waveform and the words come from one capture. inApp says
+  // whether the desktop app shows the board, which words a missing recognizer.
+  constructor(events: DictationEvents, recognition: () => RecognizerClass | null, lang: string, microphone: (() => Promise<Capture>) | null = null, inApp: () => boolean = () => false) {
     this.events = events;
     this.recognition = recognition;
     this.lang = lang;
     this.microphone = microphone;
+    this.inApp = inApp;
   }
 
   start(): void {
     if (this.recognizer) return;
     const Recognition = this.recognition();
-    if (!Recognition) { this.events.problem(UNSUPPORTED); return; }
+    if (!Recognition) { this.events.problem(this.inApp() ? NOT_IN_APP : UNSUPPORTED); return; }
     const recognizer = new Recognition();
     recognizer.continuous = true;
     recognizer.interimResults = false;

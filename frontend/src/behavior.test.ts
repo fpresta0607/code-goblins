@@ -508,6 +508,8 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "ship", phase: "waiting", waiting_on: "ci", verified: false },
     { id: "release", phase: "waiting", waiting_on: "deploy", verified: false },
     { id: "deploy", phase: "waiting", waiting_on: "deploy", verified: false },
+    { id: "heavy", phase: "waiting", waiting_on: "memory", verified: false },
+    { id: "memory", phase: "working", verified: false },
     { id: "ask", phase: "waiting", waiting_on: "overlord", verified: false },
     { id: "gone", phase: "waiting", waiting_on: "retired-task", verified: false },
     { id: "gate", phase: "review", gate_step: "test", verified: false },
@@ -520,7 +522,7 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
   const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["ask", "Waiting on the CFO"],
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["heavy", "Waiting on memory"], ["ask", "Waiting on the CFO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
@@ -529,7 +531,7 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(asksOverlord(snapshot, "ask"), true);
   for (const id of ["billing", "ship", "release", "deploy", "gone"]) assert.equal(asksOverlord(snapshot, id), false, id);
   assert.equal(waitingTarget(snapshot, snapshot.tasks[0])?.id, "board-ui");
-  for (const id of ["ship", "release", "deploy", "ask", "gone", "board-ui"]) assert.equal(waitingTarget(snapshot, snapshot.tasks.find((task) => task.id === id)!), undefined, id);
+  for (const id of ["ship", "release", "deploy", "heavy", "ask", "gone", "board-ui"]) assert.equal(waitingTarget(snapshot, snapshot.tasks.find((task) => task.id === id)!), undefined, id);
   assert.equal(statusText("waiting"), "Waiting");
 });
 
