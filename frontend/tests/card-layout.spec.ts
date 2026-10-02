@@ -53,6 +53,59 @@ function crowding(): Crowding {
   return report;
 }
 
+interface ShownTip { text: string; covers: string[]; onCard: boolean; offScreen: boolean; width: number; fontSize: number }
+
+// The tips shown while the pointer or focus is on a part of a task card, each
+// with the card's controls and links it covers, whether it lies on the card at
+// all and whether it leaves the screen. A tip is the board's floating tip or
+// the part's own CSS tip, measured from its pseudo-element.
+function shownTips(part: Element): ShownTip[] {
+  const card = part.closest(".task-card-shell")!;
+  const tips: { text: string; box: DOMRect; fontSize: number }[] = [];
+  for (const tip of document.querySelectorAll<HTMLElement>("[role=tooltip]")) {
+    if (getComputedStyle(tip).visibility !== "hidden") tips.push({ text: tip.textContent!, box: tip.getBoundingClientRect(), fontSize: parseFloat(getComputedStyle(tip).fontSize) });
+  }
+  const after = getComputedStyle(part, "::after");
+  if (after.content !== "none" && after.content !== "normal" && parseFloat(after.opacity) > .99) {
+    let block = part;
+    while (getComputedStyle(block).position === "static") block = block.parentElement!;
+    const frame = block.getBoundingClientRect(), shift = new DOMMatrixReadOnly(after.transform === "none" ? undefined : after.transform);
+    const size = (length: string, edges: string[]) => parseFloat(length) + (after.boxSizing === "border-box" ? 0 : edges.reduce((sum, edge) => sum + parseFloat(after.getPropertyValue(edge)), 0));
+    const width = size(after.width, ["padding-left", "padding-right", "border-left-width", "border-right-width"]);
+    const height = size(after.height, ["padding-top", "padding-bottom", "border-top-width", "border-bottom-width"]);
+    tips.push({ text: part.getAttribute("data-tip")!, box: new DOMRect(frame.left + block.clientLeft + parseFloat(after.left) + shift.e, frame.top + block.clientTop + parseFloat(after.top) + shift.f, width, height), fontSize: parseFloat(after.fontSize) });
+  }
+  const meets = (one: DOMRect, other: DOMRect) => Math.min(one.right, other.right) - Math.max(one.left, other.left) > 1 && Math.min(one.bottom, other.bottom) - Math.max(one.top, other.top) > 1;
+  const controls = [...card.querySelectorAll("a, button:not(.task-card), [role=img]")].filter((control) => !control.contains(part) && !part.contains(control));
+  return tips.map(({ text, box, fontSize }) => ({
+    text, fontSize, width: Math.round(box.width),
+    covers: controls.filter((control) => meets(box, control.getBoundingClientRect())).map((control) => control.getAttribute("aria-label") || control.textContent!.trim()),
+    onCard: meets(box, card.getBoundingClientRect()),
+    offScreen: box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight,
+  }));
+}
+
+// Waits for the tip a part shows once the pointer is on it.
+async function tipsOf(part: Locator) {
+  await part.hover();
+  let tips: ShownTip[] = [];
+  await expect.poll(async () => (tips = await part.evaluate(shownTips)).length).toBeGreaterThan(0);
+  return tips;
+}
+
+// What is wrong with the tips a part shows: a tip covering the card's
+// controls or links, lying on the card, leaving the screen or too small to
+// read, or a tip of some other part.
+function tipProblems(name: string, tips: ShownTip[]) {
+  return tips.flatMap((tip) => [
+    ...(tip.text !== name ? ["'" + name + "' shows '" + tip.text + "'"] : []),
+    ...(tip.covers.length ? ["'" + tip.text + "' covers " + tip.covers.join(", ")] : []),
+    ...(tip.onCard ? ["'" + tip.text + "' lies on its card"] : []),
+    ...(tip.offScreen ? ["'" + tip.text + "' leaves the screen"] : []),
+    ...(tip.fontSize < 15 ? ["'" + tip.text + "' is " + tip.fontSize + " px"] : []),
+  ]);
+}
+
 async function board(page: Page, width: number, region = 0, query = region ? "?board=" + region : "") {
   await page.setViewportSize({ width, height: 1400 });
   await page.goto("/tests/fixtures/card-layout.html" + query);
@@ -92,6 +145,83 @@ test("a clamped title shows in full in the card's tip", async ({ page }) => {
   const card = page.getByRole("button", { name: /^The board's terminal/ }).first();
   await card.hover();
   await expect(card).toHaveAttribute("data-tip", /the agents' keys reach the program$/);
+});
+
+// On 2026-10-01 the tip of a waiting card's chip lay over the card's pull
+// request and its controls. Every tip on a card opens beside, under or over the
+// card, never on it, and stays on the screen, at a size that reads.
+for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
+  test(`at ${region || width} px every tip on a task card opens clear of the card and on the screen`, async ({ page }) => {
+    await board(page, width, region);
+    const problems: string[] = [];
+    let shown = 0;
+    const shells = page.locator(".task-card-shell");
+    for (let card = 0; card < await shells.count(); card++) {
+      const shell = shells.nth(card);
+      await shell.locator(".task-card").hover();
+      const parts = shell.locator("[data-tip]");
+      for (let index = 0; index < await parts.count(); index++) {
+        const part = parts.nth(index), tips = await tipsOf(part);
+        shown += tips.length;
+        problems.push(...tipProblems((await part.getAttribute("data-tip"))!, tips));
+      }
+    }
+    expect(shown).toBeGreaterThanOrEqual(12);
+    expect(problems).toEqual([]);
+  });
+}
+
+test("a long title's tip is wide enough to read", async ({ page }) => {
+  await board(page, 390);
+  const [tip] = await tipsOf(page.getByRole("button", { name: /^The board's terminal/ }).first());
+  expect(tip.width).toBeGreaterThanOrEqual(280);
+});
+
+// A card at the bottom of the screen has no room under it, so its tips open
+// over it or beside it instead.
+test("a tip on a card at the bottom of the screen opens clear of the card and on the screen", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  const box = (await shell.boundingBox())!;
+  await page.setViewportSize({ width: 1000, height: Math.ceil(box.y + box.height + 4) });
+  const problems: string[] = [];
+  for (const name of [/^Stop /, /^Pause /]) {
+    const part = shell.getByRole("button", { name });
+    problems.push(...tipProblems((await part.getAttribute("data-tip"))!, await tipsOf(part)));
+  }
+  expect(problems).toEqual([]);
+});
+
+test("a card's tip is gone as soon as the pointer leaves the part it names", async ({ page }) => {
+  await board(page, 1000);
+  const stop = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).getByRole("button", { name: /^Stop / });
+  expect(await tipsOf(stop)).toHaveLength(1);
+  await page.mouse.move(1, 1);
+  await expect.poll(() => stop.evaluate(shownTips), { timeout: 300 }).toEqual([]);
+});
+
+test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  await shell.locator(".card-pr").focus();
+  await page.keyboard.press("Tab");
+  const terminal = shell.getByRole("button", { name: /^Open the terminal of / });
+  await expect(terminal).toBeFocused();
+  let tips: ShownTip[] = [];
+  await expect.poll(async () => (tips = await terminal.evaluate(shownTips)).length).toBe(1);
+  expect(tipProblems("Terminal", tips)).toEqual([]);
+  await terminal.evaluate((element) => (element as HTMLElement).blur());
+  await expect.poll(() => terminal.evaluate(shownTips), { timeout: 300 }).toEqual([]);
+});
+
+// A card's status line says which goblin it waits on, and the card does not
+// say it again in a chip of its own.
+test("a waiting card names the goblin it waits on once, in its status line", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  await expect(shell.locator(".card-status-text")).toHaveText("Waiting on cg-board-kill-with-a-long-goblin-name");
+  expect((await shell.innerText()).split("cg-board-kill-with-a-long-goblin-name")).toHaveLength(2);
+  await expect(shell.getByRole("button", { name: /which this goblin is waiting on$/ })).toHaveCount(0);
 });
 
 // The whole card opens its panel: a click on its padding or beside its chips
