@@ -19,8 +19,10 @@ import (
 // Without a record it opens an issue for the task, or claims issue number
 // claim when the task names one, and opens nothing for a ticket that is
 // already closed. With one it writes only what changed: the labels that
-// differ, the body of an issue it opened or the status comment of one it
-// claimed, and the close. A claimed issue belongs to whoever filed it, so a
+// differ, the body of an issue it opened (and its title, when the task's
+// changed) or the status comment of one it claimed, and the close. A pull
+// request the record does not hold yet is a change too, so the record keeps
+// it. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again. A status comment someone deleted is
 // posted again, and an issue that is deleted (410, or 404 while the
@@ -97,7 +99,9 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	if isReleased {
 		status, labels = "Released: "+string(ticket.Reason), []string{}
 	}
-	if status == record.Status && slices.Equal(labels, record.Labels) {
+	isRetitled := !record.IsClaimed && ticket.Title != "" && ticket.Title != record.Title
+	isLinked := ticket.PullRequest.URL != "" && ticket.PullRequest.URL != record.PullRequest
+	if status == record.Status && slices.Equal(labels, record.Labels) && !isRetitled && !isLinked {
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)
@@ -122,7 +126,11 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 	}
 	commentID := record.CommentID
 	if !record.IsClaimed {
-		if _, err := g.api(ctx, "PATCH", issue, "body="+ticket.Body()); err != nil {
+		fields := []string{"body=" + ticket.Body()}
+		if isRetitled {
+			fields = append(fields, "title="+ticket.Title)
+		}
+		if _, err := g.api(ctx, "PATCH", issue, fields...); err != nil {
 			return record, err
 		}
 	} else if commentID != 0 {
@@ -157,6 +165,12 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		}
 	}
 	next.State, next.Status, next.Labels, next.IsDone = ticket.State, status, labels, !ticket.IsOpen()
+	if isRetitled {
+		next.Title = ticket.Title
+	}
+	if ticket.PullRequest.URL != "" {
+		next.PullRequest = ticket.PullRequest.URL
+	}
 	return &next, nil
 }
 
@@ -174,7 +188,7 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 	if err := json.Unmarshal(out, &opened); err != nil || opened.Number == 0 {
 		return nil, fmt.Errorf("read the issue GitHub opened in %s: %v", repository, err)
 	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels()}, nil
+	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: opened.Number, URL: opened.URL, State: ticket.State, Status: ticket.StatusLine(), Labels: ticket.Labels(), Title: ticket.Title, PullRequest: ticket.PullRequest.URL}, nil
 }
 
 // claim takes over issue number for a task: it labels the issue and gives it
@@ -267,27 +281,36 @@ func (g GitHub) EnsureLabels(ctx context.Context, repository string) error {
 	return nil
 }
 
-// apiError is a gh api request GitHub refused, with its HTTP status and the
+// APIError is a gh api request GitHub refused, with its HTTP status and the
 // answer it gave.
-type apiError struct {
+type APIError struct {
+	Status  int
 	request string
-	status  int
 	message string
 	answer  string
 }
 
-func (e *apiError) Error() string { return "gh api " + e.request + ": " + e.message }
+func (e *APIError) Error() string {
+	return "gh api " + e.request + ": " + e.message
+}
 
 var httpStatus = regexp.MustCompile(`\(HTTP (\d{3})\)`)
 
 func hasStatus(err error, status int) bool {
-	var refused *apiError
-	return errors.As(err, &refused) && refused.status == status
+	var refused *APIError
+	return errors.As(err, &refused) && refused.Status == status
+}
+
+// ShouldBackOff reports whether GitHub refused a request in a way that asks
+// the caller to stop for a while: 403, which is how it answers both a rate
+// limit and a missing permission, or 429.
+func ShouldBackOff(err error) bool {
+	return hasStatus(err, 403) || hasStatus(err, 429)
 }
 
 func isExistingLabel(err error) bool {
-	var refused *apiError
-	return errors.As(err, &refused) && refused.status == 422 && strings.Contains(refused.answer, "already_exists")
+	var refused *APIError
+	return errors.As(err, &refused) && refused.Status == 422 && strings.Contains(refused.answer, "already_exists")
 }
 
 // api sends one REST request through gh, each field as a string, and returns
@@ -302,9 +325,9 @@ func (g GitHub) api(ctx context.Context, method, path string, fields ...string) 
 		return nil, err
 	}
 	if result.ExitCode != 0 {
-		refused := &apiError{request: method + " " + path, message: strings.TrimSpace(string(result.Stderr)), answer: string(result.Stdout)}
+		refused := &APIError{request: method + " " + path, message: strings.TrimSpace(string(result.Stderr)), answer: string(result.Stdout)}
 		if match := httpStatus.FindStringSubmatch(refused.message); match != nil {
-			refused.status, _ = strconv.Atoi(match[1])
+			refused.Status, _ = strconv.Atoi(match[1])
 		}
 		if refused.message == "" {
 			refused.message = fmt.Sprintf("gh exited %d", result.ExitCode)

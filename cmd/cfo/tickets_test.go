@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -243,6 +244,69 @@ func TestTicketsSaysWhyNoPathIsCompared(t *testing.T) {
 			}
 			if tc.notWant != "" && strings.Contains(stderr.String(), tc.notWant) {
 				t.Fatalf("stderr = %q, want nothing about %q", stderr.String(), tc.notWant)
+			}
+		})
+	}
+}
+
+func TestTicketsAllowsPublicTicketsForTheProjectsRepository(t *testing.T) {
+	// Arrange
+	state := filepath.Join(t.TempDir(), "state")
+	checkout := filepath.Join(t.TempDir(), "northwind-api")
+	var askedFor string
+	runtime := commandRuntime{
+		resolveHome: func() (home.Home, error) { return home.Home{State: state}, nil },
+		repositoryOf: func(_ context.Context, got string) (string, error) {
+			askedFor = got
+			return "fpresta0607/northwind-api", nil
+		},
+	}
+	var stdout, stderr strings.Builder
+
+	// Act
+	code := runTickets([]string{checkout, "--allow-public-tickets"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
+	}
+	if askedFor != checkout {
+		t.Fatalf("repository read from %q, want the checkout %q", askedFor, checkout)
+	}
+	if isAllowed, err := tickets.IsPublicAllowed(state, "fpresta0607/northwind-api"); err != nil || !isAllowed {
+		t.Fatalf("allowed = %v, %v, want the consent recorded in the home's state", isAllowed, err)
+	}
+	if !strings.Contains(stdout.String(), "fpresta0607/northwind-api") || !strings.Contains(stdout.String(), "public") {
+		t.Fatalf("output = %q, want it to name the repository and say its issues are public", stdout.String())
+	}
+}
+
+func TestTicketsAllowPublicRefusesWhatItCannotDo(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	checkout := filepath.Join(t.TempDir(), "northwind-api")
+	cases := []struct {
+		name     string
+		args     []string
+		readErr  error
+		wantCode int
+		want     string
+	}{
+		{name: "with a report flag", args: []string{checkout, "--allow-public-tickets", "--json"}, wantCode: 2, want: "takes no other flag"},
+		{name: "a checkout with no GitHub origin", args: []string{checkout, "--allow-public-tickets"}, readErr: errors.New("origin is not a GitHub repository"), wantCode: 1, want: "not a GitHub repository"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runtime := commandRuntime{
+				resolveHome:  func() (home.Home, error) { return home.Home{State: state}, nil },
+				repositoryOf: func(context.Context, string) (string, error) { return "fpresta0607/northwind-api", tc.readErr },
+			}
+			var stdout, stderr strings.Builder
+			code := runTickets(tc.args, &stdout, &stderr, runtime)
+			if code != tc.wantCode || !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("exit = %d, stderr = %q, want %d and %q", code, stderr.String(), tc.wantCode, tc.want)
+			}
+			if isAllowed, _ := tickets.IsPublicAllowed(state, "fpresta0607/northwind-api"); isAllowed {
+				t.Fatal("consent was recorded although the command refused")
 			}
 		})
 	}
