@@ -221,9 +221,10 @@ func detachAt(keys []byte) int {
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,
-// in project, in a host of its own that outlives this console.
-func startNativeCFO(h home.Home, project, harness string) error {
-	program, err := nativeCFOProgram(harness)
+// in project, in a host of its own that outlives this console, with args,
+// such as the arguments that resume a conversation.
+func startNativeCFO(h home.Home, project, harness string, args []string) error {
+	program, err := nativeCFOProgram(harness, args...)
 	if err != nil {
 		return err
 	}
@@ -245,7 +246,7 @@ func startNativeCFO(h home.Home, project, harness string) error {
 // nativeCFOProgram is the command line a native terminal starts harness with
 // as the CFO, as a native goblin's is: codex and pi install as npm script shims
 // and run through cmd /c. Claude Code must be its native build, claude.exe.
-func nativeCFOProgram(harness string) ([]string, error) {
+func nativeCFOProgram(harness string, args ...string) ([]string, error) {
 	if harness == "claude" {
 		path, err := exec.LookPath(harness)
 		if err != nil {
@@ -255,7 +256,7 @@ func nativeCFOProgram(harness string) ([]string, error) {
 			return nil, fmt.Errorf("%s is not a program a native terminal can start; the native build of Claude Code is claude.exe", path)
 		}
 	}
-	return spawn.NativeProgram(harness)
+	return spawn.NativeProgram(harness, args...)
 }
 
 // nativeCFOEnvironment is the environment the CFO's native terminal starts

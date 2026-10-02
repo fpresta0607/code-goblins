@@ -59,6 +59,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes.
    Esc there leaves both running and exits.
 
+A CFO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
 Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CFO running they start nothing.
 `goblins setup` shows the choice of agent again, and `goblins --harness codex|claude|pi` names it instead of asking.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.

@@ -162,15 +162,41 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, err
 		}
 	}
+	resume, why, ranNatively := cfoResume(h, agent)
+	// said is what the lines under the CFO's own say, starting with why it
+	// did not come back on its conversation, when it did not.
+	var said []string
+	if why != "" {
+		said = append(said, why)
+	}
+	// A CFO that ran in its own terminal comes back in it.
+	native = native || ranNatively
+	if len(resume) > 0 {
+		conversation := resume[len(resume)-1]
+		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
+		if err := runtime.startNativeCFO(h, h.Root, agent, resume); err != nil {
+			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
+		}
+		cfoResumeWait(cfoResumeSettle)
+		if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+			notes := runtime.settleCFO(ctx, h.State, agent)
+			list.Done("CFO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCFOTerminal))
+			for _, note := range append(wakePath(agent, true), notes...) {
+				list.Note(note)
+			}
+			return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
+		}
+		said = append(said, fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation))
+	}
 	list.Working("CFO", "starting as "+onboarding.Name(agent))
 	if native {
-		if err := runtime.startNativeCFO(h, h.Root, agent); err != nil {
+		if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
 		// Its startup dialogs are answered before the line says it started.
 		notes := runtime.settleCFO(ctx, h.State, agent)
 		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
-		for _, note := range append(wakePath(agent, true), notes...) {
+		for _, note := range append(append(said, wakePath(agent, true)...), notes...) {
 			list.Note(note)
 		}
 		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
