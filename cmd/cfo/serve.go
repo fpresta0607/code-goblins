@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -155,6 +156,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		// A credential request's card saves through the store cfo auth store
+		// writes, and its refresh is cfo auth store's own.
+		Credentials:        auth.OpenStore,
+		RefreshCredentials: boardCredentialRefresh(runtime),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

@@ -13,10 +13,11 @@ export interface Draft { selection: string; written: string; submission: Submiss
 export const EMPTY_DRAFT: Draft = { selection: "", written: "", submission: null, sending: false, error: "" };
 
 // One question: who asks and how long they have waited, the choices with the
-// recommendation first, Other for a written answer, and its own Send.
-export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onImage, pager }: {
+// recommendation first, Other for a written answer, its own Send, and Dismiss
+// for one he answered elsewhere or no longer needs.
+export function QuestionCard({ question, snapshot, connected, draft, review, onDraft, onSend, onDismiss, onImage, pager }: {
   question: Question; snapshot: Snapshot; connected: boolean; draft: Draft; review?: BoardActivity;
-  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onImage: (index: number) => void; pager?: ReactNode;
+  onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onDismiss: () => void; onImage: (index: number) => void; pager?: ReactNode;
 }) {
   const outcome = draft.submission ? snapshot.actions.find((action) => action.id === draft.submission?.id) || draft.receipt : undefined;
   const pending = question.status === "pending" && !outcome;
@@ -61,6 +62,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
         : settled !== "pending" && <p className={"question-outcome delivery " + settled} role="status"><Icon name={outcomeIcon(settled)} />{answeredLabel(question)}</p>}
     <div className="card-actions">
       {pager}
+      {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Dismiss this question" data-tip="Dismiss: answered elsewhere or no longer needed" onClick={onDismiss}><Icon name="close" /></button>}
       {pending && <button className="primary send-decision" type="submit" disabled={!connected || !payload || draft.sending}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
     </div>
   </form>;
