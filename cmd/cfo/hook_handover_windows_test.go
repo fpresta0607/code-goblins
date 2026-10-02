@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,12 +27,18 @@ import (
 // watchLockStandInVariable names the state directory this test binary,
 // started as a stand-in, holds the watcher lock in, and watchLockRoleVariable
 // as what: "serve" takes it as cfo serve does, over any watcher holding it,
-// and keeps the heartbeat as serve's watcher does; "legacy" holds it as a
-// Stop hook from before the handover, never reading a serve's request.
+// and keeps the heartbeat as serve's watcher does; "slow-serve" asks for it
+// as serve does and takes it only slowServeGap after the watcher lets it go,
+// as a serve on a loaded machine does; "legacy" holds it as a Stop hook from
+// before the handover, never reading a serve's request.
 const (
 	watchLockStandInVariable = "CFO_TEST_WATCH_LOCK_STATE"
 	watchLockRoleVariable    = "CFO_TEST_WATCH_LOCK_ROLE"
 )
+
+// slowServeGap is how long the slow-serve stand-in leaves the lock free
+// between the watcher letting it go and taking it.
+const slowServeGap = 500 * time.Millisecond
 
 // holdWatchLockAs is the stand-in's whole run, and its exit code. It says
 // holding once it holds the lock.
@@ -43,6 +50,30 @@ func holdWatchLockAs(stateDir, role string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
+		if err := monitor.TouchHeartbeat(stateDir, time.Now()); err != nil {
+			return 1
+		}
+	case "slow-serve":
+		withdraw, err := watch.RequestHandover(stateDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := lock.ReadNamed(stateDir, ".watch.lock"); errors.Is(err, os.ErrNotExist) {
+				break
+			}
+			if time.Now().After(deadline) {
+				fmt.Fprintln(os.Stderr, "the watcher never let the lock go")
+				return 1
+			}
+		}
+		time.Sleep(slowServeGap)
+		if err := supervisor.AcquireWatchLock(stateDir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		withdraw()
 		if err := monitor.TouchHeartbeat(stateDir, time.Now()); err != nil {
 			return 1
 		}
@@ -147,12 +178,28 @@ func (p slowInspection) Inspect(ctx context.Context, _ taskstate.TaskMeta) (moni
 // An install restarts serve while the CFO's Stop hook hosts the watcher in
 // the middle of a slow cycle. The hook's watcher yields to serve at once
 // rather than being ended, and the hook goes on waiting on serve's queue, so
-// a wake queued afterwards still rewakes the idle CFO.
+// a wake queued afterwards still rewakes the idle CFO. The lock is free for a
+// moment between the watcher letting it go and serve taking it, and a serve
+// on a loaded machine takes it late: the hook waits that out, however few
+// attempts it has, rather than reporting supervision down while it changes
+// hands.
 func TestTheStopHookYieldsToServeMidCycleAndStillRewakesTheCFO(t *testing.T) {
+	for name, handover := range map[string]struct{ serve, attempts string }{
+		"serve takes the lock at once":                {"serve", "2"},
+		"serve takes the lock late, with one attempt": {"slow-serve", "1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			theStopHookYieldsToServeAndRewakes(t, handover.serve, handover.attempts)
+		})
+	}
+}
+
+func theStopHookYieldsToServeAndRewakes(t *testing.T, serve, attempts string) {
 	dir := newPrimaryHome(t)
 	setAncestorPID(t, os.Getpid())
 	setTinyAutoarmIntervals(t)
-	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "2")
+	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", attempts)
+	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "5000")
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "60")
 	state := filepath.Join(dir, "state")
 	if err := taskstate.WriteTaskMeta(state, taskstate.TaskMeta{ID: "g1", Worktree: `C:\work\g1`, Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-g1", HerdrPaneID: "pane-g1"}); err != nil {
@@ -185,7 +232,7 @@ func TestTheStopHookYieldsToServeMidCycleAndStillRewakesTheCFO(t *testing.T) {
 		t.Fatal("the hook's watcher never started its scan")
 	}
 
-	startWatchLockStandIn(t, state, "serve", "")
+	startWatchLockStandIn(t, state, serve, "")
 	if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {
 		t.Fatal(err)
 	}
