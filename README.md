@@ -458,7 +458,7 @@ While it is on:
   They are never decided for you.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
-  The desktop app is not silenced yet: its window raises a Windows notification of its own for what newly waits on you, AFK mode or not.
+  The desktop app is the exception: while its window runs, AFK mode does not silence the window's own Windows notifications for what newly waits on you, until the window ships a fix.
 
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the report of the stretch: what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.

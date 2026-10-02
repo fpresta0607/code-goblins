@@ -415,7 +415,8 @@ The board does not prompt him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
 Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
 What the board asked to announce while he was away is not announced once he is back either.
-The desktop window is not silenced yet: `goblins-window.exe` reads the board's snapshot itself and raises a Windows notification for each thing that newly waits on him, without asking the supervisor, so while the window runs each question, review item or command you leave for him still notifies him.
+The desktop window is not silenced yet: while `goblins-window.exe` runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
+The window reads the board's snapshot itself and notifies of each thing that newly waits on him without asking the supervisor, so each question, review item or command you leave for him still notifies him.
 
 Turning it off produces the report of the stretch, which `cfo afk off` prints for him and `cfo afk report` prints again: what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, what is held for him with what became of it and what its goblin did meanwhile, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
