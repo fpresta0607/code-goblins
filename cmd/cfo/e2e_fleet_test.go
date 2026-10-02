@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,13 +20,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -40,7 +36,7 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture := newFleetE2EFixture(t)
 
 	for _, harness := range []string{"claude", "codex", "pi"} {
-		fixture.Spawn(harness)
+		fixture.Seed(harness)
 	}
 	fixture.AssertTaskMetadataIsIsolated()
 	fixture.SendAndPeek("claude")
@@ -57,77 +53,6 @@ func TestFleetEndToEnd(t *testing.T) {
 	fixture.ScanUnknownEndpoint("codex")
 	fixture.AssertFleetJSONAndMarkdownParity()
 	fixture.AssertVisibleTabsAndNoLifecycleDeletes()
-}
-
-// The reported failure, reproduced through the same `cfo spawn` command an
-// operator runs: every claude spawn ended in "spawn: instruction read-back did
-// not match within 90s" while Herdr reported the agent interactive-ready,
-// because Claude Code renders text it treats as a paste as a collapsed
-// "[Pasted text #1]" placeholder. The pane therefore never contains the
-// instruction and a composer read-back can never match, no matter how long it
-// waits. Delivery is now submitted through the native agent channel and proven
-// from Herdr's own agent state, so a pane that shows nothing still spawns - and
-// the goblin still receives its whole brief.
-func TestSpawnDeliversTheBriefWhenTheHarnessCollapsesThePasteIntoAPlaceholder(t *testing.T) {
-	fixture := newFleetE2EFixture(t)
-	fixture.runner.collapsePastes = true
-
-	brief := filepath.Join(fixture.home.Root, "claude.brief.md")
-	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	stdout, stderr := runFleetCommand(t, fixture.runtime, "spawn", "claude",
-		"--project", fixture.project,
-		"--brief", brief,
-		"--harness", "claude",
-		"--backend", "herdr",
-		"--mode", "local-only")
-	if !strings.Contains(stdout, "spawned claude ") || stderr != "" {
-		t.Fatalf("cfo spawn stdout=%q stderr=%q, want the goblin spawned", stdout, stderr)
-	}
-
-	pane := fixture.runner.tabs["gb-claude"].pane
-	// Premise: the pane really never held the instruction, so the spawn
-	// succeeded despite the read-back being impossible rather than because the
-	// harness happened to render the text after all.
-	paneTail, err := fixture.client.Capture(context.Background(), herdr.Target{Session: "fleet-e2e", Pane: pane}, 0, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(paneTail, brief) {
-		t.Fatalf("pane tail = %q, want the collapsed placeholder this defect is about", paneTail)
-	}
-
-	// The instruction reached the agent, exactly once, carrying the whole
-	// brief instruction rather than a truncated or placeholder-shaped one.
-	prompts := fixture.runner.prompts[pane]
-	if len(prompts) != 1 {
-		t.Fatalf("agent prompts = %q, want exactly one - a re-send briefs the goblin twice", prompts)
-	}
-	if want := harness.BriefInstruction(brief); !strings.HasPrefix(prompts[0], want) {
-		t.Fatalf("delivered instruction = %q, want it to open with %q", prompts[0], want)
-	}
-	// And it was never typed into the composer, which is the delivery that
-	// could not survive a harness that collapses pastes.
-	for _, request := range fixture.runner.requests {
-		if request.Name == "herdr" && matches(request.Args, "pane", "send-text") && strings.Contains(request.Args[3], brief) {
-			t.Fatalf("the instruction was typed into the composer: %q", request.Args[3])
-		}
-	}
-
-	// What the operator is left with: a live, addressable task. A failed
-	// delivery tears the launch down and retires this metadata.
-	meta, err := state.ReadTaskMeta(fixture.home.State, "claude")
-	if err != nil {
-		t.Fatalf("read task metadata after the spawn: %v", err)
-	}
-	if meta.HerdrPaneID != pane {
-		t.Fatalf("task metadata pane = %q, want the spawned pane %q", meta.HerdrPaneID, pane)
-	}
-	t.Logf("cfo spawn stdout: %s", strings.TrimSpace(stdout))
-	t.Logf("pane %s tail while the instruction was delivered: %q", pane, paneTail)
-	t.Logf("herdr agent prompt %s %q", pane, prompts[0])
-	t.Logf("task metadata: id=%s harness=%s pane=%s worktree=%s", meta.ID, meta.Harness, meta.HerdrPaneID, meta.Worktree)
 }
 
 func TestPlan3AcceptanceScriptSelfTests(t *testing.T) {
@@ -231,7 +156,7 @@ func plan3ScriptEnvFrom(parent []string, optIn bool) []string {
 }
 
 // fleetE2EFixture is a real command-path fixture. It drives the command
-// parser and the spawn, send, peek, monitor, wake, and fleet packages while
+// parser and the send, peek, monitor, wake, and fleet packages while
 // replacing only subprocesses with an in-memory Herdr and Git model.
 // No installed tool, network service, credential, or production checkout is
 // reachable from this test.
@@ -320,7 +245,6 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	fixture.prober = &fleetE2EProber{fixture: fixture, calls: make(map[string]int)}
 	fixture.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return fixture.home, nil },
-		spawn:       fixture.spawn,
 		sendText:    fixture.sendText,
 		sendKey:     fixture.sendKey,
 		peek:        fixture.peek,
@@ -334,20 +258,46 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	return fixture
 }
 
-func (f *fleetE2EFixture) Spawn(harnessName string) {
+// Seed records harnessName's goblin the way an older build spawned it in
+// Herdr: its tab in the fake session, its worktree and its Herdr task record.
+// cfo spawn starts every goblin natively now, and the send, peek, monitor and
+// fleet commands this test drives still reach a goblin recorded in Herdr.
+func (f *fleetE2EFixture) Seed(harnessName string) {
 	f.t.Helper()
-	brief := filepath.Join(f.home.Root, harnessName+".brief.md")
-	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
+	ctx := context.Background()
+	container, err := f.client.EnsureContainer(ctx, f.project)
+	if err != nil {
 		f.t.Fatal(err)
 	}
-	stdout, stderr := runFleetCommand(f.t, f.runtime, "spawn", harnessName,
-		"--project", f.project,
-		"--brief", brief,
-		"--harness", harnessName,
-		"--backend", "herdr",
-		"--mode", "local-only")
-	if !strings.Contains(stdout, "spawned "+harnessName+" ") || stderr != "" {
-		f.t.Fatalf("spawn %s stdout=%q stderr=%q", harnessName, stdout, stderr)
+	endpoint, err := f.client.CreateTask(ctx, container, "gb-"+harnessName, f.project)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	worktreePath, err := f.git.Acquire(ctx, f.project, "gb-"+harnessName)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(f.home.State, state.TaskMeta{
+		ID:               harnessName,
+		Window:           endpoint.Target.String(),
+		EndpointTaskID:   harnessName,
+		Worktree:         worktreePath,
+		Project:          f.project,
+		Harness:          harnessName,
+		Kind:             "ship",
+		Mode:             "local-only",
+		Yolo:             "off",
+		TaskTmp:          filepath.Join(f.home.State, "tasktmp", harnessName),
+		Model:            "default",
+		Effort:           "default",
+		Backend:          "herdr",
+		HerdrSession:     endpoint.Target.Session,
+		HerdrWorkspaceID: endpoint.WorkspaceID,
+		HerdrTabID:       endpoint.TabID,
+		HerdrPaneID:      endpoint.PaneID,
+		SpawnGen:         "s1",
+	}); err != nil {
+		f.t.Fatal(err)
 	}
 	if err := state.AppendStatus(f.home.State, harnessName, "working: deterministic e2e fixture"); err != nil {
 		f.t.Fatal(err)
@@ -365,7 +315,7 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 			f.t.Fatalf("%s metadata is not an isolated worker: %+v", id, meta)
 		}
 		if info, err := os.Stat(meta.Worktree); err != nil || !info.IsDir() {
-			f.t.Fatalf("%s worktree missing after spawn: %v", id, err)
+			f.t.Fatalf("%s worktree missing after seeding: %v", id, err)
 		}
 		if meta.Backend != "herdr" || meta.HerdrSession != "fleet-e2e" || meta.HerdrPaneID == "" {
 			f.t.Fatalf("%s Herdr metadata is incomplete: %+v", id, meta)
@@ -606,17 +556,6 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 	}
 	for _, request := range f.runner.requests {
 		if request.Name != "herdr" {
-			if (request.Name == "claude" || request.Name == "codex") && len(request.Args) == 1 && request.Args[0] == "--version" {
-				continue
-			}
-			if request.Name == "pi" && len(request.Args) == 1 && request.Args[0] == "--help" {
-				continue
-			}
-			// Spawn asks git which file ignores .worktrees/ before a checkout's
-			// first worktree. It is a query: nothing in the lifecycle writes.
-			if request.Name == "git" && slices.Equal(request.Args, []string{"check-ignore", "-v", ".worktrees/"}) {
-				continue
-			}
 			f.t.Fatalf("unexpected fake external request=%+v", request)
 		}
 		sessionAt := slices.Index(request.Args, "--session")
@@ -632,21 +571,6 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 			}
 		}
 	}
-}
-
-func (f *fleetE2EFixture) spawn(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
-	service := spawn.Service{
-		Terminals: terminal.HerdrSessions(f.client),
-		Worktrees: worktree.Service{
-			Commands: f.runner,
-			Git:      f.git,
-			Sleep:    noWait,
-		},
-		Harness:  harness.DefaultRegistry(),
-		StateDir: h.State,
-		Sleep:    noWait,
-	}
-	return service.Spawn(ctx, request)
 }
 
 func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string) error {
@@ -714,21 +638,6 @@ type fleetE2ERunner struct {
 	// where the instruction was never submitted.
 	prompts        map[string][]string
 	stateChangeSeq map[string]int64
-	// typedHarness is the typed harness the last launch line started,
-	// typedBrief the text typed after it, and typedBriefEnters the Enters
-	// pressed after that.
-	typedHarness     string
-	typedBrief       string
-	typedBriefEnters int
-	// collapsePastes models Claude Code rendering text it treats as a paste
-	// as a collapsed placeholder, so the pane never shows the instruction.
-	collapsePastes bool
-	// inertCounters models an agent that never reports accepting the prompt,
-	// which is the shape of a launch whose instruction never landed.
-	inertCounters bool
-	// taskTmpAtStart records that the task temporary directory existed when
-	// the harness started, so a teardown assertion has its premise.
-	taskTmpAtStart bool
 }
 
 type fleetE2ETab struct {
@@ -739,12 +648,6 @@ type fleetE2ETab struct {
 func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	request.Args = append([]string(nil), request.Args...)
 	r.requests = append(r.requests, request)
-	if request.Name == "claude" || request.Name == "codex" {
-		return result("version 1.0\n"), nil
-	}
-	if request.Name == "pi" {
-		return result("Usage:\nOptions:\n  --model\n  --thinking low medium high xhigh max\n  --extension\n  --tui-mode\n"), nil
-	}
 	if request.Name != "herdr" {
 		return execx.Result{}, fmt.Errorf("unexpected fake executable %q", request.Name)
 	}
@@ -753,25 +656,6 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		return execx.Result{}, err
 	}
 	switch {
-	case matches(args, "status", "--json"):
-		return result(`{"client":{"protocol":22},"server":{"running":true,"protocol":22,"compatible":true}}`), nil
-	case matches(args, "api", "schema"):
-		if !hasArgument(args, "--json") {
-			return execx.Result{}, fmt.Errorf("api schema is missing --json: %v", args)
-		}
-		return result(fleetE2ESchemaJSON()), nil
-	case matches(args, "session", "list"):
-		if !hasArgument(args, "--json") {
-			return execx.Result{}, fmt.Errorf("session list is missing --json: %v", args)
-		}
-		return result(`{"sessions":[{"name":"fleet-e2e","running":true}]}`), nil
-	case matches(args, "server", "agent-manifests"):
-		return resultEnvelope(map[string]any{"manifests": []any{
-			map[string]string{"agent": "claude"},
-			map[string]string{"agent": "codex"},
-			map[string]string{"agent": "pi"},
-			map[string]string{"agent": "kimi"},
-		}}), nil
 	case matches(args, "workspace", "list"):
 		if !r.workspace {
 			return resultEnvelope(map[string]any{"workspaces": []any{}}), nil
@@ -812,54 +696,12 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, fmt.Errorf("pane send-text is incomplete: %v", args)
 		}
 		r.lastText = args[3]
-		// A launch line names the harness it starts: a typed Codex or pi
-		// takes the text typed after it as its brief.
-		switch {
-		case strings.Contains(args[3], "Set-Location"):
-			r.typedHarness, r.typedBrief, r.typedBriefEnters = "", "", 0
-			if strings.Contains(args[3], "& 'codex'") {
-				r.typedHarness = "codex"
-			} else if strings.Contains(args[3], "& 'pi'") {
-				r.typedHarness = "pi"
-			}
-		case r.typedHarness != "":
-			r.typedBrief = args[3]
-		}
 		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "pane", "send-keys"):
-		if len(args) >= 4 && args[3] == "enter" && r.typedBrief != "" {
-			r.typedBriefEnters++
-		}
 		return resultEnvelope(map[string]any{}), nil
 	case matches(args, "pane", "read"):
 		if hasArgument(args, "--format") {
 			return result(strings.Repeat("terminal line\n", 199) + "❯\n"), nil
-		}
-		if r.collapsePastes {
-			// What a real claude pane holds after a paste: the text is gone,
-			// replaced by a placeholder that names nothing it contained.
-			return result("> [Pasted text #1]\n  paste again to expand\n"), nil
-		}
-		// A harness launched typed shows its composer once it runs, its brief
-		// once typed, and a turn once Enter submits it or a later prompt
-		// reached it, as live Codex 0.154.0 and pi do.
-		if r.typedHarness != "" {
-			composer, working := "› Ask Codex to do anything\n  100% context left", "• Working (1s • esc to interrupt)"
-			if r.typedHarness == "pi" {
-				composer, working = "0.0%/1.0M (auto)", "── ⠸ Working ──"
-			}
-			if len(args) >= 3 {
-				if prompts := r.prompts[args[2]]; len(prompts) > 0 {
-					return result(prompts[len(prompts)-1] + "\n" + working + "\n"), nil
-				}
-			}
-			switch {
-			case r.typedBriefEnters > 0:
-				return result(r.typedBrief + "\n" + working + "\n"), nil
-			case r.typedBrief != "":
-				return result("› " + r.typedBrief + "\n" + composer + "\n"), nil
-			}
-			return result(composer + "\n"), nil
 		}
 		// A prompt the agent accepted shows up in the pane transcript, which
 		// is what a later peek reads. Verified against live herdr 0.9.0: the
@@ -889,7 +731,7 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 		}
 		pane := args[2]
 		// The counters move only for a pane whose agent accepted a prompt.
-		if len(r.prompts[pane]) > 0 && !r.inertCounters {
+		if len(r.prompts[pane]) > 0 {
 			r.stateChangeSeq[pane]++
 		}
 		return resultEnvelope(map[string]any{"agent": map[string]any{
@@ -898,23 +740,6 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			"state_change_seq": r.stateChangeSeq[pane],
 			"revision":         r.stateChangeSeq[pane],
 		}}), nil
-	case matches(args, "agent", "start"):
-		// The task temporary directory exists by the time a harness starts;
-		// recording that lets a teardown test assert its later absence is a
-		// removal rather than a launch that never created it.
-		if _, err := os.Stat(filepath.Join(r.fixture.home.State, "tasktmp", "claude")); err == nil {
-			r.taskTmpAtStart = true
-		}
-		if _, ok := flagValue(args, "--kind"); !ok {
-			return execx.Result{}, fmt.Errorf("agent start is missing --kind: %v", args)
-		}
-		if _, ok := flagValue(args, "--pane"); !ok {
-			return execx.Result{}, fmt.Errorf("agent start is missing --pane: %v", args)
-		}
-		if len(args) < 3 || !strings.HasPrefix(args[2], "gb-") {
-			return execx.Result{}, fmt.Errorf("agent start is missing gb- name: %v", args)
-		}
-		return resultEnvelope(map[string]any{"agent": map[string]string{"name": args[2], "agent_status": "idle"}}), nil
 	case matches(args, "agent", "prompt"):
 		if len(args) < 4 {
 			return execx.Result{}, fmt.Errorf("agent prompt is incomplete: %v", args)
@@ -1100,23 +925,6 @@ func resultEnvelope(value any) execx.Result {
 	return execx.Result{Stdout: data}
 }
 
-// fleetE2ESchemaJSON is the minimal protocol-22 schema-1 document satisfying
-// the spawn compatibility preflight: both response envelopes plus every
-// method CFO uses.
-func fleetE2ESchemaJSON() string {
-	methods := herdr.RequiredMethods()
-	var b strings.Builder
-	b.WriteString(`{"protocol":22,"schema_version":1,"schemas":{"success_response":{},"error_response":{},"request":{"oneOf":[`)
-	for i, method := range methods {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		b.WriteString(`{"properties":{"method":{"const":` + strconv.Quote(method) + `}}}`)
-	}
-	b.WriteString(`]}}}`)
-	return b.String()
-}
-
 func matches(args []string, first, second string) bool {
 	return len(args) >= 2 && args[0] == first && args[1] == second
 }
@@ -1148,57 +956,3 @@ var _ worktree.Git = (*fleetE2EGit)(nil)
 var _ monitor.Prober = (*fleetE2EProber)(nil)
 var _ fleet.EndpointReader = fleetE2EEndpoint{}
 var _ crewstate.StructuralValidator = fleetE2EEndpoint{}
-
-// A spawn whose instruction never landed must leave the operator able to run
-// the same command again. The failed launch removes state/tasktmp/<id>, which
-// is the only thing left claiming that id once the metadata is retired: while
-// it survived, the retry of the very spawn that had just failed was refused
-// with "conflicts case-insensitively with retained task temporary directory".
-// That directory also holds the rendered credential script, so removing it is
-// the credential scrub for a launch that never became a task.
-func TestSpawnFailureLeavesTheIDRespawnableThroughTheCommand(t *testing.T) {
-	fixture := newFleetE2EFixture(t)
-	fixture.runner.inertCounters = true
-
-	brief := filepath.Join(fixture.home.Root, "claude.brief.md")
-	if err := os.WriteFile(brief, []byte("Delivery contract: mode=local-only\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	spawnArgs := []string{"spawn", "claude",
-		"--project", fixture.project,
-		"--brief", brief,
-		"--harness", "claude",
-		"--backend", "herdr",
-		"--mode", "local-only"}
-
-	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime(spawnArgs, &stdout, &stderr, fixture.runtime); exit == 0 {
-		t.Fatalf("cfo spawn exit=0 stdout=%q, want the undelivered instruction to fail the launch", stdout.String())
-	}
-	failure := stderr.String()
-	if !strings.Contains(failure, "never reported accepting the instruction") {
-		t.Fatalf("cfo spawn stderr = %q, want the unproven delivery named", failure)
-	}
-	// Premise: the launch really did get far enough to create the directory
-	// whose removal this test is about.
-	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "claude")
-	if !fixture.runner.taskTmpAtStart {
-		t.Fatal("tasktmp was never created, so its absence proves nothing")
-	}
-	if _, err := os.Stat(taskTmp); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("task temporary directory %q survived the failed spawn: %v", taskTmp, err)
-	}
-
-	// The operator's actual next move: run the same command again.
-	fixture.runner.inertCounters = false
-	stdout.Reset()
-	stderr.Reset()
-	if exit := runWithRuntime(spawnArgs, &stdout, &stderr, fixture.runtime); exit != 0 {
-		t.Fatalf("retry exit=%d stdout=%q stderr=%q, want the same id respawnable", exit, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "spawned claude ") {
-		t.Fatalf("retry stdout = %q, want the goblin spawned", stdout.String())
-	}
-	t.Logf("first cfo spawn stderr: %s", strings.TrimSpace(failure))
-	t.Logf("retry cfo spawn stdout: %s", strings.TrimSpace(stdout.String()))
-}

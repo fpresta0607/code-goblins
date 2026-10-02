@@ -49,7 +49,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude, pi and codex and herdr for kimi")
 	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -72,10 +71,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if !pipeline.ValidClass(*class) {
 		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
-		return 2
-	}
-	if *backend != "" && *backend != "herdr" && *backend != "native" {
-		fmt.Fprintln(stderr, "cfo spawn: --backend must be native or herdr")
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
@@ -166,12 +161,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 		}
 	}
-	if *backend == "" {
-		*backend = "herdr"
-		if harness.NativeDefault(harness.Kind(*harnessName)) {
-			*backend = "native"
-		}
-	}
 	if routed || *auto {
 		taskClass = string(assessment.Class)
 		if b, ok := inputs.manifest.Budgets[taskClass]; ok {
@@ -233,9 +222,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Harness:   harness.Kind(*harnessName),
 		Model:     *model,
 		Effort:    *effort,
-		Session:   herdrSession(),
 		Class:     *class,
-		Backend:   *backend,
 		Title:     title,
 		Capsule:   writeCapsule,
 	})

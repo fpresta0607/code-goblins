@@ -27,49 +27,10 @@ func TestRenderEnvScriptRefusesAnUnexportableName(t *testing.T) {
 	}
 }
 
-func TestPowerShellPrefixSourcesTheSecretsFileBeforeTheHarnessEnvironment(t *testing.T) {
-	launch := Launch{
-		Env:         map[string]string{"GOTMPDIR": `C:\tmp\gotmp`},
-		SecretsFile: `C:\state\tasktmp\task-1\auth.ps1`,
-		Dir:         `C:\worktree`,
-	}
-	prefix, err := launch.PowerShellPrefix()
-	if err != nil {
-		t.Fatalf("PowerShellPrefix: %v", err)
-	}
-	want := `Set-Location -LiteralPath 'C:\worktree'; . 'C:\state\tasktmp\task-1\auth.ps1'; $env:GOTMPDIR = 'C:\tmp\gotmp'`
-	if prefix != want {
-		t.Fatalf("prefix = %q, want %q", prefix, want)
-	}
-	// Ordering is the contract: the harness environment is applied last so a
-	// project credential can never redirect GOTMPDIR.
-	if strings.Index(prefix, "auth.ps1") > strings.Index(prefix, "GOTMPDIR") {
-		t.Error("the secrets file is sourced after the harness environment")
-	}
-}
-
-func TestPowerShellPrefixRefusesARelativeSecretsFile(t *testing.T) {
-	launch := Launch{Env: map[string]string{"GOTMPDIR": `C:\tmp`}, SecretsFile: `auth.ps1`}
-	if _, err := launch.PowerShellPrefix(); err == nil {
-		t.Fatal("PowerShellPrefix = nil, want a refusal for a relative secrets path")
-	}
-}
-
-func TestPowerShellPrefixIsUnchangedWithoutASecretsFile(t *testing.T) {
-	launch := Launch{Env: map[string]string{"GOTMPDIR": `C:\tmp\gotmp`}, Dir: `C:\worktree`}
-	prefix, err := launch.PowerShellPrefix()
-	if err != nil {
-		t.Fatalf("PowerShellPrefix: %v", err)
-	}
-	if strings.Contains(prefix, ". '") {
-		t.Errorf("prefix = %q, want no dot-source when nothing was injected", prefix)
-	}
-}
-
-// The pane script strips every harness billing key before the harness
-// starts, whether or not the project has credentials to inject, so a key
-// inherited from the user environment or a dot-sourced project file can
-// never make the harness bill it instead of the subscription.
+// The credential script strips every harness billing key, whether or not
+// the project has credentials to inject, so a key inherited from the user
+// environment or a dot-sourced project file can never make the harness bill
+// it instead of the subscription.
 func TestRenderEnvScriptStripsHarnessBillingKeysEvenWithNothingToInject(t *testing.T) {
 	script, err := RenderEnvScript(map[string]string{})
 	if err != nil {
