@@ -544,7 +544,10 @@ func (p *wakeProof) proveFleetWakes(t *testing.T, goblin string) {
 		return err == nil && min(memory.Available, memory.CommitAvailable) >= nextStartMark
 	})
 	p.cfoCommand(t, "notify", goblin, "--waiting-on", "memory", "the fixture goblin holds its heavy work for memory")
-	ready := p.expectOneWake(t, "memory free for the waiting goblin", 6*time.Minute, func(r wake.Record) bool {
+	// The wake needs two of the supervisor's readings in a row, a minute
+	// apart, at or above the mark, and a busy machine hovers around it: on
+	// 2026-10-02 six minutes passed without two such readings.
+	ready := p.expectOneWake(t, "memory free for the waiting goblin", 30*time.Minute, func(r wake.Record) bool {
 		return r.Kind == "memory" && strings.Contains(r.Detail, "memory_ready") && strings.Contains(r.Detail, goblin)
 	})
 	p.expectAcked(t, ready)
