@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -752,6 +754,7 @@ func setTinyAutoarmIntervals(t *testing.T) {
 	t.Setenv("CFO_HEARTBEAT", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "1")
+	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "0")
 }
 
 // startLiveForeignProcess spawns a throwaway child process that stays alive
@@ -1321,6 +1324,64 @@ func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
 	}
 }
 
+// The Overlord's report, 2026-10-01: the CFO does not survive an
+// auto-compact. Claude Code hands a session a hook's output whole only up to
+// digest.Limit characters and replaces a longer one with a preview of its
+// first 2 KB, so the 95 KB digest of a working home arrived as a session lock
+// and a few wake lines, under a contract saying every file had been read. For
+// every source that prints a digest, the hook's whole output fits, and it
+// names a file on disk that holds the context it left out.
+func TestRunHookSessionStartFitsWhatASessionIsHandedWhole(t *testing.T) {
+	for _, source := range []string{"startup", "compact", "clear", "resume"} {
+		t.Run(source, func(t *testing.T) {
+			dir := newPrimaryHome(t)
+			setAncestorPID(t, os.Getpid())
+			state, data := filepath.Join(dir, "state"), filepath.Join(dir, "data")
+			if err := os.MkdirAll(filepath.Join(data, "memory"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			directive := "- 2026-09-27: a standing directive of the Overlord, in his own words\n"
+			for name, size := range map[string]int{"overlord.md": 50_000, filepath.Join("memory", "MEMORY.md"): 30_000} {
+				if err := os.WriteFile(filepath.Join(data, name), []byte(strings.Repeat(directive, size/len(directive))), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 1; i <= 30; i++ {
+				id := fmt.Sprintf("cg-goblin-%02d", i)
+				meta := "goblin_id=" + id + "\nharness=claude\nmodel=claude-opus-5-5\nkind=ship\n"
+				if err := os.WriteFile(filepath.Join(state, id+".meta"), []byte(meta), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+
+			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
+
+			if exit != 0 {
+				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+			}
+			out := stdout.String()
+			if len(out) > digest.Limit {
+				t.Fatalf("the hook printed %d bytes, over the %d a session is handed whole", len(out), digest.Limit)
+			}
+			long := filepath.Join(state, digest.FullDigestFile)
+			if !strings.Contains(out, "READ THIS NEXT: "+long) {
+				t.Fatalf("the hook's digest does not point at %s:\n%s", long, out)
+			}
+			held, err := os.ReadFile(long)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(held), directive); got != 50_000/len(directive)+30_000/len(directive) {
+				t.Errorf("the long digest holds %d of the context lines the hook left out", got)
+			}
+			if strings.Contains(out, directive) {
+				t.Errorf("the hook printed a context file it says it left out:\n%s", out)
+			}
+		})
+	}
+}
+
 // TestRunHookSessionStartDegradesWakeReadErrorInline is the end-to-end leg
 // of Important 1's fix: a corrupt state\.wake-queue line must not turn the
 // SessionStart hook's output into a truncated four-line digest. The hook
@@ -1343,7 +1404,7 @@ func TestRunHookSessionStartDegradesWakeReadErrorInline(t *testing.T) {
 	out := stdout.String()
 	for _, header := range []string{
 		"== SESSION LOCK ==", "== WAKE QUEUE ==", "== SUPERVISION OPERATING INSTRUCTIONS ==",
-		"== READ-ONCE CONTRACT ==", "== FLEET STATE ==", "== CONTEXT ==", "== NEXT STEP ==",
+		"== FLEET ==", "== READ THIS NEXT ==", "== READ-ONCE CONTRACT ==", "== NEXT STEP ==",
 	} {
 		if !strings.Contains(out, header) {
 			t.Errorf("stdout missing header %q:\n%s", header, out)
@@ -1445,6 +1506,11 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "FAILED after 1 attempt(s)") {
 		t.Errorf("stderr = %q, want it to contain FAILED after 1 attempt(s) (proves the fault injection landed on the FAILURE arm, not a heartbeat close)", stderr.String())
+	}
+	// The banner says which look at the watcher failed, so a failure nobody
+	// can reproduce still names its cause.
+	if !strings.Contains(stderr.String(), `Watcher: state\.watch.lock cannot be read`) {
+		t.Errorf("stderr = %q, want it to say the watcher lock record cannot be read", stderr.String())
 	}
 	episode, err := wake.ReadEpisode(state)
 	if err != nil {

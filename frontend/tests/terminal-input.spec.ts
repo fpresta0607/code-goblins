@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 for (const backend of ["native", "herdr"] as const) {
   test.describe(backend + " terminal input", () => {

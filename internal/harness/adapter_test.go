@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -43,32 +42,6 @@ func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 	}
 }
 
-func TestPowerShellPrefixEscapesLiteralValues(t *testing.T) {
-	launch := Launch{
-		Env: map[string]string{
-			"GOTMPDIR": `C:\task tmp\O'Brien\gotmp`,
-			"PROMPT":   "100% O'Brien",
-		},
-		Dir: `C:\work\O'Brien\task`,
-	}
-
-	got, err := launch.PowerShellPrefix()
-	if err != nil {
-		t.Fatalf("PowerShellPrefix: %v", err)
-	}
-	want := `Set-Location -LiteralPath 'C:\work\O''Brien\task'; $env:GOTMPDIR = 'C:\task tmp\O''Brien\gotmp'; $env:PROMPT = '100% O''Brien'`
-	if got != want {
-		t.Errorf("PowerShellPrefix() = %q\nwant %q", got, want)
-	}
-}
-
-func TestPowerShellPrefixRejectsRelativeDir(t *testing.T) {
-	launch := Launch{Env: map[string]string{"GOTMPDIR": `C:\tmp\gotmp`}, Dir: "worktree"}
-	if _, err := launch.PowerShellPrefix(); err == nil {
-		t.Fatal("PowerShellPrefix returned nil error for relative dir")
-	}
-}
-
 // TestControlContractForSwitch pins the stop/resume contract each real
 // adapter advertises, which switch relies on to stop a harness on its own
 // terms and to know whether a model-or-effort-only change can resume the
@@ -77,16 +50,15 @@ func TestPowerShellPrefixRejectsRelativeDir(t *testing.T) {
 // handoff instead.
 func TestControlContractForSwitch(t *testing.T) {
 	cases := []struct {
-		kind          Kind
-		stopKeys      []string
-		stop          string
-		resumeArgs    []string
-		resumeMarkers []string
+		kind       Kind
+		stopKeys   []string
+		stop       string
+		resumeArgs []string
 	}{
-		{Claude, []string{"escape"}, "/exit", []string{"--continue"}, []string{"will consume a substantial portion of your usage limits", "We recommend resuming from a summary"}},
-		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}, nil},
-		{Pi, []string{"escape"}, "/quit", nil, nil},
-		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}, nil},
+		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
+		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
+		{Pi, []string{"escape"}, "/quit", nil},
+		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}},
 	}
 	registry := DefaultRegistry()
 	for _, test := range cases {
@@ -103,9 +75,6 @@ func TestControlContractForSwitch(t *testing.T) {
 		}
 		if !equalStrings(control.ResumeArgs, test.resumeArgs) {
 			t.Errorf("%s ResumeArgs = %v, want %v", test.kind, control.ResumeArgs, test.resumeArgs)
-		}
-		if !equalStrings(control.ResumeMarkers, test.resumeMarkers) {
-			t.Errorf("%s ResumeMarkers = %v, want %v", test.kind, control.ResumeMarkers, test.resumeMarkers)
 		}
 	}
 }
@@ -143,7 +112,7 @@ func equalStrings(left, right []string) bool {
 	return reflect.DeepEqual(left, right)
 }
 
-// TestEveryAdapterStampsTheGoblinRole is the pane half of the guard that
+// TestEveryAdapterStampsTheGoblinRole is the terminal half of the guard that
 // keeps the CFO's hooks out of a goblin's session. It lives in the launch
 // contract rather than in the project credentials a preflight returns,
 // because a project that declares no services returns no credentials at all
@@ -172,17 +141,10 @@ func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 		if got := launch.Env[RoleVariable]; got != RoleGoblin {
 			t.Errorf("%s launch %s = %q, want %q", kind, RoleVariable, got, RoleGoblin)
 		}
-		prefix, err := launch.PowerShellPrefix()
-		if err != nil {
-			t.Fatalf("PowerShellPrefix(%s): %v", kind, err)
-		}
-		if want := `$env:CFO_ROLE = 'goblin'`; !strings.Contains(prefix, want) {
-			t.Errorf("%s pane prefix = %q, want it to contain %q", kind, prefix, want)
-		}
 	}
 }
 
-// A launch with no Go temporary directory would leave the pane inheriting
+// A launch with no Go temporary directory would leave the goblin inheriting
 // the operator's own %TEMP%, which is what the per-task directory exists to
 // prevent, so the build refuses it rather than falling back.
 func TestBuildRequiresAnAbsoluteGoTmp(t *testing.T) {

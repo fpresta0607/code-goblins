@@ -22,11 +22,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 // quotaTimeout bounds the quota-axi call a spawn makes before picking a
 // lane: a slow or hung quota-axi is no evidence, not a stalled dispatch.
 const quotaTimeout = 20 * time.Second
+
+// overlapTimeout bounds the GitHub read a spawn makes for teammates' work in
+// the brief's area: a read that does not finish in time is a failed read.
+const overlapTimeout = 30 * time.Second
 
 func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
@@ -49,7 +54,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
 	yolo := fs.Bool("yolo", false, "allow the selected delivery posture")
 	auto := fs.Bool("auto", false, "route from the lane table; the default without --harness, kept as an alias")
-	backend := fs.String("backend", "", "native for a terminal of the task's own, or herdr; omitted, native for claude, pi and codex and herdr for kimi")
+	overlapOK := fs.String("overlap-ok", "", "start although a teammate has work in the same area, and say why; the reason goes on the task's ticket and status log")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -73,10 +78,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, "cfo spawn: --class must be ordinary, high-risk, or mechanical")
 		return 2
 	}
-	if *backend != "" && *backend != "herdr" && *backend != "native" {
-		fmt.Fprintln(stderr, "cfo spawn: --backend must be native or herdr")
-		return 2
-	}
 	if runtime.resolveHome == nil || runtime.spawn == nil {
 		fmt.Fprintln(stderr, "cfo spawn: command runtime is incomplete")
 		return 1
@@ -95,6 +96,23 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	briefText, err := fsx.ReadFile(*brief)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// A dispatch never waits on GitHub: a read that fails or runs past its
+	// bound starts the task unchecked and says so. A project with no GitHub
+	// repository has no teammates to read, which is nothing to say. A read
+	// that stopped short of something still refuses on what it did find.
+	overlap, unread, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
+	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
+	if len(unread) > 0 {
+		warnIncompleteCheck(stderr, unread)
+	}
+	switch {
+	case errors.Is(err, tickets.ErrNotGitHub):
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo spawn: who else works in this area could not be read, so the task starts unchecked: %v\n", err)
+	case hasOverlap && strings.TrimSpace(*overlapOK) == "":
+		refuseOverlap(stderr, overlap)
 		return 1
 	}
 	assessment := routing.Classify(string(briefText))
@@ -152,12 +170,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			if headroom := report.Headroom(*harnessName, *model); headroom.Exhausted {
 				route += " quota=" + headroom.String() + "; explicit --harness wins"
 			}
-		}
-	}
-	if *backend == "" {
-		*backend = "herdr"
-		if harness.NativeDefault(harness.Kind(*harnessName)) {
-			*backend = "native"
 		}
 	}
 	if routed || *auto {
@@ -221,15 +233,18 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Harness:   harness.Kind(*harnessName),
 		Model:     *model,
 		Effort:    *effort,
-		Session:   herdrSession(),
 		Class:     *class,
-		Backend:   *backend,
 		Title:     title,
 		Capsule:   writeCapsule,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if hasOverlap {
+		if err := recordOverlapAccepted(h, args[0], strings.TrimSpace(*overlapOK), overlap); err != nil {
+			fmt.Fprintf(stderr, "cfo spawn: the task started, but the accepted overlap could not be recorded: %v\n", err)
+		}
 	}
 	fmt.Fprintln(stdout, result.Output)
 	fmt.Fprintln(stdout, route)

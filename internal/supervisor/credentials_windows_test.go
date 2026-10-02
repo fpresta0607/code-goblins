@@ -294,7 +294,7 @@ func (b *credentialBoard) openTerminal(replace ...string) Run {
 	return b.credentialRun()
 }
 
-// typeValue stores a canary for name in the throwaway scope, as the
+// typeValue stores a canary for name in the request's scope, as the
 // terminal's cfo auth store does.
 func (b *credentialBoard) typeValue(name string) {
 	b.t.Helper()
@@ -302,7 +302,7 @@ func (b *credentialBoard) typeValue(name string) {
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	if err := store.Set(auth.Key{Project: "throwaway", Name: name}, newCanary(b.t)); err != nil {
+	if err := store.Set(auth.Key{Project: b.request.Project, Name: name}, newCanary(b.t)); err != nil {
 		b.t.Fatal(err)
 	}
 }
