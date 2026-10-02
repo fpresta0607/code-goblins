@@ -29,8 +29,10 @@ export const isOpen = (item: Item) => item.kind === "credential" ? item.request.
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
 // An item the Overlord answered outside the Command Center, such as on its own
-// page: its card finishes as one he answered from it does.
-export const answeredElsewhere = (item: Item) => item.kind === "review" && item.review.state === "answered" && !!item.review.answered_in;
+// page or in chat as the CFO recorded: its card finishes as one he answered
+// from it does.
+export const answeredElsewhere = (item: Item) => item.kind === "review" ? item.review.state === "answered" && !!item.review.answered_in
+  : item.kind === "question" && item.question.status === "succeeded" && !!item.question.answered_in;
 
 // A goblin's wait on the Overlord himself, raised by notify --waiting-on
 // overlord: a status to see and dismiss, not a question to answer. It closes
@@ -78,6 +80,12 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
+// Every item still open, a question its page's card carries too: what the
+// board has already announced, whichever card shows it.
+export function openKeys(snapshot: Snapshot): Set<string> {
+  return new Set(asItems(snapshot).filter(isOpen).map((item) => item.key));
+}
+
 // The newest item a goblin has waiting on the Overlord, if any.
 export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
   return asItems(snapshot).filter((item) => isOpen(item) && task(item) === id).sort((a, b) => created(b) - created(a))[0];
@@ -98,8 +106,8 @@ export interface SentDraft { submission: Submission | null; sending: boolean; er
 // SendState is what an item's card shows after Send. A send is done the moment
 // it is made: its check shows at once and delivery goes on quietly. It is
 // confirmed once delivered, and failed only when the request was refused or
-// delivery failed or went unconfirmed, the one case the card shows again. Once
-// its action is known, the action alone decides; a draft edited after a
+// delivery failed or went unconfirmed, which a card still on screen shows.
+// Once its action is known, the action alone decides; a draft edited after a
 // refusal has sent nothing.
 export interface SendState { failed: boolean; confirmed: boolean; heading: string; cleared: boolean }
 
@@ -109,13 +117,22 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   const outcome = actions.find((action) => action.id === submission.id) || draft.receipt;
   if (!outcome && !draft.sending && !draft.error) return undefined;
   const sent = object(JSON.parse(submission.payload));
-  const cleared = sent.kind === "review_clear";
+  const cleared = sent.kind === "review_clear" || sent.kind === "question_clear";
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
     confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || "Cleared" : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
     cleared,
   };
+}
+
+// notSent says whether a send left nothing behind: the board refused it, or it
+// failed before the board took it, so no action exists and its item, still
+// open, waits on him as before.
+export function notSent(draft: SentDraft, item: Item | undefined, actions: Action[]): boolean {
+  const { submission } = draft;
+  const accepted = !!draft.receipt || actions.some((action) => action.id === submission?.id);
+  return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
 }
 
 // holdsUnsent says whether any card of an item still waiting keeps a choice
@@ -129,11 +146,6 @@ export function holdsUnsent(drafts: Record<string, SentDraft & { selection: stri
   });
 }
 
-// failedSends is the items sent and moved past whose send then failed, which
-// come back into view with what went wrong.
-export function failedSends(sent: ReadonlySet<string>, drafts: Record<string, SentDraft>, actions: Action[]): string[] {
-  return [...sent].filter((key) => !!drafts[key] && !!sendState(drafts[key], actions)?.failed);
-}
 
 // The page a question's card may open: its asker's most recent live review
 // page, from the same goblin session or the CFO registration that asked, so a
@@ -173,12 +185,13 @@ export function answeredLabel(question: Question): string {
     case "pending": return "Waiting on you";
     // Superseded is a replaced asker; the backend's message says which.
     case "superseded": return question.message || "Superseded; the asker was replaced";
-    case "cleared": return "Closed without an answer";
+    case "cleared": return question.message || "Closed without an answer";
     case "failed": return "Your answer did not reach " + (question.task ? "the goblin" : "the CFO");
     case "uncertain": return "Not confirmed: check " + (question.task ? "the goblin's" : "the CFO's") + " terminal";
   }
   const who = question.answered_by === "cfo" ? "The CFO" : "You";
   if (question.answered_in === "page") return who + " answered on its page" + (question.answer ? ": " + question.answer : "");
+  if (question.answered_in) return "You answered in " + question.answered_in + " · recorded by the CFO";
   // A question the CFO answered and retired with --ack-blocking closed
   // without the board learning which choice.
   if (!question.answer) return who + " answered it";
@@ -208,9 +221,12 @@ function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed
   return review.task && action.awaiting === "the CFO" ? "handing" : "pending";
 }
 
+// A delivery that never arrived reads as what to do about it, in the
+// supervisor's words, while its action is still recorded.
 export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "credential") return credentialSettled(item.request);
-  if (item.kind === "question") return answeredLabel(item.question);
+  const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
+  if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
   if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
@@ -219,7 +235,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (answeredElsewhere(item)) return reason;
   switch (answerOutcome(item.review, actions)) {
     case "failed": return "Your answer did not reach " + asker;
-    case "uncertain": return "Not confirmed: check " + asker + "'s terminal before answering again";
+    case "uncertain": return advice(item.review.answer_id) || "Not confirmed: check " + asker + "'s terminal before answering again";
     case "pending": return "You wrote: " + answer + " (not yet delivered to " + asker + ")";
     case "handing": return "You wrote: " + answer + " (not yet delivered to the CFO)";
     case "handed": return "Sent to the CFO: " + answer;
