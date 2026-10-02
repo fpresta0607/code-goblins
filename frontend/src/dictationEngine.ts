@@ -15,7 +15,7 @@ const BROWSER_KEY = "cfo-dictation-browser-v1";
 // record captures a microphone track with the browser's own recorder until
 // it is stopped, then decodes what was recorded into samples at the model's
 // rate. Nothing but the browser is needed, in a tab or in the desktop app.
-export async function record(track: MediaStreamTrack): Promise<Recording> {
+export function record(track: MediaStreamTrack): Recording {
   const recorder = new MediaRecorder(new MediaStream([track]));
   const parts: Blob[] = [];
   recorder.ondataavailable = (event) => { if (event.data.size) parts.push(event.data); };

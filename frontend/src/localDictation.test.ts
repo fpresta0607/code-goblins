@@ -12,7 +12,7 @@ function engine({ sound = { samples: new Float32Array([0, .5, -.5, 1]), rate: 16
   const recorded: { track: MediaStreamTrack; stopped: boolean; cancelled: boolean }[] = [];
   const posted: Uint8Array<ArrayBuffer>[] = [];
   let answer: (() => void) | null = null;
-  const open = async (from: MediaStreamTrack): Promise<Recording> => {
+  const open = (from: MediaStreamTrack): Recording => {
     const recording = { track: from, stopped: false, cancelled: false };
     recorded.push(recording);
     return { stop: async () => { recording.stopped = true; return sound; }, cancel: () => { recording.cancelled = true; } };
@@ -148,12 +148,15 @@ test("without a track there is nothing to record", () => {
 test("dictation types what the local engine heard and shows its refusal as it was written", async () => {
   const { Recognition, answer } = engine();
   const heard: string[] = [], notes: string[] = [], listening: boolean[] = [];
-  const capture = { track, level: () => .4, close: () => {} };
+  let closed = 0;
+  const capture = { track, level: () => .4, close: () => { closed++; } };
   const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => notes.push(note) }, () => Recognition, "en-GB", async () => capture);
   subject.start();
   await settle();
   subject.stop();
   await settle();
+  assert.equal(closed, 1, "the microphone closes at release, before the supervisor answers");
+  assert.deepEqual(listening, [true, false]);
   answer();
   await settle();
   assert.deepEqual(heard, ["open the pull request"]);

@@ -152,6 +152,63 @@ test("the recognizer hears the one microphone track whose level the waveform sho
   assert.equal(subject.level(), 0);
 });
 
+// A recognizer that says its words when told to, as the board's own does
+// while the supervisor recognises the sound.
+class SlowRecognizer extends TrackRecognizer {
+  stopped = false;
+  stop() { this.stopped = true; }
+  answer(...finals: string[]) { if (finals.length) this.hear(...finals); this.onend?.(); }
+}
+
+test("at release the microphone closes and the bubble goes idle, and the words are typed when the recognizer has them", async () => {
+  const { subject, mic, heard, listening } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  const recognizer = FakeRecognizer.made[0] as SlowRecognizer;
+  assert.equal(recognizer.stopped, true);
+  assert.deepEqual(listening, [true, false], "the bubble is idle as soon as the keys are released");
+  assert.equal(mic.opened[0].closed, true, "the microphone closes without waiting for the words");
+  assert.equal(subject.level(), 0);
+  assert.deepEqual(heard, []);
+  recognizer.answer("ship it");
+  assert.deepEqual(heard, ["ship it"]);
+  assert.deepEqual(listening, [true, false], "the words arriving change nothing the release already did");
+});
+
+test("a second dictation starts while the first is still being recognised, and both are typed", async () => {
+  const { subject, mic, heard, listening } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  subject.start();
+  assert.equal(FakeRecognizer.made.length, 2, "the next press is not lost to the words still on their way");
+  mic.allow();
+  await settle();
+  assert.equal(mic.opened.length, 2);
+  assert.equal(mic.opened[1].closed, false);
+  subject.stop();
+  const [first, second] = FakeRecognizer.made as SlowRecognizer[];
+  first.answer("open the pull request");
+  second.answer("and merge it");
+  assert.deepEqual(heard, ["open the pull request", "and merge it"]);
+  assert.deepEqual(listening, [true, false, true, false]);
+  assert.equal(mic.opened[1].closed, true);
+});
+
+test("closing the terminal drops words that are still being recognised", async () => {
+  const { subject, mic, heard } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  subject.dispose();
+  (FakeRecognizer.made[0] as SlowRecognizer).answer("too late");
+  assert.deepEqual(heard, []);
+});
+
 test("releasing the keys before the microphone opens starts nothing and keeps nothing open", async () => {
   const { subject, mic, heard, listening } = listened();
   subject.start();

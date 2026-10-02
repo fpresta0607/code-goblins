@@ -95,7 +95,8 @@ export class Dictation {
   private recognizer: Recognizer | null = null;
   private started = false;
   private capture: Capture | null = null;
-  private phrases: string[] = [];
+  // Recognizers that stopped listening and have not said their words yet.
+  private readonly pending = new Set<Recognizer>();
 
   // With a microphone, the recognizer listens to the track that microphone
   // opens, so the waveform and the words come from one capture.
@@ -112,18 +113,21 @@ export class Dictation {
     recognizer.continuous = true;
     recognizer.interimResults = false;
     recognizer.lang = this.lang;
-    this.phrases = [];
+    const phrases: string[] = [];
     // Without interim results every result the browser sends is final.
     recognizer.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) this.phrases.push(event.results[i][0].transcript);
+      for (let i = event.resultIndex; i < event.results.length; i++) phrases.push(event.results[i][0].transcript);
     };
     recognizer.onerror = (event) => { const note = event.message || dictationProblem(event.error); if (note) this.events.problem(note); };
     recognizer.onend = () => {
-      this.recognizer = null;
-      this.release();
-      this.events.listening(false);
-      const text = spoken(this.phrases);
-      this.phrases = [];
+      this.pending.delete(recognizer);
+      // A recognizer that ends by itself, as on an error, ends the listening.
+      if (this.recognizer === recognizer) {
+        this.recognizer = null;
+        this.release();
+        this.events.listening(false);
+      }
+      const text = spoken(phrases);
       if (text) this.events.heard(text);
     };
     this.recognizer = recognizer;
@@ -168,25 +172,33 @@ export class Dictation {
     return this.capture?.level() ?? 0;
   }
 
+  // stop ends the listening at once: the bubble goes idle and the microphone
+  // closes. The recognizer has what was said by then and its words are typed
+  // when it has them, so the next dictation can start meanwhile.
   stop(): void {
     const recognizer = this.recognizer;
     if (!recognizer) return;
-    if (this.started) { recognizer.stop(); return; }
-    // Released before the microphone opened: nothing was heard.
     this.recognizer = null;
     this.events.listening(false);
+    // Released before the microphone opened: nothing was heard.
+    if (!this.started) return;
+    this.pending.add(recognizer);
+    recognizer.stop();
+    this.release();
   }
 
-  // dispose stops listening without typing anything, for a terminal going away.
+  // dispose stops listening without typing anything, for a terminal going
+  // away, and drops the words still on their way.
   dispose(): void {
-    const recognizer = this.recognizer;
+    const listening = this.recognizer && this.started ? [this.recognizer] : [];
     this.recognizer = null;
-    this.phrases = [];
     this.release();
-    if (!recognizer || !this.started) return;
-    recognizer.onresult = null;
-    recognizer.onerror = null;
-    recognizer.onend = null;
-    recognizer.abort();
+    for (const recognizer of [...this.pending, ...listening]) {
+      recognizer.onresult = null;
+      recognizer.onerror = null;
+      recognizer.onend = null;
+      recognizer.abort();
+    }
+    this.pending.clear();
   }
 }

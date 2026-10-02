@@ -38,9 +38,10 @@ export function wav({ samples, rate }: Sound): Uint8Array<ArrayBuffer> {
 
 // localRecognizer is a recognizer the board's dictation drives as it drives
 // the browser's: start records the track it is handed with open, and stop
-// hands the recording to recognise and delivers the words it answers, once.
+// ends the recording before it returns, so the microphone can close at once,
+// then hands it to recognise and delivers the words it answers, once.
 // What recognise refuses with is passed on as the supervisor wrote it.
-export function localRecognizer(open: (track: MediaStreamTrack) => Promise<Recording>, recognise: (sound: Uint8Array<ArrayBuffer>) => Promise<string>): new () => Recognizer {
+export function localRecognizer(open: (track: MediaStreamTrack) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>) => Promise<string>): new () => Recognizer {
   return class implements Recognizer {
     continuous = false;
     interimResults = false;
@@ -48,7 +49,7 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Promise<Recor
     onresult: Recognizer["onresult"] = null;
     onerror: Recognizer["onerror"] = null;
     onend: Recognizer["onend"] = null;
-    private recording: Promise<Recording> | null = null;
+    private recording: Recording | null = null;
     private ended = false;
 
     private end(error?: { error: string; message?: string }): void {
@@ -60,15 +61,18 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Promise<Recor
 
     start(track?: MediaStreamTrack): void {
       if (!track) { this.end({ error: "audio-capture" }); return; }
-      this.recording = open(track);
-      this.recording.catch(() => { this.recording = null; this.end({ error: "audio-capture" }); });
+      try {
+        this.recording = open(track);
+      } catch {
+        this.end({ error: "audio-capture" });
+      }
     }
 
     stop(): void {
       const recording = this.recording;
       this.recording = null;
       if (!recording) return;
-      recording.then((live) => live.stop()).then((sound) => sound.samples.length ? recognise(wav(sound)) : "").then((text) => {
+      recording.stop().then((sound) => sound.samples.length ? recognise(wav(sound)) : "").then((text) => {
         if (this.ended) return;
         if (!text) { this.end({ error: "no-speech" }); return; }
         this.onresult?.({ resultIndex: 0, results: [[{ transcript: text }]] });
@@ -79,7 +83,7 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Promise<Recor
     abort(): void {
       const recording = this.recording;
       this.recording = null;
-      recording?.then((live) => live.cancel(), () => {});
+      recording?.cancel();
       this.end({ error: "aborted" });
     }
   };
