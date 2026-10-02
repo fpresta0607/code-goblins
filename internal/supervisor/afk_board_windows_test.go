@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -147,8 +149,11 @@ func TestOnlyABoardOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 }
 
 // Windows names the process that owns each end of a connection on this
-// machine. The supervisor's proof of whose board asks stands on that, so it is
-// read here over a real connection: both ends are this test's own.
+// machine, and the supervisor's proof of whose board asks stands on reading the
+// right end. So the two ends here belong to two processes: a stand-in of this
+// test's own making connects to a listener the test holds. The far end is the
+// stand-in's, and never this process, which holds the board's end; a lookup
+// that read the wrong end would take every board for the supervisor itself.
 func TestWindowsNamesTheProcessAtTheOtherEndOfAConnectionToTheBoard(t *testing.T) {
 	// Arrange
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -156,19 +161,26 @@ func TestWindowsNamesTheProcessAtTheOtherEndOfAConnectionToTheBoard(t *testing.T
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		conn, err := listener.Accept()
-		if err == nil {
-			accepted <- conn
-		}
-	}()
-	client, err := net.Dial("tcp4", listener.Addr().String())
+	_, port, err := net.SplitHostPort(listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	server := <-accepted
+	standIn := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command", "$held = New-Object Net.Sockets.TcpClient('127.0.0.1', "+port+"); Start-Sleep -Seconds 120")
+	standIn.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	if err := standIn.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = standIn.Process.Kill()
+		_ = standIn.Wait()
+	})
+	if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	server, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("the stand-in never connected: %v", err)
+	}
 	defer server.Close()
 	peer := netip.MustParseAddrPort(server.RemoteAddr().String())
 	board := netip.MustParseAddrPort(server.LocalAddr().String())
@@ -178,8 +190,8 @@ func TestWindowsNamesTheProcessAtTheOtherEndOfAConnectionToTheBoard(t *testing.T
 	_, unlisted := tcpPeerProcess(netip.AddrPortFrom(peer.Addr(), 1), board)
 
 	// Assert
-	if err != nil || pid != os.Getpid() {
-		t.Errorf("tcpPeerProcess(%s, %s) = %d, %v, want this process %d", peer, board, pid, err, os.Getpid())
+	if err != nil || pid != standIn.Process.Pid {
+		t.Errorf("tcpPeerProcess(%s, %s) = %d, %v, want the stand-in %d that connected, and never this process %d, which holds the board's end", peer, board, pid, err, standIn.Process.Pid, os.Getpid())
 	}
 	if unlisted == nil {
 		t.Error("a port nothing connects from named a process, want an error")
