@@ -40,8 +40,9 @@ type TaskMeta struct {
 	HerdrWorkspaceID string
 	HerdrTabID       string
 	HerdrPaneID      string
-	// Title is the short title the task was dispatched under, from its
-	// backlog row; empty when it had none.
+	// Title is the task's short title: the one cfo spawn was given with
+	// --title, else its backlog row's, or the one cfo title wrote since;
+	// empty when it had none.
 	Title string
 }
 
