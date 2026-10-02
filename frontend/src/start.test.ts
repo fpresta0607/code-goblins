@@ -24,6 +24,15 @@ test("the memory bar spans twice the start mark, so the floor and start marks si
   assert.deepEqual(meterScale({ ...memory(2), total: 5 * GB }), { fill: 40, floor: 80, next: 100 }, "a machine with less memory than that spans its own");
 });
 
+test("commit the machine does not report is unknown, not zero, so the meter shows memory", () => {
+  const unreported = { ...memory(7.5), commit_available: 0, commit_limit: 0 };
+  assert.deepEqual(tighter(unreported), { isCommit: false, free: 7.5 * GB, total: 32 * GB });
+  assert.deepEqual(meterScale(unreported), { fill: 75, floor: 40, next: 50 });
+  assert.deepEqual(meterState(unreported), { tone: "ready", text: "Enough memory: the CFO starts the next task." });
+  assert.equal(memoryBlock(unreported), "");
+  assert.equal(tighter(memory(7.5, 0)).isCommit, true, "commit that is reported and used up is still the tighter");
+});
+
 test("Start is offered while a queued task can start, and otherwise says why not", () => {
   assert.equal(startBlock(task(), memory(5), false), "");
   assert.equal(startBlock(task(), memory(4.9), false), "Needs 5 GB free to keep the 4 GB floor");
