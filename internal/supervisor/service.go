@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -62,6 +63,8 @@ type Options struct {
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
+	// CI runs gh and git for the CI wakes; without it no CI is watched.
+	CI execx.Runner
 	// Credentials opens the credential store cfo auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
@@ -101,11 +104,16 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// historyErr is what the last history refresh met, and cfoWakeErr what
-	// every typed CFO wake met since the last recovery cycle; the loop
-	// reports them with its next recovery cycle.
-	historyErr error
-	cfoWakeErr error
+	// historyErr is what the last history refresh met, and cfoWakeErr and
+	// fleetErr what every typed CFO wake and every fleet wake reading met
+	// since the last recovery cycle; the loop reports them with its next
+	// recovery cycle. ciUnreadable is why each watched repository's CI
+	// cannot be read, as of the last fleet reading; every recovery cycle
+	// reports it for as long as the failure lasts.
+	historyErr   error
+	cfoWakeErr   error
+	fleetErr     error
+	ciUnreadable error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -298,6 +306,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepCFOAwake(ctx, cfoWakeEvery)
 	}()
 	defer func() { s.cancel(); <-awakeDone }()
+	fleetDone := make(chan struct{})
+	go func() {
+		defer close(fleetDone)
+		s.keepFleetWakes(ctx, fleetWatchEvery)
+	}()
+	defer func() { s.cancel(); <-fleetDone }()
 	ticketsDone := make(chan struct{})
 	go func() {
 		defer close(ticketsDone)
@@ -408,8 +422,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr)
-		s.cfoWakeErr = nil
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))

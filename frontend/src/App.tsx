@@ -49,6 +49,10 @@ function store(key: string, value: string) {
 
 // The board's layout, kept in this browser: kanban unless stacked was chosen.
 const BOARD_LAYOUT_KEY = "cfo-board-layout";
+// The board's area at or under this width is one column whatever the layout:
+// the 960 px container rule on .task-board in styles.css, which
+// tests/kanban-board.spec.ts holds to this number.
+const KANBAN_NEEDS_OVER = 960;
 
 export function App() {
   const { snapshot: received, connection, error } = useRuntimeStream();
@@ -85,6 +89,10 @@ export function App() {
   const returnFocus = useRef<HTMLElement | null>(null);
   const pane = useRef<HTMLElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLElement>(null);
+  // Whether the board's area is too narrow for its columns side by side; a
+  // board hidden behind a maximized panel has no width to judge.
+  const [boardNarrow, setBoardNarrow] = useState(false);
   useEffect(() => {
     const query = matchMedia("(max-width: 40rem)");
     const changed = () => setCompact(query.matches);
@@ -153,6 +161,12 @@ export function App() {
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, choice: firstRunChoice });
+  useEffect(() => {
+    if (!canvas.current) return;
+    const observer = new ResizeObserver(([entry]) => setBoardNarrow(entry.contentRect.width > 0 && entry.contentRect.width <= KANBAN_NEEDS_OVER));
+    observer.observe(canvas.current);
+    return () => observer.disconnect();
+  }, [firstRun]);
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
@@ -198,8 +212,13 @@ export function App() {
         {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
-        {!firstRun && view === "Board" && <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
-          onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>}
+        {/* A kanban board too narrow for columns side by side is stacked, so
+            there the button changes nothing and says why; a board stacked by
+            choice keeps its way back, since the panel yields to a kanban. */}
+        {!firstRun && view === "Board" && (boardNarrow && boardLayout === "kanban"
+          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window." data-tip-align="end"><Icon name="stacked" /></button>
+          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip-align="end"
+            onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={onUnsent} onSent={sent} />}
         <div className="connection" role="status">
           <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
@@ -211,8 +230,8 @@ export function App() {
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
-    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
-      <main className="canvas-region" aria-label={view} hidden={panelWide}>
+    </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
+      <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide}>
         {(error || snapshot?.error) && <div className="connection-banner" role="alert">{error || snapshot?.error}</div>}
         {snapshot?.registration && <div className="connection-banner" role="alert">{snapshot.registration}</div>}
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>

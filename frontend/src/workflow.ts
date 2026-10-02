@@ -124,7 +124,7 @@ export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
 }
 
 // waitingTarget is the goblin a waiting task waits on, when it is one the
-// board shows; a wait on the Overlord, CI or a deploy names no goblin.
+// board shows; a wait on the Overlord, CI, a deploy or memory names no goblin.
 export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined {
   if (task.phase !== "waiting" || Object.hasOwn(WAITS, task.waiting_on)) return undefined;
   return snapshot.tasks.find((candidate) => candidate.id === task.waiting_on && candidate.id !== task.id);
@@ -132,7 +132,7 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
 
 // A goblin waiting on the Overlord waits through the CFO, which carries the
 // question to him; only the pinned CFO says Waiting on you.
-const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "deploy" };
+const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "deploy", memory: "memory" };
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
 export function nodeStatus(node: WorkflowNode, asking = false): string {

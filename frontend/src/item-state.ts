@@ -8,9 +8,15 @@ import type { Items, Snapshot } from "./types.ts";
 // in the frame he sends it, and an item that closed stays closed, whatever
 // arrives late.
 
-// Sent is what he sent for an item: the action's kind and request ID, and an
-// answer's text and kind.
-export interface Sent { kind: string; id: string; text: string; answer_kind: string }
+// Sent is what he sent for an item: the action's kind and request ID, an
+// answer's text and kind, and the created_at of the item it was sent for.
+export interface Sent { kind: string; id: string; text: string; answer_kind: string; created_at: string }
+
+// publishedAt names one publishing of an item. The supervisor takes an ID
+// again once it has dropped the record that used it, so an ID alone does not:
+// the same ID with another created_at is a new item. An item's identity is no
+// part of it, since it moves when the CFO registers again.
+export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.request).created_at;
 
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
@@ -54,15 +60,18 @@ function afterSending(item: Item, sent: Sent): Item | undefined {
 // holdClosed is a snapshot in which no item the board knows to be closed is
 // open: one it saw closed shows as it last saw it, and one he sent something
 // for shows as the supervisor will record it. A snapshot taken before an
-// answer and arriving after it therefore brings nothing back. The snapshot
-// comes back as it was given when it opens nothing.
+// answer and arriving after it therefore brings nothing back. Only the same
+// publication is held: an ID published again later is a new item and shows
+// open. The snapshot comes back as it was given when it opens nothing.
 export function holdClosed(snapshot: Snapshot, closed: ReadonlyMap<string, Item>, sent: ReadonlyMap<string, Sent>): Snapshot {
   if (!closed.size && !sent.size) return snapshot;
   let held = false;
   const kept = (item: Item): Item => {
     if (!isOpen(item)) return item;
+    const at = publishedAt(item);
+    const seen = closed.get(item.key);
     const acted = sent.get(item.key);
-    const was = closed.get(item.key) || (acted && afterSending(item, acted));
+    const was = seen && publishedAt(seen) === at ? seen : acted && acted.created_at === at ? afterSending(item, acted) : undefined;
     if (was) held = true;
     return was || item;
   };

@@ -6,7 +6,7 @@ import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answeredElsewhere, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
-import type { Sent } from "./item-state";
+import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
@@ -211,7 +211,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const submission = submissionFor(JSON.stringify(payload), draft.submission, () => crypto.randomUUID());
     update(key, { submission, sending: true, error: "" });
     setKept((prior) => new Set([...prior, key]));
-    onSent?.(key, { kind: string(payload.kind), id: submission.id, text: string(payload.text), answer_kind: string(payload.answer_kind) });
+    const item = itemFor(snapshot, key);
+    if (item) onSent?.(key, { kind: string(payload.kind), id: submission.id, text: string(payload.text), answer_kind: string(payload.answer_kind), created_at: publishedAt(item) });
     try {
       const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
       update(key, { receipt, sending: false });

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,7 +74,6 @@ type Memory struct {
 // under the mark at which a task starts, rounded down so memory just under
 // the mark never reads as the mark itself, and is empty when both reach it.
 func (m Memory) shortfall() string {
-	gigabytes := func(bytes uint64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
 	switch {
 	case m.Available < memoryNext && m.CommitAvailable < memoryNext:
 		return fmt.Sprintf("Only %.1f GB of memory and %.1f GB of commit (RAM plus page file) are free", gigabytes(m.Available), gigabytes(m.CommitAvailable))

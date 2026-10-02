@@ -81,6 +81,10 @@ type launcherFixture struct {
 	// CFO's terminal unless a test says otherwise.
 	screens []finalScreen
 	answer  int
+	// nativeArgs are the arguments each native start gave the harness, and
+	// resumeEnds makes a CFO started to resume a conversation end at once.
+	nativeArgs []string
+	resumeEnds bool
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -146,9 +150,15 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_ home.Home, project, harness string) error {
+		startNativeCFO: func(_ home.Home, project, harness string, args []string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
+			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
+			// A resumed CFO's terminal runs on, unless its harness could not
+			// resume the conversation and ended at once.
+			if len(args) > 0 {
+				f.cfoTerminalRuns = !f.resumeEnds
+			}
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -158,7 +168,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		nativeTerminalRuns: func(_, id string) bool {
 			return f.cfoTerminalRuns && id == supervisor.NativeCFOTerminal
 		},
-		setupAgent: func(ctx context.Context, stateDir, chosen string, rerun bool, _, _ io.Writer) (string, error) {
+		setupAgent: func(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, _, _ io.Writer) (string, error) {
 			f.setups = append(f.setups, agentSetup{chosen, rerun})
 			if f.setupErr != nil {
 				return "", f.setupErr
@@ -172,17 +182,19 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 				},
 				// The choice is answered with agent; a step for an agent that is
 				// not ready is cancelled, as Escape at the choice would be.
-				Choose: func(title string, _ []string, _ int) (int, error) {
-					if strings.HasPrefix(title, "Choose the agent") {
+				Ask: func(step onboarding.Step) (int, error) {
+					if strings.HasPrefix(step.Title, "Choose the agent") {
 						return slices.Index(onboarding.Agents, f.agent), nil
 					}
 					return 0, onboarding.ErrCancelled
 				},
+				Done: list.Done,
+				Undo: list.Clear,
 			})
 		},
 		settleCFO: func(context.Context, string, string) []string { return f.settleNotes },
-		choose: func(_ io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
-			f.screens = append(f.screens, finalScreen{title, choices, selected})
+		choose: func(_ io.Writer, step onboarding.Step) (int, error) {
+			f.screens = append(f.screens, finalScreen{step.Title + "\n" + step.Detail, step.Choices, step.Selected})
 			return f.answer, nil
 		},
 	}
@@ -207,10 +219,6 @@ func (f *launcherFixture) record(board string) {
 	}
 }
 
-// alreadyRunning is what goblins says when it finds this home's supervisor
-// and its CFO running.
-const alreadyRunning = "\nThe supervisor and the CFO of this home already run: nothing new was started.\n"
-
 const busySnapshot = `{"registration":"","tasks":[{"phase":"working"},{"phase":"working"},{"phase":"waiting"}],"questions":[{"status":"pending"},{"status":"succeeded"}],"reviews":[{"state":"open"},{"state":"answered"}],"runs":[{"state":"ready"},{"state":"succeeded"}]}`
 
 // With a supervisor already serving, goblins starts nothing and opens
@@ -228,8 +236,8 @@ func TestGoblinsFindsTheRunningSupervisorAndOnlyPrintsItsLink(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you") + alreadyRunning; stdout != want {
-		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
+	if want := renderBanner(false, board, "CFO supervising · 2 goblins working · 3 waiting on you"); !strings.HasPrefix(stdout, want) || !strings.Contains(stdout, "Supervisor already running\n") {
+		t.Fatalf("stdout =\n%s\nwant it to start\n%s\nand say the supervisor already runs", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
 		t.Fatalf("starts=%d opened=%q, want neither", f.starts, f.opened)
@@ -259,8 +267,8 @@ func TestGoblinsFindsASupervisorWhoseSnapshotFails(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr)
 	}
-	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)") + alreadyRunning; stdout != want {
-		t.Fatalf("stdout =\n%s\nwant\n%s", stdout, want)
+	if want := renderBanner(false, server.URL, "the board is up but could not read the fleet's state (HTTP 503)"); !strings.HasPrefix(stdout, want) || !strings.Contains(stdout, "Supervisor already running\n") {
+		t.Fatalf("stdout =\n%s\nwant it to start\n%s\nand say the supervisor already runs", stdout, want)
 	}
 	if f.starts != 0 || len(f.opened) != 0 {
 		t.Fatalf("starts=%d opened=%q, want neither", f.starts, f.opened)

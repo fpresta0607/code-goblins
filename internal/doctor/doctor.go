@@ -38,9 +38,10 @@ type Check struct {
 }
 
 // LavishRelease is the Code Goblins build of lavish-axi, from the fork at
-// github.com/fpresta0607/lavish-axi: upstream's review page named and styled
-// for Code Goblins, its server and CLI unchanged.
-const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz"
+// github.com/fpresta0607/lavish-axi: upstream's review page named Scrawl, in
+// the Code Goblins board's look, drawing the choices a page declares.
+// install.ps1 installs the same file, once it matches the SHA256 pinned there.
+const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"
 
 var tools = []struct {
 	name  string
@@ -61,7 +62,7 @@ var tools = []struct {
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
-	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79", build: "codegoblins", presentation: true},
+	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.3", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
@@ -129,15 +130,18 @@ func checkConPTY() Check {
 // meetsFloor reports whether the last field of a --version line is a dotted
 // numeric version at or above floor, before any pre-release suffix such as a
 // fork's build name. A component the version does not carry counts as 0. An
-// unparseable version fails the floor.
+// unparseable version fails the floor. A floor that names a build, such as
+// 0.1.79-codegoblins.3, is met at its own numeric version only by that build
+// at that number or later; a higher numeric version meets it whatever its build.
 func meetsFloor(versionLine, floor string) bool {
 	fields := strings.Fields(versionLine)
 	if len(fields) == 0 {
 		return false
 	}
-	number, _, _ := strings.Cut(strings.TrimPrefix(fields[len(fields)-1], "v"), "-")
+	number, build, _ := strings.Cut(strings.TrimPrefix(fields[len(fields)-1], "v"), "-")
+	floorNumber, floorBuild, _ := strings.Cut(floor, "-")
 	have := strings.Split(number, ".")
-	for i, wantPart := range strings.Split(floor, ".") {
+	for i, wantPart := range strings.Split(floorNumber, ".") {
 		want, _ := strconv.Atoi(wantPart)
 		got := 0
 		if i < len(have) {
@@ -151,7 +155,14 @@ func meetsFloor(versionLine, floor string) bool {
 			return got > want
 		}
 	}
-	return true
+	if floorBuild == "" {
+		return true
+	}
+	wantName, wantNumber, _ := strings.Cut(floorBuild, ".")
+	haveName, haveNumber, _ := strings.Cut(build, ".")
+	want, _ := strconv.Atoi(wantNumber)
+	got, err := strconv.Atoi(haveNumber)
+	return haveName == wantName && err == nil && got >= want
 }
 
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.

@@ -21,6 +21,10 @@ import (
 // this machine's own.
 const userEnvFileName = "user-env.json"
 
+// moduleCacheVariable names the file PowerShell keeps its record of what
+// every module exports in, when the machine keeps one outside a profile.
+const moduleCacheVariable = "PSModuleAnalysisCachePath"
+
 // WindowsPowerShell is Windows PowerShell 5.1, present on every Windows and
 // the one install.cmd always starts.
 func WindowsPowerShell() string {
@@ -70,6 +74,15 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		"TMP=" + temp,
 		"CODE_GOBLINS_RELEASE_BASE=" + base,
 		"CFO_USER_ENV_FILE=" + filepath.Join(local, userEnvFileName),
+	}
+	// A stripped session has no module cache of its own, so Windows
+	// PowerShell reads every module on the machine before its first command
+	// runs: about 24 seconds of processor time a session on a GitHub runner,
+	// against under one with the cache the runner's image prepares and names
+	// in this variable. Where the machine names one, the session reads it
+	// too; it holds what the machine's modules export and nothing of a user.
+	if cache := os.Getenv(moduleCacheVariable); cache != "" {
+		cmd.Env = append(cmd.Env, moduleCacheVariable+"="+cache)
 	}
 	return cmd, local, temp
 }
