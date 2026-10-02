@@ -125,8 +125,14 @@ test("Remove asks first, then takes the task out of the queue and keeps its brie
   expect(posted).toEqual([]);
 
   await remove.click();
-  // The supervisor's next snapshot shows the task out of the queue.
-  await page.route("**/api/events", (route) => route.fulfill({ contentType: "text/event-stream", body: events(2, [BLOCKED, WORKING, PAUSED, REMOVED]) }));
+  // The supervisor shows the task out of the queue only once it has the
+  // request: the board asks for a snapshot twice a second, and one that
+  // arrived before the press would take the confirmation away with its task.
+  await page.route("**/api/tasks/lifecycle", async (route) => {
+    posted.push({ path: "/api/tasks/lifecycle", body: route.request().postDataJSON() });
+    await page.route("**/api/events", (stream) => stream.fulfill({ contentType: "text/event-stream", body: events(2, [BLOCKED, WORKING, PAUSED, REMOVED]) }));
+    await route.fulfill({ json: { revision: 2 } });
+  });
   await dialog.getByRole("button", { name: "Remove from queue" }).click();
   await expect.poll(() => posted.map((request) => request.path)).toEqual(["/api/tasks/lifecycle"]);
   expect(posted[0].body).toMatchObject({ task: "queued-one", generation: "", revision: "q1", action: "stop" });
