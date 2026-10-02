@@ -8,5 +8,65 @@
     "internal/spawn",
     "internal/supervisor",
     "internal/testguard"
+  ],
+  "contracts": [
+    {
+      "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
+      "packages": ["internal/installscript", "internal/installtest"],
+      "why": "the installer tests run these scripts"
+    },
+    {
+      "paths": [".github/workflows/go.yml"],
+      "packages": ["."],
+      "why": "the workflow tests read the Go workflow"
+    },
+    {
+      "paths": ["config/verify.json"],
+      "packages": ["internal/gatetest"],
+      "why": "a test reads the repository's own verification policy"
+    },
+    {
+      "paths": ["config/pipeline.json", ".no-mistakes.yaml"],
+      "packages": ["internal/pipeline", "cmd/cfo", "internal/spawn"],
+      "why": "the pipeline tests read the committed gate policy"
+    },
+    {
+      "paths": ["data/routing.json"],
+      "packages": ["internal/routing", "cmd/cfo"],
+      "why": "the lane tests read the shipped table"
+    },
+    {
+      "paths": ["cmd/cfo/winres.json"],
+      "packages": ["cmd/cfo"],
+      "why": "the Windows resource objects are built from it"
+    },
+    {
+      "paths": ["tests/acceptance/plan3_windows.ps1"],
+      "packages": ["cmd/cfo"],
+      "why": "a test runs the acceptance script's self-tests"
+    },
+    {
+      "paths": ["**/*.go"],
+      "packages": ["internal/fsx", "internal/execx"],
+      "why": "the read and process-start guards scan every Go file"
+    }
+  ],
+  "outside": [
+    {
+      "paths": ["README.md", "CONTRIBUTING.md", "LICENSE", "docs/**", ".gitignore", ".gitattributes", ".tasks.toml"],
+      "why": "documentation and housekeeping no Go check reads"
+    },
+    {
+      "paths": ["frontend/**"],
+      "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
+    },
+    {
+      "paths": ["tests/**"],
+      "why": "acceptance scripts and their fixtures that no Go test reads"
+    },
+    {
+      "paths": [".github/workflows/install.yml", ".github/workflows/release.yml"],
+      "why": "workflows no Go test reads; CI itself runs them"
+    }
   ]
 }
