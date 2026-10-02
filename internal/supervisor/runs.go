@@ -44,8 +44,9 @@ const (
 var runShells = []string{"powershell", "pwsh", "bash"}
 
 // Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. The registered primary CFO can create one;
-// the board can also create a connection repair bound to a task generation.
+// click from the Command Center. The registered primary CFO can create one,
+// and a goblin its own through its notify; the board can also create a
+// connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
 // executes that file, never anything the browser sends.
 type Run struct {
@@ -299,7 +300,8 @@ func (s *Store) acceptRun(r Run) error {
 }
 
 // withdrawRun takes the run item id, which nobody ran yet, off the board for
-// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// the registered CFO, or a goblin's own once the goblin moved past it,
+// keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
 // Overlord, a connection repair or a credential request's terminal, is not
