@@ -171,3 +171,27 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     expect(starts).toEqual([{ root: "", agent: "claude" }]);
   });
 }
+
+// The Overlord works in the desktop window, the board in WebView2: maximized
+// on his 2560 by 1600 screen at 150 percent it is 1707 CSS pixels wide at
+// device scale 1.5. The page uses nothing only a browser has, so it must only
+// fit there: all of it on the screen, with Start in view and no scrolling.
+test.describe("at the desktop window's size", () => {
+  test.use({ viewport: { width: 1707, height: 960 }, deviceScaleFactor: 1.5 });
+
+  test("the whole first-run page shows without scrolling, with Start in view", async ({ page }, testInfo) => {
+    // Arrange
+    await open(page, setup());
+
+    // Act
+    const overflows = await page.evaluate(() => ({
+      sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      down: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+    }));
+
+    // Assert
+    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
+    expect(overflows).toEqual({ sideways: false, down: false });
+    await page.screenshot({ path: testInfo.outputPath("first-run-window.png") });
+  });
+});
