@@ -27,10 +27,12 @@ import (
 // a leaf package a, a package b whose test imports a and fails when it sees
 // the fleet's CFO_HOME, and a package c nothing imports whose test fails.
 // base adds files to the default branch, and the branch then changes what
-// change names. The run's reports go to a store of the test's own.
+// change names. The run's reports go to a store of the test's own, and it
+// takes turns one at a time whatever CFO_VERIFY_SLOTS this machine has set.
 func testStepModule(t *testing.T, base, change map[string]string) string {
 	t.Helper()
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("CFO_VERIFY_SLOTS", "")
 	dir := t.TempDir()
 	write := func(files map[string]string) {
 		for name, content := range files {
@@ -788,6 +790,90 @@ func TestGateTestTakesASecondTurnWhenTheMachineAllowsTwo(t *testing.T) {
 		}
 	case <-time.After(time.Minute):
 		t.Fatalf("the run had not finished after a minute with a second turn free; stdout=%s", stdout.String())
+	}
+}
+
+// The command's tests take turns one at a time on any machine: one that sets
+// CFO_VERIFY_SLOTS for itself, as the documentation tells its user to, does
+// not hand a test's run a second turn behind the holder.
+func TestGateTestsTakeTurnsOneAtATimeWhateverTheMachineSets(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_SLOTS", "2")
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	turn := holdTheTurn(t)
+
+	// Act
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+	go func() { exited <- gateTestWith(standIn(), &stdout, &stderr) }()
+
+	// Assert
+	want := fmt.Sprintf("the turn is held by another run (pid %d), for ", os.Getpid())
+	for deadline := time.Now().Add(2 * time.Minute); !strings.Contains(stdout.String(), want); time.Sleep(20 * time.Millisecond) {
+		select {
+		case exit := <-exited:
+			t.Fatalf("the run exited %d without waiting for its turn; stdout=%s", exit, stdout.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stdout %q lacks %q after two minutes", stdout.String(), want)
+		}
+	}
+	turn.Release()
+	select {
+	case exit := <-exited:
+		if exit != 0 || !strings.Contains(stdout.String(), "ran go test") {
+			t.Fatalf("exit = %d, want 0 with the tests run; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+		}
+	case <-time.After(time.Minute):
+		t.Fatalf("the run did not finish within a minute of the turn being free; stdout=%s", stdout.String())
+	}
+}
+
+// A run whose wait fails says that it takes no turn and runs its tests, and
+// the time it had waited stays on record apart from its checks' own: in the
+// verdict line and in the report's queue_seconds.
+func TestGateTestRecordsTheWaitOfATurnItCouldNotTake(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	holdTheTurn(t)
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+	go func() { exited <- gateTestWith(standIn(), &stdout, &stderr) }()
+	for deadline := time.Now().Add(2 * time.Minute); !strings.Contains(stdout.String(), "cfo gate test: waiting for its turn ("); time.Sleep(20 * time.Millisecond) {
+		select {
+		case exit := <-exited:
+			t.Fatalf("the run exited %d without waiting for its turn; stdout=%s", exit, stdout.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stdout %q lacks the run's waiting line after two minutes", stdout.String())
+		}
+	}
+	// The wait has to reach a second to show in the verdict, which rounds it.
+	time.Sleep(1200 * time.Millisecond)
+
+	// Act
+	if err := os.RemoveAll(filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots", "line")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	select {
+	case exit := <-exited:
+		if exit != 0 || !strings.Contains(stdout.String(), "ran go test") || !strings.Contains(stderr.String(), "cfo gate test: this run takes no turn") {
+			t.Fatalf("exit=%d stdout=%q stderr=%q, want 0 with the tests run and a line saying the run takes no turn", exit, stdout.String(), stderr.String())
+		}
+	case <-time.After(time.Minute):
+		t.Fatalf("the run did not go on within a minute of its line being gone; stdout=%s", stdout.String())
+	}
+	if said := "s of it waiting for its turn; report "; !strings.Contains(stdout.String(), said) {
+		t.Errorf("stdout %q lacks %q", stdout.String(), said)
+	}
+	if report, _ := lastReport(t); report.QueueSeconds < 1 || report.Status != "passed" {
+		t.Errorf("the report says the run waited %v seconds for its turn and has status %q; want a second or more and passed", report.QueueSeconds, report.Status)
 	}
 }
 

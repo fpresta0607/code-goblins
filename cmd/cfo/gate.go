@@ -232,8 +232,9 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 // names this run to the runs behind it, and budget is how long its turn may
 // last: a holder past its budget loses the turn to the next run, and a run
 // that has waited an hour for memory goes on under the floor, which the turn
-// then notes. A run that cannot take turns at all says so and runs its tests:
-// neither the store nor the wait decides the verdict.
+// then notes. A run that cannot take turns at all says so and runs its tests,
+// and the turn it returns still says how long it waited before that: neither
+// the store nor the wait decides the verdict.
 func takeGateTurn(stdout, stderr io.Writer, available func() (uint64, error), who string, budget time.Duration) verify.Turn {
 	store, err := verify.StoreDir()
 	if err != nil {

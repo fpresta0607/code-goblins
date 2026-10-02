@@ -393,6 +393,130 @@ func TestARunGoesOnUnderTheFloorOnceItHasWaitedItsLimit(t *testing.T) {
 	notYet(t, second, "a second run, while the first held the only slot,")
 }
 
+// The limit is on the wait for memory, not on the time in line: a run that
+// stood behind a holder for longer than its limit, and finds memory short as
+// the turn comes free, still waits its limit for memory, and its note says
+// how long it waited for memory, not how long it stood in line.
+func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
+	// Arrange
+	a := admission(t, 1)
+	holder := within(t, take(t, a), "the holder")
+	var available atomic.Uint64
+	available.Store(16 * gigabyte)
+	a.Available = func() (uint64, error) { return available.Load(), nil }
+	a.Limit = 500 * time.Millisecond
+	var waiter said
+	a.Waiting = waiter.waiting
+	waiting := take(t, a)
+	waiter.waits(t, waiting, "a run behind the holder")
+	// Long enough that the time in line and the wait for memory round to
+	// different seconds in the note.
+	time.Sleep(1600 * time.Millisecond)
+
+	// Act
+	short := time.Now()
+	available.Store(1 * gigabyte)
+	holder.Release()
+	turn := within(t, waiting, "the run, once it had waited its limit for memory")
+	forMemory := time.Since(short)
+
+	// Assert
+	defer turn.Release()
+	if forMemory < a.Limit {
+		t.Errorf("the run took its turn %s after memory fell short; want it to wait the %s limit for memory first", forMemory, a.Limit)
+	}
+	prefix, suffix := "it runs although 1.0 GB of memory is available and the floor is 4.0 GB, after waiting ", " for it"
+	if !strings.HasPrefix(turn.Note, prefix) || !strings.HasSuffix(turn.Note, suffix) {
+		t.Fatalf("the turn notes %q; want %q, how long, then %q", turn.Note, prefix, suffix)
+	}
+	noted, err := time.ParseDuration(strings.TrimSuffix(strings.TrimPrefix(turn.Note, prefix), suffix))
+	if longest := forMemory.Truncate(time.Second) + time.Second; err != nil || noted > longest {
+		t.Errorf("the turn notes a wait of %s for memory (%v); want no more than the %s since memory fell short, whatever the %s the run waited in all", noted, err, longest, turn.Waited)
+	}
+}
+
+// The note says how the turn was taken, not what the run saw while it waited:
+// a run past its limit for memory behind a holder, which takes its turn only
+// once memory is back and the holder has left, has nothing to note.
+func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
+	// Arrange
+	a := admission(t, 1)
+	holder := within(t, take(t, a), "the holder")
+	var available atomic.Uint64
+	available.Store(1 * gigabyte)
+	var readings atomic.Int64
+	a.Available = func() (uint64, error) {
+		readings.Add(1)
+		return available.Load(), nil
+	}
+	a.Limit = 50 * time.Millisecond
+	var waiter said
+	a.Waiting = waiter.waiting
+	waiting := take(t, a)
+	waiter.waits(t, waiting, "a run short of memory behind the holder")
+	time.Sleep(200 * time.Millisecond)
+	notYet(t, waiting, "a run past its limit for memory, while the holder had the turn,")
+
+	// Act
+	available.Store(16 * gigabyte)
+	// The holder leaves only once the run has read the memory that is back,
+	// so no pass that still saw it short can take the turn.
+	for seen, deadline := readings.Load(), time.Now().Add(10*time.Second); readings.Load() == seen; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the waiting run did not read the memory again within 10 seconds")
+		}
+	}
+	holder.Release()
+	turn := within(t, waiting, "the run, once memory was back and the holder had left")
+
+	// Assert
+	defer turn.Release()
+	if turn.Note != "" {
+		t.Errorf("the turn notes %q; want nothing, as memory was above the floor when the turn was taken", turn.Note)
+	}
+}
+
+// A run whose wait fails still says how long it waited, so the time is on
+// record apart from the checks' own: with the line's folder gone while it
+// waits behind a holder, it gets the error and the time it had waited.
+func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
+	// Arrange
+	a := admission(t, 1)
+	holder := within(t, take(t, a), "the holder")
+	defer holder.Release()
+	var waiter said
+	a.Waiting = waiter.waiting
+	type outcome struct {
+		turn Turn
+		err  error
+	}
+	ended := make(chan outcome, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	go func() {
+		turn, err := a.Wait(ctx)
+		ended <- outcome{turn, err}
+	}()
+	if lines := waiter.atLeast(t, 1); len(lines) == 0 {
+		t.Fatal("the run behind the holder had not said that it waits after 10 seconds")
+	}
+	saidItWaits := time.Now()
+	time.Sleep(100 * time.Millisecond)
+
+	// Act
+	heldBack := time.Since(saidItWaits)
+	if err := os.RemoveAll(filepath.Join(a.Dir, "line")); err != nil {
+		t.Fatal(err)
+	}
+	got := <-ended
+
+	// Assert
+	got.turn.Release()
+	if got.err == nil || ctx.Err() != nil || got.turn.Waited < heldBack {
+		t.Errorf("Wait returned %v and a turn that waited %s; want the error of a line that is gone, and a wait of at least the %s the run was held back", got.err, got.turn.Waited, heldBack)
+	}
+}
+
 // A run that was killed while it held a slot does not keep it: the next run
 // takes the slot over once the holder's process is gone.
 func TestARunTakesTheSlotOfARunThatIsGone(t *testing.T) {

@@ -40,8 +40,8 @@ type Admission struct {
 	// on either side a holder is never past one.
 	Who    string
 	Budget time.Duration
-	// Limit is how long a run waits for memory before it goes on under the
-	// floor, which its Turn then notes.
+	// Limit is how long a run at the head of the line waits for memory before
+	// it goes on under the floor, which its Turn then notes.
 	Limit time.Duration
 	// Poll is how often a waiting run looks again.
 	Poll time.Duration
@@ -53,7 +53,8 @@ type Admission struct {
 
 // Turn is a run's turn on the machine.
 type Turn struct {
-	// Waited is how long the run waited for it.
+	// Waited is how long the run waited for it, or waited before its wait
+	// failed.
 	Waited time.Duration
 	// Note says what was out of the ordinary about how the turn was taken,
 	// when anything was: a holder past its budget, or memory under the floor.
@@ -80,7 +81,9 @@ var arrivals atomic.Int64
 
 // Wait joins the line and returns once the run has its turn: no run that
 // asked earlier still waits, the machine has the memory, and a slot is free,
-// was left by a process that is gone, or is held by a run past its budget.
+// was left by a process that is gone, or is held by a run past its budget. A
+// run whose wait fails gets the time it had waited with the error, so the
+// wait is on record even though no turn came of it.
 func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
@@ -96,25 +99,39 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	start := time.Now()
 	var told time.Time
 	var toldAhead int
-	var note string
+	// shortSince is when this run, at the head of the line, first found memory
+	// under the floor, and zero while it is not the head or memory is not
+	// short: the limit is on the wait for memory, not on the time in line.
+	var shortSince time.Time
 	for {
 		waited := time.Since(start)
 		ahead, err := inFront(line, place)
 		if err != nil {
-			return Turn{}, err
+			return Turn{Waited: time.Since(start)}, err
 		}
 		why := a.heldBy()
+		short := ""
 		if ahead == 0 {
-			short := a.short()
-			if short != "" && waited >= a.Limit {
-				note, short = fmt.Sprintf("it runs although %s, after waiting %s for it", short, waited.Round(time.Second)), ""
+			short = a.short()
+		}
+		if short == "" {
+			shortSince = time.Time{}
+		} else if shortSince.IsZero() {
+			shortSince = time.Now()
+		}
+		if ahead == 0 {
+			// The note is worked out on every pass, so that it says how this
+			// turn was taken and not how an earlier pass would have taken it.
+			note := ""
+			if short != "" && time.Since(shortSince) >= a.Limit {
+				note, short = fmt.Sprintf("it runs although %s, after waiting %s for it", short, time.Since(shortSince).Round(time.Second)), ""
 			}
 			if short != "" {
 				why = join(why, short)
 			} else {
 				release, took, err := a.take()
 				if err != nil {
-					return Turn{}, err
+					return Turn{Waited: time.Since(start)}, err
 				}
 				if release != nil {
 					return Turn{Waited: time.Since(start), Note: join(note, took), release: release}, nil
@@ -127,7 +144,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		}
 		select {
 		case <-ctx.Done():
-			return Turn{}, ctx.Err()
+			return Turn{Waited: time.Since(start)}, ctx.Err()
 		case <-time.After(a.Poll):
 		}
 	}
