@@ -157,7 +157,10 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you.
+The board's address is the same every time: `http://127.0.0.1:4310`, or the loopback address you set in `CFO_BOARD_ADDRESS`.
+When that address is in use, `goblins` starts no board anywhere else: it says who holds it, the Code Goblins fleet of another home by its folder or another program, and what to do.
+It prints the banner, the board's link and one line on what the CFO and the goblins are doing and how much waits on you.
+When this home's supervisor, or its supervisor and its CFO, already run, it says so and starts nothing beside them.
 It never opens the board on its own.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then, when no CFO runs, the [quick start](#quick-start) makes the CFO's agent ready and starts the CFO in the CFO home, never in a project: the CFO works across every project from there.
@@ -204,7 +207,7 @@ Install the native lifecycle hooks once for each harness you use (the install do
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi
-cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
+cfo serve                  # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
