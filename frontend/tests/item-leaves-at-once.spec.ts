@@ -165,9 +165,14 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
     });
-    await boardAsked(page, { questions: [question] }, ASKS);
+    await page.goto("/");
+    await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
-    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await send(page, "snapshot", asking({ questions: [question] }));
+    await expect(bar(page)).toContainText(ASKS);
+    await expect(toasts(page)).toContainText(ASKS);
+    await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
     await openCard(page, ASKS);
     await card(page).getByText("Merge it", { exact: true }).click();
     await testInfo.attach("the question, before he answers", { body: await page.screenshot(), contentType: "image/png" });
