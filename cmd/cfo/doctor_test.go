@@ -197,7 +197,7 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
-	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
+	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79-codegoblins.3; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
