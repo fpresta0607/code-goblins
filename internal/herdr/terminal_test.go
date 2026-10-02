@@ -50,6 +50,12 @@ func TestTerminalSessionArgsTakeOverOnlyForControl(t *testing.T) {
 // pane back; killing it at once lost that size, so the pane kept the board's.
 func TestClosingATerminalLetsItDeliverWhatItWasSent(t *testing.T) {
 	// Arrange
+	// A busy machine can take longer than the grace to run the stand-in, which
+	// would then be killed halfway through its record: the test is about a
+	// close that waits, not about how long.
+	previousGrace := closeGrace
+	closeGrace = time.Minute
+	t.Cleanup(func() { closeGrace = previousGrace })
 	record := filepath.Join(t.TempDir(), "received")
 	process, err := startTerminal(context.Background(), os.Args[0], "-test.run=^TestTerminalHelperProcess$", "--", record)
 	if err != nil {
