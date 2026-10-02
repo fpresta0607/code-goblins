@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -44,9 +45,14 @@ func voiceReader(projectsRoot func() (string, error)) func() (siqspeak.Snapshot,
 	}
 }
 
-func (h *HTTP) voice(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTP) voice(w http.ResponseWriter, r *http.Request) {
 	if h.Service.Instance == "" {
 		apiError(w, 403, "Refresh the board before reading voice history")
+		return
+	}
+	// The request carries nothing, so a body is refused unread.
+	if n, _ := io.ReadFull(r.Body, make([]byte, 1)); n != 0 {
+		apiError(w, 400, "Voice history takes no request body")
 		return
 	}
 	value, err := h.readVoice()
