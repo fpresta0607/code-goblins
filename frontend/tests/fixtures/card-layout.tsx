@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "../../src/Board";
 import { QueuedTasks } from "../../src/QueuedTasks";
+import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -50,4 +51,5 @@ function Fixture() {
   </section></div></aside>;
   return width ? <main className="canvas-region" style={{ width }}>{board}</main> : board;
 }
+watchTips();
 createRoot(document.getElementById("root")!).render(<Fixture />);
