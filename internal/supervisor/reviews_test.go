@@ -38,6 +38,14 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	if err := validReview(page("", link, file)); err != nil {
 		t.Fatalf("the CFO's own page beside its link was refused: %v", err)
 	}
+	withLink := func(link string) Review {
+		r := openReview("waiting-task-1-7", "task-1")
+		r.Link = link
+		return r
+	}
+	if err := validReview(withLink("https://dash.cloudflare.com/precisiondocs/dns")); err != nil {
+		t.Fatalf("a wait with a web link was refused: %v", err)
+	}
 	for name, r := range map[string]Review{
 		"an ID with a slash":  openReview("mockups/review", "task-1"),
 		"an ID too short":     openReview("short", "task-1"),
@@ -54,6 +62,10 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 		"a relative page":          page("task-1", link, `.lavish\plan.html`),
 		"a page path left unclean": page("task-1", link, `C:\work\..\work\.lavish\plan.html`),
 		"a page that is not HTML":  page("task-1", link, `C:\work\.lavish\plan.txt`),
+		"a script link":            withLink("javascript:alert(1)"),
+		"a file link":              withLink("file:///C:/secret.txt"),
+		"a bare host name":         withLink("mcp.precisiondocs.ai"),
+		"a link without a host":    withLink("https:///dns"),
 	} {
 		if err := validReview(r); err == nil {
 			t.Errorf("%s was accepted", name)

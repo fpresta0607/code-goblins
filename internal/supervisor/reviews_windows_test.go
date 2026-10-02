@@ -404,7 +404,7 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, "log in to Stripe", "", ""); err != nil {
+	if err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -424,6 +424,30 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	}
 	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" {
 		t.Fatalf("the wait after the goblin reported again = %+v, want it withdrawn", got)
+	}
+}
+
+// A wait keeps the goblin's lines, so its card can show a table of values to
+// enter, and carries the one link the goblin gave as where the Overlord goes.
+func TestAWaitKeepsItsLinesAndTheLinkItGave(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, _, connection := goblinFixture(t, store)
+	why := "Add these DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |"
+	link := "https://dash.cloudflare.com/precisiondocs/dns"
+
+	// Act
+	err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, why, "", "", link)
+	if err == nil {
+		err = store.ingestReviews()
+	}
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Reviews; len(got) != 1 || got[0].Title != "Waiting on you: "+why || got[0].Link != link {
+		t.Fatalf("reviews = %+v, want the wait with its lines and its link", got)
 	}
 }
 
@@ -521,10 +545,10 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 	meta, record, _, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	ctx := context.Background()
-	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", ""); err != nil {
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, record.Seq+1, "log in to Stripe", "", ""); err != nil {
+	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, record.Seq+1, "log in to Stripe", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

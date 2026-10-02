@@ -32,6 +32,15 @@ import (
 //	cfo notify <task-id> --working "<what>"
 //	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
+//	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
+//
+// A wait on the Overlord leads with one sentence, and the values he must
+// enter somewhere follow it as a Markdown table, each value in backticks:
+//
+//	cfo notify <task-id> --waiting-on overlord "Add these DNS records in **Cloudflare**, then tell me
+//	| Type | Name | Content |
+//	| --- | --- | --- |
+//	| CNAME | `mcp` | `mcp-precisiondocs.fly.dev` |" --link https://dash.cloudflare.com
 //
 // Only a question and a wait on the Overlord wake the CFO: working, and a
 // wait on another task, CI or a deploy, are status for the board. A wait that
@@ -56,8 +65,9 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
+	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -119,6 +129,16 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// The page is checked and opened before anything is recorded, so a page
 	// that cannot be shown fails the notify instead of leaving a wait on a
 	// card the Overlord cannot answer.
+	if *link != "" {
+		if verb != "waiting on overlord" {
+			fmt.Fprintln(stderr, "cfo notify: --link goes with --waiting-on overlord: it names where the Overlord goes")
+			return 2
+		}
+		if problem := supervisor.PresentationURLProblem(*link); problem != "" {
+			fmt.Fprintf(stderr, "cfo notify: --link %s\n", problem)
+			return 2
+		}
+	}
 	var page, pageURL string
 	if *lavish != "" {
 		if verb != "waiting on overlord" {
@@ -146,6 +166,9 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
+	if *link != "" {
+		line += " (link " + *link + ")"
+	}
 	// Images are checked before anything is recorded, so a bad path fails the
 	// whole notify instead of waking the CFO with a question the Overlord
 	// cannot see.
@@ -184,7 +207,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
 	if verb == "waiting on overlord" {
-		if err := supervisor.PublishWait(ctx, h, terminals, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
+		if err := supervisor.PublishWait(ctx, h, terminals, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
 				return 1

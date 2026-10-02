@@ -1,5 +1,5 @@
 import type { Snapshot } from "./types.ts";
-import { waitingItems, type Item } from "./commandQueue.ts";
+import { waitingItems, waitReason, type Item } from "./commandQueue.ts";
 import { messageBlocks } from "./messageText.ts";
 import { credentialAsk } from "./credentials.ts";
 
@@ -8,16 +8,21 @@ import { credentialAsk } from "./credentials.ts";
 // goblins it supervises. It is the only place on the board that says Waiting
 // on you.
 
-// A question is named by its lead sentence, its first paragraph or bullet,
-// without the details that follow. A goblin's wait on the Overlord titles its
-// item Waiting on you, which the bar already says.
+// A question or a review is named by its lead sentence, its first paragraph
+// or bullet, without the details or tables of values around it. A goblin's
+// wait on the Overlord titles its item Waiting on you, which the bar already
+// says, and ends it with its page's link, which its card opens instead.
+function lead(text: string): string {
+  const first = messageBlocks(text).find((block) => block.kind !== "table");
+  const spans = !first ? [] : first.kind === "paragraph" ? first.spans : first.items[0];
+  return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();
+}
+
 function title(item: Item): string {
-  if (item.kind === "review") return item.review.title.replace(/^Waiting on you: /, "");
+  if (item.kind === "review") return lead(waitReason(item.review));
   if (item.kind === "run") return item.run.title;
   if (item.kind === "credential") return credentialAsk(item.request);
-  const [lead] = messageBlocks(item.question.text);
-  const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
-  return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();
+  return lead(item.question.text);
 }
 
 export function cfoSummary(snapshot: Snapshot): { asking: boolean; line: string } {

@@ -32,6 +32,13 @@ test("a review or a command to run is named by its title, and answered items no 
 
 test("a goblin's wait on the Overlord, titled Waiting on you by its item, says it once", () => {
   assert.equal(cfoSummary(snapshot({ reviews: [review("waiting-goblin-a-7", "Waiting on you: pick the settings layout")] })).line, "Waiting on you: pick the settings layout");
+  assert.equal(cfoSummary(snapshot({ reviews: [review("waiting-goblin-a-8", "Waiting on you: Add the DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |")] })).line, "Waiting on you: Add the DNS records in Cloudflare");
+});
+
+test("a wait is named by its words, never a table it opens with or its page's link", () => {
+  const page = "http://127.0.0.1:4387/session/f26e";
+  const wait = review("waiting-goblin-a-9", "Waiting on you: | Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nAdd these records (page " + page + ")", { lavish: page });
+  assert.equal(cfoSummary(snapshot({ reviews: [wait] })).line, "Waiting on you: Add these records");
 });
 
 test("a question is named by its lead sentence alone, without its details", () => {
