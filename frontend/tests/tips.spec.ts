@@ -21,8 +21,10 @@ const TASKS = [
 ];
 const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the board open in when the window is too narrow for three columns beside the panel?", options: ["Kanban", "Stacked"], recommended: "Kanban", status: "pending", task: "working-one", created_at: since };
 
-async function open(page: Page, tasks: Record<string, unknown>[] = TASKS) {
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions: [QUESTION] };
+// A question waiting on the Overlord opens the Command Center over the board,
+// so only the Command Center's own walk has one.
+async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = []) {
+  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });
@@ -125,14 +127,15 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
     });
 
     test("every tip in the Command Center is whole, solid and inside the window", async ({ page }) => {
-      await open(page);
-      const menu = page.locator(".command-center-menu");
-      await menu.locator("summary").click();
-      const list = await walk(menu);
-      await menu.getByRole("button", { name: /^Answer / }).click();
+      await open(page, TASKS, [QUESTION]);
       const dialog = page.locator("dialog.question-modal");
       await expect(dialog).toBeVisible();
       const card = await walk(dialog);
+      await dialog.getByRole("button", { name: "Close the Command Center", exact: true }).click();
+      await expect(dialog).toBeHidden();
+      const menu = page.locator(".command-center-menu");
+      await menu.locator("summary").click();
+      const list = await walk(menu);
       expect(list.shown + card.shown).toBeGreaterThanOrEqual(3);
       expect([...list.faults, ...card.faults]).toEqual([]);
     });
