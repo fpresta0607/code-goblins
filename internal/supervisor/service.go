@@ -79,8 +79,8 @@ type Service struct {
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
 	// historyErr is what the last history refresh met, and cfoWakeErr what
-	// the last typed CFO wake met; the loop reports them with its next
-	// recovery cycle.
+	// every typed CFO wake met since the last recovery cycle; the loop
+	// reports them with its next recovery cycle.
 	historyErr error
 	cfoWakeErr error
 	// runRequests takes one run request at a time, so two with one ID never
@@ -325,6 +325,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		s.checkRegistration(ctx)
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr)
+		s.cfoWakeErr = nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))

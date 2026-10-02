@@ -149,8 +149,8 @@ func startCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, n
 // sayWakePath says how a CFO that is not Claude Code learns a goblin
 // reported. Claude Code's own Stop hook wakes it, and needs no word. A Codex
 // or pi CFO is woken by a line the supervisor types into its native terminal
-// while it sits idle, once it has registered; one in Herdr, or of a harness
-// nothing delivers to, learns of reports only when it looks.
+// while it sits idle, once it has registered; one in Herdr learns of reports
+// only when it looks.
 func sayWakePath(stdout io.Writer, harness string, native bool) {
 	switch wake := supervisor.CFOWakeFor(harness); {
 	case wake == supervisor.CFOWakeStopHook:

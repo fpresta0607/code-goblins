@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -60,6 +61,9 @@ type CFOConnection struct {
 	// it as cfo send does.
 	ReadScreen func(host.Record) ([]string, error)
 	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
+	// typing lets one writer at a time read and type into the CFO's native
+	// terminal, so a typed wake and a board send never share its composer.
+	typing sync.Mutex
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
@@ -537,6 +541,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
+	c.typing.Lock()
+	defer c.typing.Unlock()
 	busy := false
 	if screens, readable := harness.NativeScreens(harness.Kind(primary.Agent)); readable {
 		rows, err := host.ReadScreen(record)

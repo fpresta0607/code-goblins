@@ -162,6 +162,56 @@ func TestAnUnprovenWakeLineIsReportedAndNeverTypedTwice(t *testing.T) {
 	}
 }
 
+// A line nothing proves taken reaches the board with the next recovery cycle,
+// though every look after it finds nothing left to type, and its records were
+// marked covered before it was typed.
+func TestAnUnprovenWakeLineReachesTheBoardOnce(t *testing.T) {
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleCodexCFO)
+	queueWake(t, stateDir, "notify", "cg-wakes", "blocked: merge or hold?")
+	delivered := make(chan int, 2)
+	s.Options.CFO.Deliver = func(context.Context, state.TaskMeta, string) error {
+		covered, _, err := readCFOWoken(stateDir)
+		if err != nil {
+			t.Error(err)
+		}
+		delivered <- covered
+		return errors.New("its screen never showed it working")
+	}
+	store, _ := testStore(t)
+	s.Store, s.work, s.subscribers = store, make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	awake := make(chan struct{})
+	go func() {
+		defer close(awake)
+		s.keepCFOAwake(ctx, 10*time.Millisecond)
+	}()
+
+	select {
+	case covered := <-delivered:
+		if covered != 1 {
+			t.Errorf("the line was typed with records covered up to %d, want 1", covered)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no wake line was typed")
+	}
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-awake
+	s.cycle(context.Background(), true)
+	reported := s.lastError
+	s.cycle(context.Background(), true)
+
+	if len(delivered) != 0 {
+		t.Errorf("the unproven line was typed again")
+	}
+	if !strings.Contains(reported, "nothing proves it taken") {
+		t.Errorf("the board showed %q, want the unproven line reported", reported)
+	}
+	if strings.Contains(s.lastError, "nothing proves it taken") {
+		t.Errorf("the next recovery cycle reported the line again: %q", s.lastError)
+	}
+}
+
 // One place says how a CFO of each harness is woken, for the typed delivery
 // and for whatever tells a user which harnesses a CFO can run in: Claude Code
 // by its Stop hook, Codex and pi by a typed line, and a harness nothing

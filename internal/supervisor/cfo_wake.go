@@ -82,18 +82,20 @@ func (s *Service) keepCFOAwake(ctx context.Context, every time.Duration) {
 			return
 		case <-ticker.C:
 		}
-		err := s.wakeCFO(ctx, time.Now().UTC())
-		s.mu.Lock()
-		s.cfoWakeErr = err
-		s.mu.Unlock()
+		if err := s.wakeCFO(ctx, time.Now().UTC()); err != nil {
+			s.mu.Lock()
+			s.cfoWakeErr = errors.Join(s.cfoWakeErr, err)
+			s.mu.Unlock()
+		}
 	}
 }
 
 // wakeCFO types one wake line into a registered Codex or pi CFO's native
 // terminal when the queue holds records no line has covered, the CFO's
 // harness sits idle at an empty composer, and no line was typed within
-// cfoWakeGap. Once a line is typed the records it covers are marked, even when
-// nothing proves it taken, because typing it twice is worse than asking the
+// cfoWakeGap. The records a line covers are marked before it is typed, so
+// they stay covered when nothing proves it taken or the supervisor dies while
+// it waits for the proof, because typing it twice is worse than asking the
 // CFO to look: cfo send never types a line twice either.
 func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	connection := s.Options.CFO
@@ -122,11 +124,7 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	if !live || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
 		return nil
 	}
-	typed, err := connection.typeWake(ctx, primary, wakeLine(fresh))
-	if !typed {
-		return err
-	}
-	return errors.Join(err, writeCFOWoken(stateDir, fresh[len(fresh)-1].Seq, now))
+	return connection.typeWake(ctx, primary, wakeLine(fresh), fresh[len(fresh)-1].Seq, now)
 }
 
 // wakeLine is the one line typed into the CFO: how many wakes wait, whose,
@@ -152,31 +150,33 @@ func wakeLine(records []wake.Record) string {
 
 // typeWake types text into the registered CFO's native terminal when its
 // harness sits idle at an empty composer on two readings cfoIdleRecheck
-// apart, and delivers it with the proof cfo send uses: its native hooks
-// report the prompt taken, or its screen shows it working when it was not.
-// typed says whether anything was typed.
-func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string) (bool, error) {
+// apart, marking the records up to covered as typed about at now first, and
+// delivers it with the proof cfo send uses: its native hooks report the
+// prompt taken, or its screen shows it working when it was not.
+func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string, covered int, now time.Time) error {
 	screens, readable := harness.NativeScreens(harness.Kind(primary.Agent))
 	if !readable {
-		return false, nil
+		return nil
 	}
 	if err := c.verify(ctx, primary); err != nil {
-		return false, err
+		return err
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)
 	if err != nil {
-		return false, err
+		return err
 	}
 	read := c.ReadScreen
 	if read == nil {
 		read = host.ReadScreen
 	}
+	c.typing.Lock()
+	defer c.typing.Unlock()
 	for reading := range 2 {
 		if reading > 0 {
 			select {
 			case <-time.After(cfoIdleRecheck):
 			case <-ctx.Done():
-				return false, ctx.Err()
+				return ctx.Err()
 			}
 		}
 		// A screen that cannot be read, or shows the CFO in a turn, at a
@@ -184,17 +184,20 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 		// tick.
 		screen, err := read(record)
 		if err != nil || !idleAtEmptyComposer(screens, screen) {
-			return false, nil
+			return nil
 		}
+	}
+	if err := writeCFOWoken(c.State, covered, now); err != nil {
+		return err
 	}
 	deliver := c.Deliver
 	if deliver == nil {
 		deliver = c.deliverNative
 	}
 	if err := deliver(ctx, state.TaskMeta{ID: primary.Host, Harness: primary.Agent}, text); err != nil {
-		return true, fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
+		return fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
 	}
-	return true, nil
+	return nil
 }
 
 // idleAtEmptyComposer reports whether screen shows a harness waiting at its
