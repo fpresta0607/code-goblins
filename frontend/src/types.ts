@@ -265,10 +265,13 @@ export interface FileDiff {
   code_omitted: boolean;
   fingerprint: string;
 }
-// Setup is the first-run page: the projects folder and the git checkouts in
-// it, or why it offers none, the agents this machine has, and whether a CFO
-// already runs.
+// Setup is the first-run page: the home the CFO starts in, the agent the
+// quick start remembered, or "" when none was chosen, the projects folder and
+// the git checkouts in it, or why it offers none, the agents this machine
+// has, and whether a CFO already runs.
 export interface Setup {
+  home: string;
+  agent: string;
   projects_root: string;
   checkouts: string[];
   problem: string;
@@ -544,6 +547,8 @@ export function parseDiff(value: unknown): FileDiff {
 export function parseSetup(value: unknown): Setup {
   const v = object(value);
   return {
+    home: string(v.home),
+    agent: string(v.agent),
     projects_root: string(v.projects_root),
     checkouts: strings(v.checkouts),
     problem: string(v.problem),

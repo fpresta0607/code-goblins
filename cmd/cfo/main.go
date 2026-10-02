@@ -157,7 +157,7 @@ type commandRuntime struct {
 	// startNativeCFO and attachNative start the CFO in a native terminal and
 	// show a native terminal in this console, for goblins --native and a CFO
 	// registered in one.
-	startNativeCFO func(h home.Home, project, harness string) error
+	startNativeCFO func(h home.Home, project, harness string, args []string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never
@@ -169,8 +169,8 @@ type commandRuntime struct {
 	// setupAgent runs the quick start's agent steps and returns the agent
 	// the CFO starts as, and choose shows one of its screens and returns the
 	// choice the person accepts.
-	setupAgent func(ctx context.Context, stateDir, chosen string, rerun bool, stdout, stderr io.Writer) (string, error)
-	choose     func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error)
+	setupAgent func(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, stdout, stderr io.Writer) (string, error)
+	choose     func(output io.Writer, step onboarding.Step) (int, error)
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -307,7 +307,7 @@ func defaultCommandRuntime() commandRuntime {
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
 		setupAgent:         setupAgent,
-		choose:             onboarding.ChooseConsole,
+		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
 		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
 	}
