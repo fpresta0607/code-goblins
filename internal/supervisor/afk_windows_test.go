@@ -607,6 +607,39 @@ func TestAHeldItemIsHeldOnceForEachStretchAcrossARestart(t *testing.T) {
 	}
 }
 
+// The CFO's items follow the home's CFO when it is closed and opened again,
+// and keep the IDs they were held by: what was held for the Overlord in a
+// stretch is not held a second time once it has followed.
+func TestAHeldItemThatFollowsAReopenedCFOIsNotHeldAgain(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	waitingItems(t, store)
+	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.holdForOverlord(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	heldBefore := len(afkEntries(t, h.State))
+
+	// Act
+	reopened := strings.Repeat("e", 64)
+	if err := store.followCFO(reopened); err != nil {
+		t.Fatal(err)
+	}
+	err := s.holdForOverlord(time.Now())
+
+	// Assert
+	d := store.Snapshot()
+	if d.Questions[0].Identity != reopened || d.Runs[0].Identity != reopened {
+		t.Fatalf("the CFO's question and run item did not follow the reopened CFO (%s, %s), so this proves nothing", d.Questions[0].Identity, d.Runs[0].Identity)
+	}
+	if entries := afkEntries(t, h.State); err != nil || heldBefore != 4 || len(entries) != heldBefore {
+		t.Errorf("holdForOverlord = %v with %d lines in the log after the items followed and %d before, want 4 both times: the switch and each item once", err, len(entries), heldBefore)
+	}
+}
+
 // Turning AFK mode off produces the report of the stretch: what the CFO
 // decided with its evidence, what each goblin finished, what is held for him
 // and what became of it, and what was spent. The CFO is told to write it into
