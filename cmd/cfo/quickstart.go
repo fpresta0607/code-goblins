@@ -30,8 +30,9 @@ import (
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
 // with --harness. native starts a new CFO in a native terminal rather than in
-// Herdr. What it finds running for this home it says first, so a person who
-// runs goblins beside a fleet at work sees that nothing second was started.
+// Herdr. What it finds running it says first and starts nothing beside, and
+// each step it finishes is one line with a tick, so the screen holds what was
+// answered and the one step that waits.
 func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native bool, harness string) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -43,39 +44,46 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	if !ok {
 		return 1
 	}
-	running := cfoRuns(runtime, h.State)
-	switch {
-	case startedServe:
-	case running:
-		fmt.Fprintln(stdout, "\nThe supervisor and the CFO of this home already run: nothing new was started.")
-	default:
-		fmt.Fprintln(stdout, "\nThe supervisor of this home already runs: it was not started again.")
+	list := &onboarding.Checklist{Output: stdout, Tick: onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Tick, Width: onboarding.ConsoleWidth, Plain: !consoleTakesEscapes(stdout), NoColor: onboarding.NoColor()}
+	fmt.Fprintln(stdout)
+	if startedServe {
+		list.Done("Supervisor", "started")
+	} else {
+		list.Done("Supervisor", "already running")
 	}
+	// A step back to the choice of agent takes the agent's lines with it,
+	// never this one.
+	list.Keep()
 	agent := ""
-	if rerun || harness != "" || !running {
-		if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, stdout, stderr); err != nil {
+	if rerun || harness != "" || !cfoRuns(runtime, h.State) {
+		if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, list, stdout, stderr); err != nil {
+			list.End()
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
 		}
 	}
-	session, started, err := ensureCFOSession(ctx, runtime, h, native, agent, stdout)
+	session, started, err := ensureCFOSession(ctx, runtime, h, native, agent, list)
 	if err != nil {
+		list.End()
 		fmt.Fprintf(stderr, "goblins: %v\n", err)
 		return 1
 	}
 	if !started && agent != "" {
-		fmt.Fprintf(stdout, "\nThe CFO already runs, and keeps its harness; %s is the harness goblins starts the next CFO as.\n", agent)
+		list.Note(fmt.Sprintf("It keeps its agent; %s is the agent goblins starts the next CFO as.", onboarding.Name(agent)))
 	}
 	heading := "Your CFO is running"
 	if started {
 		heading = "Your CFO is starting"
 	}
 	link := board
-	if bannerColor(stdout) {
+	if consoleTakesEscapes(stdout) {
 		link = "\x1b]8;;" + board + "\x1b\\" + board + "\x1b]8;;\x1b\\"
 	}
-	title := fmt.Sprintf("%s\nHome   %s\nBoard  %s  (Ctrl+click opens it)", heading, h.Root, link)
-	choice, err := runtime.choose(stdout, title, []onboarding.Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}}, 0)
+	choice, err := runtime.choose(stdout, onboarding.Step{
+		Title:   heading,
+		Detail:  fmt.Sprintf("Home   %s\nBoard  %s  (Ctrl+click opens it)", h.Root, link),
+		Choices: []onboarding.Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}},
+	})
 	if errors.Is(err, onboarding.ErrBack) {
 		fmt.Fprintln(stdout, "\nThe CFO and the board keep running; run goblins to see them again.")
 		return 0
@@ -129,18 +137,22 @@ type cfoSession struct {
 // comes first, then one whose registration names a live process in Herdr,
 // which is brought to the front where it registered, then native terminal cfo
 // while its host answers, since the CFO started there may not have registered
-// yet. A CFO is never started beside one that runs.
-func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, native bool, agent string, stdout io.Writer) (cfoSession, bool, error) {
+// yet. A CFO is never started beside one that runs. Either way list says so
+// in one line.
+func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, native bool, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
 	if id, live := runtime.nativeCFO(h.State); live {
+		list.Done("CFO", "already running in native terminal "+id)
 		return cfoSession{native: id}, false, nil
 	}
 	if endpoint, live := runtime.liveCFO(h.State); live {
 		if err := runtime.focusCFO(ctx, endpoint); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be brought to the front in Herdr: %w", err)
 		}
+		list.Done("CFO", "already running in Herdr")
 		return cfoSession{herdr: endpoint.Target.Session}, false, nil
 	}
 	if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		list.Done("CFO", "already starting in native terminal "+supervisor.NativeCFOTerminal)
 		return cfoSession{native: supervisor.NativeCFOTerminal}, false, nil
 	}
 	if agent == "" {
@@ -150,14 +162,16 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, err
 		}
 	}
+	list.Working("CFO", "starting as "+onboarding.Name(agent))
 	if native {
 		if err := runtime.startNativeCFO(h, h.Root, agent); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
-		fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", agent, h.Root, supervisor.NativeCFOTerminal)
-		sayWakePath(stdout, agent, true)
-		for _, note := range runtime.settleCFO(ctx, h.State, agent) {
-			fmt.Fprintln(stdout, note)
+		// Its startup dialogs are answered before the line says it started.
+		notes := runtime.settleCFO(ctx, h.State, agent)
+		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
+		for _, note := range append(wakePath(agent, true), notes...) {
+			list.Note(note)
 		}
 		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
 	}
@@ -166,13 +180,12 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		return cfoSession{}, false, fmt.Errorf("the CFO session could not be started in Herdr: %w", err)
 	}
 	if !started {
-		fmt.Fprintln(stdout, "\nThe CFO is already running in Herdr's cfo tab.")
+		list.Done("CFO", "already running in Herdr's cfo tab")
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
-	fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s.\n", agent, h.Root)
-	sayWakePath(stdout, agent, false)
-	for _, note := range unreached(agent, nil) {
-		fmt.Fprintln(stdout, note)
+	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
+	for _, note := range append(wakePath(agent, false), unreached(agent, nil)...) {
+		list.Note(note)
 	}
 	return cfoSession{herdr: herdrSession()}, true, nil
 }
@@ -200,13 +213,15 @@ func quickstartDetector() onboarding.Detector {
 // setupAgent runs the quick start's agent steps in this console and returns
 // the agent the CFO starts as. An installer and a sign-in run in this console,
 // where the person sees them and answers them: nothing is typed for them.
-func setupAgent(ctx context.Context, stateDir, chosen string, rerun bool, stdout, stderr io.Writer) (string, error) {
-	fmt.Fprintln(stdout, "Checking the agents on this machine ...")
+// Each step finished is a line of list.
+func setupAgent(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, stdout, stderr io.Writer) (string, error) {
+	list.Working("Agent", "checking the agents on this machine")
 	return rememberAgent(ctx, stateDir, chosen, rerun, onboarding.Flow{
-		Detect: quickstartDetector().Detect,
-		Choose: func(title string, choices []string, selected int) (int, error) {
-			return onboarding.ChooseConsole(stdout, title, onboarding.Labels(choices...), selected)
-		},
+		Detect:  quickstartDetector().Detect,
+		Ask:     func(step onboarding.Step) (int, error) { return onboarding.AskConsole(stdout, step) },
+		Done:    list.Done,
+		Undo:    list.Clear,
+		Marks:   onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Agents,
 		Install: func(id string) error { return installAgent(ctx, id, stdout, stderr) },
 		Login:   func(id string) error { return signInAgent(id, stdout, stderr) },
 	})
@@ -239,13 +254,13 @@ func installAgent(ctx context.Context, id string, stdout, stderr io.Writer) erro
 	if !ok {
 		return fmt.Errorf("%s has no installer", id)
 	}
-	fmt.Fprintf(stdout, "\nRunning %s ...\n", installer.Describe())
+	heading := "Running " + installer.Describe() + ". This screen closes when it ends."
 	switch installer.Kind {
 	case "npm":
 		if _, err := exec.LookPath("npm.cmd"); err != nil {
 			return errors.New("npm is not installed; install Node.js first with: winget install OpenJS.NodeJS.LTS")
 		}
-		if err := runInConsole(stdout, stderr, "npm.cmd", "install", "-g", installer.Source); err != nil {
+		if err := runInConsole(stdout, stderr, heading, "npm.cmd", "install", "-g", installer.Source); err != nil {
 			return err
 		}
 	default:
@@ -257,7 +272,7 @@ func installAgent(ctx context.Context, id string, stdout, stderr io.Writer) erro
 			return err
 		}
 		defer os.Remove(script)
-		if err := runInConsole(stdout, stderr, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script); err != nil {
+		if err := runInConsole(stdout, stderr, heading, "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script); err != nil {
 			return err
 		}
 	}
@@ -349,27 +364,49 @@ func containsPath(entries []string, dir string) bool {
 // it ends. The person signs in there: Code Goblins types nothing and never
 // sees a password.
 func signInAgent(id string, stdout, stderr io.Writer) error {
+	const comesBack = " Code Goblins never sees your password. This screen closes when the sign-in ends."
 	switch id {
 	case "claude":
-		return runInConsole(stdout, stderr, id, "auth", "login")
+		return runInConsole(stdout, stderr, "Claude Code's own sign-in."+comesBack, id, "auth", "login")
 	case "codex":
-		return runInConsole(stdout, stderr, id, "login")
+		return runInConsole(stdout, stderr, "Codex's own sign-in."+comesBack, id, "login")
 	case "pi":
 		// pi signs in from inside itself.
-		fmt.Fprintln(stdout, "\npi opens next. In pi, sign in with /login, pick a model with /model, then leave with /quit to come back here.")
-		return runInConsole(stdout, stderr, id)
+		return runInConsole(stdout, stderr, "pi opens next. In pi, sign in with /login, pick a model with /model, then leave with /quit to come back here.", id)
 	}
 	return fmt.Errorf("%s has no sign-in", id)
 }
 
+// The console's other screen: a program run on it leaves nothing behind on
+// the screen the quick start draws on.
+const (
+	enterAlternateScreen = "\x1b[?1049h\x1b[H"
+	leaveAlternateScreen = "\x1b[?1049l"
+)
+
 // runInConsole runs a program in this console, as the person would run it,
-// and waits for it.
-func runInConsole(stdout, stderr io.Writer, name string, args ...string) error {
+// and waits for it. In a console it runs on the other screen under heading,
+// so what it printed leaves with it and the steps finished stay as they
+// were; a program that failed keeps that screen until the person has read
+// why. Output that is no console, such as a log, gets heading and the
+// program's output as they come.
+func runInConsole(stdout, stderr io.Writer, heading, name string, args ...string) error {
 	program, err := spawn.NativeProgram(name, args...)
 	if err != nil {
 		return err
 	}
 	command := execx.Command(program[0], program[1:]...)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, stdout, stderr
-	return command.Run()
+	if !consoleTakesEscapes(stdout) {
+		fmt.Fprintf(stdout, "\n%s\n", heading)
+		return command.Run()
+	}
+	fmt.Fprintf(stdout, "%s%s\n\n", enterAlternateScreen, heading)
+	defer fmt.Fprint(stdout, leaveAlternateScreen)
+	err = command.Run()
+	if err != nil {
+		// Only Enter or Escape leaves: either way the person has seen it.
+		_, _ = onboarding.AskConsole(stdout, onboarding.Step{Title: "That did not finish", Detail: err.Error(), Choices: onboarding.Labels("Go back")})
+	}
+	return err
 }
