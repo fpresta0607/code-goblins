@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -127,6 +127,8 @@ test("only an answer that reached its asker counts as answered", () => {
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
     ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
+    ["an answer he gave in chat, recorded by the CFO", { status: "succeeded", answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }, "answered", "You answered in chat · recorded by the CFO", "check-double"],
+    ["a question he dismissed", { status: "cleared", message: "You dismissed it: answered elsewhere or no longer needed." }, "cleared", "You dismissed it: answered elsewhere or no longer needed.", "close"],
   ];
   for (const [name, fields, outcome, label, icon] of cases) {
     const [candidate] = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-09-24T00:10:00Z", "pending", fields)] }).questions ?? [];
@@ -134,6 +136,24 @@ test("only an answer that reached its asker counts as answered", () => {
     assert.equal(answeredLabel(candidate), label, name);
     assert.equal(outcomeIcon(questionOutcome(candidate)), icon, name);
   }
+});
+
+test("an answer that never arrived reads in History as what to do about it, in the supervisor's words", () => {
+  // Arrange
+  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("lost", "", "2026-10-01T16:54:00Z", "uncertain", { answer_id: "a-lost", answer: "Lift it", answer_kind: "option" }),
+      question("aged", "", "2026-10-01T16:54:00Z", "uncertain", { answer_id: "a-aged", answer: "Lift it", answer_kind: "option" })],
+    reviews: [review("plan", "gb-a", "2026-10-01T16:54:00Z", "answered", { answer_id: "a-plan", answer: "Go with B" })],
+    actions: [{ id: "a-lost", kind: "cfo_answer", status: "uncertain", message: advice, advice }, { id: "a-plan", kind: "review_answer", status: "uncertain", message: advice, advice }] });
+
+  // Act
+  const labels = Object.fromEntries(settledItems(snapshot).map((item) => [item.key, settledLabel(item, snapshot.actions)]));
+
+  // Assert
+  assert.equal(labels["question:lost"], advice);
+  assert.equal(labels["review:plan"], advice);
+  assert.equal(labels["question:aged"], "Not confirmed: check the CFO's terminal", "an answer whose action is no longer recorded keeps the plain warning");
 });
 
 test("an answered review item is marked by whether its answer reached the asker", () => {
@@ -285,6 +305,7 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
+  const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
     ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
@@ -297,23 +318,24 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
     ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
     ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
     ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
+    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
 });
 
-test("an item sent and moved past comes back when its send fails, and only then", () => {
-  const drafts = {
-    "question:ok": { submission: submitted("ok", { kind: "goblin_answer" }), sending: false, error: "" },
-    "question:refused": { submission: submitted("refused", { kind: "goblin_answer" }), sending: false, error: "that question is not open" },
-    "question:recovered": { submission: submitted("recovered", { kind: "goblin_answer" }), sending: false, error: "network error" },
-    "question:lost": { submission: submitted("lost", { kind: "goblin_answer" }), sending: false, error: "" },
-    "question:unsent": { submission: null, sending: false, error: "" },
-  };
-  const actions = [action("ok", "goblin_answer", "succeeded"), action("recovered", "goblin_answer", "succeeded"), action("lost", "goblin_answer", "uncertain")];
+test("every open item is one the board has announced, a question its page's card carries too, and nothing closed", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("carried", "gb-a", "2026-09-26T10:00:00Z", "pending", { page: "plan" }), question("alone", "gb-b", "2026-09-26T10:00:00Z"), question("sent", "gb-b", "2026-09-26T10:00:00Z", "uncertain")],
+    reviews: [review("plan", "gb-a", "2026-09-26T10:00:00Z"), review("cleared", "gb-a", "2026-09-26T10:00:00Z", "cleared")],
+    runs: [{ id: "install", identity: "cfo-1", title: "Install", state: "ready", created_at: "2026-09-26T10:00:00Z" }] });
 
-  const failed = failedSends(new Set(["question:ok", "question:refused", "question:recovered", "question:lost", "question:unsent", "question:gone"]), drafts, actions);
+  // Act
+  const open = openKeys(snapshot);
 
-  assert.deepEqual(failed, ["question:refused", "question:lost"]);
+  // Assert
+  assert.deepEqual([...open].sort(), ["question:alone", "question:carried", "review:plan", "run:install"]);
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "the carried question shows as its page's card");
 });
 
 test("a choice or written text not yet sent, or whose send failed, on an item still waiting is unsent; one in flight, delivered or on a closed item is not", () => {
@@ -338,6 +360,43 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
+});
+
+test("a send the board refused leaves its item waiting only while that item is still open", () => {
+  // Arrange
+  const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
+  const snapshot = parseSnapshot({ healthy: true, questions: [question("q", "gb-a", "2026-09-26T10:00:00Z"), question("closed", "gb-a", "2026-09-26T10:00:00Z", "superseded")] });
+  const refused = { submission: answer, sending: false, error: "The board restarted; reload it." };
+  const cases: [string, Parameters<typeof notSent>[0], string, Action[], boolean][] = [
+    ["an accepted send", { submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, "question:q", [], false],
+    ["a send that failed in the browser yet reached the board", refused, "question:q", [action("a1", "goblin_answer", "running")], false],
+    ["a refused send on an item still open", refused, "question:q", [], true],
+    ["a refused send on an item since closed", refused, "question:closed", [], false],
+    ["a send still on its way", { submission: answer, sending: true, error: "" }, "question:q", [], false],
+    ["an unsent draft", { submission: null, sending: false, error: "" }, "question:q", [], false],
+  ];
+
+  for (const [name, draft, key, actions, want] of cases) {
+    // Act
+    const waits = notSent(draft, itemFor(snapshot, key), actions);
+
+    // Assert
+    assert.equal(waits, want, name);
+  }
+});
+
+test("a question he answered elsewhere finishes its open card as answered, like a page answer", () => {
+  // Arrange
+  const [inChat, onBoard] = parseSnapshot({ healthy: true, questions: [
+    question("herdr-strays-20260929", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }),
+    question("pick-a-layout", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Tree", answer_kind: "option", answered_option: "Tree", answered_by: "overlord" }),
+  ] }).questions ?? [];
+
+  // Act
+  const elsewhere = [inChat, onBoard].map((candidate) => answeredElsewhere({ kind: "question", key: "question:" + candidate.id, question: candidate }));
+
+  // Assert
+  assert.deepEqual(elsewhere, [true, false]);
 });
 
 test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
