@@ -762,6 +762,8 @@ type Task struct {
 	QueueRevision string           `json:"queue_revision,omitempty"`
 	Detail        string           `json:"detail,omitempty"`
 	Notes         []string         `json:"notes,omitempty"`
+	// ReportedAt is when the goblin last reported, if it has.
+	ReportedAt *time.Time `json:"reported_at,omitempty"`
 	Evaluation
 }
 
@@ -948,7 +950,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if title == "" {
 			title = id
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		var reported *time.Time
+		if !reportedAt.IsZero() {
+			reported = &reportedAt
+		}
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), ReportedAt: reported, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
