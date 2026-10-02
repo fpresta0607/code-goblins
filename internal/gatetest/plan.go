@@ -59,7 +59,8 @@ const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPattern
 // deleted embedded file still names its package, and the module path go list
 // -m reports, so a deleted package's importers are found by its import path.
 // The root and every package directory are spelled with long names, as git
-// and go list can spell one directory differently.
+// and go list can spell one directory differently. The plan runs asked, or
+// the level the change requires when asked is empty, as build decides it.
 func Read(ctx context.Context, runner execx.Runner, dir string, asked Level) (Plan, error) {
 	found, err := gather(ctx, runner, dir)
 	if err != nil {

@@ -178,7 +178,7 @@ A repository with no policy file has no slow packages.
 
 Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
-`CFO_VERIFY_DIR` names another folder for them.
+`CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, or `not_run` when an earlier command failed.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
