@@ -722,11 +722,13 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			s.db.Tasks[a.TaskID] = result
 		}
 	}
-	// An answer closes the pages that carry its question once, when it is
-	// sent or taken: a delivery that settles later was sent first.
+	// An answer closes the pages that carry its question, and its goblin's
+	// waits on the Overlord up to it, once, when it is sent or taken: a
+	// delivery that settles later was sent first.
 	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
 		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
 			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
+			s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
 		}
 	}
 	s.updateQuestionOutcomes()
