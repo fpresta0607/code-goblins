@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // Chromium's fake microphone (a steady beep) stands in for the Overlord's; the
 // browser's speech service is replaced by a recognizer that records the track

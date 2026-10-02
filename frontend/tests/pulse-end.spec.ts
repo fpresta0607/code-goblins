@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 import type { EffectReport } from "./fixtures/effect-watch";
 
 const report = (page: Page) => page.evaluate(() => window.effectWatch?.report() ?? null);
