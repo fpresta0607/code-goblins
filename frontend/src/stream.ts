@@ -2,9 +2,12 @@
 // Copyright 2026 Cline Bot Inc. See public/assets/NOTICE.txt.
 // CFO changes: SSE full snapshots, instance/revision fencing, strict parsing,
 // bounded retries, visible errors, and no client-driven task progression.
+// Between snapshots the supervisor sends the Command Center's items alone, the
+// moment one changes, which the board lays over its last snapshot.
 import { useEffect, useState } from "react";
 import { parseSnapshot, type Snapshot } from "./types";
 import { message } from "./api";
+import { withItems } from "./item-state";
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 500;
 const STREAM_RECONNECT_MAX_DELAY_MS = 5_000;
@@ -37,6 +40,16 @@ export function useRuntimeStream() {
           setConnection("Live");
           setError("");
           retry = STREAM_RECONNECT_BASE_DELAY_MS;
+        } catch (error: unknown) {
+          setError(message(error));
+          setConnection("Invalid stream");
+        }
+      });
+      source.addEventListener("items", (event: MessageEvent<string>) => {
+        if (cancelled) return;
+        try {
+          const items = parseSnapshot(JSON.parse(event.data));
+          setSnapshot((current) => withItems(current, items));
         } catch (error: unknown) {
           setError(message(error));
           setConnection("Invalid stream");
