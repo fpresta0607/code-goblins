@@ -19,10 +19,12 @@ const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 
 // The board must never ask it.
 const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
-async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1 } = {}) {
+// With app the page is as the desktop window shows it: WebView2's own page
+// object is there, and the window has taken the browser's recognizer away.
+async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false } = {}) {
   const asked: string[] = [];
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
-  await page.addInitScript(({ hint, dictations }) => {
+  await page.addInitScript(({ hint, dictations, app }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
     if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
     const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0 };
@@ -45,8 +47,11 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
       stop() { if (!this.live) return; this.live = false; this.onresult?.({ resultIndex: 0, results: [[{ transcript: "ship the voice bubble" }]] }); this.onend?.(); }
       abort() { this.live = false; this.onend?.(); }
     }
-    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
-  }, { hint, dictations });
+    if (!app) { Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition }); return; }
+    const host = window as unknown as { chrome?: object };
+    host.chrome = { ...host.chrome, webview: { postMessage: () => {} } };
+    for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) Object.defineProperty(window, name, { configurable: true, writable: true, value: undefined });
+  }, { hint, dictations, app });
   await page.goto("/tests/fixtures/voice-bubble.html" + (panes === 2 ? "?panes=2" : ""));
   return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked };
 }
@@ -103,6 +108,26 @@ test("the board never names SIQspeak and never asks for it: holding the shortcut
   await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["ship the voice bubble"]);
   expect(await readable(page)).not.toMatch(/siqspeak/i);
   expect(asked).toEqual([]);
+});
+
+test.describe("in the desktop app", () => {
+  // The Overlord's window: maximized on a 2560 by 1600 screen at 150 percent.
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("the shortcut says dictation is not in the app yet, and names no browser", async ({ page }, testInfo) => {
+    const { bubble, pane } = await openPane(page, { app: true });
+    await holdShortcut(page, 100);
+    await releaseShortcut(page);
+    const note = pane.getByRole("status");
+    await expect(note).toHaveText("Dictation is not in the desktop app yet. It is being built.");
+    await expect(bubble).not.toHaveClass(/recording/);
+    expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(0);
+    // The whole note is inside the pane, on one line.
+    const box = await note.boundingBox(), frame = await pane.boundingBox();
+    expect(box && frame && box.x >= frame.x && box.x + box.width <= frame.x + frame.width).toBe(true);
+    expect(await note.evaluate((element) => element.scrollWidth <= element.clientWidth && element.getClientRects().length === 1)).toBe(true);
+    await testInfo.attach("app-dictation-note", { body: await pane.screenshot(), contentType: "image/png" });
+  });
 });
 
 test("an error note under the open list never covers it", async ({ page }) => {
