@@ -123,6 +123,11 @@ type Database struct {
 	// not take them yet: still arriving, or held by the Overlord's own board
 	// answer on its way. Only the pipe adds to them, so each is proven.
 	CFOAnswers []cfoAnswer `json:"cfo_answers,omitempty"`
+	// Credentials are requests for credential values, by name only.
+	Credentials []CredentialRequest `json:"credentials,omitempty"`
+	// Announced is every Command Center key the board has announced, so no
+	// item is announced twice.
+	Announced []Announcement `json:"announced,omitempty"`
 }
 
 type Store struct {
@@ -239,11 +244,19 @@ func cloneDatabase(d Database) Database {
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CFOAnswers = slices.Clone(d.CFOAnswers)
+	d.Credentials = slices.Clone(d.Credentials)
+	for i := range d.Credentials {
+		d.Credentials[i] = d.Credentials[i].clone()
+	}
+	d.Announced = slices.Clone(d.Announced)
 	for i := range d.Questions {
 		d.Questions[i].Options = slices.Clone(d.Questions[i].Options)
 	}
 	for i := range d.Reviews {
 		d.Reviews[i].ImageSums = slices.Clone(d.Reviews[i].ImageSums)
+	}
+	for i := range d.Runs {
+		d.Runs[i].CredentialNames = slices.Clone(d.Runs[i].CredentialNames)
 	}
 	return d
 }
@@ -591,9 +604,9 @@ func (s *Store) queue(a Action) (Action, error) {
 }
 
 // queueItemAction admits the Overlord answering or clearing one Command
-// Center item: an open review, or a question that closed without an answer.
-// A pending question cannot be cleared, so an unanswered decision is never
-// hidden. A clear carries text only to say the Overlord opened or downloaded
+// Center item: an open review, or a question that closed without an answer
+// or still waits on him, which the clear dismisses. A pending question whose
+// answer is on its way cannot be cleared. A clear carries text only to say the Overlord opened or downloaded
 // the item's document.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
@@ -609,9 +622,9 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		}
 	}
 	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
-		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed")
+		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed" || q.Status == "pending" && q.AnswerID == "")
 	}) {
-		return Action{}, errors.New("only a question that closed without an answer can be cleared; refresh the board")
+		return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
 	}
 	// A run item runs once: the action claims it here, under the store lock.
 	run := -1
@@ -718,11 +731,13 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			s.db.Tasks[a.TaskID] = result
 		}
 	}
-	// An answer closes the pages that carry its question once, when it is
-	// sent or taken: a delivery that settles later was sent first.
+	// An answer closes the pages that carry its question, and its goblin's
+	// waits on the Overlord up to it, once, when it is sent or taken: a
+	// delivery that settles later was sent first.
 	if (a.Kind == "cfo_answer" || a.Kind == "goblin_answer") && (completed.Status == "succeeded" || completed.Awaiting != nil) {
 		if q := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.AnswerID == a.ID }); q >= 0 {
 			s.closePagesOfQuestion(s.db.Questions[q], "overlord", "You answered its question: "+a.Text)
+			s.closeWaitsOfQuestion(s.db.Questions[q], "You answered its question: "+a.Text)
 		}
 	}
 	s.updateQuestionOutcomes()
