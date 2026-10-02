@@ -202,12 +202,12 @@ func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	}
 }
 
-// Windows runs the goblins that started the window at login, which starts the
-// supervisor first. A window started on its own has no such goblins, so it
-// starts itself on the same board, in the tray.
-func TestTheLoginCommandIsTheLauncherOrTheWindowItself(t *testing.T) {
+// At login Windows runs the window alone where goblins started it, which opens
+// the app through that goblins with no terminal. A window started on its own
+// has no such goblins, so it starts itself on the same board, in the tray.
+func TestTheLoginCommandIsTheWindowAloneOrTheWindowOnItsBoard(t *testing.T) {
 	for name, test := range map[string]struct{ launcher, want string }{
-		"started by goblins": {`C:\home\goblins.exe`, `"C:\home\goblins.exe" --window --background`},
+		"started by goblins": {`C:\app\goblins.exe`, `"C:\app\goblins-window.exe" --background`},
 		"started on its own": {"", `"C:\app\goblins-window.exe" --board http://127.0.0.1:4310 --state "C:\home\state" --background`},
 	} {
 		t.Run(name, func(t *testing.T) {

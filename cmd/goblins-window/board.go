@@ -273,13 +273,14 @@ const runValue = "CodeGoblins"
 // it. A flag would stop a window older than its goblins from starting at all.
 const launcherVariable = "CODE_GOBLINS_LAUNCHER"
 
-// loginCommand is what Windows runs at login: the goblins that started the
-// window, which starts the supervisor quietly and the window in the tray, or,
-// for a window started on its own, the window itself on the same board, in
-// the tray, where it follows the supervisor's record once one runs.
+// loginCommand is what Windows runs at login. For a window that goblins
+// started it is the window alone, for the tray, which runs that goblins out of
+// sight, so the supervisor starts first and no terminal shows. For a window
+// started on its own it is the window on the same board, in the tray, where
+// it follows the supervisor's record once one runs.
 func loginCommand(launcher, window, board, stateDir string) string {
 	if launcher != "" {
-		return `"` + launcher + `" --window --background`
+		return `"` + window + `" --background`
 	}
 	return `"` + window + `" --board ` + board + ` --state "` + stateDir + `" --background`
 }
