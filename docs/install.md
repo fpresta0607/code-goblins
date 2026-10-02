@@ -1,7 +1,7 @@
 # Installing Code Goblins
 
 There are two ways in, and each is one command you can rerun at any time.
-Both run `goblins doctor`, which checks every tool and harness the fleet needs, add Code Goblins to the Start menu, and end by opening the board in your browser.
+Both run `goblins doctor`, which checks every tool and harness the fleet needs, add Code Goblins to the Start menu, and end with the quick start in the same window.
 Both put `cfo` and `goblins` on your PATH; the one-line install's own window has them at once, and any other terminal that was already open finds them once you open a new one.
 
 ## To use it
@@ -28,11 +28,33 @@ In order, it:
    Kimi has no scriptable installer, so it prints the manual step instead.
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
-8. Adds Code Goblins to your Start menu, which runs `goblins --board`: it opens the board, starting the supervisor first when none runs.
-9. Runs `goblins doctor`, then opens the board in your browser with `goblins --board`.
+8. Adds Code Goblins to your Start menu, which runs `goblins`, the quick start, in a window of its own.
+9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
-A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins --board`, restarts it on the new one.
+A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins`, restarts it on the new one.
+
+## The quick start
+
+`goblins` with no command is the quick start, from any folder, and it waits on you one screen at a time: each shows its default marked, Enter continues, Up and Down choose and Esc goes back.
+
+1. It finds the supervisor, or starts it in the background, and prints the board's link; it never opens the board on its own.
+2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows each one's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
+   Claude Code is marked as recommended for the best experience, and Codex and pi as not woken by goblin reports yet.
+3. When the agent you choose is missing, Enter installs it the way the install script does: Claude Code's native build from <https://claude.ai/install.ps1>, Codex and pi with `npm install -g`, which needs Node.js.
+   When npm's `claude.cmd` comes before Claude Code's native build on PATH, which a native terminal cannot start, it shows the uninstall command to run instead, on a line of its own, and Enter checks again once you have run it.
+4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
+   You sign in there yourself; nothing is typed for you.
+5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native` in a native terminal of its own.
+   In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
+   For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
+6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes.
+   Esc there leaves both running and exits.
+
+Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CFO running they start nothing.
+`goblins setup` shows the choice of agent again, and `goblins --harness codex|claude|pi` names it instead of asking.
+A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
 A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.
 The install downloads and verifies the pinned release first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
