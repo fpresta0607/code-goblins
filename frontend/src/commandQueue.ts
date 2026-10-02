@@ -1,27 +1,31 @@
 import type { IconName } from "./Icon.tsx";
-import { object, string, type Action, type BoardActivity, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
+import { object, string, type Action, type BoardActivity, type CredentialRequest, type Question, type Review, type ReviewDocument, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
+import { credentialSettled } from "./credentials.ts";
 
 // Everything the Overlord is asked lives in one queue: a goblin's or the CFO's
-// question, a review item (images, a Lavish page, or a wait on him), or a
-// command the CFO needs him to run.
-export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run };
+// question, a review item (images, a Lavish page, or a wait on him), a
+// command the CFO needs him to run, or a request for credential values.
+export type Item = { kind: "question"; key: string; question: Question } | { kind: "review"; key: string; review: Review } | { kind: "run"; key: string; run: Run }
+  | { kind: "credential"; key: string; request: CredentialRequest };
 
 // A question its goblin asked while its review page is open is that page's
 // item: the page's card shows it, so it never waits as a card of its own.
 const foldedIntoPage = (item: Item) => item.kind === "question" && !!item.question.page;
 
+// A terminal a credential card opened shows on that card, not as a run of its own.
 const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.questions || []).map((question): Item => ({ kind: "question", key: "question:" + question.id, question })),
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
-  ...(snapshot.runs || []).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
+  ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
+  ...(snapshot.credentials || []).map((request): Item => ({ kind: "credential", key: "credential:" + request.id, request })),
 ];
-const task = (item: Item) => item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : "";
-const created = (item: Item) => Date.parse(item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
-const closed = (item: Item) => Date.parse(item.kind === "question" ? item.question.answered_at || item.question.created_at
+const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : "";
+const created = (item: Item) => Date.parse(item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
+const closed = (item: Item) => Date.parse(item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
   : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at) || 0;
 // A run stays in the stack while it runs, so its card shows the result.
-export const isOpen = (item: Item) => item.kind === "question" ? item.question.status === "pending"
+export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
 // An item the Overlord answered outside the Command Center, such as on its own
@@ -220,6 +224,7 @@ function answerOutcome(review: Review, actions: Action[]): "delivered" | "handed
 // A delivery that never arrived reads as what to do about it, in the
 // supervisor's words, while its action is still recorded.
 export function settledLabel(item: Item, actions: Action[]): string {
+  if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
   if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
@@ -240,6 +245,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
 }
 
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
+  if (item.kind === "credential") return item.request.state === "saved" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
     // One check while a board answer is on its way, two once it is delivered.

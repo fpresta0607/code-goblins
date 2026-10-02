@@ -83,7 +83,9 @@ const (
 )
 
 // Build turns one read into the report. area is nil when no brief or file
-// list was given, and the report then names no overlaps.
+// list was given, and the report then names no overlaps. Every list the
+// report always carries is a list even when empty, so its JSON never says
+// null where a reader expects [].
 func Build(activity Activity, now time.Time, area *Area) Report {
 	people := contributors(activity, now)
 	report := Report{
@@ -92,10 +94,17 @@ func Build(activity Activity, now time.Time, area *Area) Report {
 		ReadAt:        now,
 		Collaborative: len(people) > 0,
 		Contributors:  people,
-		Issues:        slices.Clone(activity.Issues),
-		PullRequests:  slices.Clone(activity.PullRequests),
+		Issues:        append([]Issue{}, activity.Issues...),
+		PullRequests:  append([]PullRequest{}, activity.PullRequests...),
 		Branches:      listedBranches(activity, now),
 		Unread:        slices.Clone(activity.Unread),
+	}
+	for i := range report.Issues {
+		report.Issues[i].Assignees = append([]string{}, report.Issues[i].Assignees...)
+		report.Issues[i].Labels = append([]string{}, report.Issues[i].Labels...)
+	}
+	for i := range report.PullRequests {
+		report.PullRequests[i].Files = append([]string{}, report.PullRequests[i].Files...)
 	}
 	slices.SortFunc(report.Issues, func(a, b Issue) int { return b.Number - a.Number })
 	slices.SortFunc(report.PullRequests, func(a, b PullRequest) int { return b.Number - a.Number })
@@ -128,7 +137,7 @@ func listedBranches(activity Activity, now time.Time) []Branch {
 		}
 	}
 	since := now.Add(-BranchWindow)
-	var branches []Branch
+	branches := []Branch{}
 	for _, branch := range activity.Branches {
 		if branch.Name == activity.DefaultBranch || branch.CommittedAt.Before(since) || isOverlord(branch.Author, activity.Viewer) {
 			continue
@@ -143,7 +152,7 @@ func listedBranches(activity Activity, now time.Time) []Branch {
 // overlaps names every open pull request and listed branch that changes files
 // in the area, and every open issue whose text matches it.
 func overlaps(report Report, area Area) *Overlaps {
-	result := &Overlaps{Area: slices.Clone(area.Paths), Files: []FileOverlap{}, Issues: []IssueMatch{}}
+	result := &Overlaps{Area: append([]string{}, area.Paths...), Files: []FileOverlap{}, Issues: []IssueMatch{}}
 	for _, pull := range report.PullRequests {
 		if files := filesInArea(area, pull.Files); len(files) > 0 {
 			result.Files = append(result.Files, FileOverlap{PullRequest: pull.Number, Branch: pull.HeadRef, URL: pull.URL, Author: pull.Author, Files: files})

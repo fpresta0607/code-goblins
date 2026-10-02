@@ -23,13 +23,10 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args:           []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
-		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
-		PromptFile:     `C:\briefs\task.md`,
-		TypedLaunch:    true,
-		Executable:     "codex",
-		ConfirmMarkers: []string{"Do you trust the contents of this directory?"},
-		ConfirmKeys:    []string{"enter"},
+		Args:       []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
+		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
+		PromptFile: `C:\briefs\task.md`,
+		Executable: "codex",
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{

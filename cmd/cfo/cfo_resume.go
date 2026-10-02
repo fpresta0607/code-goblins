@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,7 +63,7 @@ func claudeTranscriptSize(dir, session string) int64 {
 		return 0
 	}
 	info, err := os.Stat(filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(dir, "-"), session+".jsonl"))
-	if errors.Is(err, os.ErrNotExist) || err != nil {
+	if err != nil {
 		return 0
 	}
 	return info.Size()

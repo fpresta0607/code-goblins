@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -130,8 +131,15 @@ func blockingAtOrBelow(stateDir string, seq int) ([]wake.Record, error) {
 // renderDrain reads the wake queue's raw pending records and current
 // episode, then hands them to wake.Render, the shared renderer behind both
 // this command and the session-start digest's WAKE QUEUE section. See
-// wake.Render's doc comment for the four output shapes it prints.
+// wake.Render's doc comment for the four output shapes it prints. While AFK
+// mode is on its notice comes first, so every wake tells the CFO it is on
+// and what its authority covers, and the drain still ends with its ack line.
 func renderDrain(stateDir string, stdout io.Writer) error {
+	for _, line := range afk.NoticeFor(stateDir) {
+		if _, err := fmt.Fprintln(stdout, line); err != nil {
+			return err
+		}
+	}
 	records, err := wake.Pending(stateDir)
 	if err != nil {
 		return err

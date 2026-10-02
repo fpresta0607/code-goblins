@@ -1,59 +1,16 @@
 package harness
 
 import (
-	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
 )
 
-// PowerShellPrefix renders the pane-shell preparation line typed before the
-// harness starts: agent start has no environment or working-directory
-// support, so the leased worktree and the harness environment are established
-// in the shell first. Every value is a single-quoted PowerShell literal;
-// Herdr panes run Windows PowerShell 5.1, whose native-argument quoting
-// corrupts any argument containing embedded double quotes.
-func (launch Launch) PowerShellPrefix() (string, error) {
-	if launch.Env == nil || launch.Env["GOTMPDIR"] == "" {
-		return "", errors.New("harness: launch GOTMPDIR is required")
-	}
-	if launch.Dir != "" && !filepath.IsAbs(launch.Dir) {
-		return "", errors.New("harness: launch Dir must be absolute")
-	}
-
-	keys := make([]string, 0, len(launch.Env))
-	for key := range launch.Env {
-		if !ValidEnvironmentName(key) {
-			return "", fmt.Errorf("harness: invalid environment name %q", key)
-		}
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	parts := make([]string, 0, len(keys)+2)
-	if launch.Dir != "" {
-		parts = append(parts, "Set-Location -LiteralPath "+powerShellLiteral(launch.Dir))
-	}
-	// Project credentials are sourced before the harness environment so a
-	// launch value such as GOTMPDIR always wins over anything a project
-	// manifest happens to declare under the same name.
-	if launch.SecretsFile != "" {
-		if !filepath.IsAbs(launch.SecretsFile) {
-			return "", errors.New("harness: launch SecretsFile must be absolute")
-		}
-		parts = append(parts, ". "+powerShellLiteral(launch.SecretsFile))
-	}
-	for _, key := range keys {
-		parts = append(parts, "$env:"+key+" = "+powerShellLiteral(launch.Env[key]))
-	}
-	return strings.Join(parts, "; "), nil
-}
-
-// RenderEnvScript renders environment assignments as a PowerShell script for
-// a launch's SecretsFile. Keeping the values in a file rather than in the
-// typed line is what keeps a credential out of the pane's scrollback.
+// RenderEnvScript renders environment assignments as the PowerShell script a
+// goblin dot-sources to take project credentials refreshed after its spawn.
+// Keeping the values in a file rather than in a typed line is what keeps a
+// credential out of the terminal's scrollback.
 func RenderEnvScript(env map[string]string) (string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
@@ -83,8 +40,8 @@ func RenderEnvScript(env map[string]string) (string, error) {
 }
 
 // HarnessBillingKeys are the variables a coding harness reads as its own
-// authentication. The pane script removes every one of them before the
-// harness starts, so the harness can only run on the subscription. Kept
+// authentication. The credential script removes every one of them, so a
+// goblin that sources it can only run on the subscription. Kept
 // here rather than in the auth package so the harness contract owns the
 // list; auth.IsHarnessBillingKey consults it for the injection guard.
 var HarnessBillingKeys = []string{
@@ -100,40 +57,12 @@ var HarnessBillingKeys = []string{
 	"GOOGLE_API_KEY",
 }
 
-// PowerShellTypedLine renders the full typed launch for harnesses Herdr cannot
-// start natively (npm .cmd shims). The instruction is never part of the line:
-// it is typed into the harness's composer as pane text once the composer shows
-// on screen. PowerShell 5.1 re-parses embedded double
-// quotes in native arguments even inside a single-quoted PowerShell literal.
-// Keeping the instruction out of argv also avoids Codex resume's SESSION_ID
-// positional binding.
-func (launch Launch) PowerShellTypedLine() (string, error) {
-	if !launch.TypedLaunch {
-		return "", errors.New("harness: typed line requires a typed-launch harness")
-	}
-	if strings.TrimSpace(launch.Executable) == "" {
-		return "", errors.New("harness: typed launch executable is required")
-	}
-	prefix, err := launch.PowerShellPrefix()
-	if err != nil {
-		return "", err
-	}
-	command := "& " + powerShellLiteral(launch.Executable)
-	for _, arg := range launch.Args {
-		if strings.ContainsAny(arg, "\"\r\n") {
-			return "", errors.New("harness: typed launch arguments cannot contain double quotes or line breaks")
-		}
-		command += " " + powerShellLiteral(arg)
-	}
-	return prefix + "; " + command, nil
-}
-
 func powerShellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // ValidEnvironmentName reports whether name can be assigned as $env:name in
-// the pane shell. It is the single rule for environment names: rendering
+// a PowerShell script. It is the single rule for environment names: rendering
 // enforces it, and a worktree manifest's env redirects are validated against it
 // at resolve time, so a bad name is refused before anything is stopped or
 // provisioned rather than at launch.

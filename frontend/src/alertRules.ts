@@ -1,4 +1,5 @@
 import { isOpen, itemFor, newestItemOf, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { credentialAsk } from "./credentials.ts";
 import { messageBlocks } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
@@ -52,6 +53,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
     return alert(item.question.task, asker(item.question.task) + " asks: " + spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim());
   }
   if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + waitReason(item.review) : " wants your review: " + item.review.title));
+  if (item.kind === "credential") return alert(item.request.task, asker(item.request.task) + " asks: " + credentialAsk(item.request));
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
@@ -89,9 +91,10 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snaps
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord
-// or finished: a new question, review or command in the Command Center, and a
-// goblin that became blocked, failed or done with its pull request. The first
-// snapshot a page sees alerts nothing: what already waits is under the badge.
+// or finished: a new question, review, command or credential request in the
+// Command Center, and a goblin that became blocked, failed or done with its
+// pull request. The first snapshot a page sees alerts nothing: what already
+// waits is under the badge.
 // A question that was open inside its page's card is not new when it shows
 // as a card of its own.
 // The Completed column's history is not a goblin finishing, so it alerts

@@ -118,6 +118,11 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err != nil {
 		return "", err
 	}
+	// Plain cfo register names no session. Codex gives every command it runs
+	// its thread, which is the conversation a closed Codex CFO comes back on.
+	if session == "" && primary.Agent == "codex" {
+		session = os.Getenv("CODEX_THREAD_ID")
+	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if !slices.ContainsFunc(ancestry[:harnessAt+1], func(entry proc.Entry) bool { return lock.HeldBy(stateDir, entry.PID) }) {
 		if _, err := lock.AcquireOwner(stateDir, ancestry[harnessAt].PID, session); err != nil {

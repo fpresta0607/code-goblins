@@ -536,6 +536,35 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	}
 }
 
+// The CFO the board's first-run page starts runs in the Code Goblins home, as
+// the one goblins starts does, never in a project: its harness starts with
+// the home as its folder.
+func TestTheFirstRunPageStartsTheCFOInItsHome(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, self, filepath.Join(bin, "claude.exe"))
+	t.Setenv("PATH", bin)
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	err = run.StartCFO("claude")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the first-run page's StartCFO: %v", err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+	if env := waitForFakeClaudeEnvironment(t, h.Root); env["CFO_HOME"] != h.Root {
+		t.Errorf("the CFO's CFO_HOME = %q, want the home %q", env["CFO_HOME"], h.Root)
+	}
+}
+
 // fakeClaudeArguments is the file the test binary, run as claude.exe in a
 // native terminal, writes its arguments to, one a line, in its working
 // directory.

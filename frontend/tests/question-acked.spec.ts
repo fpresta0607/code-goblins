@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // The Overlord, 2026-10-01: "they shouldn't say withdrawn it should say
 // complete". A goblin's question he answered in chat, which the CFO relayed

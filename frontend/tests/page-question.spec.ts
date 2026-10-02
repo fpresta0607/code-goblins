@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // One question, one place: a goblin that asks a question about its open
 // review page gets one card in the Command Center, the page's, which shows

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -120,12 +121,17 @@ mode: %s
 }
 
 // runPR handles "cfo pr check <id> <url>" and "cfo pr merge <url>".
-func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.Runner) int {
+func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.Runner, runtime commandRuntime) int {
 	switch sub {
 	case "check":
 		return runPRCheck(args, stdout, stderr)
 	case "merge":
-		return runPRMerge(args, stdout, stderr, commands)
+		away, err := afkAuthorityOf(runtime)
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo pr merge: "+err.Error())
+			return 1
+		}
+		return runPRMerge(args, stdout, stderr, commands, away)
 	default:
 		fmt.Fprintf(stderr, "cfo pr: unknown subcommand %q (want check or merge)\n", sub)
 		return 2
@@ -197,7 +203,12 @@ func recordPR(stateDir, id, url, head string) (err error) {
 // Neither cleanup step can fail the command. The merge is the irreversible
 // half and has already succeeded by the time they run, so exiting non-zero
 // over a leftover ref would report a successful merge as a failure.
-func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) int {
+//
+// While AFK mode is on (away is not nil) the merge is the CFO's own merge
+// word: it says what verified the pull request, the pull request must meet
+// what the Overlord's authority names, the word is logged with its evidence
+// before anything merges, and deleting the branch stays his.
+func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, away *afkAuthority) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "cfo pr merge: <url> is required")
 		return 2
@@ -207,6 +218,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) 
 	fs.SetOutput(stderr)
 	method := fs.String("method", "merge", "merge, squash, or rebase")
 	deleteBranch := fs.Bool("delete-branch", false, "delete the branch after merge")
+	verified := fs.String("verified", "", "while AFK mode is on, what verified the pull request: the gate run or the local checks, and the output you read")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -220,21 +232,57 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner) 
 		fmt.Fprintln(stderr, "cfo pr merge: --method must be merge, squash, or rebase")
 		return 2
 	}
+	if away != nil {
+		switch {
+		case strings.TrimSpace(*verified) == "":
+			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, so this merge word is yours and is logged with its evidence: say what verified the pull request with --verified \"<the gate run or the local checks, and the output you read>\"")
+			return 2
+		case *deleteBranch:
+			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, and deleting a branch stays the Overlord's alone: run it again without --delete-branch, and leave the branch for him")
+			return 2
+		}
+	}
 	ctx := context.Background()
 	proof, err := verifyPRReady(ctx, url, commands)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "merge", url, "--" + *method, "--match-head-commit", proof.HeadRefOID}})
+	merge := []string{"pr", "merge", url, "--" + *method, "--match-head-commit", proof.HeadRefOID}
+	// outcome logs how a merge word given under AFK mode ended. The merge is
+	// decided by then, so a log that does not take the line is reported and
+	// changes nothing.
+	outcome := func(how string) {
+		if away == nil {
+			return
+		}
+		if err := away.log(afk.Entry{Kind: afk.KindMerge, What: url, Link: url, Evidence: "gh " + strings.Join(merge, " "), Outcome: how}); err != nil {
+			fmt.Fprintf(stderr, "cfo pr merge: AFK mode's log did not take how the merge went (%s): %v\n", how, err)
+		}
+	}
+	if away != nil {
+		evidence, err := afkMergeEvidence(ctx, url, strings.TrimSpace(*verified), proof, commands)
+		if err != nil {
+			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, and "+err.Error())
+			return 1
+		}
+		if err := away.log(afk.Entry{Kind: afk.KindMerge, What: url, Link: url, Evidence: evidence}); err != nil {
+			fmt.Fprintf(stderr, "cfo pr merge: AFK mode is on, and its log did not take the merge word (%v), so nothing was merged\n", err)
+			return 1
+		}
+	}
+	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: merge})
 	if err != nil {
+		outcome("not merged: " + err.Error())
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if res.ExitCode != 0 {
+		outcome(fmt.Sprintf("not merged: gh exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr))))
 		fmt.Fprintf(stderr, "cfo pr merge: gh exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 		return 1
 	}
+	outcome(afk.OutcomeMerged)
 	fmt.Fprintln(stdout, strings.TrimSpace(string(res.Stdout)))
 	if *deleteBranch {
 		deleteMergedBranch(ctx, url, stdout, stderr, commands)

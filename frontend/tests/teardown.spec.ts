@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 test("paused, resumed, stopped and restarted cards show Windows teardown at a readable size", async ({ page }) => {
