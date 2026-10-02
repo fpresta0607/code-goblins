@@ -178,6 +178,96 @@ func TestACheckpointNamesWhatItCouldNotRead(t *testing.T) {
 	section(t, checkpoint, "== READ THIS NEXT ==")
 }
 
+func TestACheckpointNamesUnreadableInputsAndKeepsTheRemainingSections(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		path        string
+		content     string
+		isDirectory bool
+		header      string
+		want        string
+	}{
+		{name: "status", path: "task-1.status", isDirectory: true, header: "== FLEET ==", want: "status UNREADABLE"},
+		{name: "lifecycle", path: "lifecycle/task-1.json", content: "{broken", header: "== HOLDS AND FREEZES ==", want: "lifecycle UNREADABLE"},
+		{name: "AFK", path: "afk.json", content: "{broken", header: "== HOLDS AND FREEZES ==", want: "AFK MODE: UNREADABLE"},
+		{name: "queue", path: ".wake-queue", content: "{broken\n", header: "== OWED ==", want: "wake queue: UNREADABLE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := newDigestHome(t)
+			writeFile(t, filepath.Join(h.State, "task-1.meta"), "goblin_id=task-1\nharness=pi\nkind=ship\nspawn_gen=s1\n")
+			path := filepath.Join(h.State, filepath.FromSlash(test.path))
+			if test.isDirectory {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeFile(t, path, test.content)
+			}
+
+			checkpoint := readCheckpoint(t, h, time.Now())
+
+			if body := section(t, checkpoint, test.header); !strings.Contains(body, test.want) {
+				t.Errorf("%s lacks %q:\n%s", test.header, test.want, body)
+			}
+			section(t, checkpoint, "== READ THIS NEXT ==")
+		})
+	}
+}
+
+func TestACheckpointListsOnlyCurrentLifecycleHolds(t *testing.T) {
+	for _, phase := range []string{"pausing", "paused", "resuming", "stopping", "stopped", "running", "failed"} {
+		t.Run(phase, func(t *testing.T) {
+			h := newDigestHome(t)
+			writeFile(t, filepath.Join(h.State, "task-1.meta"), "goblin_id=task-1\nspawn_gen=s1\n")
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "s1", Operation: "op-1", Action: "pause", Phase: phase, Reason: "the operator chose it"}); err != nil {
+				t.Fatal(err)
+			}
+
+			body := section(t, readCheckpoint(t, h, time.Now()), "== HOLDS AND FREEZES ==")
+
+			shouldList := phase != "running" && phase != "failed"
+			if strings.Contains(body, "task-1: "+phase) != shouldList {
+				t.Errorf("lifecycle %s should be listed = %t:\n%s", phase, shouldList, body)
+			}
+		})
+	}
+}
+
+func TestACheckpointKeepsAnsweredWakesWithoutReopeningTheirQuestions(t *testing.T) {
+	h := newDigestHome(t)
+	record, err := wake.Append(h.State, "notify", "task-1", "blocked: Which plan?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Keep the plan"); err != nil {
+		t.Fatal(err)
+	}
+
+	checkpoint := readCheckpoint(t, h, time.Now())
+
+	if questions := section(t, checkpoint, "== OPEN QUESTIONS =="); strings.Contains(questions, "Which plan?") {
+		t.Errorf("an answered wake reopens its question:\n%s", questions)
+	}
+	if owed := section(t, checkpoint, "== OWED =="); !strings.Contains(owed, "answered by cfo: Keep the plan") {
+		t.Errorf("the pending wake lost its answer:\n%s", owed)
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil || len(records) != 1 || records[0].Seq != record.Seq || records[0].Answered != "Keep the plan" {
+		t.Fatalf("checkpoint changed the wake queue: %v, %v", records, err)
+	}
+}
+
+func TestWriteCheckpointReportsAWriteFailure(t *testing.T) {
+	h := newDigestHome(t)
+	if err := os.Mkdir(filepath.Join(h.State, CheckpointFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteCheckpoint(h, time.Now()); err == nil {
+		t.Fatal("checkpoint reported success when its path is a directory")
+	}
+}
+
 // briefAfterCompact is the brief digest a session is handed after a
 // compaction, by a session that holds the home.
 func briefAfterCompact(t *testing.T, h home.Home) string {
@@ -230,6 +320,11 @@ func TestTheBriefAtStartupNamesNoCheckpoint(t *testing.T) {
 func TestTheBriefAfterACompactionSaysWhenNoFreshCheckpointWasWritten(t *testing.T) {
 	for name, arrange := range map[string]func(t *testing.T, h home.Home){
 		"no checkpoint": func(*testing.T, home.Home) {},
+		"not a file": func(t *testing.T, h home.Home) {
+			if err := os.Mkdir(filepath.Join(h.State, CheckpointFile), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"an old checkpoint": func(t *testing.T, h home.Home) {
 			if err := WriteCheckpoint(h, time.Now()); err != nil {
 				t.Fatal(err)

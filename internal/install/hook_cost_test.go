@@ -147,6 +147,37 @@ func TestInstalledHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	}
 }
 
+func TestInstallRegistersPreCompactForManualAndAutomaticCompactionOnce(t *testing.T) {
+	f := newFixture(t, adopterSettings, nil)
+	f.install()
+	f.install()
+
+	count := 0
+	for _, hook := range registeredHooks(t, f.user) {
+		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.root, "cfo.exe") {
+			continue
+		}
+		count++
+		if hook.Shell || len(hook.Args) != 2 || hook.Args[0] != "hook" || hook.Args[1] != "pre-compact" {
+			t.Errorf("pre-compact hook = %#v", hook)
+		}
+		for _, trigger := range []string{"manual", "auto"} {
+			if !selects(t, hook.Matcher, trigger) {
+				t.Errorf("pre-compact matcher %q does not select %s", hook.Matcher, trigger)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("installed %d pre-compact hooks, want one", count)
+	}
+	f.uninstall()
+	for _, hook := range registeredHooks(t, f.user) {
+		if hook.Event == "PreCompact" && hook.Command == filepath.Join(f.root, "cfo.exe") {
+			t.Fatal("uninstall left the pre-compact hook registered")
+		}
+	}
+}
+
 // A machine installed before hooks ran without a shell holds the shell-form
 // entries; installing again replaces them rather than running both.
 func TestInstallReplacesShellFormHooks(t *testing.T) {
