@@ -117,6 +117,10 @@ test("an error note under the open list never covers it", async ({ page }) => {
   expect(note && card && note.y < card.y + card.height).toBe(true);
   const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
   expect(covered).toBe(false);
+
+  await page.keyboard.press("Escape");
+  await expect(recent).toHaveCount(0);
+  await expect(bubble).toBeFocused();
 });
 
 test("a multiline message pastes as one line, so it never presses Enter, and copies whole", async ({ page }) => {
