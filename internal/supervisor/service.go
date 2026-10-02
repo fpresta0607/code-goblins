@@ -92,9 +92,11 @@ type Service struct {
 	// pullRequests is what GitHub last said about each finished task's pull
 	// request the history shows; only keepHistory touches it.
 	pullRequests map[string]pullRequestState
-	// historyErr is what the last history refresh met; the loop reports it
-	// with its next recovery cycle.
+	// historyErr is what the last history refresh met, and cfoWakeErr what
+	// every typed CFO wake met since the last recovery cycle; the loop
+	// reports them with its next recovery cycle.
 	historyErr error
+	cfoWakeErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -253,6 +255,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	awakeDone := make(chan struct{})
+	go func() {
+		defer close(awakeDone)
+		s.keepCFOAwake(ctx, cfoWakeEvery)
+	}()
+	defer func() { s.cancel(); <-awakeDone }()
 	// A single inbox watcher, independent of task count. A timeout also
 	// recovers notifications lost during atomic renames or an AV filter fault.
 	notified := make(chan struct{}, 1)
@@ -340,7 +348,8 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr)
+		s.cfoWakeErr = nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneRuns(time.Now()))

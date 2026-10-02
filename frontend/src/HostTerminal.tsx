@@ -35,8 +35,8 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
-  const voice = useVoice(instance, hostPane(query), shown);
-  const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, voice.defers);
+  const voice = useVoice(hostPane(query));
+  const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); });
   const dictate = dictation.key;
   useEffect(() => {
     shownValue.current = shown;
