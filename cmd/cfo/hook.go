@@ -393,7 +393,7 @@ const rewokenFile = ".claude-autoarm-rewoken"
 // covered yet. Every queued record needs the CFO, because wake.Append admits
 // no other kind, so none is filtered out. It returns false early once the
 // watcher it relies on stops being healthy.
-func awaitQueuedWake(state string, grace time.Duration, deadline time.Time) (string, bool, error) {
+func awaitQueuedWake(state string, grace, settle time.Duration, deadline time.Time) (string, bool, error) {
 	poll := max(claudehook.Seconds("CFO_POLL", 15), time.Second)
 	for {
 		records, err := wake.Pending(state)
@@ -418,11 +418,50 @@ func awaitQueuedWake(state string, grace time.Duration, deadline time.Time) (str
 			return reason, true, nil
 		}
 		remaining := time.Until(deadline)
-		if remaining <= 0 || !supervise.WatcherHealthy(state, grace) {
+		if remaining <= 0 || settledWatcherProblem(state, grace, settle) != "" {
 			return "", false, nil
 		}
 		time.Sleep(min(poll, remaining))
 	}
+}
+
+// handoverSettlePoll is how often a watcher that is changing hands is looked
+// at again.
+const handoverSettlePoll = 100 * time.Millisecond
+
+// settledWatcherProblem is supervise.WatcherProblem, read again for up to
+// settle while the watcher is changing hands, so a reading taken in the
+// middle of a handover is not taken for supervision being down. The lock is
+// free between a watcher letting it go and serve taking it, serve's record is
+// empty between its creation and its first write, and a serve that has just
+// taken the lock has not stamped its heartbeat yet. On 2026-10-02 the hook
+// reported supervision down in CI while serve held the lock: each of its two
+// attempts took one reading, and a handover always spends the first.
+func settledWatcherProblem(state string, grace, settle time.Duration) string {
+	deadline := time.Now().Add(settle)
+	for {
+		problem := supervise.WatcherProblem(state, grace)
+		if problem == "" || !changingHands(state) || !time.Now().Before(deadline) {
+			return problem
+		}
+		time.Sleep(handoverSettlePoll)
+	}
+}
+
+// changingHands reports whether the watcher lock is on its way to a holder
+// that may yet prove healthy: a live serve has asked for it and not yet
+// withdrawn its request, which it does once it holds the lock; or its record
+// is there and cannot be read, as one being written; or a live process holds
+// it. A lock nobody holds or asks for, or one a dead process left, is not.
+func changingHands(state string) bool {
+	if watch.HandoverPending(state) {
+		return true
+	}
+	holder, err := lock.ReadNamed(state, ".watch.lock")
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return err != nil || holder.Alive()
 }
 
 func readRewoken(state string) (int, error) {
@@ -463,11 +502,11 @@ var actionableReasonPattern = regexp.MustCompile(`^(signal:|stale:|check:|orphan
 
 // rewakeBannerFmt and failureBannerFmt are cfo hook stop-autoarm's two
 // stderr banners, verbatim per the plan brief. rewakeBannerFmt's %s is the
-// actionable reason line; failureBannerFmt's %d/%s are the attempt count and
-// the final attempt's error text.
+// actionable reason line; failureBannerFmt's %d/%s/%s are the attempt count,
+// the final attempt's error text and what the last look at the watcher found.
 const rewakeBannerFmt = "cfo watcher wake - one supervision event needs a handling turn now.\n%s\nRun cfo drain, handle what it presents, and acknowledge with the WAKE_ACK_REQUIRED command it prints. That command is refused while unanswered blocked/failed notifies sit at or below its sequence: drain lists every waiting goblin and retires nothing. Answer each with `cfo send <id> \"...\"`, then re-run with --ack-blocking, which retires EVERY question at or below that sequence. Do not run cfo watch manually after an ordinary wake."
 
-const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nSupervision is down and needs a repair turn: run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and check state\\.watch.lock for a holder that is not yours."
+const failureBannerFmt = "cfo auto-arm FAILED after %d attempt(s): the watcher could not hold this home.\nLast error: %s\nWatcher: %s\nSupervision is down and needs a repair turn: run cfo doctor, repair the stop-autoarm hook registration with cfo install (it writes the user settings: ~/.claude/settings.json, or CLAUDE_CONFIG_DIR when set), and check state\\.watch.lock for a holder that is not yours."
 
 // windowEndedBanner rewakes the CFO when the hook's wait on the wake queue
 // ends with its window and nothing queued, so the turn it ends re-arms it.
@@ -596,13 +635,17 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 	watcherGrace := max(claudehook.Seconds("CFO_GUARD_GRACE", 300), claudehook.Seconds("CFO_WATCHER_STALL", 900))
 	attempts := claudehook.Int("CFO_CLAUDE_AUTOARM_ATTEMPTS", 2, 1, 3)
 	syncWait := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_SYNC_WAIT_MS", 800, 0, 60000)) * time.Millisecond
+	// A watcher changing hands is looked at again for this long before a
+	// look counts as a strike.
+	settle := time.Duration(claudehook.Int("CFO_CLAUDE_AUTOARM_SETTLE_MS", 3000, 0, 60000)) * time.Millisecond
 
 	var (
-		reason      string
-		lastErr     error
-		actionable  bool
-		healthy     bool
-		attemptsRun int
+		reason         string
+		lastErr        error
+		actionable     bool
+		healthy        bool
+		attemptsRun    int
+		watcherProblem string
 	)
 
 	// Step 6: attempt loop. Requirement 1: watch.Config is single-use on
@@ -628,7 +671,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 				actionable = true
 				break
 			}
-			if supervise.WatcherHealthy(state, watcherGrace) {
+			if watcherProblem = settledWatcherProblem(state, watcherGrace, settle); watcherProblem == "" {
 				healthy = true
 				break
 			}
@@ -638,7 +681,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 			break
 		}
 		var err error
-		reason, actionable, err = awaitQueuedWake(state, watcherGrace, deadline)
+		reason, actionable, err = awaitQueuedWake(state, watcherGrace, settle, deadline)
 		if err != nil {
 			healthy, lastErr = false, err
 			break
@@ -718,7 +761,10 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 		if stalled := stalledWatcher(state, watcherGrace, attemptsRun); stalled != "" {
 			return claudehook.BlockStop(stderr, stalled)
 		}
-		return claudehook.BlockStop(stderr, fmt.Sprintf(failureBannerFmt, attemptsRun, lastErrText))
+		if watcherProblem == "" {
+			watcherProblem = "healthy when last looked at"
+		}
+		return claudehook.BlockStop(stderr, fmt.Sprintf(failureBannerFmt, attemptsRun, lastErrText, watcherProblem))
 	}
 
 	// Repeat failure: the outcome is failed-suppressed either way; only
