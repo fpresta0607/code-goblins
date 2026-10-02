@@ -74,6 +74,10 @@ type Run struct {
 
 	ConnectionTask       string `json:"connection_task,omitempty"`
 	ConnectionGeneration string `json:"connection_generation,omitempty"`
+	// Untold is how the item ended, in the words the CFO is told, while no
+	// CFO has been told yet: one that was closed when the item ended hears it
+	// once it runs again.
+	Untold string `json:"untold,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -404,6 +408,19 @@ func (s *Store) finishRun(id, action string, code *int, output, reason string) (
 	return true, s.save()
 }
 
+// untoldRun records what the CFO is still to be told of how an item ended,
+// or with text empty that it was told.
+func (s *Store) untoldRun(id, action, text string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.RunAction == action })
+	if i < 0 || s.db.Runs[i].Untold == text {
+		return nil
+	}
+	s.db.Runs[i].Untold = text
+	return s.save()
+}
+
 // noteRun adds a note to how an item ended.
 func (s *Store) noteRun(id, action, note string) error {
 	s.mu.Lock()
@@ -524,10 +541,29 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if output != "" {
 		text += " The output ends: " + tail(output, 1500)
 	}
+	if !s.Store.cfoLive() {
+		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
+	}
 	if delivery := s.tellCFO(ctx, text); delivery != nil {
-		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
+		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)), s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	return err
+}
+
+// retellRuns tells the CFO, while one runs, how each item ended that no CFO
+// was told of.
+func (s *Service) retellRuns(ctx context.Context) error {
+	var errs error
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.Untold == "" {
+			continue
+		}
+		if err := s.tellCFO(ctx, r.Untold); err != nil {
+			return errors.Join(errs, err)
+		}
+		errs = errors.Join(errs, s.Store.untoldRun(r.ID, r.RunAction, ""))
+	}
+	return errs
 }
 
 // tellCFO sends a run's result to the CFO registered now, which may have

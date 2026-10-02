@@ -644,14 +644,9 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 // ProcessOne commits intent before executing it. Only read-only evaluation is
 // safe to replay after a crash; external deliveries have uncertain outcomes.
 func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Action) (Evaluation, error)) error {
+	live := s.cfoLive()
 	s.mu.Lock()
-	i := -1
-	for index, a := range s.db.Actions {
-		if a.Status == "queued" {
-			i = index
-			break
-		}
-	}
+	i := s.nextQueued(live)
 	if i < 0 {
 		s.mu.Unlock()
 		return nil

@@ -1,0 +1,101 @@
+package supervisor
+
+import "slices"
+
+// The CFO's work on the board is addressed to the home's primary CFO, not to
+// one CFO process: closing the CFO and opening it again is a non-event. Every
+// item the CFO put on the board carries the identity of the registration that
+// put it there, which names a process, so when another CFO process registers
+// in this home the items still waiting move to it, and deliveries to the CFO
+// wait, queued, while no CFO runs. Only the home's registered CFO is ever
+// followed: registering needs the home's session lock, and an item reaches
+// the board only from the CFO its registration proves.
+
+// followCFO addresses the home's CFO work still waiting to the CFO registered
+// as identity: its open questions, its review items whose answer has not
+// reached it, its run items not yet ended, and the queued deliveries to any
+// of them.
+func (s *Store) followCFO(identity string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	moved := map[string]bool{}
+	follow := func(current *string) {
+		if *current != identity {
+			moved[*current] = true
+			*current = identity
+		}
+	}
+	for i := range s.db.Questions {
+		if q := &s.db.Questions[i]; q.Task == "" && (q.Status == "pending" || q.Status == "queued") {
+			follow(&q.Identity)
+		}
+	}
+	for i := range s.db.Reviews {
+		if r := &s.db.Reviews[i]; r.Task == "" && (r.State == "open" || r.State == "answered" && !r.Delivered) {
+			follow(&r.Identity)
+		}
+	}
+	for i := range s.db.Runs {
+		if r := &s.db.Runs[i]; r.ConnectionTask == "" && (r.State == "ready" || r.State == "running") {
+			follow(&r.Identity)
+		}
+	}
+	for i := range s.db.Actions {
+		a := &s.db.Actions[i]
+		if a.Status != "queued" {
+			continue
+		}
+		switch a.Kind {
+		case "cfo_answer", "question_clear", "review_answer", "review_clear", "run":
+			if moved[a.Generation] {
+				a.Generation = identity
+			}
+		case "review":
+			if a.CFOIdentity != "" {
+				follow(&a.CFOIdentity)
+			}
+		}
+	}
+	if len(moved) == 0 {
+		return nil
+	}
+	return s.save()
+}
+
+// cfoLive reports whether the home's CFO is registered and running, so a
+// delivery to it can be made now.
+func (s *Store) cfoLive() bool {
+	cfo := readCFOState(s.Home.State)
+	return cfo.registered && cfo.problem == ""
+}
+
+// waitsForCFO reports whether a queued action is a delivery to the CFO, which
+// waits while no CFO runs instead of failing. The caller holds s.mu.
+func (s *Store) waitsForCFO(a Action) bool {
+	switch a.Kind {
+	case "cfo_answer":
+		return true
+	case "review":
+		return a.CFOIdentity != ""
+	case "review_answer":
+		i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == a.ReviewID })
+		return i >= 0 && s.db.Reviews[i].Task == ""
+	}
+	return false
+}
+
+// nextQueued is the index of the first queued action that can run now, or -1.
+// With no CFO running, deliveries to the CFO wait. The caller holds s.mu.
+func (s *Store) nextQueued(cfoLive bool) int {
+	return slices.IndexFunc(s.db.Actions, func(a Action) bool {
+		return a.Status == "queued" && (cfoLive || !s.waitsForCFO(a))
+	})
+}
+
+// HasRunnable reports whether a queued action can run now.
+func (s *Store) HasRunnable() bool {
+	live := s.cfoLive()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nextQueued(live) >= 0
+}
