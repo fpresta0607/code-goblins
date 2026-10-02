@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { announce, message, request } from "./api";
-import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
+import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
@@ -55,8 +56,10 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // quietly; an item he acted on never comes back, so a delivery that fails
 // later reads as its line in History. The
 // last one ends on "You're all done" before the Command Center closes. It
-// tells onUnsent whether any card keeps an answer not yet sent.
-export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void }) {
+// tells onUnsent whether any card keeps an answer not yet sent, and onSent
+// what he sent for an item the moment he sends it, then null if the
+// supervisor refused it.
+export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -87,8 +90,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // it; trouble keeps the card itself on screen with what went wrong. A run
   // keeps its card, which shows the command's result. An item he answered
   // elsewhere, such as on its page, finishes the same way, whatever this card
-  // tried meanwhile.
-  const elsewhere = !!item && answeredElsewhere(item);
+  // tried meanwhile, and so does one that closed while this card sent nothing:
+  // answered on another board, or taken back by its asker or the CFO.
+  const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
+  const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
@@ -206,10 +211,15 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const submission = submissionFor(JSON.stringify(payload), draft.submission, () => crypto.randomUUID());
     update(key, { submission, sending: true, error: "" });
     setKept((prior) => new Set([...prior, key]));
+    const item = itemFor(snapshot, key);
+    if (item) onSent?.(key, { kind: string(payload.kind), id: submission.id, text: string(payload.text), answer_kind: string(payload.answer_kind), created_at: publishedAt(item) });
     try {
       const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
       update(key, { receipt, sending: false });
-    } catch (error: unknown) { update(key, { error: message(error), sending: false }); }
+    } catch (error: unknown) {
+      update(key, { error: message(error), sending: false });
+      onSent?.(key, null);
+    }
   };
   const send = (target: Item) => {
     const draft = drafts[target.key] || EMPTY_DRAFT;
@@ -298,7 +308,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : elsewhere
-              ? <DoneCard key={item.key} heading="Answered" label={settledLabel(item, snapshot.actions)} pager={pager} />
+              ? <DoneCard key={item.key} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={item.key} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />
