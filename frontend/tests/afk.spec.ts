@@ -142,13 +142,14 @@ test("a refusal is said in the supervisor's words, in the question and under the
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
-test("while AFK is on the bar stays plain though things wait on him, lists what is held, and Answer opens that item in the Command Center", async ({ page }) => {
+test("while AFK is on nothing glows on the bar though things wait on him, it lists what is held, and Answer opens that item in the Command Center", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
-  // With AFK off the same items make the bar say what waits on him.
-  await expect(bar(page)).toContainText("Waiting on you: Migration 0042 drops the legacy_invoices table. Apply it? and 1 more");
+  // With AFK off the same items put a glowing Open Command Center on the bar.
+  const glowing = bar(page).getByRole("button", { name: /^Open Command Center/ });
+  await expect(glowing).toHaveAccessibleName("Open Command Center: 2 waiting on you");
 
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(bar(page).locator(".dialogue")).toHaveCount(0);
+  await expect(glowing).toHaveCount(0);
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided, 2 held for you\.$/);
   const rows = bar(page).locator(".afk-held li");
   await expect(rows).toHaveCount(2);
@@ -280,7 +281,7 @@ test("the report says how much of each thing the CFO did, each decision with its
 
 test("a switch that cannot be read is shown off, says how to reset it, and still lets what waits on him lead", async ({ page }) => {
   const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable", problem: "unexpected end of JSON input" } }));
-  await expect(bar(page)).toContainText("Waiting on you: Migration 0042 drops the legacy_invoices table. Apply it?");
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
   await expect(header(page).getByRole("status")).toHaveText("AFK's switch cannot be read, so nothing is decided for you. Press the toggle to reset it.");

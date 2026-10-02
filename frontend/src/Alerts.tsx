@@ -97,7 +97,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   if (!toasts.length && !asking) return null;
   return <section className="toasts" aria-live="polite" aria-label="Alerts">
     {asking && <div className="toast ask">
-      <DialogueBox persona="cfo" tone="needs" label="Windows notifications"
+      <DialogueBox persona="cfo" label="Windows notifications"
         actions={<>
           <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
           <button className="pixel-button outline" onClick={() => answer(false)}>Not now</button>

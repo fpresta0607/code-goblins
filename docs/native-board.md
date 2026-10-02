@@ -223,12 +223,14 @@ A goblin waiting on another goblin names it once, in its card's status line, and
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
-The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says All quiet and how many goblins the CFO supervises.
-At rest the bar is a plain card like the columns under it, with no lantern and no Open Command Center: the CFO's portrait, its harness mark, its line, and one icon button for its terminal.
-While something waits on the Overlord, or no CFO runs, the bar is the CFO's dialogue box, drawn like the alerts below with the CFO's name on a tab: Open Command Center, filled lantern, opens the Command Center on the first item waiting.
-In both, its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
+The CFO is pinned above the Board's columns in a plain bar, a card like the columns under it: the CFO's portrait, its harness mark, a line that says how many goblins the CFO supervises, and one icon button for its terminal.
+With nothing waiting on the Overlord the line opens with All quiet, and the bar has no Open Command Center.
+While something in the Command Center waits on him the bar says none of what it is: Open Command Center appears on it beside the terminal icon, glows in the amber of waiting and carries how many items wait, and it opens the Command Center on the first of them.
+The glow breathes, and holds still for a reader who asked for reduced motion.
+While no CFO runs the bar says so and offers Start the CFO instead.
+Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
-While [AFK mode](#afk-mode) is on the bar stays in its plain form whatever waits on the Overlord, and its line says since when and from where it is on, how many decisions the CFO logged and how many items are held.
+While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when and from where it is on, how many decisions the CFO logged and how many items are held.
 Held for you, a disclosure under the bar's line, lists each held item that still waits on him as the Command Center's inbox draws one: whose it is, what it asks, what became of it and its goblin's latest report since, and a button that opens that item in the Command Center.
 It never opens by itself, and shows Nothing is held for you when it is empty.
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
@@ -474,7 +476,7 @@ It asks for no project: Start starts the agent as the CFO in native terminal `cf
 The projects folder, where goblins find a project by its name, is optional: the field opens on the recorded `CFO_PROJECTS_ROOT`, Look lists the git checkouts directly in a folder, and Start records a folder he looked at as the machine's projects root, as `cfo install --projects-root` does.
 Only Claude Code can start today, since goblins can wake only a Claude Code CFO, and a Claude Code the terminal cannot start itself (anything but `claude.exe`) says so.
 Start is refused, with the reason, while a CFO runs or is starting, for an agent it cannot start, and for a folder he looked at that is not a full path, cannot be read or holds no checkout; with no folder looked at it starts all the same. An example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
-After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open Command Center and its terminal icon, which leads back to the first-run page.
+After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of its terminal icon, which leads back to the first-run page.
 Keys pass through raw, the terminal follows the console's size, taken back with the next key after another viewer resized it, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
@@ -740,7 +742,7 @@ The same words from the same goblin within five minutes are one event, so a wait
 A wait or a question folded this way is remembered under its own id too, so it does not alert when a later snapshot brings it back.
 A goblin's news is its generation, its state and the news itself, its pull request or what it reported, so its next pull request alerts at once, and the same news, or a wait filed again, more than five minutes later alerts again.
 The browser remembers the last 100 alerts it showed.
-Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action; it has no name tab, since its line already says who speaks.
+Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action.
 A goblin speaks by its title, as its card does, falling back to its id, cut to 60 characters in the line so what happened still shows; a goblin's wait says what it waits for once, without the Waiting on you: that heads its Command Center card.
 What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
 A goblin's finished or failed news offers Open, outlined, on that goblin.

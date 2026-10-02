@@ -1,34 +1,20 @@
 import type { Snapshot } from "./types.ts";
-import { waitingItems, type Item } from "./commandQueue.ts";
-import { messageBlocks } from "./messageText.ts";
-import { credentialAsk } from "./credentials.ts";
+import { waitingItems } from "./commandQueue.ts";
 import { afkLine } from "./afk.ts";
 
-// The pinned CFO bar says what the CFO needs from the Overlord, since every
-// question and review reaches him through the CFO, and otherwise how many
-// goblins it supervises. It is the only place on the board that says Waiting
-// on you.
-
-// A question is named by its lead sentence, its first paragraph or bullet,
-// without the details that follow. A goblin's wait on the Overlord titles its
-// item Waiting on you, which the bar already says.
-function title(item: Item): string {
-  if (item.kind === "review") return item.review.title.replace(/^Waiting on you: /, "");
-  if (item.kind === "run") return item.run.title;
-  if (item.kind === "credential") return credentialAsk(item.request);
-  const [lead] = messageBlocks(item.question.text);
-  const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
-  return spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim();
-}
-
-// While AFK mode is on the bar says so instead, in its plain form: nothing on
-// the board prompts the Overlord while he is away, and what waits on him is
-// held under the bar.
-export function cfoSummary(snapshot: Snapshot, now = Date.now()): { asking: boolean; line: string } {
+// The pinned CFO bar says how many goblins the CFO supervises, and how many
+// items wait on the Overlord, since every question and review reaches him
+// through the CFO. It names nothing of what waits: its Open Command Center
+// glows instead, and the Command Center says what each item is.
+//
+// While AFK mode is on the bar says so instead, and nothing waits by its
+// count: nothing on the board prompts the Overlord while he is away, and what
+// waits on him is held under the bar.
+export function cfoSummary(snapshot: Snapshot, now = Date.now()): { waiting: number; line: string } {
   const away = afkLine(snapshot.afk, now);
-  if (away) return { asking: false, line: away };
-  const waiting = waitingItems(snapshot);
-  if (waiting.length) return { asking: true, line: "Waiting on you: " + title(waiting[0]) + (waiting.length > 1 ? " and " + (waiting.length - 1) + " more" : "") };
+  if (away) return { waiting: 0, line: away };
+  const waiting = waitingItems(snapshot).length;
   const goblins = snapshot.tasks.filter((task) => !!task.generation && !task.archived).length;
-  return { asking: false, line: goblins ? "All quiet. The CFO supervises " + goblins + (goblins === 1 ? " goblin." : " goblins.") : "All quiet. No goblins are at work." };
+  const fleet = goblins ? "The CFO supervises " + goblins + (goblins === 1 ? " goblin." : " goblins.") : "No goblins are at work.";
+  return { waiting, line: waiting ? fleet : "All quiet. " + fleet };
 }
