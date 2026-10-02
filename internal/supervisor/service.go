@@ -368,6 +368,9 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
+		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
+	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
@@ -584,15 +587,7 @@ const actionTimeout = 45 * time.Second
 
 func (s *Service) process(ctx context.Context) {
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
-		d := s.Store.Snapshot()
-		pending := false
-		for _, a := range d.Actions {
-			if a.Status == "queued" {
-				pending = true
-				break
-			}
-		}
-		if !pending {
+		if !s.Store.HasRunnable() {
 			break
 		}
 		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)

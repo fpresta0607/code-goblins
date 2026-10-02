@@ -98,13 +98,15 @@ func TestQuestionPoisonCapacityAndReplacementCannotBlockHooks(t *testing.T) {
 	if err := store.supersedeQuestions(); err != nil {
 		t.Fatal(err)
 	}
+	// The CFO's questions follow the home's CFO across a new registration
+	// (followCFO), so a replacement supersedes none of them.
 	for _, question := range store.Snapshot().Questions {
-		if question.Status != "superseded" {
-			t.Fatal("obsolete question still pops up")
+		if question.Status != "pending" {
+			t.Fatalf("a replacement registration closed the CFO's question %s as %s", question.ID, question.Status)
 		}
 	}
 	if err := store.ingestQuestions(); err != nil {
-		t.Fatal("superseded questions did not retire", err)
+		t.Fatal("ingesting with every place still taken failed", err)
 	}
 	if len(store.Snapshot().Questions) != maxQuestions {
 		t.Fatal("question retention unbounded")

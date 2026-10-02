@@ -1021,18 +1021,12 @@ func (s *Store) ingestQuestions() error {
 	return nil
 }
 
+// supersedeQuestions closes the goblins' questions that no longer apply. The
+// CFO's own questions are never superseded: they follow the home's CFO across
+// a restart (followCFO).
 func (s *Store) supersedeQuestions() error {
-	// Missing evidence cannot establish replacement: an unreadable
-	// registration leaves the CFO's questions alone, and an unreadable queue
+	// Missing evidence cannot establish replacement: an unreadable queue
 	// leaves the goblins' questions alone.
-	identity := ""
-	if file, err := openPrimary(filepath.Join(s.Home.State, "primary.json")); err == nil {
-		_, current, err := decodePrimary(file)
-		_ = file.Close()
-		if err == nil {
-			identity = current
-		}
-	}
 	pending, pendingErr := wake.Pending(s.Home.State)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1043,10 +1037,6 @@ func (s *Store) supersedeQuestions() error {
 			continue
 		}
 		if q.Task == "" {
-			if identity != "" && q.Identity != identity {
-				q.Status, q.Message = "superseded", "The CFO session changed. Ask the current CFO to reissue this question."
-				changed = true
-			}
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.Home.State, q.Task)
