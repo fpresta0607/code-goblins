@@ -14,21 +14,30 @@ import (
 )
 
 // FirstRun is what the board's first-run page reads and changes on this
-// machine: the folder that holds the Overlord's checkouts, the agents it has,
-// and the CFO it starts. Without it the board can start no CFO.
+// machine: the Code Goblins home the CFO starts in, the agent the quick start
+// remembered, the agents this machine has, the folder that holds the
+// Overlord's checkouts, and the CFO it starts. Without it the board can start
+// no CFO.
 type FirstRun struct {
 	// Home is the user's home folder, where each agent keeps its sign-in.
 	Home     string
 	LookPath func(file string) (string, error)
+	// CFOHome is the Code Goblins home: the one folder a CFO starts in,
+	// from which it works across every project.
+	CFOHome string
+	// SavedAgent is the agent goblins remembered for this home, or empty
+	// when none was chosen yet, and SaveAgent remembers the one the page
+	// starts, so the terminal and the board hold one answer.
+	SavedAgent func() string
+	SaveAgent  func(agent string) error
 	// ProjectsRoot and SetProjectsRoot read and record the projects folder,
 	// as cfo install --projects-root does.
 	ProjectsRoot    func() (string, error)
 	SetProjectsRoot func(root string) error
 	// CFORuns says a CFO is registered or its native terminal is up;
-	// StartCFO starts Claude Code as the CFO in native terminal cfo, in
-	// project.
+	// StartCFO starts agent as the CFO in native terminal cfo, in the home.
 	CFORuns  func() bool
-	StartCFO func(project string) error
+	StartCFO func(agent string) error
 	mu       sync.Mutex
 }
 
@@ -44,10 +53,14 @@ type StartRefusal struct {
 
 func (r StartRefusal) Error() string { return r.Reason }
 
-// Setup is the first-run page: the projects folder, the git checkouts in it
-// a CFO can start in, or why it offers none, the agents this machine has, and
-// whether a CFO already runs.
+// Setup is the first-run page: the home the CFO starts in, the agent the
+// quick start remembered, the agents this machine has, whether a CFO already
+// runs, and the projects folder with the git checkouts in it, where goblins
+// find a project by its name, or why the folder offers none. No project is a
+// place to start the CFO: it starts in the home.
 type Setup struct {
+	Home         string       `json:"home"`
+	Agent        string       `json:"agent"`
 	ProjectsRoot string       `json:"projects_root"`
 	Checkouts    []string     `json:"checkouts"`
 	Problem      string       `json:"problem,omitempty"`
@@ -74,8 +87,8 @@ var firstRunAgents = []struct{ id, name, program, signIn string }{
 	{"pi", "Pi", "pi", ".pi/agent/auth.json"},
 }
 
-// ProjectCheckouts is every git checkout directly under root, the projects a
-// CFO can start in. It stats each entry rather than reading its type, so a
+// ProjectCheckouts is every git checkout directly under root, the projects
+// goblins work in. It stats each entry rather than reading its type, so a
 // junction to a checkout kept on another drive counts as the folder it is.
 func ProjectCheckouts(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
@@ -98,7 +111,7 @@ func ProjectCheckouts(root string) ([]string, error) {
 // Setup reads the first-run page for root, or for the recorded projects
 // folder when root is empty.
 func (f *FirstRun) Setup(root string) Setup {
-	setup := Setup{Checkouts: []string{}, CFORuns: f.CFORuns()}
+	setup := Setup{Home: f.CFOHome, Agent: f.SavedAgent(), Checkouts: []string{}, CFORuns: f.CFORuns()}
 	if root == "" {
 		recorded, err := f.ProjectsRoot()
 		if err != nil {
@@ -152,12 +165,15 @@ func projectNames(root string) ([]string, string) {
 	return names, ""
 }
 
-// Start records root as the projects folder when it is not already, and
-// starts the CFO with agent, which only Claude Code can be today, in the
-// checkout project under root. A start it cannot make is a StartRefusal; one
-// runs at a time, so a second press finds the first CFO running.
-func (f *FirstRun) Start(root, project, agent string) error {
-	if !filepath.IsAbs(root) {
+// Start starts the CFO with agent, which only Claude Code can be today, in
+// the Code Goblins home, as goblins does, and remembers the agent as goblins
+// would. It asks for no project: the CFO works across every project from its
+// home. root, when one is entered, is recorded as the projects folder when it
+// is not already; with none the CFO starts all the same. A start it cannot
+// make is a StartRefusal; one runs at a time, so a second press finds the
+// first CFO running.
+func (f *FirstRun) Start(root, agent string) error {
+	if root != "" && !filepath.IsAbs(root) {
 		return StartRefusal{Reason: notAbsolute}
 	}
 	f.mu.Lock()
@@ -172,17 +188,20 @@ func (f *FirstRun) Start(root, project, agent string) error {
 		return StartRefusal{Reason: "Pick Claude Code to start the CFO"}
 	case setup.Agents[chosen].Reason != "":
 		return StartRefusal{Reason: setup.Agents[chosen].Reason}
-	case setup.Problem != "":
+	case root != "" && setup.Problem != "":
 		return StartRefusal{Reason: setup.Problem}
-	case !slices.Contains(setup.Checkouts, project):
-		return StartRefusal{Reason: "Pick one of the projects in this folder"}
 	}
-	if recorded, err := f.ProjectsRoot(); err != nil || !fsx.SamePath(recorded, root) {
-		if err := f.SetProjectsRoot(root); err != nil {
-			return StartRefusal{Reason: "The projects folder could not be recorded: " + err.Error()}
+	if root != "" {
+		if recorded, err := f.ProjectsRoot(); err != nil || !fsx.SamePath(recorded, root) {
+			if err := f.SetProjectsRoot(root); err != nil {
+				return StartRefusal{Reason: "The projects folder could not be recorded: " + err.Error()}
+			}
 		}
 	}
-	if err := f.StartCFO(filepath.Join(root, project)); err != nil {
+	if err := f.SaveAgent(agent); err != nil {
+		return StartRefusal{Reason: "The agent could not be remembered: " + err.Error()}
+	}
+	if err := f.StartCFO(agent); err != nil {
 		return fmt.Errorf("the CFO could not be started: %w", err)
 	}
 	return nil
@@ -200,9 +219,8 @@ func (h *HTTP) setup(w http.ResponseWriter, r *http.Request) {
 // startCFO serves POST /api/setup/start, the first-run page's Start.
 func (h *HTTP) startCFO(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Root    string `json:"root"`
-		Project string `json:"project"`
-		Agent   string `json:"agent"`
+		Root  string `json:"root"`
+		Agent string `json:"agent"`
 	}
 	if err := decodeBody(w, r, &input, 4096); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
@@ -212,7 +230,7 @@ func (h *HTTP) startCFO(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusConflict, "This board cannot start a CFO")
 		return
 	}
-	if err := h.Service.Options.FirstRun.Start(input.Root, input.Project, input.Agent); err != nil {
+	if err := h.Service.Options.FirstRun.Start(input.Root, input.Agent); err != nil {
 		status := http.StatusInternalServerError
 		if errors.As(err, new(StartRefusal)) {
 			status = http.StatusConflict
