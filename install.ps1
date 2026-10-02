@@ -499,6 +499,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # installed:
     #   winget     - a winget package (needs winget)
     #   npm        - a global npm package (needs npm, i.e. Node.js)
+    #   npm-file   - a global npm package from a release file, which npm would
+    #                install unchecked: the file is downloaded here and handed
+    #                to npm only when it matches the SHA256 pinned beside it
     #   powershell - an official install.ps1, saved to a file and run from it
     #                in a child shell, so its own `exit` cannot kill this
     #                install. It is never run as a download-and-run one-liner
@@ -520,7 +523,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
-        @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
+        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"; Sha256 = "C9D491112C4B971A957B7B72D7E72378E42ECA20BFB4A3E725E60E76C18BA9B9" }
     )
 
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
@@ -572,7 +575,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             $manualSteps += $tool.Name
             continue
         }
-        if ($tool.Kind -eq "npm" -and -not $npmPresent) {
+        if (($tool.Kind -in "npm", "npm-file") -and -not $npmPresent) {
             Write-Host ("PREREQ   {0,-20} install Node.js first: winget install OpenJS.NodeJS.LTS" -f $tool.Name)
             $failedInstalls += $tool.Name
             continue
@@ -598,6 +601,27 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 }
                 finally {
                     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+                }
+                $installedAny = $true
+            }
+            elseif ($tool.Kind -eq "npm-file") {
+                $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
+                New-Item -ItemType Directory -Path $download | Out-Null
+                try {
+                    $file = Split-Path -Leaf $tool.Cmd
+                    $saved = Join-Path $download $file
+                    Save-Download $tool.Cmd $saved
+                    $actual = (Get-FileHash -LiteralPath $saved -Algorithm SHA256).Hash
+                    if ($actual -ne $tool.Sha256) {
+                        Write-Host "SHA256 of the download: $actual; this install pins: $($tool.Sha256)"
+                        throw "The downloaded $file does not match the SHA256 this install pins, so it was not installed."
+                    }
+                    Write-Host "Verified $file against the SHA256 this install pins ($actual)."
+                    & npm.cmd install -g $saved
+                    if ($LASTEXITCODE -ne 0) { throw "exited with code $LASTEXITCODE" }
+                }
+                finally {
+                    Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 $installedAny = $true
             }

@@ -102,6 +102,9 @@ type Action struct {
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
+	// Dismissed names the questions a clear dismissed while they still waited
+	// on the Overlord, which the CFO hears of when the action runs.
+	Dismissed []string `json:"dismissed,omitempty"`
 }
 
 type Database struct {
@@ -607,7 +610,9 @@ func (s *Store) queue(a Action) (Action, error) {
 // Center item: an open review, or a question that closed without an answer
 // or still waits on him, which the clear dismisses. A pending question whose
 // answer is on its way cannot be cleared. A clear carries text only to say the Overlord opened or downloaded
-// the item's document.
+// the item's document. An answer and a clear close their item here, under the
+// store lock, so every board shows it closed at once; the action that runs
+// later only delivers the answer or tells the asker of the clear.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
 	opened := a.Kind == "review_clear" && (a.Text == "Opened" || a.Text == "Downloaded")
@@ -621,10 +626,14 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that review is not open; refresh the board")
 		}
 	}
-	if a.Kind == "question_clear" && !slices.ContainsFunc(s.db.Questions, func(q Question) bool {
-		return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed" || q.Status == "pending" && q.AnswerID == "")
-	}) {
-		return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
+	question := -1
+	if a.Kind == "question_clear" {
+		question = slices.IndexFunc(s.db.Questions, func(q Question) bool {
+			return q.ID == a.QuestionID && q.Identity == a.Generation && (q.Status == "superseded" || q.Status == "failed" || q.Status == "pending" && q.AnswerID == "")
+		})
+		if question < 0 {
+			return Action{}, errors.New("only a question waiting on you or closed without an answer can be cleared; refresh the board")
+		}
 	}
 	// A run item runs once: the action claims it here, under the store lock.
 	run := -1
@@ -651,6 +660,12 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 	a.Status = "queued"
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
+	switch {
+	case question >= 0:
+		a.Dismissed = s.clearQuestion(question)
+	case a.Kind == "review_clear":
+		a.Dismissed = s.clearReview(review, a.Text, a.CreatedAt)
+	}
 	s.db.Actions = append(s.db.Actions, a)
 	if answer {
 		r := &s.db.Reviews[review]

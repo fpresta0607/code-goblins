@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -58,6 +59,8 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
+	// snapshot builds the board's snapshot, which reads the fleet from disk.
+	snapshot func() (Snapshot, error)
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -68,7 +71,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
+	return &HTTP{build: build, snapshot: s.Snapshot, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +108,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Home string `json:"home"`
 		}{os.Getpid(), h.Service.Store.Home.Root})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
-		snapshot, err := h.Service.Snapshot()
+		snapshot, err := h.snapshot()
 		if err != nil {
 			apiError(w, 503, err.Error())
 			return
@@ -243,29 +246,90 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 	defer unsubscribe()
 	ping := time.NewTicker(15 * time.Second)
 	defer ping.Stop()
-	for {
-		snapshot, err := h.Service.Snapshot()
-		if err != nil {
-			return
-		}
-		snapshot.Build = h.build
-		data, err := json.Marshal(snapshot)
-		if err != nil {
-			return
-		}
-		controller := http.NewResponseController(w)
-		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if _, err := fmt.Fprintf(w, "id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data); err != nil {
-			return
+	send := func(format string, args ...any) error {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err := fmt.Fprintf(w, format, args...); err != nil {
+			return err
 		}
 		flusher.Flush()
+		return nil
+	}
+	// A snapshot reads the fleet from disk, which can take seconds, so each
+	// is built away from this loop, one at a time, while the loop goes on
+	// sending the Command Center's items the moment the store changes: what
+	// the Overlord or the CFO answered leaves every board at once, whatever a
+	// build takes. stale says the fleet changed while a build ran, so another
+	// follows it.
+	type build struct {
+		snapshot Snapshot
+		err      error
+	}
+	built := make(chan build, 1)
+	building, stale := false, false
+	begin := func() {
+		building, stale = true, false
+		go func() {
+			snapshot, err := h.snapshot()
+			built <- build{snapshot, err}
+		}()
+	}
+	// sent is the items the board has, as they were last sent to it; nil
+	// before its first snapshot, which the items go on.
+	var sent []byte
+	begin()
+	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-h.Service.done:
 			return
+		case result := <-built:
+			building = false
+			if result.err != nil {
+				return
+			}
+			// The items are read again as the snapshot is sent, so one built
+			// before an answer never shows its item open after the board
+			// was told it closed.
+			snapshot := result.snapshot
+			items, revision := h.Service.Items()
+			snapshot.setItems(items)
+			snapshot.Revision, snapshot.Build = revision, h.build
+			data, err := json.Marshal(snapshot)
+			if err != nil {
+				return
+			}
+			if sent, err = json.Marshal(items); err != nil {
+				return
+			}
+			if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+				return
+			}
+			if stale {
+				begin()
+			}
 		case <-ch:
+			items, revision := h.Service.Items()
+			body, err := json.Marshal(items)
+			if err != nil {
+				return
+			}
+			if sent != nil && !bytes.Equal(body, sent) {
+				data, err := json.Marshal(itemsEvent{h.Service.Instance, revision, items})
+				if err != nil || send("event: items\ndata: %s\n\n", data) != nil {
+					return
+				}
+				sent = body
+			}
+			if building {
+				stale = true
+			} else {
+				begin()
+			}
 		case <-ping.C:
+			if !building {
+				begin()
+			}
 		}
 	}
 }
