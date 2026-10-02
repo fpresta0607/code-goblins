@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { holdClosed, remembered, withItems, type Sent } from "./item-state.ts";
-import { waitingItems, type Item } from "./commandQueue.ts";
+import { holdClosed, publication, remembered, republished, withItems, type Publication, type Sent } from "./item-state.ts";
+import { asItems, waitingItems, type Item } from "./commandQueue.ts";
 import { parseItems, parseSnapshot } from "./types.ts";
 
 const question = (id: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task: "", created_at: "2026-10-02T11:00:00Z", status, options: ["Merge it", "Hold it"], ...extra });
@@ -11,6 +11,8 @@ const waiting = (snapshot: ReturnType<typeof board>) => waitingItems(snapshot).m
 const nothing: ReadonlyMap<string, Item> = new Map();
 const unsent: ReadonlyMap<string, Sent> = new Map();
 const AT = "2026-10-02T11:00:00Z";
+const run = (state: string, extra: Record<string, unknown> = {}) => ({ id: "install", identity: "u-install", title: "Install the build", state, created_at: AT, ...extra });
+const request = (state: string, extra: Record<string, unknown> = {}) => ({ id: "keys", identity: "k-keys", task: "billing", state, created_at: AT, ...extra });
 
 test("the Command Center's items alone replace the last snapshot's and nothing else", () => {
   const current = board({ revision: 4, tasks: [{ id: "billing", title: "Billing", phase: "working", generation: "g1", verified: false }], questions: [question("train")] });
@@ -83,8 +85,6 @@ test("the board remembers the newest closed items and forgets the oldest past it
 });
 
 test("an ID published again is a new item and shows open, whatever the board remembers of the earlier one", () => {
-  const run = (state: string, extra: Record<string, unknown> = {}) => ({ id: "install", identity: "u-install", title: "Install the build", state, created_at: AT, ...extra });
-  const request = (state: string, extra: Record<string, unknown> = {}) => ({ id: "keys", identity: "k-keys", task: "billing", state, created_at: AT, ...extra });
   const memory = remembered(nothing, board({ questions: [question("train", "succeeded", { answer: "Merge it", answered_by: "cfo" })], reviews: [review("shots", "cleared", { reason: "Opened" })], runs: [run("succeeded")], credentials: [request("saved")] }));
   const sends: ReadonlyMap<string, Sent> = new Map([
     ["question:train", { kind: "cfo_answer", id: "a1", text: "Merge it", answer_kind: "option", identity: "i-train", created_at: AT }],
@@ -107,5 +107,22 @@ test("an ID published again is a new item and shows open, whatever the board rem
       assert.deepEqual(waiting(held).sort(), all.filter((key) => !isHeld || !known.includes(key)).sort(), publication + ", " + how);
       if (!isHeld) assert.equal(held, snapshot, publication + ", " + how + ": the snapshot comes back as it was");
     }
+  }
+});
+
+test("only a key last seen under another publication is published again", () => {
+  const first = asItems(board({ questions: [question("train")], reviews: [review("shots")], runs: [run("ready")], credentials: [request("open")] }));
+  const all = first.map((item) => item.key);
+  const seen: ReadonlyMap<string, Publication> = new Map(first.map((item) => [item.key, publication(item)]));
+  const cases: [string, ReadonlyMap<string, Publication>, Record<string, unknown>, string[]][] = [
+    ["the same publication", seen, {}, []],
+    ["a later created_at", seen, { created_at: "2026-10-12T09:00:00Z" }, all],
+    ["another identity", seen, { identity: "another" }, all],
+    ["a key never seen", new Map(), { created_at: "2026-10-12T09:00:00Z" }, []],
+  ];
+  assert.deepEqual(all, ["question:train", "review:shots", "run:install", "credential:keys"]);
+  for (const [name, last, change, want] of cases) {
+    const items = asItems(board({ revision: 2, questions: [question("train", "pending", change)], reviews: [review("shots", "open", change)], runs: [run("ready", change)], credentials: [request("open", change)] }));
+    assert.deepEqual(republished(last, items), want, name);
   }
 });

@@ -5,8 +5,8 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
-import { publication, type Sent } from "./item-state";
+import { answeredElsewhere, asItems, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { publication, republished, type Publication, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
@@ -69,7 +69,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const asked = useRef(new Set<string>());
+  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const [asking, setAsking] = useState<string[]>([]);
   const [arrived, setArrived] = useState<string[]>([]);
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
@@ -78,6 +79,20 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);
+  // Everything kept of a card belongs to one publication of its item: an ID
+  // published again starts its card fresh, with no draft, check or place.
+  const [seen, setSeen] = useState<{ of: Snapshot | null; publications: ReadonlyMap<string, Publication> }>({ of: null, publications: new Map() });
+  if (seen.of !== snapshot) {
+    const items = asItems(snapshot);
+    const again = new Set(republished(seen.publications, items));
+    setSeen({ of: snapshot, publications: new Map([...seen.publications, ...items.map((item): [string, Publication] => [item.key, publication(item)])]) });
+    if (again.size) {
+      setDrafts(Object.fromEntries(Object.entries(drafts).filter(([key]) => !again.has(key))));
+      setSent(new Set([...sent].filter((key) => !again.has(key))));
+      setKept(new Set([...kept].filter((key) => !again.has(key))));
+      setAsked((prior) => new Set([...prior].filter((key) => !again.has(key))));
+    }
+  }
   const stack = waitingItems(snapshot, kept);
   const waiting = waitingItems(snapshot);
   const index = Math.max(0, stack.findIndex((item) => item.key === current));
@@ -106,13 +121,15 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // Every question still open is asked about once, one its page's card
   // carries too, so it never opens the Command Center when that card closes.
   const { instance } = snapshot;
-  const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
+  const unasked = [...openKeys(snapshot)].filter((key) => key.startsWith("question:") && !asked.has(key));
+  if (unasked.length) {
+    setAsked((prior) => new Set([...prior, ...unasked]));
+    setAsking(unasked);
+  }
   useEffect(() => {
-    const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
-    if (!keys.length) return;
-    for (const key of keys) asked.current.add(key);
-    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null || claimed.includes("open:" + key))]));
-  }, [pending, instance]);
+    if (!asking.length) return;
+    void announce(instance, asking.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...asking.filter((key) => claimed === null || claimed.includes("open:" + key))]));
+  }, [asking, instance]);
   if (arrived.length) {
     setArrived([]);
     const fresh = waiting.find((item) => arrived.includes(item.key));
