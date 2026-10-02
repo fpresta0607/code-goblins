@@ -17,10 +17,11 @@ import (
 
 type healthForge struct {
 	*fakeForge
-	comparisons string
-	requests    []execx.Request
-	failureOn   string
-	failure     execx.Result
+	comparisons   string
+	requests      []execx.Request
+	failureOn     string
+	failure       execx.Result
+	responseDelay time.Duration
 }
 
 func (f *healthForge) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -28,6 +29,7 @@ func (f *healthForge) Run(ctx context.Context, request execx.Request) (execx.Res
 	if request.Name == "gh" && fsx.SamePath(request.Dir, f.repo) {
 		f.requests = append(f.requests, request)
 		if f.failureOn != "" && strings.HasPrefix(command, f.failureOn) {
+			time.Sleep(f.responseDelay)
 			return f.failure, nil
 		}
 		if strings.HasPrefix(command, "gh api graphql") {
@@ -313,6 +315,24 @@ func TestPRHealthDoesNotSuppressOtherRepositoriesDuringBackOff(t *testing.T) {
 
 	if !slices.Contains(forge.runListDirs, filepath.Clean(other)) || slices.Contains(forge.runListDirs, filepath.Clean(forge.repo)) {
 		t.Fatalf("backoff leaked between repositories: main reads in %v", forge.runListDirs)
+	}
+}
+
+func TestPRHealthRetryAfterStartsWhenTheResponseArrives(t *testing.T) {
+	service, h, forge, now := healthService(t, true)
+	forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
+	forge.failureOn = "gh api graphql"
+	forge.failure = execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}")}
+	forge.responseDelay = 100 * time.Millisecond
+
+	_ = service.checkFleet(context.Background(), now)
+
+	persisted, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if until := persisted.BackOff[forge.repo]; until.Before(now.Add(10*time.Minute + forge.responseDelay)) {
+		t.Fatalf("Retry-After ends at %s, shortening the requested delay by the read's duration", until)
 	}
 }
 

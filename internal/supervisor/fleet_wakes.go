@@ -173,9 +173,11 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil {
 		return nil
 	}
+	readingStarted := time.Now()
+	currentTime := func() time.Time { return now.Add(time.Since(readingStarted)) }
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
-	err := errors.Join(readErr, s.checkMemory(&w, now), s.pollCI(ctx, &w, now))
+	err := errors.Join(readErr, s.checkMemory(&w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
@@ -338,7 +340,7 @@ type ciGoblin struct {
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
 // until a poll reads it again, and raises ci_unreadable. A poll the
 // supervisor's stop cuts short leaves w.Unreadable as it was.
-func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) error {
+func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, currentTime func() time.Time) error {
 	runner := s.Options.CI
 	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
 		return nil
@@ -347,7 +349,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	var errs error
 	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
-		if now.Before(w.BackOff[repo]) {
+		if currentTime().Before(w.BackOff[repo]) {
 			continue
 		}
 		delete(w.BackOff, repo)
@@ -371,7 +373,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 				mine = append(mine, goblin)
 			}
 		}
-		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: now}
+		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
 		if ctx.Err() != nil {

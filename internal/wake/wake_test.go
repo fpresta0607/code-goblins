@@ -116,7 +116,7 @@ func TestPendingEmptyWhenNoQueueFile(t *testing.T) {
 }
 
 // The supervisor's fleet wakes go through the queue as kinds of their own.
-func TestAppendAndRenderTakeTheFleetWakeKinds(t *testing.T) {
+func TestAppendTakesTheFleetWakeKinds(t *testing.T) {
 	dir := t.TempDir()
 	for _, kind := range []string{"memory", "ci", "pr"} {
 		if _, err := Append(dir, kind, kind, "detail of "+kind); err != nil {

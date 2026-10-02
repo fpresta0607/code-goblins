@@ -20,16 +20,16 @@ type githubPollRunner struct {
 	commands execx.Runner
 	state    *fleetWakes
 	repo     string
-	now      time.Time
+	now      func() time.Time
 }
 
 func (r githubPollRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	if request.Name == "gh" && r.now.Before(r.state.BackOff[r.repo]) {
+	if request.Name == "gh" && r.now().Before(r.state.BackOff[r.repo]) {
 		return execx.Result{}, fmt.Errorf("GitHub reads for %s wait until %s after a refusal or exhausted allowance", r.repo, r.state.BackOff[r.repo].UTC().Format(time.RFC3339))
 	}
 	result, err := r.commands.Run(ctx, request)
 	if request.Name == "gh" {
-		if until := githubBackOff(result, r.now); !until.IsZero() {
+		if until := githubBackOff(result, r.now()); !until.IsZero() {
 			if r.state.BackOff == nil {
 				r.state.BackOff = map[string]time.Time{}
 			}
