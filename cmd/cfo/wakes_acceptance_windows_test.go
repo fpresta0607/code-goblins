@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -27,8 +28,10 @@ import (
 // Codex and a pi CFO through the line cfo serve types into their native
 // terminal. Each runs in a scratch home under `cfo serve --example`, with a
 // real goblin of another harness idle at its prompt, which then reports to the
-// CFO. Each wake must be raised exactly once and acknowledged by that CFO
-// running cfo drain.
+// CFO. Then the supervisor's own wakes: CI finishing on the goblin's pull
+// request and going red on main, from a stand-in gh, and memory free while the
+// goblin waits on it. Each wake must be raised exactly once and acknowledged
+// by that CFO running cfo drain.
 //
 // It runs real harnesses on the Overlord's subscriptions and a few pi turns
 // on its configured provider, so it runs only when asked:
@@ -113,6 +116,7 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	go func() { defer close(watched); p.watchQueue(watching) }()
 	defer func() { stopWatching(); <-watched }()
 	p.setUpProject(t)
+	p.setUpForge(t)
 	p.env = p.environment()
 
 	serve := exec.Command(p.binary, "serve", "--example", "--listen", fmt.Sprintf("127.0.0.1:%d", p.port))
@@ -186,6 +190,8 @@ func proveWakes(t *testing.T, p *wakeProof) {
 	})
 	p.expectAcked(t, report)
 
+	p.proveFleetWakes(t, goblin)
+
 	if screen, err := host.ReadScreen(cfo); err == nil {
 		p.say("the CFO's screen ends:\n%s", host.ScreenTail(screen, 20))
 	}
@@ -235,7 +241,7 @@ func (p *wakeProof) environment() []string {
 	env := nativeCFOEnvironment(userEnv, nil, p.home, p.root)
 	for i, entry := range env {
 		if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, "PATH") {
-			env[i] = name + "=" + filepath.Dir(p.binary) + ";" + value
+			env[i] = name + "=" + p.forgeBin() + ";" + filepath.Dir(p.binary) + ";" + value
 		}
 	}
 	return env
@@ -476,5 +482,100 @@ func runGit(t *testing.T, args ...string) {
 	t.Helper()
 	if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+// forgeBin is the folder first on the scratch supervisor's PATH, which holds
+// the stand-in gh.
+func (p *wakeProof) forgeBin() string {
+	return filepath.Join(p.root, "forge-bin")
+}
+
+// forgeFile is one of the answers the stand-in gh prints.
+func (p *wakeProof) forgeFile(name string) string {
+	return filepath.Join(p.root, "forge", name)
+}
+
+// setUpForge puts a stand-in gh first on the scratch supervisor's PATH: it
+// answers the three calls the CI wakes make from files the proof rewrites,
+// and fails any other call, so the proof never asks GitHub anything. It
+// starts with no pull request and no run.
+func (p *wakeProof) setUpForge(t *testing.T) {
+	writeProofFile(t, p.forgeFile("pr-list.json"), "[]\n")
+	writeProofFile(t, p.forgeFile("run-list.json"), "[]\n")
+	writeProofFile(t, p.forgeFile("run-view.json"), "{\"jobs\":[]}\n")
+	answer := func(call, file string) string {
+		return "if \"%~1 %~2\"==\"" + call + "\" (type \"" + p.forgeFile(file) + "\" & exit /b 0)\r\n"
+	}
+	script := "@echo off\r\n" +
+		answer("pr list", "pr-list.json") +
+		answer("run list", "run-list.json") +
+		answer("run view", "run-view.json") +
+		"echo the proof's stand-in gh has no answer for %* 1>&2\r\n" +
+		"exit /b 1\r\n"
+	writeProofFile(t, filepath.Join(p.forgeBin(), "gh.cmd"), script)
+}
+
+// nextStartMark is the memory and commit the supervisor needs free before it
+// counts memory as back: its 5 GB next-start mark.
+const nextStartMark = 5 << 30
+
+// proveFleetWakes proves the wakes the supervisor raises itself. The goblin
+// reports its pull request done, the stand-in gh then shows every check on it
+// concluded with one failed and main's newest push run red, and each of those
+// wakes the CFO once. Then the goblin reports it waits on memory, and memory
+// at or above the mark on two readings wakes the CFO once, naming it.
+func (p *wakeProof) proveFleetWakes(t *testing.T, goblin string) {
+	const pullRequest = "https://github.com/example/wake-proof/pull/7"
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	p.cfoCommand(t, "notify", goblin, "--done", "--pr", pullRequest)
+	done := p.expectOneWake(t, "the goblin's pull request", 5*time.Minute, func(r wake.Record) bool {
+		return r.Kind == "notify" && r.Key == goblin && strings.Contains(r.Detail, "done: PR "+pullRequest)
+	})
+	p.expectAcked(t, done)
+
+	writeProofFile(t, p.forgeFile("run-view.json"), `{"jobs":[{"name":"test","conclusion":"failure"},{"name":"lint","conclusion":"success"}]}`+"\n")
+	writeProofFile(t, p.forgeFile("run-list.json"), `[{"databaseId":4242,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"`+head+`","url":"https://github.com/example/wake-proof/actions/runs/4242"}]`+"\n")
+	writeProofFile(t, p.forgeFile("pr-list.json"), `[{"number":7,"url":"`+pullRequest+`","headRefName":"fixture","headRefOid":"`+head+`","statusCheckRollup":[`+
+		`{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE","completedAt":"2026-10-02T12:00:00Z"},`+
+		`{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS","completedAt":"2026-10-02T12:00:00Z"}]}]`+"\n")
+	p.say("the stand-in gh now shows PR 7 finished with test failed and main's run 4242 red")
+	checks := p.expectOneWake(t, "the pull request's finished checks", 6*time.Minute, func(r wake.Record) bool {
+		return r.Kind == "ci" && r.Key == goblin && strings.Contains(r.Detail, "ci_finished") && strings.Contains(r.Detail, "1 of 2 failed (test)")
+	})
+	red := p.expectOneWake(t, "main's red push run", 6*time.Minute, func(r wake.Record) bool {
+		return r.Kind == "ci" && r.Key == "main:"+filepath.Base(p.project) && strings.Contains(r.Detail, "run 4242") && strings.Contains(r.Detail, "job test")
+	})
+	p.expectAcked(t, checks)
+	p.expectAcked(t, red)
+
+	// The supervisor reads this machine's real memory, so the proof waits for
+	// the machine to have it rather than claim a wake it could not raise.
+	p.await(t, "this machine to read 5 GB of memory and of commit free, without which memory_ready is not proved", 20*time.Minute, func() bool {
+		memory, err := supervisor.MachineMemory()
+		return err == nil && min(memory.Available, memory.CommitAvailable) >= nextStartMark
+	})
+	p.cfoCommand(t, "notify", goblin, "--waiting-on", "memory", "the fixture goblin holds its heavy work for memory")
+	// The wake needs two of the supervisor's readings in a row, a minute
+	// apart, at or above the mark, and a busy machine hovers around it: on
+	// 2026-10-02 six minutes passed without two such readings.
+	ready := p.expectOneWake(t, "memory free for the waiting goblin", 30*time.Minute, func(r wake.Record) bool {
+		return r.Kind == "memory" && strings.Contains(r.Detail, "memory_ready") && strings.Contains(r.Detail, goblin)
+	})
+	p.expectAcked(t, ready)
+
+	// Every wake of the supervisor's own was raised once, through the whole
+	// proof.
+	counts := map[string]int{}
+	for _, record := range p.records() {
+		if record.Kind == "ci" || record.Kind == "memory" {
+			counts[record.Kind+" "+record.Key]++
+		}
+	}
+	p.say("the supervisor's own wakes, by kind and key: %v", counts)
+	for key, count := range counts {
+		if count != 1 {
+			t.Errorf("%d wakes keyed %s, want one", count, key)
+		}
 	}
 }

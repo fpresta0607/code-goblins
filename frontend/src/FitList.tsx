@@ -4,12 +4,12 @@ import { RenderBoundary } from "./render-boundary";
 import { useFit } from "./useFit";
 
 // A list of cards in their order, newest first for history, showing up to ten
-// whole and, past that, as many as fit the board's visible canvas and a pager
-// for the rest.
+// whole and, past that, a page at a time, as many as fit the board's visible
+// canvas and never fewer than five, with a pager for the rest.
 export function FitList<T>({ items, keyOf, empty, renderItem }: { items: T[]; keyOf: (item: T) => string; empty: ReactNode; renderItem: (item: T) => ReactNode }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const fit = useFit(items.map(keyOf), frameRef, listRef);
+  const fit = useFit(items.map(keyOf), frameRef, listRef, true);
   return <>
     <div ref={frameRef} className="fit-list" onPointerDown={fit.onPointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className="task-cards">
