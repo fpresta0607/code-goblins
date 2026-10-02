@@ -684,3 +684,87 @@ func TestCIUnreadableShowsAtEveryRecoveryCycle(t *testing.T) {
 		}
 	}
 }
+
+// cancellingForge is a forge whose supervisor is stopped mid-poll: the call
+// at ends the context, and every call from then on fails with the context's
+// error, as a real runner's does.
+type cancellingForge struct {
+	*fakeForge
+	cancel context.CancelFunc
+	at     func(execx.Request) bool
+}
+
+func (c *cancellingForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if c.at(req) {
+		c.cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return execx.Result{}, err
+	}
+	return c.fakeForge.Run(ctx, req)
+}
+
+// A poll cut short by the supervisor stopping leaves what
+// state/fleet-wakes.json remembers of unreadable repositories as it was: a
+// repository the CFO was woken for keeps its record, a healthy one gains no
+// line, and the same failure after the restart wakes nobody again.
+func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
+	for name, at := range map[string]func(other string) func(execx.Request) bool{
+		"at the poll's first call": func(string) func(execx.Request) bool {
+			return func(execx.Request) bool { return true }
+		},
+		"at a healthy repository's first gh call": func(other string) func(execx.Request) bool {
+			return func(req execx.Request) bool {
+				return req.Name == "gh" && strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(other))
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, h, forge, _ := unreadableForge(t)
+			other := t.TempDir()
+			liveGoblin(t, h, "cg-other", other)
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 2 {
+				now = now.Add(ciPollEvery)
+				_ = s.checkFleet(context.Background(), now)
+			}
+			if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
+				t.Fatalf("a failure met twice woke %d times, want one", len(woke))
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s.Options.CI = &cancellingForge{fakeForge: forge, cancel: cancel, at: at(other)}
+
+			now = now.Add(ciPollEvery)
+			err := s.checkFleet(ctx, now)
+
+			if ctx.Err() == nil {
+				t.Fatal("the poll was not cut short")
+			}
+			if err != nil && strings.Contains(err.Error(), "context canceled") {
+				t.Fatalf("the poll cut short returned %v, want no line for the stop itself", err)
+			}
+			remembered, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(remembered.Unreadable) != 1 {
+				t.Fatalf("after the poll cut short the record holds %+v, want the one unreadable repository", remembered.Unreadable)
+			}
+			for repo, record := range remembered.Unreadable {
+				if !record.Woke || !strings.Contains(record.Failure, "gh auth login") {
+					t.Fatalf("after the poll cut short %s is remembered as %+v, want its failure and that it woke", repo, record)
+				}
+			}
+			restarted := &Service{Store: s.Store, Options: s.Options}
+			restarted.Options.CI = forge
+			for range 2 {
+				now = now.Add(ciPollEvery)
+				_ = restarted.checkFleet(context.Background(), now)
+			}
+			if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 1 {
+				t.Fatalf("the same failure after the restart woke the CFO again: %+v", woke)
+			}
+		})
+	}
+}

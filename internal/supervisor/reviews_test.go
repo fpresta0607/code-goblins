@@ -483,10 +483,12 @@ func TestWaitingOnMemoryOutlastsATaskNamedMemoryReportingDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, task := range snapshot.Tasks {
-		if task.ID == "task-1" && (task.Phase != "waiting" || task.WaitingOn != "memory") {
-			t.Fatalf("a task waiting on memory = %+v, want it still waiting on memory", task.Evaluation)
-		}
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if index < 0 {
+		t.Fatal("task-1 missing from the snapshot")
+	}
+	if task := snapshot.Tasks[index]; task.Phase != "waiting" || task.WaitingOn != "memory" {
+		t.Fatalf("a task waiting on memory = %+v, want it still waiting on memory", task.Evaluation)
 	}
 }
 

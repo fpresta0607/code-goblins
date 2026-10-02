@@ -332,7 +332,8 @@ type ciGoblin struct {
 // concluded since it was last reported, and for each red push run of main.
 // A repository with no origin remote is a local one and is asked nothing.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
-// until a poll reads it again, and raises ci_unreadable.
+// until a poll reads it again, and raises ci_unreadable. A poll the
+// supervisor's stop cuts short leaves w.Unreadable as it was.
 func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) error {
 	runner := s.Options.CI
 	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
@@ -342,7 +343,17 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	var errs error
 	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
-		if _, err := runOutput(ctx, runner, repo, "git", "config", "--get", "remote.origin.url"); err != nil {
+		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+		origin, err := runner.Run(probe, execx.Request{Dir: repo, Name: "git", Args: []string{"config", "--get", "remote.origin.url"}})
+		cancel()
+		if ctx.Err() != nil {
+			return errs
+		}
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("ci wakes: read the origin of %s: %w", repo, err))
+			continue
+		}
+		if origin.ExitCode != 0 {
 			delete(w.Unreadable, repo)
 			continue
 		}
@@ -354,6 +365,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time) erro
 		}
 		pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, s.Store.Home.State, w, repo, mine, now)
 		mainUnreadable, mainErr := pollMain(ctx, runner, s.Store.Home.State, w, repo, now)
+		if ctx.Err() != nil {
+			return errors.Join(errs, pullsErr, mainErr)
+		}
 		errs = errors.Join(errs, pullsErr, mainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
 	}
 	for url, checks := range w.Checks {
