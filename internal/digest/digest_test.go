@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -589,5 +590,73 @@ func TestComposeOrphansSectionReportsAFailedSweep(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "last sweep failed (herdr is down)") {
 		t.Fatalf("a failed sweep was not reported:\n%s", buf.String())
+	}
+}
+
+// While AFK mode is on the digest tells the CFO so before the wake queue:
+// who turned it on, when and from where, what it decides itself under it, and
+// what stays the Overlord's alone.
+func TestComposeTellsTheCFOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	if _, _, err := afk.TurnOn(h.State, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	assertHeaderOrder(t, out.String(), []string{"== SESSION LOCK ==", "== AFK MODE ==", "== WAKE QUEUE =="})
+	for _, want := range []string{
+		"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from his own terminal (powershell.exe pid 4242)",
+		"cfo pr merge <url> --verified",
+		"never decided for him",
+		"a migration or command that drops or deletes data",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the digest does not say %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// While it is off the digest says nothing of it.
+func TestComposeSaysNothingOfAFKModeWhileItIsOff(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if strings.Contains(out.String(), "AFK MODE") {
+		t.Errorf("the digest mentions AFK mode while it is off:\n%s", out.String())
+	}
+}
+
+// A switch that cannot be read is said inline, like any file the digest
+// cannot read, and the rest of the digest still composes.
+func TestComposeSaysWhenTheAFKSwitchCannotBeRead(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	if err := os.WriteFile(filepath.Join(h.State, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if !strings.Contains(out.String(), "AFK MODE: UNREADABLE (") || !strings.Contains(out.String(), "== NEXT STEP ==") {
+		t.Errorf("the digest = %q, want the unreadable switch said and every later section composed", out.String())
 	}
 }
