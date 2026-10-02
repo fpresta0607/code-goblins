@@ -54,6 +54,7 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   // A wait reads as its goblin's reason in plain words, without the queue's
   // prefix, its page's link or a table of values its card shows.
   if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + plainMessage(waitReason(item.review)) : " wants your review: " + plainMessage(item.review.title)));
+  if (item.run.task) return alert(item.run.task, asker(item.run.task) + " asks you to run a command: " + plainMessage(item.run.title));
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 

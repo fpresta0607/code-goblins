@@ -16,7 +16,7 @@ const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
   ...(snapshot.runs || []).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
 ];
-const task = (item: Item) => item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : "";
+const task = (item: Item) => item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
 const created = (item: Item) => Date.parse(item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
 const closed = (item: Item) => Date.parse(item.kind === "question" ? item.question.answered_at || item.question.created_at
   : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at) || 0;
