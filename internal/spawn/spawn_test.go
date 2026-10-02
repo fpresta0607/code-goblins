@@ -2532,6 +2532,28 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	}
 }
 
+// The Overlord named the review page Scrawl (2026-10-01), so a goblin calls
+// it that; the lavish-axi command and the --lavish flag keep their names.
+func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
+	// Act
+	instruction := notifyInstruction("task-7")
+
+	// Assert
+	for _, want := range []string{
+		"must answer on a Scrawl page",
+		"call it Scrawl when you name it to him",
+		"lavish-axi <html-file> --no-open",
+		"--lavish <html-file>",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
+	}
+	if strings.Contains(instruction, "Lavish") {
+		t.Errorf("instruction = %q, want the page named Scrawl, never Lavish", instruction)
+	}
+}
+
 // Every Claude goblin runs Opus 5.5 unless a model is named (the Supreme
 // Overlord's directive of 2026-09-23), whether --harness claude came alone or
 // a lane named claude without a model. A named model still wins, and another

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { message, request } from "./api";
+import { announce, message, request } from "./api";
 import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, failedSends, holdsUnsent, isOpen, itemFor, nextOpenKey, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -44,11 +44,14 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // The Supreme Overlord Command Center: an inbox of everything waiting on him,
 // and a stack that shows one item at a time, a question or a review item. Each
 // answer goes to its asker on its own, once; drafts survive closing,
-// reconnecting and moving between cards. A new question opens the stack; any
+// reconnecting and moving between cards. A new question opens the stack, once:
+// the supervisor hands each question to the first tab that asks and remembers
+// it, so no reload, other tab or supervisor restart opens it again. Any
 // other new item waits in the inbox under the badge, the board's alerts
 // announce every new item, and the tab's title counts what waits. The moment an answer is sent
 // its check shows and the next open item follows while delivery goes on
-// quietly; a send that fails brings its card back with what went wrong. The
+// quietly; an item he acted on never comes back, so a delivery that fails
+// later reads as its line in History. The
 // last one ends on "You're all done" before the Command Center closes. It
 // tells onUnsent whether any card keeps an answer not yet sent.
 export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void }) {
@@ -61,7 +64,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const [announced, setAnnounced] = useState<Set<string>>(new Set());
+  const asked = useRef(new Set<string>());
+  const [arrived, setArrived] = useState<string[]>([]);
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
   const [inbox, setInbox] = useState(false);
@@ -92,10 +96,20 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
     setCurrent(shown); setGallery(null); setAllDone(false);
   };
-  const fresh = waiting.filter((item) => item.kind === "question" && !announced.has(item.key));
-  if (fresh.length) {
-    setAnnounced(new Set([...announced, ...fresh.map((item) => item.key)]));
-    if (!open && !typing()) { setOpen(true); show(fresh[0].key); }
+  // Every question still open is asked about once, one its page's card
+  // carries too, so it never opens the Command Center when that card closes.
+  const { instance } = snapshot;
+  const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
+  useEffect(() => {
+    const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
+    if (!keys.length) return;
+    for (const key of keys) asked.current.add(key);
+    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null || claimed.includes("open:" + key))]));
+  }, [pending, instance]);
+  if (arrived.length) {
+    setArrived([]);
+    const fresh = waiting.find((item) => arrived.includes(item.key));
+    if (fresh && !open && !typing()) { setOpen(true); show(fresh.key); }
   }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
@@ -104,8 +118,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   useEffect(() => () => { document.title = baseTitle.current; }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
-    const key = focus?.key || waiting[0]?.key;
-    if (focus && key) { setOpen(true); show(key); setInbox(false); }
+    // A focus on an item he already answered or cleared, as from a
+    // notification that outlived it, opens the list, never another item.
+    const key = focus?.key ? cardKey(snapshot, focus.key) : waiting[0]?.key;
+    if (focus && key && stack.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
     else if (focus) setInbox(true);
   }
   // A delivered item's check has shown long enough: on to the next open item,
@@ -117,18 +133,17 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     setLeaving("");
     if (next) show(next); else setAllDone(true);
   }
+  // A send the board refused after its card moved on sent nothing: its item
+  // waits again, with what went wrong on its row, and nothing opens for it.
+  const refused = [...sent].filter((key) => !!drafts[key] && notSent(drafts[key], itemFor(snapshot, key), snapshot.actions));
+  if (refused.length) {
+    setSent(new Set([...sent].filter((key) => !refused.includes(key))));
+    if (refused.includes(current)) setAllDone(false);
+  }
   // Anything that opens while "You're all done" shows takes its place.
   if (allDone) {
     const resume = nextOpenKey(stack, current, sent);
     if (resume) show(resume);
-  }
-  // A send that fails after its card moved on brings the card back, with
-  // what went wrong and a retry, unless he answered the item elsewhere.
-  const failing = failedSends(sent, drafts, snapshot.actions).filter((key) => { const found = itemFor(snapshot, key); return !!found && !answeredElsewhere(found); });
-  if (failing.length) {
-    setSent(new Set([...sent].filter((key) => !failing.includes(key))));
-    setKept((prior) => new Set([...prior, ...failing]));
-    if (open || !typing()) { setOpen(true); show(failing[0]); }
   }
   // The card on screen stays in the stack while it is shown, so an item
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
@@ -227,7 +242,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           <h3>Waiting on you <span className="column-count">{waiting.length}</span></h3>
           {waiting.length ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
             <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
-            <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
+            <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span>{!!drafts[candidate.key] && notSent(drafts[candidate.key], candidate, snapshot.actions) && <small>Not sent: {drafts[candidate.key].error}</small>}</span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
