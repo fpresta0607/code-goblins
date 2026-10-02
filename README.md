@@ -386,7 +386,7 @@ When a goblin asks a question about its open review page, the Command Center sho
 An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
-Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item or command, and a goblin that is blocked, failed, or done with its pull request.
+Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item, command or credential request, and a goblin that is blocked, failed, or done with its pull request.
 Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
 Each event alerts once, in one tab of the board, however often the board reconnects or reloads or the supervisor restarts, and a goblin's question alerts as that question alone.
 The Command Center opens by itself on a new question once, too: closing it means it stays closed for that question, in every tab and after a reload.

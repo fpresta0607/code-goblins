@@ -91,9 +91,10 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snaps
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord
-// or finished: a new question, review or command in the Command Center, and a
-// goblin that became blocked, failed or done with its pull request. The first
-// snapshot a page sees alerts nothing: what already waits is under the badge.
+// or finished: a new question, review, command or credential request in the
+// Command Center, and a goblin that became blocked, failed or done with its
+// pull request. The first snapshot a page sees alerts nothing: what already
+// waits is under the badge.
 // A question that was open inside its page's card is not new when it shows
 // as a card of its own.
 // The Completed column's history is not a goblin finishing, so it alerts

@@ -27,7 +27,8 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
   const pr = owner ? safePullRequest(task.pr) : "";
   const badge = pullRequestBadge(pr);
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;
-  // What this goblin waits on the Overlord for: a question or a review item.
+  // What this goblin waits on the Overlord for: a question, a review item or
+  // a credential request.
   // Runs are the CFO's own and never wait on a goblin's panel.
   const waiting = owner ? waitingItems(snapshot).find((item): item is Exclude<Item, { kind: "run" }> => item.kind !== "run" && (item.kind === "question" ? item.question.task : item.kind === "credential" ? item.request.task : item.review.task) === task.id) : undefined;
   const open = async (target: "vscode" | "folder") => {
