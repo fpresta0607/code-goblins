@@ -283,6 +283,12 @@ func (p *wakeProof) startCFO(t *testing.T) host.Record {
 			_ = process.Kill()
 		}
 	})
+	return p.settle(t, record)
+}
+
+// settle answers the startup dialogs the CFO's harness shows in record's
+// terminal, and returns once its composer or a turn has settled.
+func (p *wakeProof) settle(t *testing.T, record host.Record) host.Record {
 	screens, _ := harness.NativeScreens(harness.Kind(p.cfo))
 	// A dialog is answered before anything else, and the composer or a turn
 	// counts only once it has shown startupSettle reads in a row: on
