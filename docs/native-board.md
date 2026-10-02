@@ -27,10 +27,12 @@ The detached `serve` listens on the board's address, which is the same every tim
 An address already in use is never replaced with another: `goblins` starts nothing and says who holds it.
 It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, and says "another program" for anything else.
 Only this home's own supervisor, started a moment ago by another `goblins` and not yet recorded, is waited for instead.
-`cfo serve` without `--listen` and the supervisor `cfo update` restarts use the same address.
+This home's own supervisor that holds the address but records no board within that wait is named by its pid, with how to stop it.
+`cfo serve` without `--listen` uses the same address.
+`cfo update` restarts the supervisor on the address the one it stops was serving, read from the record, so a home on an address of its own keeps it whatever shell runs the update; with no supervisor running, and in a later `cfo update --recover`, it uses the board's address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 `goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
-A supervisor it found rather than started is said first, under the banner: "The supervisor and the CFO of this home already run: nothing new was started.", or "The supervisor of this home already runs: it was not started again." when no CFO runs yet.
+The quick start (`goblins` with no command) says first, under the banner, when it found a supervisor rather than started one: "The supervisor and the CFO of this home already run: nothing new was started.", or "The supervisor of this home already runs: it was not started again." when no CFO runs yet.
 Then `goblins` brings the Overlord to the CFO, after the quick start's agent steps when no CFO runs (docs/install.md, The quick start).
 A CFO whose registration in `state/primary.json` names a live process is reused, never started a second time: `goblins` brings its registered workspace and tab to the front and hands its terminal to `herdr`, attached to the session the CFO registered in.
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.

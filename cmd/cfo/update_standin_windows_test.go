@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -104,9 +105,15 @@ func standInHome() home.Home {
 	return home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
 }
 
-// standInServe behaves as the build's supervisor in the home the test names.
+// standInServe behaves as the build's supervisor in the home the test names,
+// listening where --listen says, as serve does.
 func standInServe(build string) int {
 	stateDir := standInHome().State
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	address := flags.String("listen", "127.0.0.1:0", "")
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		return 2
+	}
 	if build == "flaky" {
 		starts := filepath.Join(stateDir, "test-serve-starts")
 		data, _ := os.ReadFile(starts)
@@ -135,14 +142,16 @@ func standInServe(build string) int {
 		}
 	}
 	defer lock.ReleaseExclusiveNamed(stateDir, ".watch.lock")
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", *address)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	if err := writeBoardRecord(stateDir, boardRecord{PID: os.Getpid(), URL: "http://" + listener.Addr().String()}); err != nil {
 		return 1
 	}
 	defer removeBoardRecord(stateDir, os.Getpid())
+	defer listener.Close()
 	hang := make(chan struct{})
 	go func() {
 		_ = http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -231,6 +231,38 @@ func TestUpdateRollsBackACandidateThatNeverServes(t *testing.T) {
 	}
 }
 
+// An update restarts the supervisor on the address the one it stopped served,
+// whichever build ends up serving, so a home on an address of its own keeps
+// it whatever shell runs the update.
+func TestUpdateRestartsTheSupervisorOnTheAddressItServedOn(t *testing.T) {
+	for _, test := range []struct {
+		candidate string
+		exit      int
+	}{{"candidate", updateInstalled}, {"crash", updateRolledBack}} {
+		t.Run(test.candidate, func(t *testing.T) {
+			// Arrange
+			u := newUpdateHome(t, "previous", test.candidate)
+			u.serving()
+			before := u.awaitBoard()
+
+			// Act
+			code, output := u.run(nil)
+
+			// Assert
+			if code != test.exit {
+				t.Fatalf("update exited %d, want %d:\n%s", code, test.exit, output)
+			}
+			after := u.awaitBoard()
+			if after.PID == before.PID {
+				t.Fatalf("the supervisor (pid %d) was not restarted:\n%s", before.PID, output)
+			}
+			if after.URL != before.URL {
+				t.Fatalf("the restarted supervisor serves %s, want the address it served before, %s:\n%s", after.URL, before.URL, output)
+			}
+		})
+	}
+}
+
 // The failure on 2026-10-01 was a process that ended part way. An update
 // that ends at any step, including between starting the candidate's
 // supervisor and recording it, and between moving an alias and replacing it,

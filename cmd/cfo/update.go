@@ -151,42 +151,49 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	updateInterrupt("prepared")
 	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h))
 
+	// The supervisor is restarted on the address the one stopped here serves,
+	// so a home on an address of its own keeps it whatever shell runs the
+	// update.
+	address := boardAddress()
 	if running, ok := homeSupervisor(h.State); ok {
+		if record, err := readBoardRecord(h.State); err == nil && record.PID == running.pid {
+			address = strings.TrimPrefix(record.URL, "http://")
+		}
 		fmt.Fprintf(stdout, "Stopping the supervisor (pid %d).\n", running.pid)
 		if err := endSupervisor(h, running); err != nil {
-			return rollBack(h, journal, fmt.Errorf("stop the supervisor: %w", err), stdout, stderr)
+			return rollBack(h, journal, address, fmt.Errorf("stop the supervisor: %w", err), stdout, stderr)
 		}
 	}
 	if err := recordUpdate(h.State, journal, update.Stopped, ""); err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	updateInterrupt("stopped")
 
 	if err := update.Swap(journal); err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	if err := recordUpdate(h.State, journal, update.Swapped, ""); err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	updateInterrupt("swapped")
 
-	started, err := startSupervisor(h, filepath.Join(h.Root, "goblins.exe"))
+	started, err := startSupervisor(h, filepath.Join(h.Root, "goblins.exe"), address)
 	if err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	updateInterrupt("started")
 	journal.Attempts = append(journal.Attempts, update.Attempt{PID: started.pid, Start: started.start, Program: filepath.Join(h.Root, "goblins.exe")})
 	if err := recordUpdate(h.State, journal, update.Swapped, ""); err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	if err := awaitSupervisor(h.State, started, true); err != nil {
-		return rollBack(h, journal, err, stdout, stderr)
+		return rollBack(h, journal, address, err, stdout, stderr)
 	}
 	// A success the journal cannot record is not one: a later --recover
 	// would put the previous build back over a build that serves, so the
 	// update rolls back now instead.
 	if err := recordUpdate(h.State, journal, update.Done, "the candidate serves"); err != nil {
-		return rollBack(h, journal, fmt.Errorf("record the update as done: %w", err), stdout, stderr)
+		return rollBack(h, journal, address, fmt.Errorf("record the update as done: %w", err), stdout, stderr)
 	}
 	update.CleanUp(journal)
 	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board.\n", h.Root, journal.Hash, started.pid)
@@ -218,13 +225,15 @@ func recoverUpdate(h home.Home, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "cfo update: %v; recovery stops only this home's own supervisor, so nothing was changed. Stop it (goblins stop), then run the recovery line again in Windows PowerShell:\n  %s\n", err, recoverCommand(h))
 		return 1
 	}
-	return rollBack(h, &journal, fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
+	// The supervisor the update stopped left no record of its address for
+	// this later process, so the previous build starts on the board's own.
+	return rollBack(h, &journal, boardAddress(), fmt.Errorf("the update stopped at %s", journal.Phase), stdout, stderr)
 }
 
-// rollBack puts the previous build back and starts its supervisor, and says
-// whether the board serves. The verified backups are copied back, never
-// moved, so a rollback that stops part way can run again.
-func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr io.Writer) int {
+// rollBack puts the previous build back and starts its supervisor on
+// address, and says whether the board serves. The verified backups are copied
+// back, never moved, so a rollback that stops part way can run again.
+func rollBack(h home.Home, journal *update.Journal, address string, cause error, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "cfo update: %v; putting the previous build back\n", cause)
 	_ = recordUpdate(h.State, journal, update.RollingBack, cause.Error())
 	updateInterrupt("rolling-back")
@@ -246,7 +255,7 @@ func rollBack(h home.Home, journal *update.Journal, cause error, stdout, stderr 
 			lastErr = err
 			break
 		}
-		started, err := startPreviousSupervisor(h, program)
+		started, err := startPreviousSupervisor(h, program, address)
 		held.Close()
 		if err == nil {
 			journal.Attempts = append(journal.Attempts, update.Attempt{PID: started.pid, Start: started.start, Program: program})
@@ -598,14 +607,15 @@ func awaitExit(running serveProcess, wait time.Duration) bool {
 	return !processIs(running)
 }
 
-// startSupervisor starts serve from program, detached, as goblins does.
-func startSupervisor(h home.Home, program string) (serveProcess, error) {
+// startSupervisor starts serve from program on address, detached, as goblins
+// does.
+func startSupervisor(h home.Home, program, address string) (serveProcess, error) {
 	var command *exec.Cmd
 	var err error
 	// serve.log can still be held for a moment by the console of the
 	// supervisor just stopped.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-		command, err = startDetached(program, h.Root, serveLogPath(h.State), "serve", "--listen", boardAddress())
+		command, err = startDetached(program, h.Root, serveLogPath(h.State), "serve", "--listen", address)
 		if err == nil || !errors.Is(err, errorSharingViolation) || time.Now().After(deadline) {
 			break
 		}
@@ -626,14 +636,14 @@ func startSupervisor(h home.Home, program string) (serveProcess, error) {
 // update takes the lock over from one first and releases it just before that
 // supervisor starts. The CFO's Stop hook can take it again in that gap; the
 // rollback's updateServeTries cover a start lost to it.
-func startPreviousSupervisor(h home.Home, program string) (serveProcess, error) {
+func startPreviousSupervisor(h home.Home, program, address string) (serveProcess, error) {
 	if err := supervisor.AcquireWatchLock(h.State); err != nil {
 		return serveProcess{}, fmt.Errorf("free the watcher lock for the previous build: %w", err)
 	}
 	if err := supervisor.ReleaseWatchLock(h.State); err != nil {
 		return serveProcess{}, err
 	}
-	return startSupervisor(h, program)
+	return startSupervisor(h, program, address)
 }
 
 // awaitSupervisor waits until the supervisor started serves as itself: it

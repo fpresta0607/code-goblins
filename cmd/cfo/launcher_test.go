@@ -588,6 +588,29 @@ func TestGoblinsWaitsForItsOwnSupervisorHoldingTheAddress(t *testing.T) {
 	}
 }
 
+// This home's own supervisor that holds the address but records no board
+// within the wait is told as that, with how to stop it, never as another
+// fleet to move this home's board away from.
+func TestGoblinsTellsItsOwnSupervisorThatRecordedNoBoard(t *testing.T) {
+	// Arrange
+	defer func(timeout, poll time.Duration) { launcherStartTimeout, launcherPoll = timeout, poll }(launcherStartTimeout, launcherPoll)
+	launcherStartTimeout, launcherPoll = 200*time.Millisecond, 20*time.Millisecond
+	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
+		return nil, boardAddressTaken{address: "127.0.0.1:4310", cause: errors.New("bind: in use"), pid: 4242, home: h.Root}
+	})
+
+	// Act
+	exit, stdout, stderr := f.launch()
+
+	// Assert
+	if exit != 1 || stdout != "" || len(f.opened) != 0 {
+		t.Fatalf("exit=%d stdout=%q opened=%q, want nothing shown or opened", exit, stdout, f.opened)
+	}
+	if want := "goblins: this home's supervisor (pid 4242) holds the board's address 127.0.0.1:4310 but recorded no board. Stop it with goblins stop, or end pid 4242 if that finds no supervisor, then run goblins again.\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+}
+
 // A record whose address no longer answers was left by a supervisor that
 // ended without removing it, so goblins starts a new one.
 func TestGoblinsReplacesAStaleBoardRecord(t *testing.T) {
