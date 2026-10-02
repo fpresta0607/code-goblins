@@ -87,9 +87,10 @@ function shownTips(part: Element): ShownTip[] {
   }));
 }
 
-// Waits for the tip a part shows once the pointer is on it.
-async function tipsOf(part: Locator) {
-  await part.hover();
+// Waits for the tip a part shows once the pointer is on it. A hover scrolls
+// the part into view; point puts the pointer on it some other way.
+async function tipsOf(part: Locator, point = () => part.hover()) {
+  await point();
   let tips: ShownTip[] = [];
   await expect.poll(async () => (tips = await part.evaluate(shownTips)).length).toBeGreaterThan(0);
   return tips;
@@ -196,13 +197,27 @@ test("a tip with no room on its side of the card opens on the other side, clear 
   // The screen is 80 px taller than the card, which leaves room for a tip on
   // one side of it only.
   await page.setViewportSize({ width: 1000, height: Math.ceil((await shell.boundingBox())!.height) + 80 });
-  const scrollCardTo = (top: number) => shell.evaluate((card, top) => scrollBy(0, card.getBoundingClientRect().top - top), top);
+  // The page scrolls only once it has taken the new screen's height, so the
+  // scroll is repeated until the card is where it was sent.
+  const scrollCardTo = (top: number) => expect.poll(() => shell.evaluate((card, top) => {
+    scrollBy(0, card.getBoundingClientRect().top - top);
+    return Math.round(card.getBoundingClientRect().top);
+  }, top)).toBe(top);
+  // The pointer goes straight to the part, since a hover may scroll the page
+  // to bring the part to the middle of the screen.
+  const pointAt = (part: Locator) => async () => {
+    const box = (await part.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  };
   await scrollCardTo(76);
-  const low = await tipsOf(shell.locator(".card-harness [role=img]"));
+  const mark = shell.locator(".card-harness [role=img]"), pause = shell.getByRole("button", { name: /^Pause / });
+  const low = await tipsOf(mark, pointAt(mark));
   expect(tipProblems(low)).toEqual([]);
   expect(low.map((tip) => tip.side)).toEqual(["over"]);
+  await page.mouse.move(1, 1);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await scrollCardTo(4);
-  const high = await tipsOf(shell.getByRole("button", { name: /^Pause / }));
+  const high = await tipsOf(pause, pointAt(pause));
   expect(tipProblems(high)).toEqual([]);
   expect(high.map((tip) => tip.side)).toEqual(["under"]);
 });
