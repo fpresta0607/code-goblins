@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -50,8 +51,14 @@ var runShells = []string{"powershell", "pwsh", "bash"}
 type Run struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
-	Title    string `json:"title"`
-	Shell    string `json:"shell"`
+	// Made is the identity the item was made under, once it has followed the
+	// CFO to another registration: its directory stays named after it.
+	Made string `json:"made,omitempty"`
+	// By is "cfo" on an item the registered CFO published over the pipe. Only
+	// such an item follows the CFO and waits to tell it how it ended.
+	By    string `json:"by,omitempty"`
+	Title string `json:"title"`
+	Shell string `json:"shell"`
 	Admin    bool   `json:"admin"`
 	Command  string `json:"command"`
 	Cwd      string `json:"cwd"`
@@ -141,7 +148,7 @@ func sameRun(a, b Run) bool {
 // runDir holds one item's script and what its run leaves behind. Its name is
 // the item's own digest, so a later item with the same ID never shares it.
 func runDir(stateDir string, r Run) string {
-	sum := sha256.Sum256([]byte(r.ID + "\n" + r.Identity + "\n" + strconv.FormatInt(r.CreatedAt.UnixNano(), 10)))
+	sum := sha256.Sum256([]byte(r.ID + "\n" + madeUnder(r.Made, r.Identity) + "\n" + strconv.FormatInt(r.CreatedAt.UnixNano(), 10)))
 	return filepath.Join(stateDir, "runs", hex.EncodeToString(sum[:]))
 }
 
@@ -221,7 +228,7 @@ func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -562,21 +569,24 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if output != "" {
 		text += " The output ends: " + tail(output, 1500)
 	}
-	if !s.Store.cfoLive() {
+	if r.By == "cfo" && !s.Store.cfoLive() {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	if delivery := s.tellCFO(ctx, text); delivery != nil {
-		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)), s.Store.untoldRun(r.ID, r.RunAction, text))
+		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
+		if r.By == "cfo" {
+			err = errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
+		}
 	}
 	return err
 }
 
-// retellRuns tells the CFO, while one runs, how each item ended that no CFO
-// was told of.
+// retellRuns tells the CFO, while one runs, how each of its items ended that
+// no CFO was told of.
 func (s *Service) retellRuns(ctx context.Context) error {
 	var errs error
 	for _, r := range s.Store.Snapshot().Runs {
-		if r.Untold == "" {
+		if r.By != "cfo" || r.Untold == "" {
 			continue
 		}
 		if err := s.tellCFO(ctx, r.Untold); err != nil {
@@ -588,7 +598,8 @@ func (s *Service) retellRuns(ctx context.Context) error {
 }
 
 // tellCFO sends a run's result to the CFO registered now, which may have
-// restarted since it created the item.
+// restarted since it created the item. A result submitted behind the CFO's
+// turn is told: the CFO takes it when the turn ends.
 func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if s.Options.CFO == nil {
 		return errors.New("no CFO transport")
@@ -602,7 +613,9 @@ func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if err != nil {
 		return errors.New("the CFO registration is unreadable")
 	}
-	_, err = s.Options.CFO.Send(ctx, identity, text)
+	if _, err = s.Options.CFO.Send(ctx, identity, text); errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		return nil
+	}
 	return err
 }
 

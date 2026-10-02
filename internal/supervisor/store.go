@@ -667,8 +667,16 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 // ProcessOne commits intent before executing it. Only read-only evaluation is
 // safe to replay after a crash; external deliveries have uncertain outcomes.
 func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Action) (Evaluation, error)) error {
-	live := s.cfoLive()
+	// The follow and the pick share one read of the CFO, so a delivery that
+	// waited for it is never sent addressed to the registration before.
+	identity, live := s.liveCFO()
 	s.mu.Lock()
+	if live {
+		if err := s.follow(identity); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	i := s.nextQueued(live)
 	if i < 0 {
 		s.mu.Unlock()

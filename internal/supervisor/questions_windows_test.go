@@ -105,7 +105,9 @@ func TestQuestionPoisonCapacityAndReplacementCannotBlockHooks(t *testing.T) {
 			t.Fatalf("a replacement registration closed the CFO's question %s as %s", question.ID, question.Status)
 		}
 	}
-	_ = store.ingestQuestions()
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal("ingesting with every place still taken failed", err)
+	}
 	if len(store.Snapshot().Questions) != maxQuestions {
 		t.Fatal("question retention unbounded")
 	}

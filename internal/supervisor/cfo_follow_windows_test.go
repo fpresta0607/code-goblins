@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // closedCFO registers, in native terminal cfo, a CFO process that is no
@@ -188,5 +192,248 @@ func TestARunThatEndedWhileTheCFOWasClosedIsToldToTheCFOThatReopens(t *testing.T
 	want := "Overlord: Run item cfo-run-0001 (Run cfo-run-0001) finished with exit code 0. The output ends: migration 42 applied"
 	if lines := cfo.waitForLines(t, 2); !slices.Contains(lines, want) {
 		t.Errorf("the reopened CFO received %q, want %q", lines, want)
+	}
+}
+
+// reregisterCFO registers the home's running CFO again under another
+// registration, as a CFO that was closed and opened again registers, and
+// returns the identity of that registration.
+func reregisterCFO(t *testing.T, store *Store, primary primaryRegistration, runner *cfoRunner) string {
+	t.Helper()
+	primary.Terminal, runner.terminal = "reopened-terminal", "reopened-terminal"
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, identity, err := decodePrimary(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
+// The CFO's run item nobody ran yet keeps its script across the CFO's
+// restart: the Overlord runs it afterwards and it starts.
+func TestAReadyRunStartsAfterTheCFORestarted(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primary, made, runner, connection := primaryFixture(t, store)
+	launcher := &fakeRunLauncher{started: liveStart(t)}
+	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: launcher}}
+	r := readyRun(t, store, made, "cfo-run-0002", "powershell", false, time.Now().UTC())
+	reopened := reregisterCFO(t, store, primary, runner)
+	s.cycle(context.Background(), false)
+	followed := store.Snapshot().Runs[0]
+
+	// Act
+	pressRun(t, s, followed, "run-cfo-run-0002")
+
+	// Assert
+	if followed.Identity != reopened {
+		t.Fatalf("the run item is addressed to %s, want the reopened CFO %s", followed.Identity, reopened)
+	}
+	script := filepath.Join(runDir(store.Home.State, r), "command.ps1")
+	if len(launcher.launches) != 1 || launcher.launches[0].Script != script {
+		t.Errorf("launched %+v, want the script it was published with, %s", launcher.launches, script)
+	}
+	if started := store.Snapshot().Runs[0]; started.State != "running" {
+		t.Errorf("the run item reads %s (%s), want it running", started.State, started.Reason)
+	}
+}
+
+// The CFO's run item that was running when the CFO restarted is still read
+// from its own directory when its command finishes.
+func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primary, made, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	r := readyRun(t, store, made, "cfo-run-0003", "powershell", false, time.Now().UTC())
+	pressRun(t, s, r, "run-cfo-run-0003")
+	reregisterCFO(t, store, primary, runner)
+	s.cycle(context.Background(), false)
+	dir := runDir(store.Home.State, r)
+	if err := os.WriteFile(filepath.Join(dir, "output.log"), []byte("migration 42 applied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "exit.txt"), []byte("0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.cycle(context.Background(), false)
+
+	// Assert
+	if finished := store.Snapshot().Runs[0]; finished.State != "succeeded" || finished.Output != "migration 42 applied" {
+		t.Errorf("the run item reads %s with output %q (%s), want it succeeded with what it printed", finished.State, finished.Output, finished.Reason)
+	}
+	want := "Run item cfo-run-0003 (Run cfo-run-0003) finished with exit code 0. The output ends: migration 42 applied"
+	if !slices.ContainsFunc(runner.prompts, func(prompt string) bool { return strings.Contains(prompt, want) }) {
+		t.Errorf("the reopened CFO received %q, want %q", runner.prompts, want)
+	}
+}
+
+// The CFO's delivered document is still served after the CFO restarted, and
+// its copy is removed when the item is pruned.
+func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	primary, _, runner, connection := primaryFixture(t, store)
+	servePipe(t, store, connection)
+	source := filepath.Join(t.TempDir(), "plan.pdf")
+	data := []byte("%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n")
+	if err := os.WriteFile(source, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := DeliverDocument(ctx, h, connection.Terminals, "", "cfo-document-1", "The plan", source, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	dir := reviewImageDir(h.State, store.Snapshot().Reviews[0])
+	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection}}
+	reopened := reregisterCFO(t, store, primary, runner)
+	s.cycle(ctx, false)
+
+	// Act
+	served := httptest.NewRecorder()
+	NewHTTP(s, "board.local", nil).ServeHTTP(served, httptest.NewRequest("GET", "http://board.local/api/reviews/cfo-document-1/document", nil))
+	if _, err := store.Queue(Action{ID: "open-cfo-document-1", Kind: "review_clear", Generation: reopened, ReviewID: "cfo-document-1", Text: "Opened"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(ctx, s.execute); err != nil {
+		t.Fatal(err)
+	}
+	pruneErr := store.pruneReviews(time.Now().Add(closedReviewRetention + time.Hour))
+
+	// Assert
+	if served.Code != 200 || !bytes.Equal(served.Body.Bytes(), data) {
+		t.Errorf("the document after the restart = %d %q, want the copy", served.Code, served.Body.String())
+	}
+	if pruneErr != nil || len(store.Snapshot().Reviews) != 0 {
+		t.Fatalf("pruning left %+v (%v), want the cleared item gone", store.Snapshot().Reviews, pruneErr)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the pruned item's directory still exists (%v)", err)
+	}
+}
+
+// A run item the board made for the Overlord, a connection repair or a
+// credential request's terminal, is not the CFO's: it does not follow the CFO,
+// and the terminal still opens after the CFO restarted.
+func TestARunTheBoardMadeDoesNotFollowTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	primary, _, runner, connection := primaryFixture(t, store)
+	launcher := &fakeRunLauncher{started: liveStart(t)}
+	s := &Service{Store: store, Instance: "test-instance", work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: launcher}}
+	t.Cleanup(func() {
+		if s.connectionChecks != nil {
+			s.connectionChecks.Close()
+		}
+	})
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repair, err := s.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	terminal, err := s.recordBoardRun(Run{ID: "credential-0123456789abcdef", Identity: strings.Repeat("d", 64), Title: "Type STRIPE_SECRET_KEY for throwaway in a terminal on this PC", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), CredentialRequest: "cred-0123456789abcdef", CredentialNames: []string{"STRIPE_SECRET_KEY"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "run-" + terminal.ID, Kind: "run", RunID: terminal.ID, Generation: terminal.Identity}); err != nil {
+		t.Fatal(err)
+	}
+	reregisterCFO(t, store, primary, runner)
+
+	// Act
+	s.cycle(context.Background(), false)
+	if err := store.ProcessOne(context.Background(), s.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	for _, made := range []Run{repair, terminal} {
+		runs := store.Snapshot().Runs
+		i := slices.IndexFunc(runs, func(r Run) bool { return r.ID == made.ID })
+		if i < 0 || runs[i].Identity != made.Identity || runs[i].Made != "" {
+			t.Errorf("after the CFO restarted, run items read %+v, want %s still under the identity the board made it with", runs, made.ID)
+		}
+	}
+	script := filepath.Join(runDir(store.Home.State, terminal), "command.ps1")
+	if len(launcher.launches) != 1 || launcher.launches[0].Script != script {
+		t.Errorf("launched %+v, want the credential terminal's script %s", launcher.launches, script)
+	}
+}
+
+// An answer that waited for the CFO is delivered to the CFO registered now
+// even when the delivery worker runs before the supervisor's next cycle.
+func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primary, closed, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	question := Question{ID: "cfo-question-3", Identity: closed, Text: "Pick a layout", Options: []string{"Board", "Tree"}, CreatedAt: time.Now().UTC(), Status: "pending"}
+	if err := store.acceptQuestion(question); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "answer-cfo-question-3", Kind: "cfo_answer", QuestionID: question.ID, Generation: closed, Text: "Board", AnswerKind: "option"}); err != nil {
+		t.Fatal(err)
+	}
+	reregisterCFO(t, store, primary, runner)
+
+	// Act
+	err := store.ProcessOne(context.Background(), s.execute)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "User answer to CFO question cfo-question-3. Question: Pick a layout Answer: Board"
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], want) {
+		t.Errorf("the reopened CFO received %q, want %q once", runner.prompts, want)
+	}
+	if answered := store.Snapshot().Questions[0]; answered.Status != "succeeded" {
+		t.Errorf("the question reads %q (%s), want it answered", answered.Status, answered.Message)
+	}
+}
+
+// A run's result typed and submitted while the CFO was inside a turn is told:
+// the CFO takes it when its turn ends, so it is never typed again.
+func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, identity, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
+	r := readyRun(t, store, identity, "cfo-run-0004", "powershell", false, time.Now().UTC())
+	pressRun(t, s, r, "run-cfo-run-0004")
+	if err := os.WriteFile(filepath.Join(runDir(store.Home.State, r), "exit.txt"), []byte("0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner.busy = true
+	ctx := context.Background()
+
+	// Act
+	finishErr := s.finishRuns(ctx)
+	retellErr := errors.Join(s.retellRuns(ctx), s.retellRuns(ctx))
+
+	// Assert
+	if finishErr != nil || retellErr != nil {
+		t.Fatalf("finishing = %v, telling again = %v, want neither to fail", finishErr, retellErr)
+	}
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0004") {
+		t.Errorf("the CFO in a turn was sent %q, want the result once", runner.prompts)
+	}
+	if told := store.Snapshot().Runs[0]; told.Untold != "" || told.Reason != "" {
+		t.Errorf("the run item reads untold %q, reason %q, want it told with nothing noted", told.Untold, told.Reason)
 	}
 }

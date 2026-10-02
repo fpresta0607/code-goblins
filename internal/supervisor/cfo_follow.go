@@ -18,26 +18,36 @@ import "slices"
 func (s *Store) followCFO(identity string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.follow(identity)
+}
+
+// follow is followCFO for a caller that holds s.mu. An item whose files are
+// stored under its identity keeps the one it was made under in made.
+func (s *Store) follow(identity string) error {
 	moved := map[string]bool{}
-	follow := func(current *string) {
-		if *current != identity {
-			moved[*current] = true
-			*current = identity
+	follow := func(current, made *string) {
+		if *current == identity {
+			return
 		}
+		moved[*current] = true
+		if made != nil && *made == "" {
+			*made = *current
+		}
+		*current = identity
 	}
 	for i := range s.db.Questions {
 		if q := &s.db.Questions[i]; q.Task == "" && (q.Status == "pending" || q.Status == "queued") {
-			follow(&q.Identity)
+			follow(&q.Identity, nil)
 		}
 	}
 	for i := range s.db.Reviews {
 		if r := &s.db.Reviews[i]; r.Task == "" && (r.State == "open" || r.State == "answered" && !r.Delivered) {
-			follow(&r.Identity)
+			follow(&r.Identity, &r.Made)
 		}
 	}
 	for i := range s.db.Runs {
-		if r := &s.db.Runs[i]; r.ConnectionTask == "" && (r.State == "ready" || r.State == "running") {
-			follow(&r.Identity)
+		if r := &s.db.Runs[i]; r.By == "cfo" && (r.State == "ready" || r.State == "running") {
+			follow(&r.Identity, &r.Made)
 		}
 	}
 	for i := range s.db.Actions {
@@ -52,7 +62,7 @@ func (s *Store) followCFO(identity string) error {
 			}
 		case "review":
 			if a.CFOIdentity != "" {
-				follow(&a.CFOIdentity)
+				follow(&a.CFOIdentity, nil)
 			}
 		}
 	}
@@ -62,11 +72,25 @@ func (s *Store) followCFO(identity string) error {
 	return s.save()
 }
 
-// cfoLive reports whether the home's CFO is registered and running, so a
-// delivery to it can be made now.
-func (s *Store) cfoLive() bool {
+// madeUnder is the identity an item's files are stored under: the one it was
+// made under, which made keeps once the item has followed the CFO.
+func madeUnder(made, identity string) string {
+	if made != "" {
+		return made
+	}
+	return identity
+}
+
+// liveCFO reads once whether the home's CFO is registered and running, so a
+// delivery to it can be made now, and the identity it registered with.
+func (s *Store) liveCFO() (string, bool) {
 	cfo := readCFOState(s.Home.State)
-	return cfo.registered && cfo.problem == ""
+	return cfo.identity, cfo.registered && cfo.problem == ""
+}
+
+func (s *Store) cfoLive() bool {
+	_, live := s.liveCFO()
+	return live
 }
 
 // waitsForCFO reports whether a queued action is a delivery to the CFO, which
