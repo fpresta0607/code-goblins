@@ -212,6 +212,32 @@ func TestAnUnprovenWakeLineReachesTheBoardOnce(t *testing.T) {
 	}
 }
 
+// A failure every look meets reaches the board once with the next recovery
+// cycle, not once for every look since the last one.
+func TestAWakeFailureEveryLookMeetsReachesTheBoardOnce(t *testing.T) {
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleCodexCFO)
+	if err := os.WriteFile(filepath.Join(stateDir, cfoWokenFile), []byte("garbage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := testStore(t)
+	s.Store, s.work, s.subscribers = store, make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	awake := make(chan struct{})
+	go func() {
+		defer close(awake)
+		s.keepCFOAwake(ctx, 5*time.Millisecond)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-awake
+	s.cycle(context.Background(), true)
+
+	if got := strings.Count(s.lastError, "unreadable "+cfoWokenFile); got != 1 {
+		t.Errorf("the board showed the failure %d times, want once: %q", got, s.lastError)
+	}
+}
+
 // One place says how a CFO of each harness is woken, for the typed delivery
 // and for whatever tells a user which harnesses a CFO can run in: Claude Code
 // by its Stop hook, Codex and pi by a typed line, and a harness nothing

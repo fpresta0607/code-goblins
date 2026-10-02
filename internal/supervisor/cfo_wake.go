@@ -72,7 +72,8 @@ func CFOWakeFor(agent string) CFOWake {
 }
 
 // keepCFOAwake looks for wakes to type into the CFO every cfoWakeEvery until
-// ctx ends, handing what went wrong to the next recovery cycle.
+// ctx ends, handing what went wrong to the next recovery cycle once however
+// many looks met it.
 func (s *Service) keepCFOAwake(ctx context.Context, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
@@ -84,7 +85,9 @@ func (s *Service) keepCFOAwake(ctx context.Context, every time.Duration) {
 		}
 		if err := s.wakeCFO(ctx, time.Now().UTC()); err != nil {
 			s.mu.Lock()
-			s.cfoWakeErr = errors.Join(s.cfoWakeErr, err)
+			if s.cfoWakeErr == nil || !strings.Contains(s.cfoWakeErr.Error(), err.Error()) {
+				s.cfoWakeErr = errors.Join(s.cfoWakeErr, err)
+			}
 			s.mu.Unlock()
 		}
 	}
