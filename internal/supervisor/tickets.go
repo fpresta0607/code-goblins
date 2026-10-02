@@ -70,8 +70,8 @@ type ticketKeeper struct {
 
 	repositories map[string]repositoryAnswer
 	labelled     map[string]bool
-	backOff      map[string]repositoryWait
-	askPullAfter map[string]time.Time
+	backOff      map[string]ticketWait
+	askPullAfter map[string]ticketWait
 	// offTheBoardSince is when each task with an open ticket was first seen
 	// off the board, for as long as it stays off it.
 	offTheBoardSince map[string]time.Time
@@ -96,14 +96,16 @@ type repositoryAnswer struct {
 	again       time.Time
 }
 
-// repositoryWait is a repository GitHub asked the keeper to leave alone.
-type repositoryWait struct {
+// ticketWait is a wait the keeper holds, a repository GitHub asked it to
+// leave alone or a pull request it asks about again later, and the line the
+// board shows while it lasts, if any.
+type ticketWait struct {
 	until time.Time
 	line  string
 }
 
 func newTicketKeeper(h home.Home, writer *Tickets) *ticketKeeper {
-	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]repositoryWait{}, askPullAfter: map[string]time.Time{}, offTheBoardSince: map[string]time.Time{}}
+	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]ticketWait{}, askPullAfter: map[string]ticketWait{}, offTheBoardSince: map[string]time.Time{}}
 }
 
 // Issues are the lines the board shows for tickets that wait or failed, as
@@ -227,6 +229,12 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if record != nil && record.IsDone {
 		return
 	}
+	// A backlog row left under Queued puts a started or finished task on the
+	// board as queued again, and must never move its ticket back.
+	if task.Phase == "queued" && record != nil && record.State != tickets.Queued {
+		k.noteOf(record)
+		return
+	}
 	ticket, ok := ticketFor(id, k.title(id, record), task, record)
 	if !ok {
 		k.noteOf(record)
@@ -300,18 +308,26 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 
 // pullRequestState asks GitHub what became of a gone task's pull request,
 // once an hour while it is open and after ticketRetry when GitHub did not
-// answer; in between, and without a way to ask, it is "".
+// answer; in between, and without a way to ask, it is "". The wait after a
+// failed read keeps its line on the board.
 func (k *ticketKeeper) pullRequestState(ctx context.Context, record tickets.Record, now time.Time) string {
-	if k.writer.PullRequestState == nil || now.Before(k.askPullAfter[record.TaskID]) {
+	if k.writer.PullRequestState == nil {
+		return ""
+	}
+	if wait := k.askPullAfter[record.TaskID]; now.Before(wait.until) {
+		if wait.line != "" {
+			k.note("task:"+record.TaskID, wait.line)
+		}
 		return ""
 	}
 	answer, err := k.writer.PullRequestState(ctx, record.PullRequest)
 	if err != nil {
-		k.askPullAfter[record.TaskID] = now.Add(ticketRetry)
-		k.note("task:"+record.TaskID, fmt.Sprintf("The ticket for %s waits: its pull request could not be read: %v", record.TaskID, err))
+		wait := ticketWait{until: now.Add(ticketRetry), line: fmt.Sprintf("The ticket for %s waits: its pull request could not be read: %v", record.TaskID, err)}
+		k.askPullAfter[record.TaskID] = wait
+		k.note("task:"+record.TaskID, wait.line)
 		return ""
 	}
-	k.askPullAfter[record.TaskID] = now.Add(collaborationRefresh)
+	k.askPullAfter[record.TaskID] = ticketWait{until: now.Add(collaborationRefresh)}
 	return answer.State
 }
 
@@ -365,7 +381,7 @@ func (k *ticketKeeper) move(ctx context.Context, id string, record *tickets.Reco
 // and an hour's wait for the whole repository when GitHub asked for one.
 func (k *ticketKeeper) refused(id, repository string, err error, now time.Time) {
 	if tickets.ShouldBackOff(err) {
-		wait := repositoryWait{until: now.Add(ticketBackOff)}
+		wait := ticketWait{until: now.Add(ticketBackOff)}
 		wait.line = fmt.Sprintf("GitHub refused a ticket write in %s, so its tickets wait until %s: %v", repository, wait.until.UTC().Format("15:04Z"), err)
 		k.backOff[repository] = wait
 		k.note("repository:"+repository, wait.line)

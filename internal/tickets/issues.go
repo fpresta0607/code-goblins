@@ -292,9 +292,6 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.request == "" {
-		return fmt.Sprintf("GitHub refused with HTTP %d", e.Status)
-	}
 	return "gh api " + e.request + ": " + e.message
 }
 
