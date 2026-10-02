@@ -158,8 +158,6 @@ func sayWakePath(stdout io.Writer, harness string, native bool) {
 		fmt.Fprintf(stdout, "A %s CFO is woken by one line typed into this terminal while it sits idle at an empty prompt, once it has run cfo register in this terminal.\n", harness)
 	case wake == supervisor.CFOWakeTyped:
 		fmt.Fprintf(stdout, "A %s CFO has no wake path in Herdr: a wake is typed only into a native terminal (goblins --native), so here it sees reports only when it checks the board or runs cfo drain.\n", harness)
-	default:
-		fmt.Fprintf(stdout, "A %s CFO has no wake path, so it sees reports only when it checks the board or runs cfo drain.\n", harness)
 	}
 }
 
