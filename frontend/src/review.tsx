@@ -95,7 +95,7 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
     {!valid && <p className="warning-text">Select up to 200 contiguous visible diff lines.</p>}
     {stale && <p className="warning-text">This diff changed. Select the current lines before sending.</p>}
     {staleGeneration && <p className="warning-text" role="alert">This task restarted or was replaced. This comment belongs to its previous session. Reselect the current lines to review the new session.</p>}
-    {draft.error && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request ID.</p>}
+    {draft.error && <p className="warning-text" role="alert">{draft.error}</p>}
     <footer>
       <span className="muted">Enter sends · Shift+Enter new line · Esc cancels</span>
       <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip="Send to the CFO" data-tip-align="end" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>

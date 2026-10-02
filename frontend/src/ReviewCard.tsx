@@ -55,7 +55,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       </button>)}
     </div>}
     {answersHere && <label className="written-answer"><span className="sr-only">Your answer</span><textarea rows={3} maxLength={4000} placeholder={"Tell " + (review.task ? asker : "the CFO") + " what you think..."} value={draft.written} disabled={draft.sending} onChange={(event) => onDraft({ written: event.target.value, error: "", receipt: undefined })} /></label>}
-    {draft.error && !outcome && review.state === "open" && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
+    {draft.error && !outcome && review.state === "open" && <p className="warning-text" role="alert">{draft.error}</p>}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">

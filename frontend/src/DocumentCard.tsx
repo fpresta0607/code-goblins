@@ -34,7 +34,7 @@ export function DocumentCard({ review, document, snapshot, connected, draft, onO
       <span className="file-icon" aria-hidden="true"><Icon name="file" /><b>{badge}</b></span>
       <span className="doc-copy"><strong>{document.name}</strong><span>{documentFacts(document, sender)}</span></span>
     </div>
-    {draft.error && !outcome && open && <p className="warning-text" role="alert">{draft.error} An unchanged retry keeps its request identity.</p>}
+    {draft.error && !outcome && open && <p className="warning-text" role="alert">{draft.error}</p>}
     {!open ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{settledLabel(item, snapshot.actions)}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">
