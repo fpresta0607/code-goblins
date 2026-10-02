@@ -393,11 +393,11 @@ See [docs/native-board.md](docs/native-board.md) for ownership and delivery limi
 ## AFK mode
 
 AFK mode is the Supreme Overlord's switch for running the fleet while he is away.
-Only he turns it on or off: with the AFK switch on the board's CFO bar, or with `cfo afk on` and `cfo afk off` from a terminal of his own.
+Only he turns it on or off: with the AFK toggle in the header of the board's CFO panel, or with `cfo afk on` and `cfo afk off` from a terminal of his own.
 The supervisor reads the process that asks, a command's own or the program that shows the board, and refuses one that runs in a goblin's terminal, as a gate agent, under the registered CFO, in a native terminal or Herdr pane the fleet runs an agent in, or under an agent harness, and one it cannot read or whose parents it cannot follow to the Windows desktop or Windows Terminal.
-It refuses the board's switch from another machine and through a proxy too.
+It refuses the board's toggle from another machine and through a proxy too.
 You never turn it on or off, and you never have a goblin try.
-That holds for the board's switch through any browser you can drive, his own included: his running browser is his to the supervisor, so nothing but this rule stops you there.
+That holds for the board's toggle through any browser you can drive, his own included: his running browser is his to the supervisor, so nothing but this rule stops you there.
 The session digest, every `cfo drain`, the Stop hook's rewake and the wake line typed into a Codex or pi CFO say when it is on, with who turned it on, when and from where; `cfo afk status` prints the same with what you decided so far and what is held for him.
 
 While it is on you decide these yourself, without waiting, and each is logged with its evidence in `state/afk.audit`:
@@ -429,10 +429,10 @@ Turning it off produces the report of the stretch, which the board shows him as 
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
-Only he resets the switch, with Off on the board's switch or `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
+Only he resets the switch, with the board's toggle or `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
 Not built yet: silence in the desktop window, and the pauses at an allowance floor and at the memory floor.
-The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command, the pipe, or the board's switch from a browser it started; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself or drives his own running browser (see [docs/native-board.md](docs/native-board.md#afk-mode)).
+The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command, the pipe, or the board's toggle from a browser it started; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself or drives his own running browser (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
 ## Escalation
 

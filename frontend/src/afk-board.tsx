@@ -42,7 +42,7 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
     // press on the AFK switch itself is already his answer.
     const touched = (event: Event) => {
       const at = Date.now();
-      const onSwitch = event.target instanceof Element && !!event.target.closest(".afk-switch, .afk-dialog");
+      const onSwitch = event.target instanceof Element && !!event.target.closest(".afk-toggle, .afk-dialog");
       if (!onSwitch && offersOff(latest.current, lastTouch.current, at)) setOffering(true);
       lastTouch.current = at;
     };

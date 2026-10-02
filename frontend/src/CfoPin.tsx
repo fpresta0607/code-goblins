@@ -7,7 +7,6 @@ import { Icon } from "./Icon";
 import { stillHeld } from "./afk";
 import { useAfkActions } from "./afk-actions";
 import { AfkHeldList } from "./afk-held";
-import { AfkToggle } from "./afk-toggle";
 import { cfoSummary } from "./cfoSummary";
 import { harnessMark } from "./connectors";
 import { harnessTip } from "./workflow";
@@ -22,9 +21,9 @@ import { harnessTip } from "./workflow";
 // start one. A CFO still starting waits in its terminal for Claude Code's
 // sign-in. The mark of the harness the registered CFO runs sits beside its
 // portrait, with the model of its newest session in that harness in its tip.
-// The AFK switch sits on the bar in both forms. While it is on the bar stays
-// plain, says since when and how much was decided and held, and lists under
-// itself what is held for him, each item a click from the Command Center.
+// While AFK mode is on the bar stays plain whatever waits on him, says since
+// when and how much was decided and held, and lists under itself what is held
+// for him, each item a click from the Command Center.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { asking, line } = cfoSummary(snapshot);
   const absent = !snapshot.cfo_runs;
@@ -33,29 +32,23 @@ export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Sna
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
   const mark = harness && !absent ? <ConnectorMark mark={harnessMark(harness)} label={harnessTip(harness, model, "")} /> : undefined;
-  const { afk } = snapshot;
-  const held = stillHeld(afk);
+  const held = stillHeld(snapshot.afk);
   const { answer } = useAfkActions();
   if (!asking && !absent) return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} data-tip-align="start" onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>
       {mark}
       <p title={shown}>{shown}</p>
-      <AfkToggle afk={afk} instance={snapshot.instance} />
       <button className="icon-button raised" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
-      {afk.state === "on" && <Disclosure kind="afk-held-panel" defaultOpen={held.length > 0} title={<>Held for you <span className="column-count">{held.length}</span></>}>
+      {snapshot.afk.state === "on" && <Disclosure kind="afk-held-panel" defaultOpen={held.length > 0} title={<>Held for you <span className="column-count">{held.length}</span></>}>
         <AfkHeldList held={held} tasks={snapshot.tasks} onOpen={answer} />
       </Disclosure>}
     </div>
   </div>;
   return <div className="cfo-pin">
     <DialogueBox persona="cfo" speaker="CFO" tone="needs" label="CFO" portrait={absent ? undefined : { label: terminal, onClick: onOpen }} badge={mark}
-      actions={absent ? <>
-        <button className="pixel-button" onClick={onStart}><Icon name="play" />Start the CFO</button>
-        {afk.state !== "off" && <AfkToggle afk={afk} instance={snapshot.instance} pixel />}
-      </> : <>
+      actions={absent ? <button className="pixel-button" onClick={onStart}><Icon name="play" />Start the CFO</button> : <>
         <button className="pixel-button" onClick={onCommand}>Open Command Center</button>
-        <AfkToggle afk={afk} instance={snapshot.instance} pixel />
         <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
       </>}>
       <p title={shown}>{shown}</p>

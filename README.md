@@ -459,9 +459,9 @@ A request takes one save and expires after 24 hours.
 ### AFK mode
 
 AFK mode runs the fleet while you are away.
-Turn it on with the **AFK** switch on the board's CFO bar, or with `cfo afk on` in a terminal of your own, and off the same two ways.
+Turn it on with the **AFK** toggle in the header of the board's CFO panel, beside the CFO's status, or with `cfo afk on` in a terminal of your own, and off the same two ways.
 It is your switch: the supervisor reads the program that asks, and refuses a goblin's or the CFO's terminal and a browser an agent opened.
-On the board, **On** asks first and **Off** does not.
+On the board, turning it on asks first and turning it off does not.
 Use the board in the Code Goblins window or in a browser you started from the desktop: a board on another machine, or one reached through a proxy, cannot turn it.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.
@@ -479,10 +479,10 @@ While it is on:
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 Turning it off shows the report of the stretch on the board as one page: how much of each thing the CFO did, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
-The page button beside the switch opens the last report again.
+The button beside the toggle opens the last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
-If the switch itself ever cannot be read, **Off** on the board or `cfo afk off` puts it back to off.
+If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
 
 ```text
 AFK MODE REPORT
