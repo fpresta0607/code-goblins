@@ -81,7 +81,7 @@ commands:
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
   cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
-  cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, and which wait
+  cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -201,10 +201,12 @@ type commandRuntime struct {
 	// the turn cfo gate test takes before its tests, gateBudget is how long
 	// the tests of a level may run, and gateRun runs one of the step's
 	// commands in dir and returns its exit code, with an error unless it
-	// passed.
+	// passed. gateProgress is how often a run that holds a turn says beside
+	// it how far its tests are.
 	availableMemory func() (uint64, error)
 	gateBudget      func(gatetest.Level) time.Duration
 	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	gateProgress    time.Duration
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -328,8 +330,9 @@ func defaultCommandRuntime() commandRuntime {
 			memory, err := supervisor.MachineMemory()
 			return memory.Available, err
 		},
-		gateBudget: gateBudget,
-		gateRun:    runGateCommand,
+		gateBudget:   gateBudget,
+		gateRun:      runGateCommand,
+		gateProgress: 5 * time.Second,
 	}
 }
 
