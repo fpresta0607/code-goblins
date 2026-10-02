@@ -143,8 +143,10 @@ export interface Snapshot {
   // cfo_runs says a CFO is registered and running or starting; without one
   // the board shows its first-run page.
   cfo_runs: boolean;
-  // cfo_starting says the CFO runs in its terminal but has not registered,
-  // which it does only after Claude Code's sign-in there.
+  // cfo_starting says the CFO runs in its terminal but has not registered
+  // yet: Claude Code registers through its SessionStart hook after its
+  // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
+  // register.
   cfo_starting: boolean;
   inbox: number;
   tasks: Task[];
