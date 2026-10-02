@@ -1,7 +1,8 @@
 // Line icons drawn on one 24px grid, so every glyph centres by construction
 // instead of by a font's metrics. The Pi entry is a plain glyph, since no
 // official mark is available for it; the OpenAI entry is a plain stand-in for
-// the mark in brandMarks.ts.
+// the mark in brandMarks.ts; the Codex entry is drawn for this set after
+// Codex's own mark, a six-lobed cloud holding a terminal prompt.
 const PATHS = {
   "command-center": "M6.5 3.5h11a2.5 2.5 0 0 1 2.5 2.5v7.5a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4a2.5 2.5 0 0 1-2.5-2.5V6a2.5 2.5 0 0 1 2.5-2.5ZM8.5 12.5l-.75-5 2.75 2L12 6.5l1.5 3 2.75-2-.75 5Z",
   close: "M6 6l12 12M18 6 6 18",
@@ -34,6 +35,7 @@ const PATHS = {
   book: "M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5ZM20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5Z",
   claude: "M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4M8.6 3.7l6.8 16.6M15.4 3.7 8.6 20.3M3.7 8.6l16.6 6.8M3.7 15.4l16.6-6.8",
   openai: "M12 3 19.8 7.5v9L12 21l-7.8-4.5v-9ZM12 8v8M8.5 10l7 4M15.5 10l-7 4",
+  codex: "M14.02 4.47A4.62 4.62 0 0 1 19.53 9.98 4.62 4.62 0 0 1 17.52 17.52 4.62 4.62 0 0 1 9.98 19.53 4.62 4.62 0 0 1 4.47 14.02 4.62 4.62 0 0 1 6.48 6.48 4.62 4.62 0 0 1 14.02 4.47ZM8.7 9.7l1.5 2.3-1.5 2.3M13 14.3h2.8",
   pi: "M5 7h14M9.5 7v11M14.5 7v8.5a2.5 2.5 0 0 0 2.5 2.5",
   sparkle: "M12 3.5 13.9 10.1 20.5 12 13.9 13.9 12 20.5 10.1 13.9 3.5 12 10.1 10.1Z",
   task: "M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5",

@@ -40,7 +40,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} start={task.phase === "queued" ? cardStart(task) : undefined} onAdjust={() => document.querySelector<HTMLTextAreaElement>(".task-adjustment textarea")?.focus()} />
+        <TaskControls task={task} snapshot={snapshot} labelled />
         <LifecycleDetails task={task} />
         {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
       </div>}
