@@ -229,6 +229,8 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if record != nil && record.IsDone {
 		return
 	}
+	// A backlog row left under Queued puts a started or finished task on the
+	// board as queued again, and must never move its ticket back.
 	if task.Phase == "queued" && record != nil && record.State != tickets.Queued {
 		k.noteOf(record)
 		return
