@@ -93,9 +93,9 @@ type Headroom struct {
 }
 
 // Headroom reads the evidence for a harness and model. The harness name is
-// the provider name for every harness quota-axi measures (claude, codex,
-// kimi); a model-scoped window is preferred when quota-axi reports one for
-// the model, otherwise the all-models scope bounds it.
+// the provider name for every harness quota-axi measures (claude and codex);
+// a model-scoped window is preferred when quota-axi reports one for the
+// model, otherwise the all-models scope bounds it.
 func (r Report) Headroom(harness, model string) Headroom {
 	h := Headroom{Provider: harness}
 	p, ok := r.Providers[harness]

@@ -388,7 +388,7 @@ func (t switchTarget) same(meta state.TaskMeta) bool {
 // so `--model` alone keeps the harness it is already running.
 //
 // Neither a model name nor an effort survives a change of harness - "opus"
-// means nothing to codex, and Kimi has no effort knob at all - so changing
+// means nothing to codex, and pi may lack an effort claude has - so changing
 // harness without naming them resets both to the new harness's defaults
 // rather than carrying values the new harness cannot honour. An effort the
 // operator still passes explicitly is refused loudly when its launch is
