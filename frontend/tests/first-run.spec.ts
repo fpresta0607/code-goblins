@@ -51,7 +51,7 @@ test("the page asks for no project, shows what the quick start knows as done, an
   await expect(page.getByRole("combobox")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
   await expect(done.getByText("C:\\Users\\franco\\AppData\\Local\\CodeGoblins")).toBeVisible();
-  await expect(done.getByText("Claude Code, chosen in the quick start")).toBeVisible();
+  await expect(done.getByText("Claude Code, remembered for this home")).toBeVisible();
   await expect(page.getByText("Goblins find 2 projects here by name: alpha, beta.")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("first-run.png") });
 
@@ -73,12 +73,12 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
 
   // Assert: three tabs, each with its mark, Claude Code recommended and
   // marked when the quick start remembered none, and nothing said to be
-  // chosen in the quick start.
+  // remembered for this home.
   await expect(tabs.getByRole("tab")).toHaveCount(3);
   await expect(tabs.locator("svg")).toHaveCount(3);
   await expect(claude).toHaveAttribute("aria-selected", "true");
   await expect(claude).toContainText("Recommended");
-  await expect(page.getByText("chosen in the quick start")).toHaveCount(0);
+  await expect(page.getByText("remembered for this home")).toHaveCount(0);
   await expect(page.getByRole("tabpanel")).toContainText("Signed in");
   await expect(start).toBeEnabled();
 
@@ -110,7 +110,7 @@ test("an agent the quick start remembered is shown as chosen, and one click on C
 
   // Assert
   await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("list", { name: "Already set up" }).getByText("Codex, chosen in the quick start")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Already set up" }).getByText("Codex, remembered for this home")).toBeVisible();
   await expect(start).toBeDisabled();
 
   // Act
@@ -171,3 +171,20 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     expect(starts).toEqual([{ root: "", agent: "claude" }]);
   });
 }
+
+test("a failure Start reported stays on the page when the CFO turns out to be running", async ({ page }) => {
+  // Arrange: the CFO starts, its agent cannot be remembered, and the reload
+  // finds the CFO running.
+  const notRemembered = "the CFO started, but its agent could not be remembered: the state folder is read-only";
+  await open(page, setup());
+  await page.route("**/api/setup/start", (route) => route.fulfill({ status: 500, json: { error: notRemembered } }));
+  await page.route("**/api/setup?root=*", (route) => route.fulfill({ json: setup({ cfo_runs: true }) }));
+
+  // Act
+  await page.getByRole("button", { name: "Start the CFO" }).click();
+
+  // Assert
+  await expect(page.getByRole("heading", { name: "The CFO is running" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveText(notRemembered);
+  await expect(page.getByRole("button", { name: "Open the CFO's terminal" })).toBeVisible();
+});

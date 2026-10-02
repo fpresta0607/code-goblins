@@ -31,6 +31,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
   const data = setup.data;
   if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
     <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">The CFO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
+    {failure && <p className="warning-text" role="alert">{failure}</p>}
     <div className="first-run-actions"><span /><button className="primary" onClick={onStarted}><Icon name="terminal" />Open the CFO's terminal</button></div>
   </section>;
   const { agent, blocked } = startState(data, picked, asked !== null);
@@ -63,7 +64,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
     <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">Start Code Goblins</h2><p className="muted">Start the CFO. It opens in the board's terminal and works across every project from its home.</p></div></header>
     <ul className="first-run-done" aria-label="Already set up">
       <li><Icon name="check" /><strong>Home</strong><span className="first-run-path">{data.home}</span></li>
-      {remembered && <li><Icon name="check" /><strong>Agent</strong><span>{remembered.name}, chosen in the quick start</span></li>}
+      {remembered && <li><Icon name="check" /><strong>Agent</strong><span>{remembered.name}, remembered for this home</span></li>}
     </ul>
     <div className="first-run-step">
       <span className="first-run-label" id="agent-label">Agent</span>
