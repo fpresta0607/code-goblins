@@ -18,12 +18,9 @@ func (kimiAdapter) Validate(ctx context.Context, runner execx.Runner) error {
 	return err
 }
 
-// Build produces a bare Kimi launch: the brief arrives through
-// `herdr agent prompt` like the other native-start harnesses, so no
-// positional prompt is appended. Kimi shows its own workspace trust dialog in a fresh worktree but
-// keeps reporting idle there (Herdr's kimi detection falls back to idle), and
-// the dialog highlights "Don't trust" by default, so confirming it takes Up
-// then Enter; a bare Enter would exit Kimi.
+// Build produces a bare Kimi launch: the brief is typed into its composer like
+// every harness's, so no positional prompt is appended. Kimi has no native
+// screens yet, so no spawn or switch starts it until they are captured live.
 func (kimiAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch, err := buildBase(spec)
 	if err != nil {
@@ -37,8 +34,6 @@ func (kimiAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if hasValue(spec.Effort) {
 		return Launch{}, fmt.Errorf("harness: Kimi does not support effort %q", spec.Effort)
 	}
-	launch.ConfirmMarkers = []string{"Trust this folder?"}
-	launch.ConfirmKeys = []string{"up", "enter"}
 	return launch, nil
 }
 

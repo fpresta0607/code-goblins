@@ -50,38 +50,20 @@ type LaunchSpec struct {
 	CodexMCPServers []string
 }
 
-// Launch is a harness launch specification. By default Herdr starts the
-// harness itself through `herdr agent start` with Args after `--`, so the
-// agent is named and registered from birth; agent start has no environment or
-// working-directory support, so Env and Dir render the typed PowerShell prefix
-// that prepares the pane shell first. On that native path the brief is never
-// embedded in a shell line: PromptFile is referenced by path in the
-// instruction submitted through `herdr agent prompt` once the agent is ready.
-// ConfirmMarkers mark a blocking harness startup dialog (the workspace trust
-// prompt every harness shows in a fresh worktree): while a marker is on
-// screen, spawn sends ConfirmKeys to confirm the dialog. The keys differ per
-// harness because the default-highlighted option differs.
-// TypedLaunch is the fallback for harnesses Herdr cannot start natively
-// (Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-// execute the npm .cmd shims codex and pi install as): the command is typed
-// into the prepared pane shell, and Herdr detects the agent. Its instruction
-// is typed into the harness's composer as pane text once the composer shows
-// on screen, never through `herdr agent prompt`.
-// SecretsFile, when set, is dot-sourced by the prefix instead of the values
-// being typed into the pane. A credential typed inline would sit in the
-// pane's scrollback and in every `cfo peek`, so the pane only ever sees the
-// path.
+// Launch is a harness launch specification: the native terminal's host starts
+// the harness with Args in Dir, with Env set. The brief is never embedded in
+// the command line: PromptFile is referenced by path in the instruction typed
+// into the harness's composer once it shows on screen. Executable, when set,
+// names a harness installed as a script shim (the npm .cmd codex and pi install
+// as), which the host starts through cmd /c; empty, the harness's own .exe
+// starts.
 type Launch struct {
-	Args           []string
-	Env            map[string]string
-	SecretsFile    string
-	PromptFile     string
-	Instruction    string
-	Dir            string
-	ConfirmMarkers []string
-	ConfirmKeys    []string
-	TypedLaunch    bool
-	Executable     string
+	Args        []string
+	Env         map[string]string
+	PromptFile  string
+	Instruction string
+	Dir         string
+	Executable  string
 	// Resumed marks a launch that continues an existing session.
 	Resumed bool
 }
@@ -97,8 +79,7 @@ func (launch Launch) PromptInstruction() string {
 }
 
 // BriefInstruction is the single prompt every goblin receives once its
-// harness is ready: typed into the composer as pane text after a typed
-// launch, and through the terminal's verified prompt channel otherwise.
+// harness is ready, typed into its composer.
 func BriefInstruction(promptFile string) string {
 	return "Read the brief at " + promptFile + " and follow it exactly."
 }
@@ -119,11 +100,6 @@ type Control struct {
 	// placed before the built launch arguments because codex takes its
 	// resume as a subcommand. Empty means the harness cannot resume.
 	ResumeArgs []string
-	// ResumeMarkers mark the interactive dialog ResumeArgs can open before
-	// the harness accepts input (claude asks how to resume a large idle
-	// session). While one is on screen, the relaunch clears it with the
-	// launch's ConfirmKeys, exactly like a startup dialog.
-	ResumeMarkers []string
 	// ExitMarkers mark a dialog StopCommand can open instead of exiting
 	// (claude asks what to do with background work still running). While
 	// one is on screen, switch answers it with ExitKeys rather than

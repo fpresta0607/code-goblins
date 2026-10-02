@@ -45,16 +45,6 @@ func (claudeAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if hasValue(spec.MCPConfig) {
 		launch.Args = append(launch.Args, "--mcp-config", spec.MCPConfig)
 	}
-	// Fresh worktrees are never in ~/.claude.json, so interactive
-	// Claude launches open the workspace trust dialog. herdr agent start
-	// returns success while Claude sits at that dialog and the agent reports
-	// blocked; the dialog highlights "Yes, I trust this folder" by default,
-	// so a single Enter confirms it once the marker text is on screen.
-	launch.ConfirmMarkers = []string{
-		"Is this a project you created or one you trust?",
-		"Do you trust the files in this folder?",
-	}
-	launch.ConfirmKeys = []string{"enter"}
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
@@ -75,23 +65,10 @@ func (claudeAdapter) Control() Control {
 		StopKeys:    []string{"escape"},
 		StopCommand: "/exit",
 		ResumeArgs:  []string{"--continue"},
-		// Resuming a session that sat idle past its prompt-cache lifetime
-		// opens Claude's resume dialog. Summary is its highlighted default
-		// and the right choice for a goblin, so the standard confirm Enter
-		// accepts it once a marker is on screen. The markers are the
-		// dialog's static explanation sentence rather than its option
-		// labels ("Resume from summary" and friends): markers are matched as
-		// substrings of the pane tail, and --continue replays the prior
-		// conversation into that same tail, so an option label the goblin
-		// happened to discuss would hold the dialog loop open forever.
-		ResumeMarkers: []string{
-			"will consume a substantial portion of your usage limits",
-			"We recommend resuming from a summary",
-		},
 		// /exit with background work running opens Claude's "Background
 		// work is running" menu. Its first and highlighted option is Exit
-		// and stop tasks, which also ends the background work that would
-		// otherwise keep the pane's shell waiting, so Enter picks it.
+		// and stop tasks, which also ends the background work, so Enter
+		// picks it.
 		ExitMarkers: []string{"Background work is running"},
 		ExitKeys:    []string{"Enter"},
 	}
