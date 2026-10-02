@@ -23,8 +23,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
-	"github.com/fpresta0607/code-goblins/internal/install"
-	"github.com/fpresta0607/code-goblins/internal/siqspeak"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -59,8 +57,7 @@ type HTTP struct {
 	openWindow func(ctx context.Context, program string, args ...string) error
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
-	build     string
-	readVoice func() (siqspeak.Snapshot, error)
+	build string
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -71,7 +68,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, readVoice: voiceReader(install.MachineProjectsRoot)}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -98,13 +95,15 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch {
-	case r.URL.Path == "/api/voice" && r.Method == "POST":
-		h.voice(w, r)
 	case r.URL.Path == "/api/alive" && r.Method == "GET":
 		// Liveness for goblins and its status and stop: the supervisor's own
 		// pid, answered without building the fleet's snapshot, which can
-		// take longer than any launcher waits.
-		respond(w, 200, map[string]int{"pid": os.Getpid()})
+		// take longer than any launcher waits. Its home tells a goblins that
+		// finds the board's address in use whose fleet holds it.
+		respond(w, 200, struct {
+			PID  int    `json:"pid"`
+			Home string `json:"home"`
+		}{os.Getpid(), h.Service.Store.Home.Root})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
 		snapshot, err := h.Service.Snapshot()
 		if err != nil {
@@ -140,12 +139,18 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.refreshConnections(w, r)
 	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
 		h.fixConnection(w, r)
+	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
+		h.saveCredentials(w, r)
+	case r.URL.Path == "/api/credentials/terminal" && r.Method == "POST":
+		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
+	case r.URL.Path == "/api/announce" && r.Method == "POST":
+		h.announceItems(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
