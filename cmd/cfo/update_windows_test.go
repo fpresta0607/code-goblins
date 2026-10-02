@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -68,6 +69,9 @@ func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome
 	}
 	u.candidate = filepath.Join(root, "cfo.exe.held-candidate")
 	writeBuild(t, u.candidate, candidate)
+	// Registered before endAll, so it runs after it: the builds are ended,
+	// then the home is removed once Windows lets go of them.
+	standin.RemoveAtCleanup(t, root)
 	t.Cleanup(u.endAll)
 	return u
 }
@@ -224,6 +228,71 @@ func TestUpdateRollsBackACandidateThatNeverServes(t *testing.T) {
 				t.Fatal("the CFO's terminal host was ended")
 			}
 		})
+	}
+}
+
+// An update restarts the supervisor on the address the one it stopped served,
+// whichever build ends up serving, so a home on an address of its own keeps
+// it whatever shell runs the update.
+func TestUpdateRestartsTheSupervisorOnTheAddressItServedOn(t *testing.T) {
+	for _, test := range []struct {
+		candidate string
+		exit      int
+	}{{"candidate", updateInstalled}, {"crash", updateRolledBack}} {
+		t.Run(test.candidate, func(t *testing.T) {
+			// Arrange
+			u := newUpdateHome(t, "previous", test.candidate)
+			u.serving()
+			before := u.awaitBoard()
+
+			// Act
+			code, output := u.run(nil)
+
+			// Assert
+			if code != test.exit {
+				t.Fatalf("update exited %d, want %d:\n%s", code, test.exit, output)
+			}
+			after := u.awaitBoard()
+			if after.PID == before.PID {
+				t.Fatalf("the supervisor (pid %d) was not restarted:\n%s", before.PID, output)
+			}
+			if after.URL != before.URL {
+				t.Fatalf("the restarted supervisor serves %s, want the address it served before, %s:\n%s", after.URL, before.URL, output)
+			}
+		})
+	}
+}
+
+// A recovery starts the previous build's supervisor on the address this
+// home's board record names, the one it last served on, whatever shell runs
+// the recovery line.
+func TestRecoverStartsTheSupervisorOnTheAddressTheRecordNames(t *testing.T) {
+	// Arrange
+	u := newUpdateHome(t, "previous", "candidate")
+	u.serving()
+	before := u.awaitBoard()
+	if code, output := u.run([]string{"CFO_TEST_UPDATE_INTERRUPT=prepared"}); code != 9 {
+		t.Fatalf("the update did not end at prepared (exit %d):\n%s", code, output)
+	}
+	journal, err := update.ReadJournal(u.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.candidate = journal.Copy
+
+	// Act
+	code, output := u.run(nil, "--recover")
+
+	// Assert
+	if code != updateRolledBack {
+		t.Fatalf("recover exited %d, want %d:\n%s", code, updateRolledBack, output)
+	}
+	after := u.awaitBoard()
+	if after.PID == before.PID {
+		t.Fatalf("the supervisor (pid %d) was not restarted:\n%s", before.PID, output)
+	}
+	if after.URL != before.URL {
+		t.Fatalf("the recovered supervisor serves %s, want the address the record named, %s:\n%s", after.URL, before.URL, output)
 	}
 }
 

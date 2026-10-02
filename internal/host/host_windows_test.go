@@ -3,6 +3,8 @@ package host
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // The test binary plays every part. As the command in a terminal it answers
@@ -96,6 +100,9 @@ func echoChild() {
 			time.Sleep(time.Minute)
 		case line == "host-id":
 			fmt.Println("host-id", os.Getenv(IDVariable))
+		case line == "host-proof":
+			sum := sha256.Sum256([]byte(os.Getenv(ProofVariable)))
+			fmt.Println("host-proof", hex.EncodeToString(sum[:]))
 		case line == "size":
 			var info windows.ConsoleScreenBufferInfo
 			if err := windows.GetConsoleScreenBufferInfo(windows.Handle(os.Stdout.Fd()), &info); err != nil {
@@ -171,13 +178,29 @@ func launch(t *testing.T) (string, Record) {
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
+	pin(t, record.HostPID)
 	t.Cleanup(func() { end(record.HostPID) })
 	// Every check of the terminal's process leans on this pid, and a pid
 	// that names nothing reads as ended.
 	if record.ChildPID == record.HostPID || !running(record.ChildPID) {
 		t.Fatalf("record %+v does not name a running terminal process", record)
 	}
+	pin(t, record.ChildPID)
 	return stateDir, record
+}
+
+// pin keeps pid the pid of the process it names now until the test ends.
+// Windows hands an ended process's pid to a later one once no handle to the
+// ended one is left, and every check here is by pid: unpinned, a later process
+// under a host's pid would read as the host still running, and end would stop
+// it.
+func pin(t *testing.T, pid int) {
+	t.Helper()
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("pin pid %d: %v", pid, err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(handle) })
 }
 
 // end stops a process this test started, by its pid.
@@ -334,6 +357,43 @@ func TestTheTerminalKnowsWhichTerminalItIs(t *testing.T) {
 	typeLine(t, v, "host-id")
 
 	v.waitFor(t, "host-id g1")
+}
+
+// The terminal carries a proof value of its own, which its host's record
+// proves by digest alone, even when the host was launched from another
+// host's terminal; nothing else proves it.
+func TestTheTerminalCarriesAProofOnlyItsHostsRecordProves(t *testing.T) {
+	// Arrange
+	t.Setenv(ProofVariable, "outer-proof")
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	typeLine(t, v, "host-proof")
+
+	// Assert
+	v.waitFor(t, "host-proof "+record.ProofSum)
+	if record.Proves("outer-proof") || record.Proves("") || (Record{}).Proves("outer-proof") {
+		t.Errorf("record %+v proves another terminal's value, an empty one, or a record without a proof proves one", record)
+	}
+}
+
+// The record names when the terminal's program was created, which tells the
+// program from a later process that Windows gives its pid.
+func TestTheRecordNamesWhenTheTerminalsProgramStarted(t *testing.T) {
+	// Arrange
+	_, record := launch(t)
+	v := connect(t, record)
+	v.waitFor(t, "ready")
+
+	// Act
+	started, ok := proc.StartTime(record.ChildPID)
+
+	// Assert
+	if !ok || record.ChildStart.IsZero() || !record.ChildStart.Equal(started) {
+		t.Errorf("record names the program's start %v, want %v (found %t)", record.ChildStart, started, ok)
+	}
 }
 
 // A viewer types into the terminal the host runs and sees its output.

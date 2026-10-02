@@ -15,11 +15,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -30,6 +32,28 @@ import (
 // defaultBoardAddress is where cfo serve listens unless told otherwise.
 const defaultBoardAddress = "127.0.0.1:4310"
 
+// boardAddressVariable names the person's own choice of where the board
+// listens, for a machine where another program needs the usual address or
+// that runs a second home.
+const boardAddressVariable = "CFO_BOARD_ADDRESS"
+
+// boardAddress is where this home's board listens, the same every time: the
+// address CFO_BOARD_ADDRESS names, or else the usual one. Port 0 there asks
+// for any free port, which a test or a scratch home uses.
+func boardAddress() string {
+	if chosen := strings.TrimSpace(os.Getenv(boardAddressVariable)); chosen != "" {
+		return chosen
+	}
+	return defaultBoardAddress
+}
+
+// loopbackAddress reports whether address is a numeric loopback host and a
+// port, the only kind of address the board listens on.
+func loopbackAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
+}
+
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
@@ -38,23 +62,26 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// and HERDR_BIN_PATH), and herdr refuses to start inside what they name
 	// as another Herdr, so it forgets them first. HERDR_SESSION and
 	// configuration such as HERDR_CONFIG_PATH are not the pane's and are kept.
+	// Started from a native terminal, such as the CFO's own, it would hand
+	// that terminal's id and proof value to every process it starts, and the
+	// proof value proves a process runs in that terminal, so it forgets them
+	// too.
 	for _, entry := range os.Environ() {
-		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
 			if err := os.Unsetenv(name); err != nil {
-				fmt.Fprintf(stderr, "cfo serve: forget the Herdr pane's %s: %v\n", name, err)
+				fmt.Fprintf(stderr, "cfo serve: forget the starting terminal's %s: %v\n", name, err)
 				return 1
 			}
 		}
 	}
 	f := flag.NewFlagSet("serve", flag.ContinueOnError)
 	f.SetOutput(stderr)
-	address := f.String("listen", defaultBoardAddress, "loopback address for the native board")
+	address := f.String("listen", boardAddress(), "loopback address for the native board")
 	example := f.Bool("example", false, "label an isolated temporary example home and omit machine-wide orphan inventory")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
-	host, _, err := net.SplitHostPort(*address)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+	if !loopbackAddress(*address) {
 		fmt.Fprintln(stderr, "serve requires a numeric loopback address, for example 127.0.0.1:4310")
 		return 2
 	}
@@ -128,6 +155,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		// A credential request's card saves through the store cfo auth store
+		// writes, and its refresh is cfo auth store's own.
+		Credentials:        auth.OpenStore,
+		RefreshCredentials: boardCredentialRefresh(runtime),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

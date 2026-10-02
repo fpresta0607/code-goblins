@@ -361,6 +361,42 @@ func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	}
 }
 
+// What the recovery cycle asked Herdr about a registration stands for that
+// registration: the board shows it until the CFO registers again, and then
+// shows nothing of it before the next cycle has examined the new one.
+func TestBoardShowsAProblemOnlyForTheRegistrationItWasFoundIn(t *testing.T) {
+	// Arrange
+	store, runner, cfo := registerFixture(t)
+	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	ctx := context.Background()
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	runner.terminal = "replacement-terminal"
+	service.checkRegistration(ctx)
+	moved, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	registered, err := service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(moved.Registration, "terminal changed or is missing in Herdr pane w1:p1") {
+		t.Errorf("with the registered pane's terminal replaced: registration %q, want the problem the cycle found", moved.Registration)
+	}
+	if !registered.CFORuns || registered.Registration != "" {
+		t.Errorf("with the CFO registered again: runs %v, registration %q; want it running and no problem of the registration it replaced", registered.CFORuns, registered.Registration)
+	}
+}
+
 func TestCFOTerminalReportsAStaleRegistrationAsItsOwnState(t *testing.T) {
 	_, server, _, runner := terminalHTTPFixture(t, newTestTerminal())
 	runner.terminal = "replacement-terminal"

@@ -13,11 +13,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -55,6 +55,14 @@ type CFOConnection struct {
 	State string
 	// Terminals opens the terminal backend the CFO and its goblins run in.
 	Terminals terminal.Opener
+	// ReadScreen reads a native terminal's console for a typed wake; nil
+	// reads it through its host. Deliver submits a typed wake; nil delivers
+	// it as cfo send does.
+	ReadScreen func(host.Record) ([]string, error)
+	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
+	// typing lets one writer at a time read and type into the CFO's native
+	// terminal, so a typed wake and a board send never share its composer.
+	typing sync.Mutex
 }
 
 func decodePrimary(reader io.Reader) (primaryRegistration, string, error) {
@@ -156,16 +164,26 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 
 // nativeHarness proves this process runs under the program in native
 // terminal id, whose host must answer, and names that program's harness:
-// harness when the caller names it, or else the program's own name.
+// harness when the caller names it, or else the name the program runs.
 func nativeHarness(stateDir, id, harness string) (primaryRegistration, []proc.Entry, int, error) {
 	ancestry, at, err := nativeProgram(stateDir, id)
 	if err != nil {
 		return primaryRegistration{}, nil, 0, err
 	}
 	if harness == "" {
-		harness = strings.TrimSuffix(strings.ToLower(ancestry[at].ExeBase), ".exe")
+		program := ancestry[at].ExeBase
+		harness = strings.TrimSuffix(strings.ToLower(program), ".exe")
+		// Codex and pi install as npm script shims, which a native terminal
+		// runs as cmd /c <name> (spawn.NativeProgram), so cmd's own command
+		// line names the harness.
+		if harness == "cmd" {
+			if identity, err := proc.Identify(ancestry[at].PID, ancestry[at].Start); err == nil && len(identity.Arguments) >= 3 && strings.EqualFold(identity.Arguments[1], "/c") {
+				program += " /c " + identity.Arguments[2]
+				harness = strings.ToLower(identity.Arguments[2])
+			}
+		}
 		if harness != "claude" && harness != "codex" && harness != "pi" {
-			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, ancestry[at].ExeBase)
+			return primaryRegistration{}, nil, 0, fmt.Errorf("native terminal %s runs %s, which is not a harness the board delivers to", id, program)
 		}
 	}
 	return primaryRegistration{Host: id, Agent: harness}, ancestry, at, nil
@@ -185,7 +203,11 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	at := slices.IndexFunc(ancestry, func(entry proc.Entry) bool { return entry.PID == record.ChildPID })
 	if at < 0 {
-		return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+		program, err := terminalProgram(record, os.Environ())
+		if err != nil || len(ancestry) == 0 {
+			return nil, 0, fmt.Errorf("native terminal %s runs pid %d, and this command does not run under it", id, record.ChildPID)
+		}
+		ancestry, at = []proc.Entry{ancestry[0], program}, 1
 	}
 	// A host that was killed leaves its record behind, so only an answer on
 	// its pipe proves a host still serves the terminal.
@@ -195,6 +217,39 @@ func nativeProgram(stateDir, id string) ([]proc.Entry, int, error) {
 	}
 	_ = client.Close()
 	return ancestry, at, nil
+}
+
+// terminalProgram proves that a process whose environment is env runs in
+// native terminal record, by the proof value its host put there, and returns
+// the terminal's program. It is how a process whose chain of parents stops
+// short of the program is proven, as a Cygwin or MSYS exec leaves one: Git
+// Bash runs timeout by replacing its own Windows process, so `timeout 60 cfo
+// notify ...` has a parent that already exited, and the MSYS runtime breaks
+// away from the terminal's job as well. Every descendant of the terminal
+// inherits the value, so a process in a Herdr pane proves nothing by it: a
+// Herdr server started from the terminal hands it to every pane it opens.
+func terminalProgram(record host.Record, env []string) (proc.Entry, error) {
+	if environmentValue(env, "HERDR_PANE_ID") != "" {
+		return proc.Entry{}, errors.New("it runs in a Herdr pane, not in the terminal")
+	}
+	if environmentValue(env, host.IDVariable) != record.ID || !record.Proves(environmentValue(env, host.ProofVariable)) {
+		return proc.Entry{}, errors.New("it carries no proof of the terminal")
+	}
+	program, err := proc.Ancestry(record.ChildPID, 1)
+	if err != nil || len(program) == 0 || !program[0].Start.Equal(record.ChildStart) {
+		return proc.Entry{}, fmt.Errorf("the terminal's program pid %d is not running", record.ChildPID)
+	}
+	return program[0], nil
+}
+
+// environmentValue is name's value in env, a process's environment.
+func environmentValue(env []string, name string) string {
+	for _, entry := range env {
+		if key, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 // herdrHarness proves this process runs under the foreground process of the
@@ -265,15 +320,10 @@ func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration)
 		return errors.New("Native CFO transport is unavailable")
 	}
 	if !primary.Process.VerifiedAlive() {
-		return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
+		return processGone(primary)
 	}
 	if primary.Host != "" {
-		// The host's job ends its terminal's program with the host, so while
-		// the program the record names runs, its host serves it.
-		if record, err := host.ReadRecord(c.State, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
-			return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
-		}
-		return nil
+		return terminalLeft(c.State, primary)
 	}
 	client := c.Terminals(primary.Target.Session)
 	snapshot, err := client.Snapshot(ctx)
@@ -308,19 +358,42 @@ func (c *CFOConnection) verify(ctx context.Context, primary primaryRegistration)
 	return nil
 }
 
+// processGone is the problem of a registration whose process no longer runs.
+func processGone(primary primaryRegistration) error {
+	return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
+}
+
+// terminalLeft is the problem of a native registration whose terminal no
+// longer runs the registered process, or nil while it does. The host's job
+// ends its terminal's program with the host, so while the program the record
+// names runs, its host serves it.
+func terminalLeft(stateDir string, primary primaryRegistration) error {
+	if record, err := host.ReadRecord(stateDir, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
+		return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
+	}
+	return nil
+}
+
 // check reports why the board cannot reach the registered CFO right now, or
 // nil when it can.
 func (c *CFOConnection) check(ctx context.Context) error {
+	_, err := c.examine(ctx)
+	return err
+}
+
+// examine is check, and names the registration it examined: what it found
+// stands for that registration alone, never for one written since.
+func (c *CFOConnection) examine(ctx context.Context) (string, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
-		return errNotRegistered
+		return "", errNotRegistered
 	}
 	defer file.Close()
-	primary, _, err := decodePrimary(file)
+	primary, identity, err := decodePrimary(file)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return c.verify(ctx, primary)
+	return identity, c.verify(ctx, primary)
 }
 
 // LiveCFO returns the registered CFO's Herdr address when primary.json names
@@ -377,16 +450,33 @@ type cfoState struct {
 	terminal string
 	// harness is the harness the registered CFO runs, as it registered.
 	harness string
+	// identity is the fingerprint of the registration this read found, and
+	// empty when it found none it could read.
+	identity string
+	// problem says why the board cannot reach the CFO this read found, with
+	// the fix. It is empty while the board can, and while the CFO is starting
+	// and registers itself after sign-in.
+	problem string
 }
 
 func readCFOState(stateDir string) cfoState {
-	if primary, live := livePrimary(stateDir); live {
-		return cfoState{registered: true, terminal: primary.Host, harness: primary.Agent}
+	primary, identity, err := readPrimary(stateDir)
+	if err == nil && primary.Process.VerifiedAlive() {
+		cfo := cfoState{registered: true, terminal: primary.Host, harness: primary.Agent, identity: identity}
+		if primary.Host != "" {
+			if err := terminalLeft(stateDir, primary); err != nil {
+				cfo.problem = err.Error()
+			}
+		}
+		return cfo
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}
 	}
-	return cfoState{}
+	if err == nil {
+		err = processGone(primary)
+	}
+	return cfoState{identity: identity, problem: err.Error()}
 }
 
 // NativeCFO returns the native terminal the registered CFO runs in, when
@@ -397,13 +487,19 @@ func NativeCFO(stateDir string) (string, bool) {
 }
 
 func livePrimary(stateDir string) (primaryRegistration, bool) {
+	primary, _, err := readPrimary(stateDir)
+	return primary, err == nil && primary.Process.VerifiedAlive()
+}
+
+// readPrimary reads primary.json once: the registration and its identity, or
+// why it names no CFO.
+func readPrimary(stateDir string) (primaryRegistration, string, error) {
 	file, err := openPrimary(filepath.Join(stateDir, "primary.json"))
 	if err != nil {
-		return primaryRegistration{}, false
+		return primaryRegistration{}, "", errNotRegistered
 	}
 	defer file.Close()
-	primary, _, err := decodePrimary(file)
-	return primary, err == nil && primary.Process.VerifiedAlive()
+	return decodePrimary(file)
 }
 
 type primaryResolver struct {
@@ -457,8 +553,8 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
-// Enter for the CFO to show it took the message, the Herdr sender's
-// confirmation budget; nativeConfirmPoll spaces the looks.
+// Enter for the CFO's hook to report it taken before the delivery is left
+// sent and awaiting that report; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
@@ -467,8 +563,10 @@ const (
 // sendNative types text into the registered CFO's native terminal once and
 // submits it, each part confirmed written by the terminal's host. It is
 // delivered once the CFO's own prompt hook, naming the terminal it runs in,
-// reports taking it. Unproven, a CFO its screen showed in a turn takes it
-// when that turn ends, and any other is unconfirmed. It is never typed again.
+// reports taking it. A CFO inside a turn, or one slow to start its next,
+// reports only later, so a delivery not yet reported is sent and awaits the
+// report, which settleDeliveries hears; it is no error, and it is never typed
+// again.
 func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
 	if err := c.verify(ctx, primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
@@ -485,11 +583,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
 	}
 	defer delivery.Close()
-	busy := false
-	if screens, readable := harness.NativeScreens(harness.Kind(primary.Agent)); readable {
-		rows, err := host.ReadScreen(record)
-		busy = err == nil && screens.IsWorking(rows)
-	}
+	c.typing.Lock()
+	defer c.typing.Unlock()
 	submitted := time.Now()
 	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
@@ -507,10 +602,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
 		}
 		if time.Now().After(deadline) {
-			if busy {
-				return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal while it was in a turn, and no hook reported it taken within %s: %w", nativeConfirm, fleet.ErrQueuedBehindTurn)
-			}
-			return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal and submitted, but its hook did not report it taken within %s; check its terminal before sending again", nativeConfirm)
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

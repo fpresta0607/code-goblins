@@ -363,6 +363,26 @@ func SetMachineProjectsRoot(root string) error {
 	return NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
 }
 
+// AddToUserPath appends dir to this machine's user PATH unless the PATH holds
+// it already, keeping every entry there as it is written.
+func AddToUserPath(dir string) error {
+	env := NewEnvStore(execx.OSRunner{})
+	raw, _, err := env.Get(pathVariable)
+	if err != nil {
+		return err
+	}
+	entries := pathEntries(raw)
+	for _, entry := range entries {
+		if samePathEntry(entry, dir) {
+			return nil
+		}
+	}
+	if err := env.Set(pathVariable, strings.Join(append(entries, dir), pathSeparator)); err != nil {
+		return err
+	}
+	return env.Broadcast()
+}
+
 func (s Service) addToPath(report *reporter) error {
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {

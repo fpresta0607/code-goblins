@@ -167,17 +167,22 @@ func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, pl
 	}
 	identity := sha256.Sum256([]byte(s.Instance + "\n" + meta.ID + "\n" + meta.SpawnGen))
 	now := time.Now().UTC()
-	run := Run{ID: "connection-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), ConnectionTask: meta.ID, ConnectionGeneration: meta.SpawnGen}
+	return s.recordBoardRun(Run{ID: "connection-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), ConnectionTask: meta.ID, ConnectionGeneration: meta.SpawnGen})
+}
+
+// recordBoardRun records a run item the board made itself, with the script
+// file Run executes written beside it first.
+func (s *Service) recordBoardRun(run Run) (Run, error) {
 	if err := validRun(run); err != nil {
 		return Run{}, err
 	}
 	directory := runDir(s.Store.Home.State, run)
 	filename, script := runScript(run)
 	if err := os.MkdirAll(directory, 0700); err != nil {
-		return Run{}, errors.New("Connection repair could not be saved.")
+		return Run{}, errors.New("The run item could not be saved.")
 	}
 	if err := fsx.AtomicWriteFile(filepath.Join(directory, filename), script); err != nil {
-		return Run{}, errors.New("Connection repair could not be saved.")
+		return Run{}, errors.New("The run item could not be saved.")
 	}
 	run.ScriptSum = runDigest(script)
 	if err := s.Store.acceptRun(run); err != nil {

@@ -74,6 +74,10 @@ type Run struct {
 
 	ConnectionTask       string `json:"connection_task,omitempty"`
 	ConnectionGeneration string `json:"connection_generation,omitempty"`
+	// CredentialRequest is the credential request whose card opened this
+	// terminal, and CredentialNames the names it stores.
+	CredentialRequest string   `json:"credential_request,omitempty"`
+	CredentialNames   []string `json:"credential_names,omitempty"`
 }
 
 // RunRequest is what cfo run-request asks for; CommandFile is read once.
@@ -165,21 +169,30 @@ func PublishRun(h home.Home, req RunRequest) error {
 	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
 }
 
+// WithdrawRun takes a run item nobody ran off the board for the registered
+// primary CFO, with its reason, over the supervisor's pipe.
+func WithdrawRun(h home.Home, id, reason string) error {
+	return sendPipeRequest(h.State, runPipeRequest{Kind: "withdraw-run", ID: id, Reason: reason})
+}
+
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
-// may put on the board (a question, a review record or an answer), which the
-// supervisor records only once the sending process is proven to be the CFO.
+// may put on the board (a question, a review record, an answer or a
+// credential request) or a run item it withdraws, which the supervisor
+// records only once the sending process is proven to be the CFO.
 type runPipeRequest struct {
-	Kind     string     `json:"kind,omitempty"`
-	ID       string     `json:"id"`
-	Title    string     `json:"title"`
-	Shell    string     `json:"shell"`
-	Admin    bool       `json:"admin"`
-	Cwd      string     `json:"cwd"`
-	Command  string     `json:"command"`
-	Question *Question  `json:"question,omitempty"`
-	Review   *Review    `json:"review,omitempty"`
-	Answer   *cfoAnswer `json:"answer,omitempty"`
+	Kind       string             `json:"kind,omitempty"`
+	ID         string             `json:"id"`
+	Reason     string             `json:"reason,omitempty"`
+	Title      string             `json:"title"`
+	Shell      string             `json:"shell"`
+	Admin      bool               `json:"admin"`
+	Cwd        string             `json:"cwd"`
+	Command    string             `json:"command"`
+	Question   *Question          `json:"question,omitempty"`
+	Review     *Review            `json:"review,omitempty"`
+	Answer     *cfoAnswer         `json:"answer,omitempty"`
+	Credential *CredentialRequest `json:"credential,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
@@ -283,6 +296,52 @@ func (s *Store) acceptRun(r Run) error {
 	return s.save()
 }
 
+// withdrawRun takes the run item id, which nobody ran yet, off the board for
+// the registered CFO, keeping its reason on the item and in state/runs.audit;
+// Run on it is refused from then on. Replacing an item is withdrawing it and
+// publishing the new command under a new ID. An item the board made for the
+// Overlord, a connection repair or a credential request's terminal, is not
+// the CFO's to withdraw.
+func (s *Store) withdrawRun(id, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > 1900 {
+		return errors.New("a withdrawal needs a reason of at most 1900 characters")
+	}
+	s.mu.Lock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id })
+	if i < 0 {
+		s.mu.Unlock()
+		return errors.New("no run item with that ID to withdraw")
+	}
+	r := &s.db.Runs[i]
+	now := time.Now().UTC()
+	switch {
+	case r.ConnectionTask != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CFO's to withdraw", r.ID, r.ConnectionTask)
+	case r.CredentialRequest != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+	case r.State != "ready":
+		s.mu.Unlock()
+		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
+	case !now.Before(r.ExpiresAt):
+		s.mu.Unlock()
+		return errors.New("the run item expired, so it cannot be withdrawn")
+	}
+	r.State, r.Reason, r.FinishedAt = "withdrawn", reason, &now
+	withdrawn := *r
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := appendRunAudit(s.Home.State, withdrawn, "withdrawn "+reason, now); err != nil {
+		return fmt.Errorf("the run item was withdrawn, but state/runs.audit was not written: %w", err)
+	}
+	return nil
+}
+
 // expireRuns closes each item nobody ran within its lifetime.
 func (s *Store) expireRuns(now time.Time) error {
 	s.mu.Lock()
@@ -300,8 +359,8 @@ func (s *Store) expireRuns(now time.Time) error {
 	return s.save()
 }
 
-// pruneRuns drops finished and expired items, with their directories, a set
-// time after they ended.
+// pruneRuns drops finished, expired and withdrawn items, with their
+// directories, a set time after they ended.
 func (s *Store) pruneRuns(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -454,12 +513,27 @@ func runProcessAlive(pid int, start time.Time) bool {
 // result to the CFO as its answer, so the CFO continues without asking
 // whether it worked. The full output stays on the item.
 func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason string) error {
+	// A credential request takes no save between its terminal ending and the
+	// terminal's rows being checked.
+	if r.CredentialRequest != "" {
+		s.credentialSaves.Lock()
+		defer s.credentialSaves.Unlock()
+	}
 	output := readRunOutput(runDir(s.Store.Home.State, r))
 	ended, err := s.Store.finishRun(r.ID, r.RunAction, code, output, reason)
 	if err != nil || !ended {
 		return err
 	}
-	err = appendRunAudit(s.Store.Home.State, r, code, time.Now().UTC())
+	exit := "none"
+	if code != nil {
+		exit = strconv.Itoa(*code)
+	}
+	err = appendRunAudit(s.Store.Home.State, r, exit, time.Now().UTC())
+	// A credential request's terminal tells the CFO the names it stored.
+	if r.CredentialRequest != "" {
+		s.credentialTerminalEnded(r, code)
+		return err
+	}
 	if r.ConnectionTask != "" {
 		checks, _ := s.connections()
 		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
@@ -562,19 +636,15 @@ func readRunOutput(dir string) string {
 	return strings.ToValidUTF8(text, "?")
 }
 
-// appendRunAudit records a run in state/runs.audit: when, the item, the
-// SHA-256 of exactly the script file it ran, and its exit code, or none when
-// it did not finish.
-func appendRunAudit(stateDir string, r Run, code *int, now time.Time) error {
-	exit := "none"
-	if code != nil {
-		exit = strconv.Itoa(*code)
-	}
+// appendRunAudit records how a run item ended in state/runs.audit: when, the
+// item, the SHA-256 of exactly its script file, and its outcome: the exit
+// code, none when it did not finish, or withdrawn and the CFO's reason.
+func appendRunAudit(stateDir string, r Run, outcome string, now time.Time) error {
 	f, err := fsx.OpenAppend(filepath.Join(stateDir, "runs.audit"), 0600)
 	if err != nil {
 		return err
 	}
-	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, exit)
+	_, werr := fmt.Fprintf(f, "%s %s %s %s\n", now.Format(time.RFC3339), r.ID, r.ScriptSum, strings.Join(strings.Fields(outcome), " "))
 	return errors.Join(werr, f.Close())
 }
 

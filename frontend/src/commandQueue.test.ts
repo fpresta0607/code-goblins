@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, chosenOption, documentFacts, failedSends, holdsUnsent, itemFor, nextOpenKey, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -24,7 +24,7 @@ test("a goblin's wait says what it waits on and opens it: its page, its own ques
     return waitTarget((snapshot.reviews || []).find((candidate) => candidate.id === "waiting-billing-7")!, snapshot);
   };
   const page = "http://127.0.0.1:4387/p/plan";
-  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open the page", says: "It waits on your answer on its review page." });
+  assert.deepEqual(target(wait("pick a plan (page " + page + ")", { lavish: page })), { kind: "page", url: page, label: "Open review", says: "It waits on your answer on its review page." });
   assert.deepEqual(target(wait("answer my question in the Command Center"), { questions: [question("notify-billing-5", "billing", "2026-09-27T09:00:00Z"), question("notify-billing-6", "billing", "2026-09-27T09:30:00Z"), question("notify-notes-1", "notes", "2026-09-27T09:45:00Z"), question("notify-billing-2", "billing", "2026-09-27T09:50:00Z", "succeeded")] }),
     { kind: "item", key: "question:notify-billing-6", label: "Open its question", says: "It waits on your answer to its question." }, "its newest open question, never another goblin's or an answered one");
   assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
@@ -85,13 +85,15 @@ test("closed items are listed newest first with what became of them", () => {
   assert.deepEqual(settledItems(snapshot).map((item) => item.key), ["question:e", "review:r1", "question:c", "review:r2", "question:b", "review:r3", "review:r5", "question:a"],
     "a question asked first but answered after a review was cleared sorts by when it was answered");
   const label = (key: string) => settledLabel(itemFor(snapshot, key)!, snapshot.actions);
-  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday"], ["question:c", "Superseded; the asker was replaced"],
+  const cases: [string, string][] = [["question:a", "You chose A"], ["question:b", "You wrote: Ship it Friday (not yet delivered to the CFO)"], ["question:c", "Superseded; the asker was replaced"],
     ["review:r1", "You wrote: Go with B"], ["review:r2", "Withdrawn: the goblin found the answer"], ["review:r3", "Cleared"],
     ["review:r5", "Cleared by the CFO: Decided: grid ships"]];
   for (const [key, text] of cases) assert.equal(label(key), text, key);
   assert.equal(parseSnapshot({ healthy: true }).reviews?.length, 0);
   assert.deepEqual(settledIcon(itemFor(snapshot, "review:r1")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
   assert.deepEqual(settledIcon(itemFor(snapshot, "question:c")!, snapshot.actions), { icon: "close", tone: "superseded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "question:a")!, snapshot.actions), { icon: "check-double", tone: "succeeded" });
+  assert.deepEqual(settledIcon(itemFor(snapshot, "question:b")!, snapshot.actions), { icon: "check", tone: "queued" }, "an answer on its way has one check until it is delivered");
 });
 
 test("a closed question says what was chosen, by whom and when", () => {
@@ -117,14 +119,16 @@ test("a closed question says what was chosen, by whom and when", () => {
 test("only an answer that reached its asker counts as answered", () => {
   const cases: [string, Record<string, unknown>, string, string, string][] = [
     ["a board answer", { status: "succeeded", answer_id: "x", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "overlord" }, "answered", "You chose A", "check-double"],
-    ["a board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "answered", "You chose A", "check-double"],
+    ["a board answer on its way", { status: "queued", answer_id: "x", answer: "A", answer_kind: "option" }, "answered", "You chose A (not yet delivered to the goblin)", "check-double"],
     ["a cfo answer with an empty answer_id", { status: "succeeded", answer_id: "", answer: "B", answer_kind: "option", answered_option: "B", answered_by: "cfo" }, "answered", "The CFO chose B", "check-double"],
     ["a failed board answer", { status: "failed", answer_id: "x", answer: "A", answer_kind: "option", message: "the CFO already handled this question; nothing was sent" }, "failed", "Your answer did not reach the goblin", "warning"],
-    ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Delivery unconfirmed", "warning"],
+    ["an unconfirmed board answer", { status: "uncertain", answer_id: "x", answer: "A", answer_kind: "option" }, "uncertain", "Not confirmed: check the goblin's terminal", "warning"],
     ["a question cleared after a failure", { status: "cleared", answer_id: "x", answer: "A", answer_kind: "option" }, "cleared", "Closed without an answer", "close"],
     ["a superseded question without a message", { status: "superseded" }, "superseded", "Superseded; the asker was replaced", "close"],
-    ["a question the CFO retired with --ack-blocking", { status: "superseded", message: "The CFO already handled this question." }, "superseded", "The CFO already handled this question.", "close"],
+    ["a question the CFO answered and retired with --ack-blocking", { status: "succeeded", answered_by: "cfo", message: "Answered by the CFO." }, "answered", "The CFO answered it", "check-double"],
     ["a pending question", { status: "pending" }, "pending", "Waiting on you", "close"],
+    ["an answer he gave in chat, recorded by the CFO", { status: "succeeded", answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }, "answered", "You answered in chat · recorded by the CFO", "check-double"],
+    ["a question he dismissed", { status: "cleared", message: "You dismissed it: answered elsewhere or no longer needed." }, "cleared", "You dismissed it: answered elsewhere or no longer needed.", "close"],
   ];
   for (const [name, fields, outcome, label, icon] of cases) {
     const [candidate] = parseSnapshot({ healthy: true, questions: [question("q", "billing", "2026-09-24T00:10:00Z", "pending", fields)] }).questions ?? [];
@@ -132,6 +136,24 @@ test("only an answer that reached its asker counts as answered", () => {
     assert.equal(answeredLabel(candidate), label, name);
     assert.equal(outcomeIcon(questionOutcome(candidate)), icon, name);
   }
+});
+
+test("an answer that never arrived reads in History as what to do about it, in the supervisor's words", () => {
+  // Arrange
+  const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("lost", "", "2026-10-01T16:54:00Z", "uncertain", { answer_id: "a-lost", answer: "Lift it", answer_kind: "option" }),
+      question("aged", "", "2026-10-01T16:54:00Z", "uncertain", { answer_id: "a-aged", answer: "Lift it", answer_kind: "option" })],
+    reviews: [review("plan", "gb-a", "2026-10-01T16:54:00Z", "answered", { answer_id: "a-plan", answer: "Go with B" })],
+    actions: [{ id: "a-lost", kind: "cfo_answer", status: "uncertain", message: advice, advice }, { id: "a-plan", kind: "review_answer", status: "uncertain", message: advice, advice }] });
+
+  // Act
+  const labels = Object.fromEntries(settledItems(snapshot).map((item) => [item.key, settledLabel(item, snapshot.actions)]));
+
+  // Assert
+  assert.equal(labels["question:lost"], advice);
+  assert.equal(labels["review:plan"], advice);
+  assert.equal(labels["question:aged"], "Not confirmed: check the CFO's terminal", "an answer whose action is no longer recorded keeps the plain warning");
 });
 
 test("an answered review item is marked by whether its answer reached the asker", () => {
@@ -142,7 +164,11 @@ test("an answered review item is marked by whether its answer reached the asker"
     ["a delivered answer whose action aged out", { delivered: true }, [], "You wrote: Go with B", "check-double", "succeeded"],
     ["queued for the goblin", { delivered: false }, [action("queued")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
     ["on its way to the goblin", { delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
-    ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Delivery unconfirmed: inspect the goblin's pane before answering again", "warning", "uncertain"],
+    ["sent behind the goblin's turn", { delivered: false }, [{ ...action("running"), awaiting: { task: "steward", generation: "g1", since: "2026-10-01T00:00:00Z" } }],
+      "You wrote: Go with B (not yet delivered to the goblin)", "check", "queued"],
+    ["handed to a busy CFO after the goblin was replaced", { delivered: false }, [{ ...action("running"), awaiting: { host: "cfo-host", since: "2026-10-01T00:00:00Z" } }],
+      "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
+    ["an unconfirmed delivery", { delivered: false }, [action("uncertain")], "Not confirmed: check the goblin's terminal before answering again", "warning", "uncertain"],
     ["handed to the CFO after the goblin was replaced", { delivered: false }, [action("succeeded")], "Sent to the CFO: Go with B", "check", "succeeded"],
     ["refused with no CFO to take it", { delivered: false }, [action("failed")], "Your answer did not reach the goblin", "warning", "failed"],
     ["the CFO's own item, not yet delivered", { task: "", delivered: false }, [action("running")], "You wrote: Go with B (not yet delivered to the CFO)", "check", "queued"],
@@ -175,6 +201,27 @@ test("a review he answered on its own page reads as answered by him there, with 
   }
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:waiting-notes-2")!), false, "a withdrawn item was not answered");
   assert.equal(answeredElsewhere(itemFor(snapshot, "review:r1")!), false, "an answer sent from its card is not an answer given elsewhere");
+});
+
+test("a question asked with its review page open is that page's card, never a second one", () => {
+  const page = "http://127.0.0.1:4387/session/ec2e";
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "pending", { page: "waiting-polish-3584" }), question("notify-theme-9", "theme", "2026-09-30T23:44:00Z")],
+    reviews: [review("waiting-polish-3584", "polish", "2026-09-30T23:42:53Z", "open", { lavish: page, lavish_page: "C:/data/review-kanban/index.html", question: "notify-polish-3585" })],
+  });
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key), ["review:waiting-polish-3584", "question:notify-theme-9"], "one card for the page and its question");
+  assert.equal(cardKey(snapshot, "question:notify-polish-3585"), "review:waiting-polish-3584", "an alert for the question opens the page's card");
+  assert.equal(cardKey(snapshot, "question:notify-theme-9"), "question:notify-theme-9");
+});
+
+test("a question answered on the page that carried it says so", () => {
+  const [onPage, cleared] = parseSnapshot({ healthy: true, questions: [
+    question("notify-polish-3585", "polish", "2026-09-30T23:43:02Z", "succeeded", { answer: "Build as drawn", answer_kind: "other", answered_by: "overlord", answered_in: "page", answered_at: "2026-09-30T23:50:00Z" }),
+    question("notify-polish-3586", "polish", "2026-09-30T23:43:02Z", "succeeded", { answer: "", answer_kind: "other", answered_by: "overlord", answered_in: "page", answered_at: "2026-09-30T23:50:00Z" }),
+  ] }).questions ?? [];
+  assert.equal(questionOutcome(onPage), "answered");
+  assert.equal(answeredLabel(onPage), "You answered on its page: Build as drawn");
+  assert.equal(answeredLabel(cleared), "You answered on its page");
 });
 
 test("a run item waits in the stack while ready or running and settles with its exit code", () => {
@@ -258,6 +305,7 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
+  const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
     ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
@@ -270,23 +318,24 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
     ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
     ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
     ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
+    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
 });
 
-test("an item sent and moved past comes back when its send fails, and only then", () => {
-  const drafts = {
-    "question:ok": { submission: submitted("ok", { kind: "goblin_answer" }), sending: false, error: "" },
-    "question:refused": { submission: submitted("refused", { kind: "goblin_answer" }), sending: false, error: "that question is not open" },
-    "question:recovered": { submission: submitted("recovered", { kind: "goblin_answer" }), sending: false, error: "network error" },
-    "question:lost": { submission: submitted("lost", { kind: "goblin_answer" }), sending: false, error: "" },
-    "question:unsent": { submission: null, sending: false, error: "" },
-  };
-  const actions = [action("ok", "goblin_answer", "succeeded"), action("recovered", "goblin_answer", "succeeded"), action("lost", "goblin_answer", "uncertain")];
+test("every open item is one the board has announced, a question its page's card carries too, and nothing closed", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true,
+    questions: [question("carried", "gb-a", "2026-09-26T10:00:00Z", "pending", { page: "plan" }), question("alone", "gb-b", "2026-09-26T10:00:00Z"), question("sent", "gb-b", "2026-09-26T10:00:00Z", "uncertain")],
+    reviews: [review("plan", "gb-a", "2026-09-26T10:00:00Z"), review("cleared", "gb-a", "2026-09-26T10:00:00Z", "cleared")],
+    runs: [{ id: "install", identity: "cfo-1", title: "Install", state: "ready", created_at: "2026-09-26T10:00:00Z" }] });
 
-  const failed = failedSends(new Set(["question:ok", "question:refused", "question:recovered", "question:lost", "question:unsent", "question:gone"]), drafts, actions);
+  // Act
+  const open = openKeys(snapshot);
 
-  assert.deepEqual(failed, ["question:refused", "question:lost"]);
+  // Assert
+  assert.deepEqual([...open].sort(), ["question:alone", "question:carried", "review:plan", "run:install"]);
+  assert.deepEqual(waitingItems(snapshot).map((item) => item.key).sort(), ["question:alone", "review:plan", "run:install"], "the carried question shows as its page's card");
 });
 
 test("a choice or written text not yet sent, or whose send failed, on an item still waiting is unsent; one in flight, delivered or on a closed item is not", () => {
@@ -311,4 +360,56 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
+});
+
+test("a send the board refused leaves its item waiting only while that item is still open", () => {
+  // Arrange
+  const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
+  const snapshot = parseSnapshot({ healthy: true, questions: [question("q", "gb-a", "2026-09-26T10:00:00Z"), question("closed", "gb-a", "2026-09-26T10:00:00Z", "superseded")] });
+  const refused = { submission: answer, sending: false, error: "The board restarted; reload it." };
+  const cases: [string, Parameters<typeof notSent>[0], string, Action[], boolean][] = [
+    ["an accepted send", { submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, "question:q", [], false],
+    ["a send that failed in the browser yet reached the board", refused, "question:q", [action("a1", "goblin_answer", "running")], false],
+    ["a refused send on an item still open", refused, "question:q", [], true],
+    ["a refused send on an item since closed", refused, "question:closed", [], false],
+    ["a send still on its way", { submission: answer, sending: true, error: "" }, "question:q", [], false],
+    ["an unsent draft", { submission: null, sending: false, error: "" }, "question:q", [], false],
+  ];
+
+  for (const [name, draft, key, actions, want] of cases) {
+    // Act
+    const waits = notSent(draft, itemFor(snapshot, key), actions);
+
+    // Assert
+    assert.equal(waits, want, name);
+  }
+});
+
+test("a question he answered elsewhere finishes its open card as answered, like a page answer", () => {
+  // Arrange
+  const [inChat, onBoard] = parseSnapshot({ healthy: true, questions: [
+    question("herdr-strays-20260929", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Stop them", answer_kind: "option", answered_option: "Stop them", answered_by: "overlord", answered_in: "chat" }),
+    question("pick-a-layout", "", "2026-09-29T02:00:00Z", "succeeded", { answer: "Tree", answer_kind: "option", answered_option: "Tree", answered_by: "overlord" }),
+  ] }).questions ?? [];
+
+  // Act
+  const elsewhere = [inChat, onBoard].map((candidate) => answeredElsewhere({ kind: "question", key: "question:" + candidate.id, question: candidate }));
+
+  // Assert
+  assert.deepEqual(elsewhere, [true, false]);
+});
+
+test("a run item the CFO withdrew leaves the Command Center, and its history says who withdrew it and why", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "install-main-66714dea", identity: "cfo-1", title: "Install main", shell: "powershell", command: "cfo install", state: "withdrawn", reason: "the candidate binary is gone", created_at: "2026-10-01T03:00:00Z", finished_at: "2026-10-01T05:00:00Z" },
+  ] });
+
+  // Act
+  const waiting = waitingItems(snapshot);
+  const settled = settledItems(snapshot);
+
+  // Assert
+  assert.deepEqual(waiting, []);
+  assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
 });

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -304,6 +305,34 @@ func TestRenderShowsAnOutstandingDecisionWithItsWaitAndOptions(t *testing.T) {
 	}
 	if !strings.Contains(got, "--ack-through 2") {
 		t.Errorf("render = %q, want the ack line still derived from every row shown", got)
+	}
+}
+
+// On 2026-10-01 a goblin's question quoted "the options: marker" in a detail
+// line, so the first marker was read as the choices: option 1 was the rest of
+// that sentence and cfo answer had no usable text. The choices follow the
+// last marker, and whatever comes before it is the question.
+func TestAQuestionThatNamesTheMarkerInItsWordsKeepsItsChoices(t *testing.T) {
+	for name, c := range map[string]struct {
+		detail   string
+		question string
+		options  []string
+	}{
+		"the marker quoted in a detail line": {
+			"blocked: Should a second marker be refused?\n- Today the options: marker is matched once.\n- **Blocking:** the choice list. options: Refuse it (Recommended) | Take the last",
+			"Should a second marker be refused?\n- Today the options: marker is matched once.\n- **Blocking:** the choice list.",
+			[]string{"Refuse it (Recommended)", "Take the last"},
+		},
+		"one marker": {"blocked: which store? options: Postgres | SQLite", "which store?", []string{"Postgres", "SQLite"}},
+		"no marker":  {"blocked: Should I merge this?", "Should I merge this?", nil},
+	} {
+		// Act
+		question, options, asked := Question(Record{Kind: "notify", Detail: c.detail})
+
+		// Assert
+		if !asked || question != c.question || !slices.Equal(options, c.options) {
+			t.Errorf("%s: Question = %q, %q, %v; want %q, %q", name, question, options, asked, c.question, c.options)
+		}
 	}
 }
 

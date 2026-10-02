@@ -217,6 +217,13 @@ func (s Service) reportUntrusted(id string, kind harness.Kind, dir, summary stri
 	return nil
 }
 
+// AnswerDialog answers one recognized startup dialog in the native terminal
+// record names, as a spawn answers it, for a harness spawn did not start,
+// such as the CFO's.
+func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
+	return Service{}.answerDialog(ctx, record, dialog, screen)
+}
+
 // answerDialog answers one recognized startup dialog. It moves the focus down
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow
@@ -558,7 +565,7 @@ func cmdProgram(name string, args ...string) ([]string, error) {
 // another), and a Herdr pane names itself to the hooks that report into it.
 // The user's environment should hold none of them; they are dropped from it
 // all the same.
-var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable}
+var inheritedSessionVariables = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_", "HERDR_", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", host.IDVariable, host.ProofVariable}
 
 // nativeHostEnvironment is the whole environment a native task's host and
 // harness run with, built the way a Herdr goblin's is: userEnv, the

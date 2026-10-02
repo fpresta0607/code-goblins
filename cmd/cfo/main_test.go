@@ -82,6 +82,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",
+		"cfo tickets <project> [--brief <file>] [--files <paths>] [--json]",
 	} {
 		if !strings.Contains(stderr.String(), command) {
 			t.Errorf("usage = %q, want it to contain %q", stderr.String(), command)
@@ -95,9 +96,22 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
 func TestMain(m *testing.M) {
+	// No test's supervisor takes the board's usual address, which the fleet
+	// of the machine the tests run on may hold: each asks for any free port,
+	// and so does every program a test starts.
+	if err := os.Setenv(boardAddressVariable, "127.0.0.1:0"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
 		os.Exit(code)
+	}
+	// goblins starts its own program as serve. A test that reaches that start
+	// would run this binary, and with it every test again, detached and with
+	// no one waiting: it serves nothing instead.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		os.Exit(2)
 	}
 	// fakeDoctorTool's claude.exe is this binary answering doctor's --version
 	// probe; run as claude.exe any other way, it is the native CFO test's
@@ -121,6 +135,9 @@ func TestMain(m *testing.M) {
 	}
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == authStoreConsole {
+		os.Exit(runAuth(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{}))
 	}
 	// The native CFO test starts this binary as cfo host, and as the
 	// claude.exe its terminal runs.
