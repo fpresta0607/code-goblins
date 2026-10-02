@@ -80,7 +80,7 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// shares, rather than rendered as "SESSION START DEGRADED" digest
 		// text. Reaching this arm needs the working directory itself to be
 		// gone, which the shared prologue's uniformity was judged to
-		// outweigh; digest.Compose is never even reached in this case.
+		// outweigh; digest.ComposeBrief is never even reached in this case.
 		h, err := home.Resolve()
 		if err != nil {
 			return 0
@@ -771,10 +771,10 @@ func resolveSessionOwnerPID() int {
 // hook in this file, its stdout is PLAIN TEXT with exit 0 always, never the
 // {"systemMessage":"..."} envelope: Claude Code injects SessionStart stdout
 // into the session context verbatim, so a JSON wrapper would deliver the
-// whole digest as one escaped blob. It always exits 0, even when Compose
-// fails: a SessionStart exit 2 would block session init entirely, so a
-// Compose failure is rendered as digest text (SESSION START DEGRADED)
-// instead of a nonzero exit.
+// whole digest as one escaped blob. It always exits 0, even when
+// ComposeBrief fails: a SessionStart exit 2 would block session init
+// entirely, so a ComposeBrief failure is rendered as digest text (SESSION
+// START DEGRADED) instead of a nonzero exit.
 //
 // Routing: startup, new, clear, compact, empty, or any source this build
 // does not recognize all take the same single code path below, the brief

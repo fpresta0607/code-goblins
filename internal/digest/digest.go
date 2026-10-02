@@ -1,7 +1,8 @@
-// Package digest composes the session-start digest: the eight fixed
-// sections a CFO session sees at the top of context when Claude Code fires
-// the SessionStart hook (or an operator runs the manual `cfo session-start`
-// alias). Composition never shells out and never touches the network, so
+// Package digest composes the session-start digest in its two forms: the
+// brief one a CFO session sees at the top of context when Claude Code fires
+// the SessionStart hook (ComposeBrief), and the long one that hook writes to
+// a file and an operator prints with the manual `cfo session-start` alias
+// (Compose). Composition never shells out and never touches the network, so
 // the whole package stays inside the 1s render budget by construction; NOT
 // PORTED IN V1: upstream's 120s subprocess watchdog has nothing to guard
 // here, since there is no subprocess stage.
