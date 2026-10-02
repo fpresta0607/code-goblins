@@ -233,6 +233,10 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 		{"a relative folder", "claude", "Enter the full path of a folder", func(*firstRunMachine) string { return "projects" }},
 		{"an entered folder without a checkout", "claude", "No git checkout is in this folder", func(m *firstRunMachine) string { return filepath.Join(m.root, "notes") }},
 		{"an entered folder that cannot be read", "claude", "This folder cannot be read", func(m *firstRunMachine) string { return filepath.Join(m.root, "missing") }},
+		{"an agent that cannot be remembered", "claude", "The agent could not be remembered", func(m *firstRunMachine) string {
+			m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
+			return ""
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -253,32 +257,45 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 	}
 }
 
-// A start that fails leaves what the home remembers as it was, so the next
-// goblins in the terminal starts the agent he chose there.
-func TestFirstRunKeepsTheRememberedAgentWhenTheCFOCannotStart(t *testing.T) {
-	// Arrange
-	m := newFirstRunMachine(t)
-	m.saved = "codex"
-	m.run.StartCFO = func(string) error { return errors.New("the terminal host is down") }
+// Remembering is part of the start: the CFO starts in a home that already
+// remembers its agent, and a start that fails puts back what the home
+// remembered before, which may be nothing, so the next goblins in the
+// terminal starts the agent he chose there.
+func TestFirstRunPutsBackTheRememberedAgentWhenTheCFOCannotStart(t *testing.T) {
+	for _, before := range []string{"codex", ""} {
+		t.Run("remembered "+before, func(t *testing.T) {
+			// Arrange
+			m := newFirstRunMachine(t)
+			m.saved = before
+			var atStart string
+			m.run.StartCFO = func(string) error {
+				atStart = m.saved
+				return errors.New("the terminal host is down")
+			}
 
-	// Act
-	err := m.run.Start("", "claude")
+			// Act
+			err := m.run.Start("", "claude")
 
-	// Assert
-	if err == nil || errors.As(err, new(StartRefusal)) || !strings.Contains(err.Error(), "the terminal host is down") {
-		t.Fatalf("err = %v, want the failed start with its cause, not a refusal", err)
-	}
-	if m.saved != "codex" {
-		t.Fatalf("agent remembered = %q, want codex as it was", m.saved)
+			// Assert
+			if err == nil || errors.As(err, new(StartRefusal)) || !strings.Contains(err.Error(), "the terminal host is down") {
+				t.Fatalf("err = %v, want the failed start with its cause, not a refusal", err)
+			}
+			if atStart != "claude" || m.saved != before {
+				t.Fatalf("agent remembered as the CFO started = %q, and after it failed = %q; want claude, then %q as it was", atStart, m.saved, before)
+			}
+		})
 	}
 }
 
-// A CFO that started stays started when its agent cannot be remembered, and
-// the error says both, so the page neither hides it nor calls it a refusal.
-func TestFirstRunReportsAnAgentItCannotRememberAfterTheCFOStarted(t *testing.T) {
+// A failed start whose remembered agent cannot be put back says both.
+func TestFirstRunSaysWhenAFailedStartCannotPutBackTheRememberedAgent(t *testing.T) {
 	// Arrange
 	m := newFirstRunMachine(t)
-	m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
+	m.saved = "codex"
+	m.run.StartCFO = func(string) error {
+		m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
+		return errors.New("the terminal host is down")
+	}
 
 	// Act
 	err := m.run.Start("", "claude")
@@ -287,13 +304,10 @@ func TestFirstRunReportsAnAgentItCannotRememberAfterTheCFOStarted(t *testing.T) 
 	if err == nil || errors.As(err, new(StartRefusal)) {
 		t.Fatalf("err = %v, want an error that is not a refusal", err)
 	}
-	for _, said := range []string{"the CFO started", "its agent could not be remembered", "the state folder is read-only"} {
+	for _, said := range []string{"the terminal host is down", "the state folder is read-only"} {
 		if !strings.Contains(err.Error(), said) {
 			t.Errorf("err = %v, want it to say %q", err, said)
 		}
-	}
-	if len(m.started) != 1 || m.started[0] != "claude" {
-		t.Fatalf("CFOs started = %q, want Claude Code started once", m.started)
 	}
 }
 

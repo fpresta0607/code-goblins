@@ -27,7 +27,8 @@ type FirstRun struct {
 	CFOHome string
 	// SavedAgent is the agent goblins remembered for this home, or empty
 	// when none was chosen yet, and SaveAgent remembers the one the page
-	// starts, so the terminal and the board hold one answer.
+	// starts, so the terminal and the board hold one answer. SaveAgent("")
+	// forgets the agent, and a home that remembered none is no error.
 	SavedAgent func() string
 	SaveAgent  func(agent string) error
 	// ProjectsRoot and SetProjectsRoot read and record the projects folder,
@@ -166,9 +167,11 @@ func projectNames(root string) ([]string, string) {
 }
 
 // Start starts the CFO with agent, which only Claude Code can be today, in
-// the Code Goblins home, as goblins does, and once it started remembers the
-// agent as goblins would, so a start that fails leaves the remembered agent
-// as it was. It asks for no project: the CFO works across every project from
+// the Code Goblins home, as goblins does, and remembers the agent as goblins
+// would. Remembering is part of the start: an agent that cannot be remembered
+// refuses it with nothing started, and a start that fails puts back what the
+// home remembered before, so every error means no CFO runs. It asks for no
+// project: the CFO works across every project from
 // its home. root, when one is entered, is recorded as the projects folder
 // when it is not already; with none the CFO starts all the same. A start it
 // cannot make is a StartRefusal; one runs at a time, so a second press finds
@@ -199,11 +202,15 @@ func (f *FirstRun) Start(root, agent string) error {
 			}
 		}
 	}
-	if err := f.StartCFO(agent); err != nil {
-		return fmt.Errorf("the CFO could not be started: %w", err)
-	}
+	before := f.SavedAgent()
 	if err := f.SaveAgent(agent); err != nil {
-		return fmt.Errorf("the CFO started, but its agent could not be remembered: %w", err)
+		return StartRefusal{Reason: "The agent could not be remembered: " + err.Error()}
+	}
+	if err := f.StartCFO(agent); err != nil {
+		if restoreErr := f.SaveAgent(before); restoreErr != nil {
+			return fmt.Errorf("the CFO could not be started: %w; and the agent remembered before could not be put back: %v", err, restoreErr)
+		}
+		return fmt.Errorf("the CFO could not be started: %w", err)
 	}
 	return nil
 }

@@ -210,6 +210,12 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			return agent
 		},
 		SaveAgent: func(agent string) error {
+			if agent == "" {
+				if err := os.Remove(cfoHarnessPath(h.State)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				return nil
+			}
 			return fsx.AtomicWriteFile(cfoHarnessPath(h.State), []byte(agent+"\n"))
 		},
 		ProjectsRoot: install.MachineProjectsRoot,

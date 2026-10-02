@@ -31,7 +31,6 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
   const data = setup.data;
   if (data.cfo_runs) return <section className="first-run" aria-labelledby="first-run-title">
     <header className="first-run-head"><Avatar persona="cfo" /><div><h2 id="first-run-title">The CFO is running</h2><p className="muted">Open its terminal to talk to it.</p></div></header>
-    {failure && <p className="warning-text" role="alert">{failure}</p>}
     <div className="first-run-actions"><span /><button className="primary" onClick={onStarted}><Icon name="terminal" />Open the CFO's terminal</button></div>
   </section>;
   const { agent, blocked } = startState(data, picked, asked !== null);

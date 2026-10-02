@@ -161,6 +161,30 @@ func TestTheFirstRunPageAndGoblinsRememberOneAgent(t *testing.T) {
 	}
 }
 
+// The page forgets the agent by remembering none: the file goes, so goblins
+// is back to having no answer, and a home that remembered none is no error.
+func TestTheFirstRunPageForgetsTheAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	if err := run.SaveAgent("codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	forgetErr := run.SaveAgent("")
+	_, statErr := os.Stat(cfoHarnessPath(h.State))
+	againErr := run.SaveAgent("")
+
+	// Assert
+	if forgetErr != nil || !os.IsNotExist(statErr) || run.SavedAgent() != "" {
+		t.Errorf("forgetting: err %v, the file's stat %v, the page reads %q; want the file gone and no agent", forgetErr, statErr, run.SavedAgent())
+	}
+	if againErr != nil {
+		t.Errorf("forgetting with none remembered: err %v, want none", againErr)
+	}
+}
+
 // A harness goblins cannot start the CFO as is refused before anything is
 // remembered or started, and a remembered one that names none is refused
 // rather than guessed at.

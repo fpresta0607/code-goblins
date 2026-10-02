@@ -171,20 +171,3 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     expect(starts).toEqual([{ root: "", agent: "claude" }]);
   });
 }
-
-test("a failure Start reported stays on the page when the CFO turns out to be running", async ({ page }) => {
-  // Arrange: the CFO starts, its agent cannot be remembered, and the reload
-  // finds the CFO running.
-  const notRemembered = "the CFO started, but its agent could not be remembered: the state folder is read-only";
-  await open(page, setup());
-  await page.route("**/api/setup/start", (route) => route.fulfill({ status: 500, json: { error: notRemembered } }));
-  await page.route("**/api/setup?root=*", (route) => route.fulfill({ json: setup({ cfo_runs: true }) }));
-
-  // Act
-  await page.getByRole("button", { name: "Start the CFO" }).click();
-
-  // Assert
-  await expect(page.getByRole("heading", { name: "The CFO is running" })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveText(notRemembered);
-  await expect(page.getByRole("button", { name: "Open the CFO's terminal" })).toBeVisible();
-});
