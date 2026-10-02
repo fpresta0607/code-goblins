@@ -40,6 +40,11 @@ const gateAgentVariable = "NO_MISTAKES_GATE"
 // scripts.
 var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), string(harness.Pi), string(harness.Kimi), "node"}
 
+// agentVariables are environment variables a harness sets for every command
+// it runs: Claude Code's own, and the one agents share to say a command is
+// theirs.
+var agentVariables = []string{"CLAUDECODE", "AI_AGENT"}
+
 // SwitchAFK asks the supervisor to turn AFK mode on or off for the process
 // that calls it. The supervisor makes the switch only once it has proven that
 // process runs in a terminal of the Overlord's own.
@@ -104,6 +109,14 @@ func (s *Service) overlordsTerminal(pid int, connected time.Time) (string, error
 	for _, entry := range ancestry {
 		if slices.Contains(agentHarnesses, strings.TrimSuffix(strings.ToLower(entry.ExeBase), ".exe")) {
 			return refuse(fmt.Sprintf("under an agent harness (%s pid %d)", entry.ExeBase, entry.PID))
+		}
+	}
+	// A command whose parents are cut off, as Git Bash's timeout leaves one,
+	// has no harness left among its ancestors; what the harness put in its
+	// environment is still there.
+	for _, name := range agentVariables {
+		if environmentValue(env, name) != "" {
+			return refuse("under an agent harness (its environment carries " + name + ")")
 		}
 	}
 	// The command itself is the first entry; the shell it was typed in is

@@ -108,6 +108,11 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 		{name: "under Claude Code", ancestry: shell(above("claude.exe")), refusal: "an agent harness (claude.exe pid 900)"},
 		{name: "under a harness that runs on node", ancestry: shell(above("node.exe")), refusal: "an agent harness (node.exe pid 900)"},
 		{name: "under Codex", ancestry: shell(above("Codex.exe")), refusal: "an agent harness (Codex.exe pid 900)"},
+		// Git Bash's timeout replaces its own process, so a command an agent
+		// runs under it has a parent that already exited and no harness left
+		// among its ancestors; what its harness put in its environment remains.
+		{name: "under Claude Code with its parents cut off", ancestry: shell()[:1], env: []string{"CLAUDECODE=1"}, refusal: "an agent harness (its environment carries CLAUDECODE)"},
+		{name: "an agent's environment with its parents cut off", ancestry: shell()[:1], env: []string{"AI_AGENT=claude-code"}, refusal: "an agent harness (its environment carries AI_AGENT)"},
 		{name: "a process that cannot be read", unread: errors.New("access is denied"), refusal: "could not read the process"},
 		{name: "a process that is gone", refusal: "could not read the process"},
 		{name: "a process that started after the request", ancestry: late, refusal: "could not read the process"},
