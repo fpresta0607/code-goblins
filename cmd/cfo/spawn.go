@@ -100,9 +100,13 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// A dispatch never waits on GitHub: a read that fails or runs past its
 	// bound starts the task unchecked and says so. A project with no GitHub
-	// repository has no teammates to read, which is nothing to say.
-	overlap, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
+	// repository has no teammates to read, which is nothing to say. A read
+	// that stopped short of something still refuses on what it did find.
+	overlap, unread, err := teammateOverlap(runtime, h, args[0], checkout, string(briefText), time.Now())
 	hasOverlap := len(overlap.Files) > 0 || len(overlap.Issues) > 0
+	if len(unread) > 0 {
+		warnIncompleteCheck(stderr, unread)
+	}
 	switch {
 	case errors.Is(err, tickets.ErrNotGitHub):
 	case err != nil:

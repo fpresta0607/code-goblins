@@ -224,6 +224,48 @@ func TestSpawnStartsWithoutAWordWhereNoTeammateOverlaps(t *testing.T) {
 	}
 }
 
+func TestSpawnSaysWhenTheCheckForTeammatesWorkWasIncomplete(t *testing.T) {
+	unread := []string{
+		"the changed files of branch fix/invoice-rounding: gh api exited 1: HTTP 502",
+		"the changed files of pull request 418 past the first 100: context deadline exceeded",
+		"open issues past the first 5 pages",
+		"the changed files of branch chore/retry-budget: context deadline exceeded",
+		"the changed files of 4 branches past the first 20",
+	}
+	wantLine := "cfo spawn: the check for teammates' work was incomplete, 5 things were not read: " + strings.Join(unread[:3], "; ") + "; and 2 more\n"
+	cases := []struct {
+		name        string
+		task        string
+		wantCode    int
+		wantSpawned bool
+		wantRefusal bool
+	}{
+		{name: "nothing read overlaps, so the task starts", task: "Say why in services/invoice_service.py.", wantSpawned: true},
+		{name: "a teammate's work that was read overlaps, so the spawn is still refused", task: "Say why in tasks/billing_sync.py.", wantCode: 1, wantRefusal: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fixture := newOverlapSpawn(t, tc.task)
+			fixture.activity.Unread = unread
+
+			// Act
+			code, _, stderr := fixture.run()
+
+			// Assert
+			if code != tc.wantCode || fixture.spawned != tc.wantSpawned {
+				t.Fatalf("exit = %d, spawned = %v, want %d and %v; stderr=%s", code, fixture.spawned, tc.wantCode, tc.wantSpawned, stderr)
+			}
+			if strings.Count(stderr, wantLine) != 1 {
+				t.Fatalf("stderr = %q, want the one line %q", stderr, wantLine)
+			}
+			if got := strings.Contains(stderr, "PR #412 by ana-teammate changes tasks/billing_sync.py"); got != tc.wantRefusal {
+				t.Fatalf("stderr names the overlap = %v, want %v:\n%s", got, tc.wantRefusal, stderr)
+			}
+		})
+	}
+}
+
 func TestTheDefaultRuntimeChecksOverlapBeforeASpawn(t *testing.T) {
 	if defaultCommandRuntime().repoActivity == nil {
 		t.Fatal("the real cfo has no repository read, so cfo spawn would start every task unchecked")
