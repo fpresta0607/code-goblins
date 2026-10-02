@@ -23,7 +23,11 @@ On 2026-10-01 a healthy board took eight seconds to build its snapshot, the laun
 A live supervisor gets a status line from the snapshot within three seconds, or one saying the fleet's status is still loading, or that the board could not read the fleet's state, and `goblins` starts and opens nothing and goes on to the CFO.
 Otherwise it starts `serve` detached from its terminal, in a hidden console of its own that the programs `serve` runs share, so no console window opens, with its output appended to `state/serve.log`, waits up to a minute for the board to answer, which covers a watcher handing it the lock, and opens it in the browser once.
 Two `goblins` started at once each start a `serve`: the one whose start finds `serve.log` held by the other's, or whose `serve` exits finding the other taking the lock over or holding it, waits for the other's board instead of failing.
-The detached `serve` listens on `127.0.0.1:4310`, or on `127.0.0.1:0` when another program already listens there, so the OS picks a free loopback port and the record holds the real address.
+The detached `serve` listens on the board's address, which is the same every time: `127.0.0.1:4310`, or the numeric loopback address the `CFO_BOARD_ADDRESS` environment variable names (port 0 there asks the OS for a free port, as a scratch home or a test does; the record holds the real address).
+An address already in use is never replaced with another: `goblins` starts nothing and says who holds it.
+It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, and says "another program" for anything else.
+Only this home's own supervisor, started a moment ago by another `goblins` and not yet recorded, is waited for instead.
+`cfo serve` without `--listen` and the supervisor `cfo update` restarts use the same address.
 A record whose address does not answer, left by a supervisor that ended without removing it, is replaced by the next start, and a record naming anything but a plain loopback board address is ignored.
 `goblins --board` finds or starts the supervisor the same way, opens the board root in the browser every time, and exits 1 naming the link when the browser cannot be opened; it starts, shows and attaches no CFO.
 Then `goblins` brings the Overlord to the CFO.

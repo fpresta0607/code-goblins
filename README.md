@@ -156,7 +156,9 @@ goblins uninstall    # undo the install; the home folder and its data stay
 ```
 
 `goblins` on its own finds the supervisor, or starts it in the background with a hidden console of its own when none is running, so no window opens, with its output in `state\serve.log` in the CFO home.
-It prints the banner, the board's link (`http://127.0.0.1:4310`, or a free port when another program already listens there) and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
+The board's address is the same every time: `http://127.0.0.1:4310`, or the loopback address you set in `CFO_BOARD_ADDRESS`.
+When that address is in use, `goblins` starts no board anywhere else: it says who holds it, the Code Goblins fleet of another home by its folder or another program, and what to do.
+It prints the banner, the board's link and one line on what the CFO and the goblins are doing and how much waits on you, and opens the board in your browser the first time.
 The board is only a view, so closing the browser stops nothing, and a supervisor started this way keeps running after the terminal closes.
 Then it takes you to the CFO: a CFO whose registration names a live process is brought to the front, and otherwise it starts the CFO in its remembered harness (Claude Code unless `goblins --harness` chose another) in Herdr in a fresh `cfo` tab, in the project this terminal is in or one you pick from your projects folder, closing an idle old `cfo` tab or renaming a busy one to `shell`.
 It then attaches the terminal to Herdr with the CFO in front; run inside Herdr, it only brings the CFO to the front.
@@ -192,7 +194,7 @@ Install the native lifecycle hooks once for each harness you use (the install do
 
 ```powershell
 cfo hooks install claude   # repeat for codex or pi
-cfo serve                  # --listen 127.0.0.1:0 picks a free loopback port
+cfo serve                  # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.1:0 picks a free loopback port
 ```
 
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.

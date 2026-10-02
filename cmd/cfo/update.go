@@ -605,7 +605,7 @@ func startSupervisor(h home.Home, program string) (serveProcess, error) {
 	// serve.log can still be held for a moment by the console of the
 	// supervisor just stopped.
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
-		command, err = startDetached(program, h.Root, serveLogPath(h.State), serveArguments(defaultBoardAddress)...)
+		command, err = startDetached(program, h.Root, serveLogPath(h.State), "serve", "--listen", boardAddress())
 		if err == nil || !errors.Is(err, errorSharingViolation) || time.Now().After(deadline) {
 			break
 		}
