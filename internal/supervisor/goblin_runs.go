@@ -27,8 +27,10 @@ import (
 
 // goblinRunInbox is where a goblin's notify leaves its command for the
 // supervisor. A file there proves nothing about who wrote it, so what the
-// supervisor takes from it can only ever be a live goblin's own item.
-func goblinRunInbox(stateDir string) string { return filepath.Join(stateDir, "runs-inbox") }
+// supervisor takes from it can only ever be a live goblin's own item. It is
+// not the folder the CFO's run requests once came through, which stays
+// unread: the CFO's reach the board only over the supervisor's pipe.
+func goblinRunInbox(stateDir string) string { return filepath.Join(stateDir, "goblin-runs-inbox") }
 
 // goblinRunID is the ID of the command a goblin's notify seq carries.
 func goblinRunID(taskID string, seq int) string { return fmt.Sprintf("run-%s-%d", taskID, seq) }

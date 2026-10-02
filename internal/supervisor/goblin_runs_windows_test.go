@@ -88,10 +88,10 @@ func TestARunFromTheInboxIsRefusedUnlessItIsALiveGoblinsOwn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.MkdirAll(filepath.Join(h.State, "runs-inbox"), 0o700); err != nil {
+			if err := os.MkdirAll(goblinRunInbox(h.State), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(h.State, "runs-inbox", "forged.json"), data, 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(goblinRunInbox(h.State), "forged.json"), data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 
@@ -109,7 +109,7 @@ func TestARunFromTheInboxIsRefusedUnlessItIsALiveGoblinsOwn(t *testing.T) {
 			if len(after.Issues) != 1 || !strings.HasPrefix(after.Issues[0], "Run request rejected: ") {
 				t.Errorf("issues = %q, want the refusal said once", after.Issues)
 			}
-			if _, err := os.Stat(filepath.Join(h.State, "runs-inbox", "forged.json")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(goblinRunInbox(h.State), "forged.json")); !os.IsNotExist(err) {
 				t.Errorf("the refused record is still in the inbox (%v)", err)
 			}
 		})
