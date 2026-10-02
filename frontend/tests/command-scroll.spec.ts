@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator } from "./site";
 
 // The Overlord, 2026-09-30: "when command center notification opens make sure
 // its scrolled to top by default". Each opening starts at the top of its item;
