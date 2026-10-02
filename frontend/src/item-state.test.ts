@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { holdClosed, remembered, withItems, type Sent } from "./item-state.ts";
 import { waitingItems, type Item } from "./commandQueue.ts";
-import { parseSnapshot } from "./types.ts";
+import { parseItems, parseSnapshot } from "./types.ts";
 
 const question = (id: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task: "", created_at: "2026-10-02T11:00:00Z", status, options: ["Merge it", "Hold it"], ...extra });
 const review = (id: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task: "", title: "Look at " + id, created_at: "2026-10-02T11:00:00Z", updated_at: "2026-10-02T11:00:00Z", state, ...extra });
@@ -13,7 +13,8 @@ const unsent: ReadonlyMap<string, Sent> = new Map();
 
 test("the Command Center's items alone replace the last snapshot's and nothing else", () => {
   const current = board({ revision: 4, tasks: [{ id: "billing", title: "Billing", phase: "working", generation: "g1", verified: false }], questions: [question("train")] });
-  const items = board({ revision: 5, questions: [question("train", "succeeded", { answered_by: "cfo" })], reviews: [review("shots")], actions: [{ id: "a1", kind: "cfo_answer", status: "queued" }] });
+  // The event as the supervisor sends it: the items, its instance and its revision, and nothing else.
+  const items = parseItems({ instance: "board", revision: 5, questions: [question("train", "succeeded", { answered_by: "cfo" })], reviews: [review("shots")], runs: [], credentials: [], actions: [{ id: "a1", kind: "cfo_answer", status: "queued" }] });
 
   const merged = withItems(current, items)!;
 
@@ -26,9 +27,9 @@ test("the Command Center's items alone replace the last snapshot's and nothing e
 
 test("items from another supervisor, older items, and items before any snapshot change nothing", () => {
   const current = board({ revision: 4, questions: [question("train")] });
-  assert.equal(withItems(current, board({ instance: "another", revision: 9 })), current, "another supervisor's items");
-  assert.equal(withItems(current, board({ revision: 3 })), current, "items older than the snapshot");
-  assert.equal(withItems(null, board({ revision: 5 })), null, "no snapshot yet");
+  assert.equal(withItems(current, parseItems({ instance: "another", revision: 9 })), current, "another supervisor's items");
+  assert.equal(withItems(current, parseItems({ instance: "board", revision: 3 })), current, "items older than the snapshot");
+  assert.equal(withItems(null, parseItems({ instance: "board", revision: 5 })), null, "no snapshot yet");
 });
 
 test("an item a snapshot showed closed stays closed when a later snapshot shows it open again", () => {

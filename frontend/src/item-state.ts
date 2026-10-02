@@ -1,5 +1,5 @@
 import { asItems, isOpen, type Item } from "./commandQueue.ts";
-import type { Snapshot } from "./types.ts";
+import type { Items, Snapshot } from "./types.ts";
 
 // What the board knows of the Command Center's items beyond its last
 // snapshot. A snapshot carries the whole fleet and can take seconds to reach
@@ -15,7 +15,7 @@ export interface Sent { kind: string; id: string; text: string; answer_kind: str
 // withItems is the last snapshot with the Command Center's items the
 // supervisor sent after it. Items from another supervisor, or older than the
 // snapshot, change nothing, and neither do items with no snapshot to go on.
-export function withItems(current: Snapshot | null, items: Snapshot): Snapshot | null {
+export function withItems(current: Snapshot | null, items: Items): Snapshot | null {
   if (!current || current.instance !== items.instance || current.revision > items.revision) return current;
   return { ...current, revision: items.revision, questions: items.questions, reviews: items.reviews, runs: items.runs, credentials: items.credentials, actions: items.actions };
 }

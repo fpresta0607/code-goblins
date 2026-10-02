@@ -5,7 +5,7 @@
 // Between snapshots the supervisor sends the Command Center's items alone, the
 // moment one changes, which the board lays over its last snapshot.
 import { useEffect, useState } from "react";
-import { parseSnapshot, type Snapshot } from "./types";
+import { parseItems, parseSnapshot, type Snapshot } from "./types";
 import { message } from "./api";
 import { withItems } from "./item-state";
 
@@ -48,7 +48,7 @@ export function useRuntimeStream() {
       source.addEventListener("items", (event: MessageEvent<string>) => {
         if (cancelled) return;
         try {
-          const items = parseSnapshot(JSON.parse(event.data));
+          const items = parseItems(JSON.parse(event.data));
           setSnapshot((current) => withItems(current, items));
         } catch (error: unknown) {
           setError(message(error));
