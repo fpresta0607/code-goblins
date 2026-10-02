@@ -23,7 +23,7 @@ A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO
 5. **Check who else is in the area.** `cfo tickets <name|path> --brief data/<id>/brief.md` before every dispatch into a repository others work in; its first lines say whether the repository is collaborative. When it names an open pull request, a teammate's branch or an issue that overlaps the brief, decide consciously before spawning: queue behind it, narrow the brief, or go ahead and record why in the brief. Never dispatch over an overlap you have not read.
 6. **Spawn it.** `cfo spawn <id> --project <name|path> --brief data/<id>/brief.md [--mode <mode>] [--yolo]`. The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
 7. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo runtime` is machine truth (what is running, whose it is, and what the machine has left before you dispatch another: start the next goblin only when its Dispatch line reads ready); `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
-8. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) — merge only with the Supreme Overlord's word, `yolo` green work, or your own merge word while [AFK mode](#afk-mode) is on.
+8. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) - merge only with the Supreme Overlord's word, `yolo` green work, or your own merge word while [AFK mode](#afk-mode) is on.
 9. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision — never raw status or mechanics.
 
 ## Commands

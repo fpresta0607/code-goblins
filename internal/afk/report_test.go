@@ -45,7 +45,7 @@ func nightReport() Report {
 		Session: "afk-1", Since: night, Ended: night.Add(10*time.Hour + 21*time.Minute),
 		From: "his own terminal (powershell.exe pid 4242)", EndedFrom: "his own terminal (powershell.exe pid 5151)",
 		Decisions: []Entry{
-			{Kind: KindMerge, What: "https://github.com/acme/api/pull/12", Evidence: "gate run 41 passed and its test output was read; head abc1234; 7 checks green", Outcome: "merged"},
+			{Kind: KindMerge, What: "https://github.com/acme/api/pull/12", Link: "https://github.com/acme/api/pull/12", Evidence: "gate run 41 passed and its test output was read; head abc1234; 7 checks green", Outcome: "merged"},
 			{Kind: KindMerge, What: "https://github.com/acme/api/pull/13", Evidence: "verified locally"},
 			{Kind: KindDeploy, What: "acme production", Link: "https://acme.example/health", Evidence: "/health reads 200 with commit abc1234"},
 			{Kind: KindAnswer, What: "notify-pd-billing-12", Task: "pd-billing", Evidence: "asked: Which store? answered: SQLite"},
@@ -97,6 +97,9 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 	}
 	if strings.ContainsRune(report, 0x2014) {
 		t.Error("the report uses an em dash")
+	}
+	if !strings.Contains(report, "- https://github.com/acme/api/pull/12: merged") {
+		t.Errorf("the report repeats a link that is the decision's own subject:\n%s", report)
 	}
 }
 

@@ -179,7 +179,8 @@ func Render(w io.Writer, r Report) error {
 				line += entry.Task + ": "
 			}
 			line += entry.What
-			if entry.Link != "" {
+			// A pull request is its own link.
+			if entry.Link != "" && entry.Link != entry.What {
 				line += " (" + entry.Link + ")"
 			}
 			if entry.Kind == KindMerge && entry.Outcome == "" {
