@@ -400,7 +400,7 @@ The supervisor then settles it: the hook's report makes it delivered, with two c
 It warns only when the message can no longer arrive or plainly has not: the terminal closed, or its screen has shown no turn for three minutes with still no report, counted from the last look that showed a turn, so a message behind a long turn never warns.
 The warning is the action's `advice`, written for the Overlord (open the terminal and press Enter if the answer is waiting in its box, or type it there), and the action reads `uncertain`; a report that comes after the warning still delivers it.
 A second answer is refused while the first is sent, so nothing is typed twice, and a supervisor restart leaves a sent message sent.
-A native goblin's answer that waits behind its turn is settled the same way, by its task and spawn generation, and its review item reads delivered only then; a goblin in a Herdr pane reports nothing the board can wait on, so its answer reads as before.
+A goblin's answer that waits behind its turn is settled the same way, by its task and spawn generation, and its review item reads delivered only then.
 A host started by an older cfo cannot acknowledge, so the board refuses anything it sends that CFO with nothing typed until the CFO is started again.
 The board shows a native CFO's terminal in its panel, from the CFO bar and from Orchestration.
 `goblins` shows a CFO registered in a native terminal in its own terminal, and `goblins --native` starts a new CFO in native terminal `cfo`, in the CFO home, running the remembered harness itself (`claude.exe` for Claude Code) so the terminal ends with it.
@@ -843,7 +843,7 @@ After a presentation tool succeeds, the goblin that ran it reports the returned 
 cfo present --id browser-walkthrough-001 --task task-id --kind browser --url http://127.0.0.1:5173/ --ttl 5m
 ```
 
-A goblin proves itself the way it does for a question: the command must run under the task's own Herdr pane or native terminal, so no native hook is needed and a goblin spawned while serve runs can present at once.
+A goblin proves itself the way it does for a question: the command must run under the task's own native terminal, so no native hook is needed and a goblin spawned while serve runs can present at once.
 Its report names no native session, and the board treats it as live while the task's own runtime evidence is fresh.
 `--generation` is optional and refused when it is no longer the task's current generation.
 Use `--kind review` for a review surface, and omit the task only from the verified primary CFO's own process ancestry, which a CFO proves in its native terminal as it does for a question.
