@@ -115,8 +115,8 @@ func OpenTerminal(ctx context.Context, session, terminal string, control bool, c
 }
 
 // closeGrace is how long a closed terminal process has to deliver what it was
-// sent and exit on its own before it is killed.
-const closeGrace = time.Second
+// sent and exit on its own before it is killed. Tests lengthen it.
+var closeGrace = time.Second
 
 // startTerminal runs a terminal session process that reads commands on its
 // stdin and writes frames on its stdout.

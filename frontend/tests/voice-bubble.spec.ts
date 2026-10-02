@@ -15,13 +15,13 @@ declare global {
 // The microphone glyph the idle bubble shows, as the page draws it.
 const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7";
 
-const SIQSPEAK = [
-  { text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 },
-  { text: "Open the board task terminal.", timestamp: "2026-09-29T12:42:00", time_epoch: 1790000520 },
-];
+// What a supervisor that still served the old SIQspeak endpoint would answer.
+// The board must never ask it.
+const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
-async function openPane(page: Page, state: string, { hint = false, dictations = [] as { text: string; at: number }[], entries = SIQSPEAK, panes = 1 } = {}) {
-  await page.route("**/api/voice", (route) => route.fulfill({ json: { state, entries: state === "running" || state === "stopped" ? entries : [], has_skipped: false } }));
+async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1 } = {}) {
+  const asked: string[] = [];
+  await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
   await page.addInitScript(({ hint, dictations }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
     if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
@@ -48,8 +48,12 @@ async function openPane(page: Page, state: string, { hint = false, dictations = 
     Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition });
   }, { hint, dictations });
   await page.goto("/tests/fixtures/voice-bubble.html" + (panes === 2 ? "?panes=2" : ""));
-  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }) };
+  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked };
 }
+
+// Everything a person can read on the page: its text, tooltips and labels.
+const readable = (page: Page) => page.evaluate(() => [document.body.innerText,
+  ...[...document.querySelectorAll("[data-tip], [aria-label], [title]")].flatMap((element) => ["data-tip", "aria-label", "title"].map((name) => element.getAttribute(name) || ""))].join("\n"));
 
 async function holdShortcut(page: Page, ms: number) {
   await page.getByRole("textbox", { name: "Terminal input" }).focus();
@@ -64,30 +68,45 @@ async function releaseShortcut(page: Page) {
   await page.keyboard.up("Control");
 }
 
-test("the bubble sits in the pane's corner and opens its recent messages, newest first", async ({ page }) => {
-  const { bubble, pane } = await openPane(page, "running", { dictations: [{ text: "Merge it when CI is green.", at: 1790000600000 }] });
+test("the bubble sits in the pane's corner and opens the pane's own recent dictations, newest first, five at most", async ({ page }) => {
+  const dictations = ["Merge it when CI is green.", "Open the board.", "Run the tests.", "Pause the goblin.", "Show the canvas.", "Check the memory."].map((text, index) => ({ text, at: 1790000600000 - index * 60000 }));
+  const { bubble, pane } = await openPane(page, { dictations });
   const corner = await bubble.boundingBox(), frame = await pane.boundingBox();
   expect(corner && frame && frame.x + frame.width - (corner.x + corner.width)).toBeLessThan(30);
   expect(corner && frame && frame.y + frame.height - (corner.y + corner.height)).toBeLessThan(30);
-  await expect(bubble).toHaveAttribute("data-tip", "SIQspeak running");
+  await expect(bubble).toHaveAttribute("data-tip", "Hold Ctrl+Shift+Space to dictate");
   // At rest the bubble is a small microphone to click for the list.
   await expect(bubble.locator("svg path")).toHaveAttribute("d", MICROPHONE);
 
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
-  await expect(recent.locator(".voice-text")).toHaveText(["Show me what needs my attention.", "Merge it when CI is green.", "Open the board task terminal."]);
-  await expect(recent.locator(".voice-meta").nth(1)).toContainText("Board");
-  await expect(recent.locator(".voice-meta").nth(0)).toContainText("SIQspeak");
+  await expect(recent.locator(".voice-text")).toHaveText(dictations.slice(0, 5).map((dictation) => dictation.text));
 
-  await recent.getByRole("button", { name: "Copy: Merge it when CI is green." }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Merge it when CI is green.");
-  await recent.getByRole("button", { name: "Paste into this terminal: Show me what needs my attention." }).click();
-  await expect(page.locator("output")).toContainText("pasted: Show me what needs my attention.");
+  await recent.getByRole("button", { name: "Copy: Open the board." }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Open the board.");
+  await recent.getByRole("button", { name: "Paste into this terminal: Merge it when CI is green." }).click();
+  await expect(page.locator("output")).toContainText("pasted: Merge it when CI is green.");
   await expect(recent).toHaveCount(0);
 });
 
+test("the board never names SIQspeak and never asks for it: holding the shortcut always records with its own dictation", async ({ page }) => {
+  const { bubble, asked } = await openPane(page, { hint: true });
+  await page.waitForTimeout(500);
+  await holdShortcut(page, 300);
+  await expect(bubble).toHaveClass(/recording/);
+  // The recorder starts once the microphone has opened, which takes a busy
+  // machine longer than the hold.
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
+  await releaseShortcut(page);
+  await expect(page.locator("output")).toHaveText("ship the voice bubble");
+  await bubble.click();
+  await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["ship the voice bubble"]);
+  expect(await readable(page)).not.toMatch(/siqspeak/i);
+  expect(asked).toEqual([]);
+});
+
 test("an error note under the open list never covers it", async ({ page }) => {
-  const { bubble, pane } = await openPane(page, "running");
+  const { bubble, pane } = await openPane(page);
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent).toBeVisible();
@@ -101,10 +120,14 @@ test("an error note under the open list never covers it", async ({ page }) => {
   expect(note && card && note.y < card.y + card.height).toBe(true);
   const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
   expect(covered).toBe(false);
+
+  await page.keyboard.press("Escape");
+  await expect(recent).toHaveCount(0);
+  await expect(bubble).toBeFocused();
 });
 
 test("a multiline message pastes as one line, so it never presses Enter, and copies whole", async ({ page }) => {
-  const { bubble } = await openPane(page, "running", { entries: [{ text: "run the tests\nthen commit", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }] });
+  const { bubble } = await openPane(page, { dictations: [{ text: "run the tests\nthen commit", at: 1790000700000 }] });
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await recent.getByRole("button", { name: /^Copy: run the tests/ }).click();
@@ -114,7 +137,7 @@ test("a multiline message pastes as one line, so it never presses Enter, and cop
 });
 
 test("a hint dismissed in one pane stays dismissed in a pane already open", async ({ page }) => {
-  await openPane(page, "running", { hint: true, panes: 2 });
+  await openPane(page, { hint: true, panes: 2 });
   await expect(page.getByRole("note")).toHaveCount(1);
   await page.getByRole("region", { name: "Goblin terminal" }).getByRole("button", { name: "Dismiss hint" }).click();
   await page.getByRole("button", { name: "Switch pane" }).click();
@@ -123,7 +146,7 @@ test("a hint dismissed in one pane stays dismissed in a pane already open", asyn
 });
 
 test("the first visit explains the shortcut once", async ({ page }) => {
-  const { bubble } = await openPane(page, "running", { hint: true });
+  const { bubble } = await openPane(page, { hint: true });
   const hint = page.getByRole("note");
   await expect(hint).toContainText("Speak into this terminal");
   await expect(hint).toContainText("hold Ctrl+Shift+Space");
@@ -134,32 +157,8 @@ test("the first visit explains the shortcut once", async ({ page }) => {
   await expect(page.getByRole("note")).toHaveCount(0);
 });
 
-for (const [state, tip, help] of [["stopped", "SIQspeak is not running", "Open SIQspeak from its desktop shortcut"], ["missing", "SIQspeak was not found", "Install SIQspeak on this computer"]]) {
-  test(`a SIQspeak that is ${state} is named on the bubble and in its list`, async ({ page }) => {
-    const { bubble } = await openPane(page, state);
-    await expect(bubble).toHaveAttribute("data-tip", tip);
-    await bubble.click();
-    const recent = page.getByRole("dialog", { name: "Recent messages" });
-    await expect(recent).toContainText(tip);
-    await expect(recent).toContainText(help);
-    await page.keyboard.press("Escape");
-    await expect(recent).toHaveCount(0);
-    await expect(bubble).toBeFocused();
-  });
-}
-
-test("while SIQspeak runs, the shortcut is left to it and the board records nothing", async ({ page }) => {
-  const { bubble } = await openPane(page, "running");
-  await holdShortcut(page, 800);
-  await expect(bubble).not.toHaveClass(/recording/);
-  await releaseShortcut(page);
-  const probe = await page.evaluate(() => ({ captures: window.voiceProbe?.captures.length, started: window.voiceProbe?.started.length }));
-  expect(probe).toEqual({ captures: 0, started: 0 });
-  await expect(page.locator("output")).toHaveText("");
-});
-
-test("without SIQspeak, holding the shortcut records one capture and its bars follow the voice", async ({ page }) => {
-  const { bubble } = await openPane(page, "stopped");
+test("holding the shortcut records one capture and its bars follow the voice", async ({ page }) => {
+  const { bubble } = await openPane(page);
   await holdShortcut(page, 300);
   await expect(bubble).toHaveClass(/recording/);
   await expect(bubble).toHaveAttribute("data-tip", "Listening · release Ctrl+Shift+Space to type");
@@ -191,5 +190,4 @@ test("without SIQspeak, holding the shortcut records one capture and its bars fo
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent.locator(".voice-text").first()).toHaveText("ship the voice bubble");
-  await expect(recent.locator(".voice-meta").first()).toContainText("Board");
 });
