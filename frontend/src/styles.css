@@ -202,9 +202,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .card-copy strong { font-size: 1.25rem; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
 .card-copy small { font-size: .9375rem; color: var(--muted); }
 .plain-status { display: flex; align-items: center; gap: 8px; font-size: 1rem; font-weight: 700; line-height: 1.4; background: none; color: #c4d4df; }
-/* A task card is a grid: what the card says, with the goblin it waits on and
-   its pull request on a row of their own under it, and its controls beside
-   them, or under them on a narrow card. Every part has its own place. */
+/* A task card is a grid: what the card says, with its pull request on a row of
+   its own under it, and its controls beside them, or under them on a narrow
+   card. Every part has its own place. */
 .task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card side" "card mark" "links mark" "notes notes"; align-items: center; column-gap: 12px; padding: 12px 14px 12px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-links { grid-area: links; }
