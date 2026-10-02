@@ -19,6 +19,7 @@ import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
 import { Alerts } from "./Alerts";
+import { AfkBoard } from "./afk-board";
 import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 import { panelViews } from "./cards";
 import { startOutcome, type AcceptedStart } from "./start";
@@ -182,7 +183,7 @@ export function App() {
     {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
     <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>
   </>;
-  return <div className="app-shell" onKeyDown={(event) => {
+  return <AfkBoard snapshot={snapshot} now={now} onCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); close(); }
   }}>
     <header className="topbar">
@@ -233,5 +234,5 @@ export function App() {
         </Suspense>}
       </aside>
     </div>}
-  </div>;
+  </div></AfkBoard>;
 }
