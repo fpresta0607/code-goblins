@@ -69,7 +69,8 @@
 [data-tip-align="start"]::after { left: 0; transform: translateY(-4px); }
 [data-tip-align="end"]:hover::after, [data-tip-align="end"]:focus-visible::after, [data-tip-align="start"]:hover::after, [data-tip-align="start"]:focus-visible::after { transform: none; }
 /* A task card's parts show their tips in one tip floating over the whole page,
-   clear of the card, so a tip never covers the card's own controls or links. */
+   over or under the card, so a tip never covers the card's own controls or
+   links. */
 .task-card-shell [data-tip]::after { content: none; }
 .card-tip { position: fixed; z-index: 50; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
 body { margin: 0; }

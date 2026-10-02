@@ -53,11 +53,11 @@ function crowding(): Crowding {
   return report;
 }
 
-interface ShownTip { text: string; covers: string[]; onCard: boolean; offScreen: boolean; width: number; fontSize: number }
+interface ShownTip { text: string; part: string; covers: string[]; onCard: boolean; side: string; offScreen: boolean; width: number; fontSize: number }
 
 // The tips shown while the pointer or focus is on a part of a task card, each
 // with the card's controls and links it covers, whether it lies on the card at
-// all and whether it leaves the screen. A tip is the board's floating tip or
+// all, which side of the card it is on and whether it leaves the screen. A tip is the board's floating tip or
 // the part's own CSS tip, measured from its pseudo-element.
 function shownTips(part: Element): ShownTip[] {
   const card = part.closest(".task-card-shell")!;
@@ -76,11 +76,13 @@ function shownTips(part: Element): ShownTip[] {
     tips.push({ text: part.getAttribute("data-tip")!, box: new DOMRect(frame.left + block.clientLeft + parseFloat(after.left) + shift.e, frame.top + block.clientTop + parseFloat(after.top) + shift.f, width, height), fontSize: parseFloat(after.fontSize) });
   }
   const meets = (one: DOMRect, other: DOMRect) => Math.min(one.right, other.right) - Math.max(one.left, other.left) > 1 && Math.min(one.bottom, other.bottom) - Math.max(one.top, other.top) > 1;
+  const shell = card.getBoundingClientRect();
   const controls = [...card.querySelectorAll("a, button:not(.task-card), [role=img]")].filter((control) => !control.contains(part) && !part.contains(control));
   return tips.map(({ text, box, fontSize }) => ({
-    text, fontSize, width: Math.round(box.width),
+    text, part: part.getAttribute("data-tip") || "", fontSize, width: Math.round(box.width),
     covers: controls.filter((control) => meets(box, control.getBoundingClientRect())).map((control) => control.getAttribute("aria-label") || control.textContent!.trim()),
-    onCard: meets(box, card.getBoundingClientRect()),
+    onCard: meets(box, shell),
+    side: box.bottom <= shell.top ? "over" : box.top >= shell.bottom ? "under" : "neither",
     offScreen: box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight,
   }));
 }
@@ -96,9 +98,9 @@ async function tipsOf(part: Locator) {
 // What is wrong with the tips a part shows: a tip covering the card's
 // controls or links, lying on the card, leaving the screen or too small to
 // read, or a tip of some other part.
-function tipProblems(name: string, tips: ShownTip[]) {
+function tipProblems(tips: ShownTip[]) {
   return tips.flatMap((tip) => [
-    ...(tip.text !== name ? ["'" + name + "' shows '" + tip.text + "'"] : []),
+    ...(tip.text !== tip.part ? ["'" + tip.part + "' shows '" + tip.text + "'"] : []),
     ...(tip.covers.length ? ["'" + tip.text + "' covers " + tip.covers.join(", ")] : []),
     ...(tip.onCard ? ["'" + tip.text + "' lies on its card"] : []),
     ...(tip.offScreen ? ["'" + tip.text + "' leaves the screen"] : []),
@@ -152,18 +154,19 @@ test("a clamped title shows in full in the card's tip", async ({ page }) => {
 // card, never on it, and stays on the screen, at a size that reads.
 for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
   test(`at ${region || width} px every tip on a task card opens clear of the card and on the screen`, async ({ page }) => {
+    test.slow();
     await board(page, width, region);
     const problems: string[] = [];
     let shown = 0;
-    const shells = page.locator(".task-card-shell");
-    for (let card = 0; card < await shells.count(); card++) {
-      const shell = shells.nth(card);
-      await shell.locator(".task-card").hover();
-      const parts = shell.locator("[data-tip]");
-      for (let index = 0; index < await parts.count(); index++) {
-        const part = parts.nth(index), tips = await tipsOf(part);
+    for (const shell of await page.locator(".task-card-shell").all()) {
+      // The card finds out that its title is clamped once the pointer is on it.
+      const card = shell.locator(".task-card");
+      await card.hover();
+      if (await card.evaluate((button) => { const title = button.querySelector(".card-title")!; return title.scrollHeight > title.clientHeight + 1; })) await expect(card).toHaveAttribute("data-tip", /./);
+      for (const part of await shell.locator("[data-tip]").all()) {
+        const tips = await tipsOf(part);
         shown += tips.length;
-        problems.push(...tipProblems((await part.getAttribute("data-tip"))!, tips));
+        problems.push(...tipProblems(tips));
       }
     }
     expect(shown).toBeGreaterThanOrEqual(12);
@@ -177,19 +180,31 @@ test("a long title's tip is wide enough to read", async ({ page }) => {
   expect(tip.width).toBeGreaterThanOrEqual(280);
 });
 
-// A card at the bottom of the screen has no room under it, so its tips open
-// over it or beside it instead.
-test("a tip on a card at the bottom of the screen opens clear of the card and on the screen", async ({ page }) => {
+// A tip opens over the card or under it, whichever edge its part is nearer.
+test("a tip opens on the side of the card its part is nearer", async ({ page }) => {
   await board(page, 1000);
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
-  const box = (await shell.boundingBox())!;
-  await page.setViewportSize({ width: 1000, height: Math.ceil(box.y + box.height + 4) });
-  const problems: string[] = [];
-  for (const name of [/^Stop /, /^Pause /]) {
-    const part = shell.getByRole("button", { name });
-    problems.push(...tipProblems((await part.getAttribute("data-tip"))!, await tipsOf(part)));
-  }
-  expect(problems).toEqual([]);
+  expect((await tipsOf(shell.getByRole("button", { name: /^Pause / }))).map((tip) => tip.side)).toEqual(["over"]);
+  expect((await tipsOf(shell.locator(".card-harness [role=img]"))).map((tip) => tip.side)).toEqual(["under"]);
+});
+
+// A card at the bottom of the screen has no room under it, and one at the top
+// has none over it, so a tip that would open there opens on the other side.
+test("a tip with no room on its side of the card opens on the other side, clear of the card", async ({ page }) => {
+  await board(page, 1000);
+  const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") });
+  // The screen is 80 px taller than the card, which leaves room for a tip on
+  // one side of it only.
+  await page.setViewportSize({ width: 1000, height: Math.ceil((await shell.boundingBox())!.height) + 80 });
+  const scrollCardTo = (top: number) => shell.evaluate((card, top) => scrollBy(0, card.getBoundingClientRect().top - top), top);
+  await scrollCardTo(76);
+  const low = await tipsOf(shell.locator(".card-harness [role=img]"));
+  expect(tipProblems(low)).toEqual([]);
+  expect(low.map((tip) => tip.side)).toEqual(["over"]);
+  await scrollCardTo(4);
+  const high = await tipsOf(shell.getByRole("button", { name: /^Pause / }));
+  expect(tipProblems(high)).toEqual([]);
+  expect(high.map((tip) => tip.side)).toEqual(["under"]);
 });
 
 test("a card's tip is gone as soon as the pointer leaves the part it names", async ({ page }) => {
@@ -209,7 +224,8 @@ test("a card's tip shows on keyboard focus, clear of the card, and goes with the
   await expect(terminal).toBeFocused();
   let tips: ShownTip[] = [];
   await expect.poll(async () => (tips = await terminal.evaluate(shownTips)).length).toBe(1);
-  expect(tipProblems("Terminal", tips)).toEqual([]);
+  expect(tips[0].text).toBe("Terminal");
+  expect(tipProblems(tips)).toEqual([]);
   await terminal.evaluate((element) => (element as HTMLElement).blur());
   await expect.poll(() => terminal.evaluate(shownTips), { timeout: 300 }).toEqual([]);
 });

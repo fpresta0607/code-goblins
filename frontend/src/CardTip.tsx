@@ -4,18 +4,20 @@ import { createPortal } from "react-dom";
 // The room a tip leaves between itself and its card, and at the screen's edges.
 const GAP = 8;
 
-// The tip of a part of a task card. It floats over the whole page under the
-// card, or over the card when the screen has no room under it, centered on the
-// part and kept on the screen, so it never covers the card's own controls or
-// links. It is placed before it is first drawn.
+// The tip of a part of a task card. It floats over the whole page, over the
+// card or under it, whichever edge the part is nearer, or on the other side
+// when the screen has no room there, centered on the part and kept on the
+// screen, so it never covers the card's own controls or links. It is placed
+// before it is first drawn.
 export function CardTip({ text, part, card }: { text: string; part: HTMLElement; card: HTMLElement }) {
   const tip = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = tip.current!, own = node.getBoundingClientRect(), shell = card.getBoundingClientRect(), anchor = part.getBoundingClientRect();
     const { clientWidth: width, clientHeight: height } = document.documentElement;
-    const below = shell.bottom + GAP, above = shell.top - GAP - own.height;
-    const fitsBelow = below + own.height <= height - GAP, fitsAbove = above >= GAP;
-    const top = fitsBelow || (!fitsAbove && height - shell.bottom >= shell.top) ? below : above;
+    const under = shell.bottom + GAP, over = shell.top - GAP - own.height;
+    const fitsUnder = under + own.height <= height - GAP, fitsOver = over >= GAP;
+    const isLow = anchor.top + anchor.height / 2 > shell.top + shell.height / 2;
+    const top = (isLow && fitsUnder) || !fitsOver ? under : over;
     node.style.left = Math.max(GAP, Math.min(anchor.left + anchor.width / 2 - own.width / 2, width - GAP - own.width)) + "px";
     node.style.top = Math.max(GAP, Math.min(top, height - GAP - own.height)) + "px";
   }, [text, part, card]);
