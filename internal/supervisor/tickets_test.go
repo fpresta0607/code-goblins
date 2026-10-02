@@ -810,7 +810,9 @@ func TestKeeperShowsAProjectItCannotResolveAndAGitHubReadThatFailed(t *testing.T
 		want      string
 		wantRetry time.Duration
 	}{
-		{name: "the project's checkout cannot be found", change: func(f *fakeTicketWriter) { f.checkoutErr = errors.New("project \"northwind-api\" is not under the projects root") }, want: "not under the projects root", wantRetry: time.Hour},
+		{name: "the project's checkout cannot be found", change: func(f *fakeTicketWriter) {
+			f.checkoutErr = errors.New("project \"northwind-api\" is not under the projects root")
+		}, want: "not under the projects root", wantRetry: time.Hour},
 		{name: "GitHub did not answer who works there", change: func(f *fakeTicketWriter) { f.collaborationErr = errors.New("gh api graphql exited 1: HTTP 502") }, want: "HTTP 502", wantRetry: 10 * time.Minute},
 	}
 	for _, tc := range cases {
