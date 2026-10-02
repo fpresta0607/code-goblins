@@ -24,30 +24,34 @@ func (s *Store) followCFO(identity string) error {
 // follow is followCFO for a caller that holds s.mu. An item whose files are
 // stored under its identity keeps the one it was made under in made.
 func (s *Store) follow(identity string) error {
-	moved := map[string]bool{}
-	follow := func(current, made *string) {
+	// An action follows only when the item it names moved, so moved names
+	// items by kind and ID, not the identities they moved from.
+	type item struct{ kind, id string }
+	moved := map[item]bool{}
+	changed := false
+	follow := func(current, made *string) bool {
 		if *current == identity {
-			return
+			return false
 		}
-		moved[*current] = true
 		if made != nil && *made == "" {
 			*made = *current
 		}
-		*current = identity
+		*current, changed = identity, true
+		return true
 	}
 	for i := range s.db.Questions {
-		if q := &s.db.Questions[i]; q.Task == "" && (q.Status == "pending" || q.Status == "queued") {
-			follow(&q.Identity, nil)
+		if q := &s.db.Questions[i]; q.Task == "" && (q.Status == "pending" || q.Status == "queued") && follow(&q.Identity, nil) {
+			moved[item{"question", q.ID}] = true
 		}
 	}
 	for i := range s.db.Reviews {
-		if r := &s.db.Reviews[i]; r.Task == "" && (r.State == "open" || r.State == "answered" && !r.Delivered) {
-			follow(&r.Identity, &r.Made)
+		if r := &s.db.Reviews[i]; r.Task == "" && (r.State == "open" || r.State == "answered" && !r.Delivered) && follow(&r.Identity, &r.Made) {
+			moved[item{"review", r.ID}] = true
 		}
 	}
 	for i := range s.db.Runs {
-		if r := &s.db.Runs[i]; r.By == "cfo" && (r.State == "ready" || r.State == "running") {
-			follow(&r.Identity, &r.Made)
+		if r := &s.db.Runs[i]; r.By == "cfo" && (r.State == "ready" || r.State == "running") && follow(&r.Identity, &r.Made) {
+			moved[item{"run", r.ID}] = true
 		}
 	}
 	for i := range s.db.Actions {
@@ -55,18 +59,24 @@ func (s *Store) follow(identity string) error {
 		if a.Status != "queued" {
 			continue
 		}
+		var named item
 		switch a.Kind {
-		case "cfo_answer", "question_clear", "review_answer", "review_clear", "run":
-			if moved[a.Generation] {
-				a.Generation = identity
-			}
+		case "cfo_answer", "question_clear":
+			named = item{"question", a.QuestionID}
+		case "review_answer", "review_clear":
+			named = item{"review", a.ReviewID}
+		case "run":
+			named = item{"run", a.RunID}
 		case "review":
 			if a.CFOIdentity != "" {
 				follow(&a.CFOIdentity, nil)
 			}
 		}
+		if moved[named] {
+			a.Generation = identity
+		}
 	}
-	if len(moved) == 0 {
+	if !changed {
 		return nil
 	}
 	return s.save()

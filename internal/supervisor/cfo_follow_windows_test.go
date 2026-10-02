@@ -407,6 +407,54 @@ func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
 	}
 }
 
+// A queued action follows the CFO only when the item it names did: a clear of
+// a question that failed under the CFO before, which stays where it is, still
+// clears it, while the answer to a question still open reaches the CFO now.
+func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primary, closed, runner, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	for _, id := range []string{"cfo-question-failed", "cfo-question-open"} {
+		if err := store.acceptQuestion(Question{ID: id, Identity: closed, Text: "Pick a layout", Options: []string{"Board", "Tree"}, CreatedAt: time.Now().UTC(), Status: "pending"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.mu.Lock()
+	store.db.Questions[0].Status = "failed"
+	store.mu.Unlock()
+	if _, err := store.Queue(Action{ID: "answer-cfo-question-open", Kind: "cfo_answer", QuestionID: "cfo-question-open", Generation: closed, Text: "Board", AnswerKind: "option"}); err != nil {
+		t.Fatal(err)
+	}
+	reregisterCFO(t, store, primary, runner)
+	if _, err := store.Queue(Action{ID: "clear-cfo-question-failed", Kind: "question_clear", QuestionID: "cfo-question-failed", Generation: closed}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// Act
+	err := errors.Join(store.ProcessOne(ctx, s.execute), store.ProcessOne(ctx, s.execute))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	questions := store.Snapshot().Questions
+	if questions[0].Status != "cleared" {
+		t.Errorf("the failed question reads %q (%s), want it cleared", questions[0].Status, questions[0].Message)
+	}
+	if actions := store.Snapshot().Actions; actions[1].Status != "succeeded" {
+		t.Errorf("the clear reads %q (%s), want it succeeded", actions[1].Status, actions[1].Message)
+	}
+	want := "User answer to CFO question cfo-question-open. Question: Pick a layout Answer: Board"
+	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], want) {
+		t.Errorf("the reopened CFO received %q, want %q once", runner.prompts, want)
+	}
+	if questions[1].Status != "succeeded" {
+		t.Errorf("the open question reads %q (%s), want it answered", questions[1].Status, questions[1].Message)
+	}
+}
+
 // A run's result typed and submitted while the CFO was inside a turn is told:
 // the CFO takes it when its turn ends, so it is never typed again.
 func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
