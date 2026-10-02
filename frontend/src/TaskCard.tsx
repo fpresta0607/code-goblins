@@ -62,7 +62,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}
-    onPointerOver={(event) => point(event.target, event.currentTarget)} onPointerLeave={() => setPointed(undefined)}
+    onPointerOver={(event) => point(event.target, event.currentTarget)} onPointerOut={() => setPointed(undefined)}
     onFocus={(event) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(event.target, event.currentTarget); }} onBlur={() => setPointed(undefined)}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
