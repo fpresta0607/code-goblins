@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -19,7 +21,7 @@ import (
 
 func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
 	var out bytes.Buffer
-	writeSupervisionInstructions(`C:\home\data`, &werr{w: &out})
+	writeSupervisionInstructions(`C:\home\data`, false, &werr{w: &out})
 	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CFO"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("primary context omitted %q", want)
@@ -264,8 +266,10 @@ func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) 
 			t.Errorf("SUPERVISION does not point the CFO at its home memory (missing %q):\n%s", want, supervision)
 		}
 	}
-	if !strings.Contains(out, `data\memory\MEMORY.md in full`) {
-		t.Errorf("READ-ONCE CONTRACT does not name the memory index as printed:\n%s", out)
+	// The contract names what was printed: the index and overlord.md, and
+	// not projects.md, which this home does not have.
+	if got, want := printedInFull(t, out), []string{`data\overlord.md`, `data\memory\MEMORY.md`}; !slices.Equal(got, want) {
+		t.Errorf("READ-ONCE CONTRACT names %q as printed in full, want %q:\n%s", got, want, out)
 	}
 }
 
@@ -430,7 +434,7 @@ func TestComposeSectionBodies(t *testing.T) {
 	readOnceFacts := []string{
 		"first 20 queued rows (not the full backlog)",
 		"last 5 status lines (not the full log)",
-		"Do not re-read anything shown above in full this turn",
+		"Do not re-read a file named on the PRINTED IN FULL line this turn",
 	}
 	for _, fact := range readOnceFacts {
 		if !strings.Contains(out, fact) {
@@ -586,5 +590,73 @@ func TestComposeOrphansSectionReportsAFailedSweep(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "last sweep failed (herdr is down)") {
 		t.Fatalf("a failed sweep was not reported:\n%s", buf.String())
+	}
+}
+
+// While AFK mode is on the digest tells the CFO so before the wake queue:
+// who turned it on, when and from where, what it decides itself under it, and
+// what stays the Overlord's alone.
+func TestComposeTellsTheCFOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	if _, _, err := afk.TurnOn(h.State, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	assertHeaderOrder(t, out.String(), []string{"== SESSION LOCK ==", "== AFK MODE ==", "== WAKE QUEUE =="})
+	for _, want := range []string{
+		"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from his own terminal (powershell.exe pid 4242)",
+		"cfo pr merge <url> --verified",
+		"never decided for him",
+		"a migration or command that drops or deletes data",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the digest does not say %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// While it is off the digest says nothing of it.
+func TestComposeSaysNothingOfAFKModeWhileItIsOff(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if strings.Contains(out.String(), "AFK MODE") {
+		t.Errorf("the digest mentions AFK mode while it is off:\n%s", out.String())
+	}
+}
+
+// A switch that cannot be read is said inline, like any file the digest
+// cannot read, and the rest of the digest still composes.
+func TestComposeSaysWhenTheAFKSwitchCannotBeRead(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	if err := os.WriteFile(filepath.Join(h.State, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+
+	// Act
+	if err := Compose(h, os.Getpid(), "", &out); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if !strings.Contains(out.String(), "AFK MODE: UNREADABLE (") || !strings.Contains(out.String(), "== NEXT STEP ==") {
+		t.Errorf("the digest = %q, want the unreadable switch said and every later section composed", out.String())
 	}
 }

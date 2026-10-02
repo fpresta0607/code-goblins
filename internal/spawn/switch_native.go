@@ -20,9 +20,8 @@ func nativeTerminalRuns(stateDir, id string) bool {
 	return err == nil && host.Running(record)
 }
 
-// stopNative asks a native task's harness to exit on its own terms, as
-// stopHarness does in a Herdr pane, and proves it did: its terminal ends with
-// it. A dialog its exit command opens is answered with the harness's own
+// stopNative asks a native task's harness to exit on its own terms, and
+// proves it did: its terminal ends with it. A dialog its exit command opens is answered with the harness's own
 // keys. A harness that still runs after that has its terminal closed, which
 // ends it and everything it started, since a second harness must never start
 // beside it.

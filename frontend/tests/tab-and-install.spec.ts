@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 const question = (id: string, status: string) => ({ id, identity: "cfo", text: "Which layout should I keep?", options: ["Kanban", "Stacked"], status, created_at: "2026-09-30T20:00:00Z" });
 
@@ -45,7 +45,7 @@ test("the board names its icons and an installable manifest in the board's color
     ["apple-touch-icon", "180x180", ""],
   ]);
   expect(head.manifest).toBeTruthy();
-  const manifest = await (await page.request.get(head.manifest!)).json();
+  const manifest = await page.evaluate(async (href) => (await fetch(href)).json(), head.manifest!);
   expect(manifest).toMatchObject({ name: "Code Goblins", start_url: "/", display: "standalone", theme_color: head.theme, background_color: head.theme });
   const declared = (manifest.icons as { sizes: string }[]).map((icon) => icon.sizes);
   expect(declared).toEqual(expect.arrayContaining(["192x192", "512x512"]));

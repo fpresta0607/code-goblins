@@ -162,6 +162,7 @@ export interface Snapshot {
   questions?: Question[];
   reviews?: Review[];
   runs?: Run[];
+  credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
 }
@@ -208,7 +209,34 @@ export interface Run {
   created_at: string; expires_at: string; ran_at: string; finished_at: string;
   // connection_task and connection_generation name the goblin a connection repair belongs to.
   connection_task: string; connection_generation: string;
+  // credential_request names the credential request whose card opened this
+  // terminal, and credential_names the names it stores.
+  credential_request: string; credential_names: string[];
 }
+// A request for credential values by name: the Overlord pastes each value on
+// its card, and the board stores it in the project's credential scope. It
+// never carries a value.
+export interface CredentialRequest {
+  id: string; generation: string; identity: string;
+  // by is "cfo" or "goblin"; task is the goblin that needs the values.
+  by: string; task: string;
+  project: string; repository: string;
+  // env_file is a local env file at the root of the repository where each
+  // saved value is also set; written are the names set there.
+  env_file: string;
+  names: string[]; why: string; link: string;
+  // existing are the names the scope already held when the board last looked.
+  existing: string[];
+  hints: CredentialHint[];
+  // services are the auth.json services that read each name.
+  services: Record<string, string[]>;
+  // state is open, saved or expired; typed are the saved names typed in its terminal.
+  state: string; saved: string[]; replaced: string[]; typed: string[]; written: string[]; told: string[]; reason: string;
+  created_at: string; expires_at: string; closed_at: string;
+}
+// A name's format hint from its project's auth.json: how its value should
+// start, and advice for values that start a certain way.
+export interface CredentialHint { name: string; prefixes: string[]; warn: { prefix: string; say: string }[] }
 export interface ChangedFile {
   path: string;
   status: string;
@@ -337,6 +365,22 @@ function parseRuntime(value: unknown): RuntimeEvidence | undefined {
   const r = object(value);
   return { state: string(r.state), reason: string(r.reason), at: string(r.at) };
 }
+function parseCredentialRequest(value: unknown): CredentialRequest {
+  const c = object(value);
+  const services: Record<string, string[]> = {};
+  for (const [name, users] of Object.entries(c.services == null ? {} : object(c.services))) services[name] = strings(users);
+  return {
+    id: string(c.id), generation: string(c.generation), identity: string(c.identity), by: string(c.by), task: string(c.task),
+    project: string(c.project), repository: string(c.repository), env_file: string(c.env_file), names: strings(c.names), why: string(c.why), link: string(c.link),
+    existing: strings(c.existing), services,
+    hints: array(c.hints).map((hint) => {
+      const h = object(hint);
+      return { name: string(h.name), prefixes: strings(h.prefixes), warn: array(h.warn).map((warning) => { const w = object(warning); return { prefix: string(w.prefix), say: string(w.say) }; }) };
+    }),
+    state: string(c.state), saved: strings(c.saved), replaced: strings(c.replaced), typed: strings(c.typed), written: strings(c.written), told: strings(c.told), reason: string(c.reason),
+    created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -382,8 +426,10 @@ export function parseSnapshot(value: unknown): Snapshot {
       return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
-        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation) };
+        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
     }),
+    credentials: array(v.credentials).map(parseCredentialRequest),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {

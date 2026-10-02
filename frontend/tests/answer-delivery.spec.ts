@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The Overlord, 2026-10-01, on answers to the CFO that had all arrived:
 // "Delivery unconfirmed. Inspect the CFO queue before sending again: I get

@@ -1,6 +1,6 @@
 ---
 name: stow
-description: Sweep the CFO session for durable knowledge, file it to the fleet's memory homes, persist open work to the backlog, and curate the tiered, decaying startup memory the session-start digest prints. Use when the Supreme Overlord invokes /stow, before a context reset or compaction, or when the startup memory has outgrown its budget.
+description: Sweep the CFO session for durable knowledge, file it to the fleet's memory homes, persist open work to the backlog, and curate the tiered, decaying startup memory the session-start digest holds. Use when the Supreme Overlord invokes /stow, before a context reset or compaction, or when the startup memory has outgrown its budget.
 ---
 
 # stow
@@ -13,9 +13,9 @@ Adapted from First Mate's stow pass for the Code Goblins homes.
 
 | Home | What belongs there | Default tier | Loaded |
 | --- | --- | --- | --- |
-| `data/overlord.md` | The Supreme Overlord's standing directives, rulings and authority grants, each with its date and the Overlord's own words | `pinned` | every session, printed in full by the session-start digest |
-| `data/memory/` | Fleet operating facts: gotchas, workarounds, verified tool behaviour, one fact per file, with `MEMORY.md` as the index of one line per fact | `aging` | the index every session, printed in full by the session-start digest; a fact's file when its line is relevant |
-| `data/backlog.md` | Open work, held operations, follow-ups; its items carry no markers, because `tasks-axi` owns their state | `perishable` | its first queued rows, by the digest |
+| `data/overlord.md` | The Supreme Overlord's standing directives, rulings and authority grants, each with its date and the Overlord's own words | `pinned` | every session, in full in the long session-start digest, `state/session-digest.md`, which the hook's brief digest names to read next |
+| `data/memory/` | Fleet operating facts: gotchas, workarounds, verified tool behaviour, one fact per file, with `MEMORY.md` as the index of one line per fact | `aging` | the index every session, in full in the long session-start digest; a fact's file when its line is relevant |
+| `data/backlog.md` | Open work, held operations, follow-ups; its items carry no markers, because `tasks-axi` owns their state | `perishable` | its first queued rows, in the long digest |
 | `data/memory-archive.md` | Everything retired from the homes above | cold | never |
 
 `data/` is the CFO home's private data, so nothing this skill writes ever lands in a tracked file of the public code-goblins repository.

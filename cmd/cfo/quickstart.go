@@ -212,7 +212,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
 	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
-	for _, note := range append(said, unreached(agent, nil)...) {
+	for _, note := range unreached(agent, nil) {
 		list.Note(note)
 	}
 	return cfoSession{herdr: herdrSession()}, true, nil

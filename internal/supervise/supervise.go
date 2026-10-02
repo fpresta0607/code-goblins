@@ -79,19 +79,38 @@ func Needed(stateDir string) (bool, string, error) {
 // and monitor's typed LastCycle is younger than grace. Both conjuncts are
 // required because a lock record alone cannot prove a live watcher loop.
 func WatcherHealthy(stateDir string, grace time.Duration) bool {
+	return WatcherProblem(stateDir, grace) == ""
+}
+
+// WatcherProblem says what makes stateDir's watcher unhealthy, for a banner
+// that reports it, or "" when it is healthy. On 2026-10-02 the Stop hook
+// reported supervision down in CI while serve held the lock, and nothing it
+// printed said which reading had failed.
+func WatcherProblem(stateDir string, grace time.Duration) string {
 	holder, err := lock.ReadNamed(stateDir, watchLockName)
-	if err != nil || !holder.Alive() {
-		return false
+	if errors.Is(err, os.ErrNotExist) {
+		return `no process holds state\.watch.lock`
+	}
+	if err != nil {
+		return `state\.watch.lock cannot be read: ` + err.Error()
+	}
+	if !holder.Alive() {
+		return fmt.Sprintf(`pid %d, which state\.watch.lock names, is not running`, holder.PID)
 	}
 	heartbeat, err := monitor.ReadHeartbeat(stateDir)
 	if err != nil {
-		return false
-	}
-	if heartbeat.LastCycle.IsZero() {
-		return false
+		return "the watcher's heartbeat cannot be read: " + err.Error()
 	}
 	age := time.Since(heartbeat.LastCycle)
-	return age >= 0 && age < grace
+	switch {
+	case heartbeat.LastCycle.IsZero():
+		return "the watcher's heartbeat records no finished cycle"
+	case age < 0:
+		return fmt.Sprintf("the watcher's heartbeat is dated %s in the future", (-age).Round(time.Second))
+	case age >= grace:
+		return fmt.Sprintf("the watcher last finished a cycle %s ago, past the %s it is given", age.Round(time.Second), grace)
+	}
+	return ""
 }
 
 // AutoarmOwnsRecovery reports whether the Stop-owned auto-arm (Task 11) is

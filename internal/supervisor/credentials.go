@@ -72,10 +72,13 @@ type CredentialRequest struct {
 	Project string `json:"project"`
 	// Repository is the checkout the project scope is named for, when it is
 	// on this machine.
-	Repository string   `json:"repository,omitempty"`
-	Names      []string `json:"names"`
-	Why        string   `json:"why"`
-	Link       string   `json:"link,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	// EnvFile is a local env file at the root of Repository, such as
+	// .env.docker.local, where each saved value is also set, beside the scope.
+	EnvFile string   `json:"env_file,omitempty"`
+	Names   []string `json:"names"`
+	Why     string   `json:"why"`
+	Link    string   `json:"link,omitempty"`
 	// Existing are the names the scope already held a value for when the
 	// board last looked, which a save replaces only once confirmed.
 	Existing []string         `json:"existing,omitempty"`
@@ -89,6 +92,8 @@ type CredentialRequest struct {
 	Replaced []string `json:"replaced,omitempty"`
 	// Typed are the saved names typed in the card's terminal.
 	Typed []string `json:"typed,omitempty"`
+	// Written are the saved names also set in EnvFile.
+	Written []string `json:"written,omitempty"`
 	// Told are the running goblins told to re-source their credentials.
 	Told      []string   `json:"told,omitempty"`
 	Reason    string     `json:"reason,omitempty"`
@@ -108,7 +113,7 @@ type CredentialHint struct {
 
 func (r CredentialRequest) clone() CredentialRequest {
 	r.Names, r.Existing, r.Hints = slices.Clone(r.Names), slices.Clone(r.Existing), slices.Clone(r.Hints)
-	r.Saved, r.Replaced, r.Told, r.Typed = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed)
+	r.Saved, r.Replaced, r.Told, r.Typed, r.Written = slices.Clone(r.Saved), slices.Clone(r.Replaced), slices.Clone(r.Told), slices.Clone(r.Typed), slices.Clone(r.Written)
 	if r.Services != nil {
 		services := make(map[string][]string, len(r.Services))
 		for name, users := range r.Services {
@@ -126,7 +131,7 @@ func (r CredentialRequest) clone() CredentialRequest {
 // sameCredentialRequest reports whether two filings ask the same thing, so a
 // retry of one changes nothing.
 func sameCredentialRequest(a, b CredentialRequest) bool {
-	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
+	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && a.Why == b.Why && a.Link == b.Link
 }
 
 // validCredentialRequest refuses a request without its ID and asker, and
@@ -156,6 +161,10 @@ func CredentialRequestProblem(r CredentialRequest) error {
 		return errors.New("a credential request needs a project scope")
 	case r.Repository != "" && (!filepath.IsAbs(r.Repository) || filepath.Clean(r.Repository) != r.Repository || len(r.Repository) > 1024 || strings.ContainsFunc(r.Repository, unicode.IsControl) || auth.ProjectName(r.Repository) != r.Project):
 		return errors.New("a credential request's repository is the absolute path of the checkout its scope is named for")
+	case r.EnvFile != "" && r.Repository == "":
+		return errors.New("an env file needs the project's checkout on this machine")
+	case r.EnvFile != "" && envFileNameProblem(r.EnvFile) != nil:
+		return envFileNameProblem(r.EnvFile)
 	case len(r.Names) == 0 || len(r.Names) > maxCredentialNames:
 		return fmt.Errorf("a credential request asks for 1 to %d names", maxCredentialNames)
 	}
@@ -286,6 +295,10 @@ func (s *Service) ingestCredentialRequests() error {
 		if invalid == nil {
 			if meta, err := state.ReadTaskMeta(s.Store.Home.State, r.Task); err != nil || goblinIdentity(meta) != r.Identity {
 				invalid = errors.New("the goblin that asked restarted or ended")
+			} else if r.EnvFile != "" && !strings.EqualFold(filepath.Clean(r.Repository), filepath.Clean(meta.Project)) {
+				// A goblin could otherwise have a value it does not hold
+				// written into a file it can read.
+				invalid = errors.New("a goblin's request may name an env file only in its own task's checkout")
 			}
 		}
 		if invalid == nil {
@@ -317,9 +330,14 @@ func (s *Service) ingestCredentialRequests() error {
 // fresh generation, with the names its scope already holds and each name's
 // format hint, open for a day.
 func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialRequest, error) {
-	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, "", nil
+	r.Existing, r.Hints, r.Services, r.Saved, r.Replaced, r.Told, r.Typed, r.Written, r.Reason, r.ClosedAt = nil, nil, nil, nil, nil, nil, nil, nil, "", nil
 	if err := validCredentialRequest(r); err != nil {
 		return r, err
+	}
+	if r.EnvFile != "" {
+		if err := EnvFileProblem(context.Background(), r.Repository, r.EnvFile); err != nil {
+			return r, err
+		}
 	}
 	var generation [16]byte
 	if _, err := rand.Read(generation[:]); err != nil {
@@ -573,6 +591,11 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	if len(saved) == 0 {
 		return credentialOutcome{}, failure
 	}
+	var written []string
+	var unwritten string
+	if request.EnvFile != "" {
+		written, unwritten = writeEnvFile(request, input.Values, saved)
+	}
 	now := time.Now().UTC()
 	closed, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) {
 		r.State, r.ClosedAt = "saved", &now
@@ -586,8 +609,20 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 				r.Replaced = append(r.Replaced, name)
 			}
 		}
+		for _, name := range written {
+			if !slices.Contains(r.Written, name) {
+				r.Written = append(r.Written, name)
+			}
+		}
+		var reasons []string
 		if failure != nil {
-			r.Reason = failure.Error()
+			reasons = append(reasons, failure.Error())
+		}
+		if unwritten != "" {
+			reasons = append(reasons, unwritten)
+		}
+		if len(reasons) > 0 {
+			r.Reason = strings.Join(reasons, "; ")
 		}
 	})
 	if err != nil {
@@ -791,7 +826,8 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 		return
 	}
 	var stored []string
-	if store, err := s.Options.Credentials(); err == nil {
+	store, storeErr := s.Options.Credentials()
+	if storeErr == nil {
 		stored, _ = storedNames(store, request.Project, r.CredentialNames)
 	}
 	finished := code != nil && *code == 0
@@ -804,6 +840,19 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 	if len(typed) == 0 {
 		s.credentialNotice(request, "the terminal for "+strings.Join(r.CredentialNames, ", ")+" in "+request.Project+" ended with nothing stored ("+request.ID+"); the card still asks for them")
 		return
+	}
+	// The terminal stored its values in the scope; those for an env file
+	// are read back from there.
+	var written []string
+	var unwritten string
+	if request.EnvFile != "" {
+		values := map[string]string{}
+		for _, name := range typed {
+			if value, ok, err := store.Get(auth.Key{Project: request.Project, Name: name}); err == nil && ok {
+				values[name] = value
+			}
+		}
+		written, unwritten = writeEnvFile(request, values, typed)
 	}
 	now := time.Now().UTC()
 	updated, err := s.Store.updateCredential(request.ID, func(c *CredentialRequest) {
@@ -818,6 +867,14 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 				c.Replaced = append(c.Replaced, name)
 			}
 		}
+		for _, name := range written {
+			if !slices.Contains(c.Written, name) {
+				c.Written = append(c.Written, name)
+			}
+		}
+		if unwritten != "" {
+			c.Reason = unwritten
+		}
 		if finished || !slices.ContainsFunc(c.Names, func(name string) bool { return !slices.Contains(c.Saved, name) }) {
 			c.State, c.ClosedAt = "saved", &now
 		}
@@ -827,6 +884,12 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 		return
 	}
 	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); cfo auth store refreshed the project's running goblins itself"
+	if len(written) > 0 {
+		detail += "; " + strings.Join(written, ", ") + " written to " + request.EnvFile
+	}
+	if unwritten != "" {
+		detail += "; " + unwritten
+	}
 	if updated.State == "open" {
 		remaining := slices.DeleteFunc(slices.Clone(updated.Names), func(name string) bool { return slices.Contains(updated.Saved, name) })
 		detail += "; the card still asks for " + strings.Join(remaining, ", ")
@@ -856,6 +919,9 @@ func (s *Service) afterCredentialSave(request CredentialRequest, saved []string)
 		detail += "; told " + strings.Join(told, ", ") + " to re-source auth.ps1"
 	case s.Options.RefreshCredentials != nil:
 		detail += "; no running " + request.Project + " goblin to tell"
+	}
+	if written := slices.DeleteFunc(slices.Clone(saved), func(name string) bool { return !slices.Contains(request.Written, name) }); len(written) > 0 {
+		detail += "; " + strings.Join(written, ", ") + " written to " + request.EnvFile
 	}
 	if request.Reason != "" {
 		detail += "; " + request.Reason
