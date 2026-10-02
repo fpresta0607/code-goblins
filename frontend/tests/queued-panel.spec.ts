@@ -21,6 +21,7 @@ interface Posted { path: string; body: Record<string, unknown> }
 
 // posted collects what the board asked the supervisor to change.
 async function open(page: Page, posted: Posted[] = []) {
+  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "POST") {
@@ -36,7 +37,7 @@ async function open(page: Page, posted: Posted[] = []) {
 }
 
 const panel = (page: Page) => page.locator(".goblin-panel");
-const card = (page: Page, id: string) => page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
+const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 
 async function select(page: Page, id: string) {
   await card(page, id).locator(".task-card").click();

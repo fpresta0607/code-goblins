@@ -192,7 +192,7 @@ for (const [layout, width] of [["side by side", 2400], ["stacked", 820]] as cons
 test("a card being dragged shows no tip", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await open(page, [{ ...TASKS[0], title: LONGEST }, ...TASKS.slice(1)]);
-  const card = page.locator("[data-sort-id='queued-one'] .task-card");
+  const card = page.locator(".task-board [data-sort-id='queued-one'] .task-card");
   await card.hover();
   const tip = page.getByRole("tooltip");
   await expect(tip).toHaveText(LONGEST);
@@ -201,7 +201,7 @@ test("a card being dragged shows no tip", async ({ page }) => {
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x, y + 12, { steps: 4 });
-  await expect(page.locator("[data-sort-id='queued-one']")).toHaveClass(/dragging/);
+  await expect(page.locator(".task-board [data-sort-id='queued-one']")).toHaveClass(/dragging/);
   await expect(tip).toHaveCount(0);
   await page.mouse.up();
   await expect(page.locator(".task-cards.sorting")).toHaveCount(0);
