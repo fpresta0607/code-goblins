@@ -1,0 +1,67 @@
+name: socket-diagnostics
+
+# Temporary, on a throwaway branch only: watches the runner's TCP connections
+# while the browser tests run, to find why a module request failed there with
+# net::ERR_NO_BUFFER_SPACE. Never merged.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Browser tests with TCP sampling
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "=== port settings"
+          netsh int ipv4 show dynamicport tcp
+          netsh int ipv4 show excludedportrange tcp
+          "TcpTimedWaitDelay: $((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters').TcpTimedWaitDelay)"
+          Get-NetTCPSetting | Format-Table SettingName, DynamicPortRangeStartPort, DynamicPortRangeNumberOfPorts, AutoReusePortRangeStartPort, AutoReusePortRangeNumberOfPorts
+          $sampler = Start-Job -ScriptBlock {
+            while ($true) {
+              $all = @(Get-NetTCPConnection -ErrorAction SilentlyContinue)
+              $states = ($all | Group-Object State | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ' '
+              $dev = @($all | Where-Object { $_.RemotePort -eq 5188 -or $_.LocalPort -eq 5188 }).Count
+              $supervisor = @($all | Where-Object { $_.RemotePort -eq 4310 }).Count
+              "{0} total={1} dev5188={2} supervisor4310={3} {4}" -f (Get-Date -Format 'HH:mm:ss'), $all.Count, $dev, $supervisor, $states
+              Start-Sleep -Seconds 3
+            }
+          }
+          foreach ($round in 1..3) {
+            "=== round $round at $(Get-Date -Format 'HH:mm:ss')"
+            npm run test:browser
+            "=== round $round exit $LASTEXITCODE at $(Get-Date -Format 'HH:mm:ss')"
+            if (Test-Path test-results) { Copy-Item test-results "test-results-round-$round" -Recurse }
+          }
+          Stop-Job $sampler
+          Receive-Job $sampler | Set-Content tcp-samples.txt
+          "=== tcp samples"
+          Get-Content tcp-samples.txt
+          "=== ephemeral port exhaustion events (4227, 4231)"
+          Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 4227, 4231 } -ErrorAction SilentlyContinue | Select-Object -First 20 TimeCreated, Id, Message | Format-List
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: socket-diagnostics
+          path: |
+            frontend/tcp-samples.txt
+            frontend/test-results-round-*
+          if-no-files-found: ignore
+          retention-days: 3
