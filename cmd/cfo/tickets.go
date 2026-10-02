@@ -12,10 +12,11 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
-const ticketsUsage = "cfo tickets <project> [--brief <file>] [--files <paths>] [--json]"
+const ticketsUsage = "cfo tickets <project> [--brief <file>] [--files <paths>] [--json] | cfo tickets <project> --allow-public-tickets"
 
 // readRepositoryActivity reads what GitHub says is happening in the
 // repository a checkout's origin names.
@@ -37,6 +38,46 @@ func checkoutHas(checkout string) func(repositoryPath string) bool {
 	}
 }
 
+// ticketWriter is what the supervisor keeps tickets with: gh for GitHub, and
+// the machine's projects root for a task that names its project by a bare
+// name.
+func ticketWriter(commands execx.Runner, runtime commandRuntime) *supervisor.Tickets {
+	github := tickets.GitHub{Commands: commands}
+	return &supervisor.Tickets{
+		Checkout:         runtime.resolveProject,
+		Repository:       github.RepositoryOf,
+		Collaboration:    github.Collaboration,
+		EnsureLabels:     github.EnsureLabels,
+		Apply:            github.Apply,
+		PullRequestState: supervisor.GitHubPullRequestState(commands),
+	}
+}
+
+// allowPublicTickets records the CFO's word that tickets may be kept in a
+// project's public repository, where each task's issue is public.
+func allowPublicTickets(checkout string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if runtime.repositoryOf == nil || runtime.resolveHome == nil {
+		fmt.Fprintln(stderr, "cfo tickets: command runtime is incomplete")
+		return 1
+	}
+	repository, err := runtime.repositoryOf(context.Background(), checkout)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo tickets: %v\n", err)
+		return 1
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo tickets: %v\n", err)
+		return 1
+	}
+	if err := tickets.AllowPublic(h.State, repository); err != nil {
+		fmt.Fprintf(stderr, "cfo tickets: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Tickets may now be kept in %s. It is public, so each task's issue there is public: its title, its state, who is on it and its pull request.\n", repository)
+	return 0
+}
+
 func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		fmt.Fprintf(stderr, "cfo tickets: a project is required: %s\n", ticketsUsage)
@@ -55,6 +96,7 @@ func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		return nil
 	})
 	jsonOutput := fs.Bool("json", false, "render the report as JSON")
+	allowPublic := fs.Bool("allow-public-tickets", false, "let the supervisor keep each task's ticket in this project's repository although it is public; asked once per repository")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -62,7 +104,11 @@ func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintf(stderr, "cfo tickets: unexpected arguments: %s\n", ticketsUsage)
 		return 2
 	}
-	if runtime.repoActivity == nil {
+	if *allowPublic && (*briefPath != "" || len(files) > 0 || *jsonOutput) {
+		fmt.Fprintf(stderr, "cfo tickets: --allow-public-tickets takes no other flag: %s\n", ticketsUsage)
+		return 2
+	}
+	if !*allowPublic && runtime.repoActivity == nil {
 		fmt.Fprintln(stderr, "cfo tickets: command runtime is incomplete")
 		return 1
 	}
@@ -70,6 +116,9 @@ func runTickets(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo tickets: %v\n", err)
 		return 1
+	}
+	if *allowPublic {
+		return allowPublicTickets(checkout, stdout, stderr, runtime)
 	}
 	var area *tickets.Area
 	if *briefPath != "" || len(files) > 0 {

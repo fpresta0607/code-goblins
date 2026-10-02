@@ -34,11 +34,22 @@ const (
 
 var githubRemote = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?$`)
 
+// ErrNotGitHub says a checkout has no GitHub repository: it has no origin
+// remote, or its origin is somewhere else.
+var ErrNotGitHub = errors.New("not a GitHub repository")
+
+// noSuchRemote is git remote get-url's exit code for a remote that does not
+// exist.
+const noSuchRemote = 2
+
 // RepositoryOf names the GitHub repository a checkout's origin remote is.
 func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, error) {
 	result, err := g.Commands.Run(ctx, execx.Request{Name: "git", Args: []string{"-C", checkout, "remote", "get-url", "origin"}})
 	if err != nil {
 		return "", fmt.Errorf("read the origin remote of %s: %w", checkout, err)
+	}
+	if result.ExitCode == noSuchRemote {
+		return "", fmt.Errorf("read the origin remote of %s: %s: %w", checkout, strings.TrimSpace(string(result.Stderr)), ErrNotGitHub)
 	}
 	if result.ExitCode != 0 {
 		return "", fmt.Errorf("read the origin remote of %s: %s", checkout, strings.TrimSpace(string(result.Stderr)))
@@ -46,7 +57,7 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 	remote := strings.TrimSpace(string(result.Stdout))
 	match := githubRemote.FindStringSubmatch(remote)
 	if match == nil {
-		return "", fmt.Errorf("origin %s of %s is not a GitHub repository", remote, checkout)
+		return "", fmt.Errorf("origin %s of %s is %w", remote, checkout, ErrNotGitHub)
 	}
 	return match[1], nil
 }
@@ -56,7 +67,7 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 const activityQuery = `query($owner:String!,$name:String!,$since:GitTimestamp!,$first:Boolean!,$issues:Boolean!,$issuesAfter:String,$pulls:Boolean!,$pullsAfter:String,$refs:Boolean!,$refsAfter:String){
 viewer @include(if:$first){login name}
 repository(owner:$owner,name:$name){
-nameWithOwner
+nameWithOwner isPrivate
 defaultBranchRef @include(if:$first){name target{oid ... on Commit{history(first:100,since:$since){nodes{committedDate author{name user{login avatarUrl}}}}}}}
 recentIssues:issues(first:100,orderBy:{field:CREATED_AT,direction:DESC}) @include(if:$first){nodes{number createdAt author{__typename login avatarUrl}}}
 recentPullRequests:pullRequests(first:100,orderBy:{field:CREATED_AT,direction:DESC}) @include(if:$first){nodes{number createdAt author{__typename login avatarUrl}}}
@@ -116,6 +127,7 @@ type activityResponse struct {
 		} `json:"viewer"`
 		Repository *struct {
 			NameWithOwner    string `json:"nameWithOwner"`
+			IsPrivate        bool   `json:"isPrivate"`
 			DefaultBranchRef *struct {
 				Name   string `json:"name"`
 				Target struct {

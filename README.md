@@ -216,6 +216,15 @@ A tab left open across an install notices the newer board: a hidden tab reloads 
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
 Hook setup, evidence rules and terminal limits are in [the native board guide](docs/native-board.md).
 
+### The desktop app
+
+The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
+It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
+It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
+The window is unsigned, and its install says so.
+Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
+
 ### Board and Orchestration
 
 The header switches between two views, one at a time, each with a contextual panel on the right.
@@ -502,6 +511,9 @@ Run `cfo doctor` after installation for the current dependency and harness healt
 
 In a repository other people work in, `cfo tickets <project>` reports what they have in flight before a goblin starts: who besides you worked there in the last 30 days (bots and old fork history do not count), every open issue and open or draft pull request with the files it changes, and the branches others pushed in the last 14 days.
 Add `--brief <file>` or `--files <paths>` and it names each pull request, branch and issue that touches the same area, so overlapping work is started knowingly or not at all.
+`cfo spawn` runs the same check on the task's brief: where a teammate has work in flight it prints the overlap and starts nothing, until you repeat it with `--overlap-ok "<why>"`.
+Your reason is kept in the task's status log and shown on its ticket, and your own fleet's pull requests never stop a spawn.
+Neither does a bot's work, and a GitHub read that fails or takes longer than 30 seconds starts the task unchecked and says so.
 It only reads: one GraphQL query through `gh`, about three points of GitHub's hourly budget, and `--json` gives the same report with contributor avatars.
 
 ```text
@@ -511,6 +523,29 @@ Collaborative: 2 people besides you worked here in the last 30 days.
 Overlaps with api/routes_orders.py, tasks/billing_sync.py
 - PR #412 by teammate changes api/routes_orders.py, tasks/billing_sync.py
 ```
+
+In such a repository the supervisor also keeps a ticket, a GitHub issue, for each task, so your teammates see what the fleet has under way without asking.
+It opens the issue when the task is queued, or claims the one the task's brief names by its URL or as "issue #N", and moves it by itself as the task moves:
+
+| The task | Its ticket |
+|---|---|
+| is queued | open, labelled `cfo: queued` |
+| is worked by a goblin | `cfo: in progress` and `goblin: <harness>`; the body names the goblin |
+| has a pull request open | `cfo: pr open`, with the pull request linked |
+| is paused | `cfo: paused` |
+| is blocked on a decision, or stopped on a failure | `cfo: blocked`, saying which of the two and never the question itself |
+| merged | closed as completed, with a comment naming the pull request |
+| was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
+
+A ticket carries the task's title, its state, who is on it, its pull request and the reason you gave `cfo spawn --overlap-ok` when it was started beside a teammate's work, and nothing else: never the brief, a path on your machine, a secret or a note.
+Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
+Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
+Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
+An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
+An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.
+The board says when tickets wait: for that consent, or for an hour after GitHub refused a write.
+A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
+A project with no GitHub repository simply has no tickets.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
@@ -595,6 +630,7 @@ Code Goblins is becoming a native Windows desktop app.
 - **Native terminals for the whole fleet.** Every goblin, and then the CFO, runs in a Windows terminal of its own (`cfo host`, a pseudo console that outlives every window) instead of Herdr; `cfo spawn` starts every goblin this way, and `goblins --native` starts the CFO so.
 - **No Herdr dependency.** Spawning, message delivery, agent detection, registration and verification, stop hooks and wakes, the monitor, `cfo peek`, cleanup and reaping move onto native commands, and the board's Herdr-only code is removed.
 - **A desktop app build of the board.** The board and its terminals, designed native-first, ship as one Windows application as well as the page `cfo serve` serves today.
+  Its first build, a desktop window for the board, exists outside this repository's releases: [The desktop app](#the-desktop-app).
 
 ## Development
 
