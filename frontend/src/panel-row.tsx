@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { PanelView } from "./GoblinPanel";
 import { Icon, type IconName } from "./Icon";
 import { rowFit } from "./panel-fit";
@@ -47,7 +48,9 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
       setFit((prior) => prior.shown === next.shown && prior.hasWords === next.hasWords ? prior : next);
     };
     measure();
-    const observer = new ResizeObserver(measure);
+    // A new width is fitted before the browser draws it, so no frame shows
+    // the row as it fitted the old one.
+    const observer = new ResizeObserver(() => flushSync(measure));
     for (const box of [row.current, cornerBox.current, words.current]) if (box) observer.observe(box);
     return () => observer.disconnect();
   }, [count]);

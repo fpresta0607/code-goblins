@@ -65,6 +65,9 @@ function rowReport(): { shown: string[]; problems: string[] } {
 // from More when it is not; label is its name as an icon, and name its name
 // in the menu.
 async function press(page: Page, label: string, name: string) {
+  // The row fits itself to a new width as the browser lays the page out, so
+  // it is looked at a frame after whatever changed the width.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const row = page.locator(".context-pane .panel-top");
   const inRow = row.getByRole("button", { name: label, exact: true });
   if (await inRow.count()) return inRow.click();
