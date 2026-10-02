@@ -104,7 +104,9 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 // question by its lead line unless it was asked from an open review page, an
 // open review item, a command ready or running unless a credential card
 // opened it, and an open request for credentials by its project, never by the
-// credential names. The snapshot names the supervisor's instance beside them.
+// credential names. A question asked from an open review page is returned as
+// a key beside them, open without an alert of its own. The snapshot names the
+// supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending"},{"id":"q2","text":"old","status":"answered"},
 			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1"}],
@@ -113,7 +115,7 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1"}],
 		"credentials":[{"id":"c1","project":"shop","state":"open","names":["API_KEY"]},{"id":"c2","project":"blog","state":"saved","names":["TOKEN"]}]}`
 
-	instance, items, err := waiting([]byte(snapshot))
+	instance, items, folded, err := waiting([]byte(snapshot))
 
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +123,39 @@ func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	want := []Item{{"question:q1", "Which plan?"}, {"review:r1", "Pick a layout"}, {"run:u1", "Install the tool"}, {"credential:c1", "Credentials wanted for shop"}}
 	if instance != "i-1" || !slices.Equal(items, want) {
 		t.Errorf("waiting = %q, %+v; want i-1, %+v", instance, items, want)
+	}
+	if !slices.Equal(folded, []string{"question:q3"}) {
+		t.Errorf("folded = %v, want question:q3 alone", folded)
+	}
+}
+
+// A question that was pending inside its page's card is not new when that
+// page closes and the question becomes a card of its own; a question that was
+// never there before still is.
+func TestTheWatcherDoesNotTellAQuestionItsPageCarried(t *testing.T) {
+	var mu sync.Mutex
+	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending","page":"r1"}],
+		"reviews":[{"id":"r1","title":"Pick a layout","state":"open"}]}`
+	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		_, _ = w.Write([]byte(snapshot))
+	}))
+	defer board.Close()
+	watcher := &Watcher{}
+
+	first, _ := watcher.New(board.URL)
+	mu.Lock()
+	snapshot = `{"instance":"i-1","questions":[{"id":"q1","text":"Asked from its page?","status":"pending"},{"id":"q2","text":"Never there before?","status":"pending"}],
+		"reviews":[{"id":"r1","title":"Pick a layout","state":"withdrawn"}]}`
+	mu.Unlock()
+	second, _ := watcher.New(board.URL)
+
+	if len(first) != 0 {
+		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
+	}
+	if !slices.Equal(second, []Item{{"question:q2", "Never there before?"}}) {
+		t.Errorf("second look = %+v, want the question that was never there alone", second)
 	}
 }
 

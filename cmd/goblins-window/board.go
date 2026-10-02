@@ -153,10 +153,12 @@ type Item struct {
 // review page, whose item it is; an open review item; a command ready or
 // running that no credential card opened, since that terminal shows on its
 // card; and an open request for credentials, by its project alone, so the
-// credential names stay out of a Windows notification. It names the
-// supervisor's instance too, which every request to the board that changes
-// something carries.
-func waiting(snapshot []byte) (string, []Item, error) {
+// credential names stay out of a Windows notification. Beside them it returns
+// the keys of what is open on the board without being alerted on its own: a
+// pending question asked from an open review page, which that page's card
+// shows. It names the supervisor's instance too, which every request to the
+// board that changes something carries.
+func waiting(snapshot []byte) (string, []Item, []string, error) {
 	var view struct {
 		Instance  string `json:"instance"`
 		Questions []struct {
@@ -174,14 +176,20 @@ func waiting(snapshot []byte) (string, []Item, error) {
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(snapshot, &view); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	var items []Item
+	var folded []string
 	for _, q := range view.Questions {
-		if q.Status == "pending" && q.Page == "" {
-			lead, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
-			items = append(items, Item{ID: "question:" + q.ID, Text: lead})
+		if q.Status != "pending" {
+			continue
 		}
+		if q.Page != "" {
+			folded = append(folded, "question:"+q.ID)
+			continue
+		}
+		lead, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
+		items = append(items, Item{ID: "question:" + q.ID, Text: lead})
 	}
 	for _, r := range view.Reviews {
 		if r.State == "open" {
@@ -198,11 +206,13 @@ func waiting(snapshot []byte) (string, []Item, error) {
 			items = append(items, Item{ID: "credential:" + c.ID, Text: "Credentials wanted for " + c.Project})
 		}
 	}
-	return view.Instance, items, nil
+	return view.Instance, items, folded, nil
 }
 
 // Watcher tells which items waiting on the Overlord are new since its last
 // look. Its first look only learns what already waits, which the board shows.
+// It remembers a question open inside its page's card as well, so that
+// question is not new when its page closes and it becomes a card of its own.
 type Watcher struct {
 	Client *http.Client
 	// Instance is the supervisor's instance, as the last snapshot read named
@@ -231,13 +241,16 @@ func (w *Watcher) New(board string) ([]Item, bool) {
 	if err != nil {
 		return nil, false
 	}
-	instance, items, err := waiting(data)
+	instance, items, folded, err := waiting(data)
 	if err != nil {
 		return nil, false
 	}
 	w.Instance = instance
 	first := w.seen == nil
 	current := map[string]bool{}
+	for _, key := range folded {
+		current[key] = true
+	}
 	var fresh []Item
 	for _, item := range items {
 		current[item.ID] = true
