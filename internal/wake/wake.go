@@ -436,7 +436,9 @@ func Question(rec Record) (string, []string, bool) {
 // with the choices separated by "|", which is what
 // `cfo notify <id> --blocked "<question> options: <answer> | <answer>"` produces. A question
 // with no marker offered no options, and the rendering says so rather than
-// inventing choices the goblin never named.
+// inventing choices the goblin never named. The choices end the question, so
+// they follow the last marker: one the goblin names earlier in its words,
+// such as in a detail line, is part of the question.
 func decision(rec Record) (verb, question string, options []string, ok bool) {
 	verb, ok = BlockingNotify(rec)
 	if !ok {
@@ -451,7 +453,7 @@ func splitOptions(detail string) (string, []string) {
 	// string, because a case fold can change byte length and the index is
 	// used to slice the original.
 	const marker = "options:"
-	at := strings.Index(detail, marker)
+	at := strings.LastIndex(detail, marker)
 	if at < 0 {
 		return detail, nil
 	}

@@ -419,23 +419,23 @@ func codexMCPServers(kind harness.Kind) ([]string, error) {
 // reservedLaunchEnv names the environment the launch contract owns. It is
 // explicit rather than read off the launch map at merge time because the
 // contract is written in stages: the adapter stamps GOTMPDIR and CFO_ROLE at
-// build, startHarness adds CFO_STATE_OVERRIDE just before the pane line is
-// rendered, and a manifest or credential merged in between must not be able
-// to claim a name the launch has not written yet.
+// build, nativeHostEnvironment adds CFO_STATE_OVERRIDE when it builds the
+// host's environment, and a manifest or credential merged in between must not
+// be able to claim a name the launch has not written yet.
 //
 // The cache root belongs to the contract for the same reason: the task's Go
 // temporary directory is derived from os.UserCacheDir, which reads
 // LOCALAPPDATA on Windows, XDG_CACHE_HOME on Linux and HOME whenever that is
 // unset, and HOME alone on darwin. All three are reserved because a manifest
-// that redirected any of them would leave any cfo command run from that pane
+// that redirected any of them would leave any cfo command run from that terminal
 // computing a different directory than the process that created it.
 var reservedLaunchEnv = []string{"GOTMPDIR", "CFO_STATE_OVERRIDE", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", harness.RoleVariable}
 
 // reservedLaunchName reports whether name belongs to the launch contract:
 // one of the names the contract owns, or one the adapter already set on the
-// launch. The comparison is case-insensitive because the pane is PowerShell
-// on Windows, where $env:gotmpdir and $env:GOTMPDIR are the same variable,
-// so a differently cased name is a collision, not a sibling.
+// launch. The comparison is case-insensitive because Windows compares
+// environment names without case, so gotmpdir and GOTMPDIR are the same
+// variable and a differently cased name is a collision, not a sibling.
 func reservedLaunchName(env map[string]string, name string) bool {
 	for _, reserved := range reservedLaunchEnv {
 		if strings.EqualFold(name, reserved) {
@@ -463,7 +463,7 @@ func mergeProvisionEnv(env map[string]string, redirects map[string]string) {
 }
 
 // preflightCredentials resolves the project's credentials once, before the
-// pane and worktree exist, so both the refusal decision and the injected
+// terminal and worktree exist, so both the refusal decision and the injected
 // environment come from the same probe run rather than two.
 func (s Service) preflightCredentials(ctx context.Context, project string) (auth.Result, error) {
 	if s.Auth == nil {
@@ -698,8 +698,8 @@ func notifyInstruction(id string) string {
 		exe = "cfo"
 	}
 	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the Command Center shows it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options, and the board shows them to the Supreme Overlord, whose answer arrives here as a message. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|overlord|ci|deploy> \"<why>\"; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
-		" When the Overlord must answer on a Lavish page, open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
-		" For a successful browser walkthrough or a Lavish presentation that needs no answer, use Lavish --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
+		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
+		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with cfo present --id <stable-id> --task " + id + " --generation <CFO_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history."
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {
