@@ -112,7 +112,7 @@ func TestAnAFKMergeLogsTheMergeWordWithItsEvidenceBeforeItMerges(t *testing.T) {
 		"its green checks":               "1 check completed green",
 		"that it is mergeable":           "mergeable",
 		"whose pull request it is":       "by fpresta0607, the account gh is signed in as",
-		"that it was tested on its base": "main's tip " + afkMergeBase + " is in the head, so the merge ref's first parent is that tip and CI on this head tested what lands",
+		"that it was tested on its base": "main's tip " + afkMergeBase + " was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
 	} {
 		if !strings.Contains(word.Evidence, fact) {
 			t.Errorf("the merge word's evidence does not say %s (%q): %s", name, fact, word.Evidence)

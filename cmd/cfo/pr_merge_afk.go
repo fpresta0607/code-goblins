@@ -59,6 +59,11 @@ func (r commandRuntime) afkLog() func(home.Home, afk.Entry) error {
 // head holds the tip of its base branch, so the merge ref's first parent is
 // that tip and the merge commit's tree is the head's own, whichever base
 // commit a check run started from.
+//
+// The base is read here, a moment before the merge, and gh pr merge
+// --match-head-commit holds only the head: a commit that lands on the base
+// between the two is not seen. The evidence says which tip was read, so the
+// log shows what CI is known to have tested.
 func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof prProof, commands execx.Runner) (string, error) {
 	repository, err := pullRequestRepository(pullRequest)
 	if err != nil {
@@ -98,7 +103,7 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	if proof.Checks == 1 {
 		checks = "check"
 	}
-	return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s's tip %s is in the head, so the merge ref's first parent is that tip and CI on this head tested what lands",
+	return fmt.Sprintf("verified: %s; head %s; %d %s completed green; mergeable; by %s, the account gh is signed in as; %s's tip %s was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
 		verified, proof.HeadRefOID, proof.Checks, checks, proof.Author, proof.BaseRefName, comparison.Base), nil
 }
 
