@@ -143,11 +143,10 @@ func TestTheAnnounceEndpointHandsEachKeyToOneRequest(t *testing.T) {
 		{"new keys", `{"keys":["alert:question:q1","open:question:q1"]}`, 200, []string{"alert:question:q1", "open:question:q1"}},
 		{"the same keys from another tab", `{"keys":["alert:question:q1","open:question:q1"]}`, 200, []string{}},
 		{"a goblin's news with an item", `{"keys":["alert:question:q1"],"news":["alert:task:a:g1:done:pr7"]}`, 200, []string{"alert:task:a:g1:done:pr7"}},
-		{"news that is not printable", `{"news":["alert:task\u0000"]}`, 400, nil},
+		{"news with a tab, a non-breaking space, a line break and a joined emoji", `{"news":["alert:task:a:g1:failed:tests\tfailed twice\nsaid 👩‍💻"]}`, 200, []string{"alert:task:a:g1:failed:tests\tfailed twice\nsaid 👩‍💻"}},
 		{"no keys", `{"keys":[]}`, 200, []string{}},
 		{"an empty key", `{"keys":[""]}`, 400, nil},
 		{"a key too long", `{"keys":["` + strings.Repeat("k", maxAnnounceKey+1) + `"]}`, 400, nil},
-		{"a key with a line break", `{"keys":["alert:question:q1\nq2"]}`, 400, nil},
 		{"too many keys", tooMany, 400, nil},
 		{"not JSON", `keys`, 400, nil},
 	} {

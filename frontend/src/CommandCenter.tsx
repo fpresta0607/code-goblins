@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, holdsUnsent, isOpen, nextOpenKey, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { RunCard } from "./RunCard";
 import { questionAnswer, questionChoices } from "./questionChoices";
 import { plainMessage } from "./messageText";
@@ -133,6 +133,13 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     setLeaving("");
     if (next) show(next); else setAllDone(true);
   }
+  // A send the board refused after its card moved on sent nothing: its item
+  // waits again, with what went wrong on its row, and nothing opens for it.
+  const refused = [...sent].filter((key) => !!drafts[key] && notSent(drafts[key], itemFor(snapshot, key), snapshot.actions));
+  if (refused.length) {
+    setSent(new Set([...sent].filter((key) => !refused.includes(key))));
+    if (refused.includes(current)) setAllDone(false);
+  }
   // Anything that opens while "You're all done" shows takes its place.
   if (allDone) {
     const resume = nextOpenKey(stack, current, sent);
@@ -235,7 +242,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           <h3>Waiting on you <span className="column-count">{waiting.length}</span></h3>
           {waiting.length ? <ul className="inbox-list">{waiting.map((candidate) => <li key={candidate.key}>
             <Avatar persona={taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
-            <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
+            <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span>{!!drafts[candidate.key] && notSent(drafts[candidate.key], candidate, snapshot.actions) && <small>Not sent: {drafts[candidate.key].error}</small>}</span>
             <time>{age(created(candidate))}</time>
             <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" data-tip-align="end" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}

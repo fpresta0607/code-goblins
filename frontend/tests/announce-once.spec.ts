@@ -91,6 +91,29 @@ test("two tabs of the board announce one question once between them", async ({ p
   await expect(other.getByLabel("Command Center, 1 waiting on you")).toBeVisible();
 });
 
+test("a tab he cannot see leaves the announcement to the one he is looking at", async ({ page, context }) => {
+  // Arrange
+  const record = supervisor();
+  await record.serve(context);
+  const hidden = await context.newPage();
+  await hidden.addInitScript(() => Object.defineProperty(document, "hidden", { configurable: true, get: () => true }));
+  await open(page);
+  await open(hidden);
+
+  // Act: the hidden tab hears of the question first.
+  await step(hidden, "asked");
+  await step(page, "asked");
+
+  // Assert
+  await expect(toasts(page)).toHaveCount(1);
+  await expect(commandCenter(page)).toContainText(ASKS);
+  await expect.poll(record.requests).toBe(4);
+  await hidden.waitForTimeout(400);
+  await expect(hidden.locator(".toasts")).toHaveCount(0);
+  await expect(commandCenter(hidden)).toBeHidden();
+  await expect(hidden.getByLabel("Command Center, 1 waiting on you")).toBeVisible();
+});
+
 test("a supervisor restart and a browser that remembers nothing bring no second alert or opening", async ({ page, context, browser }) => {
   // Arrange
   const record = supervisor();

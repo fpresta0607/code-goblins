@@ -184,6 +184,21 @@ test("an alert is announced under its key, cut short when a goblin's reason is l
   assert.ok(names[1].startsWith("alert:task:a:a-1:blocked:It stopped because "));
 });
 
+test("an alert's key is cut between characters, so the supervisor records it as the board sent it", () => {
+  // Arrange: the emoji's two halves sit either side of the cut.
+  const reason = "x".repeat(160 - "alert:task:a:a-1:blocked:".length - 1) + "🚀 and more";
+  const [alert] = boardAlerts(snapshot({}), snapshot({ tasks: [task("a", "blocked", { reason })] }));
+
+  // Act
+  const name = announceKey(alert);
+  const recorded = new TextDecoder().decode(new TextEncoder().encode(name));
+
+  // Assert
+  assert.equal(recorded, name);
+  assert.ok(name.length <= 160, String(name.length));
+  assert.ok(name.endsWith("x"));
+});
+
 test("a browser remembers the newest alerts it showed, a bounded few, and one snapshot shows each once", () => {
   const alert = (key: string, says = "says " + key) => ({ key, says }) as BoardAlert;
   const old: SeenAlert = { key: "k-old", says: "says k-old", at: 0 };

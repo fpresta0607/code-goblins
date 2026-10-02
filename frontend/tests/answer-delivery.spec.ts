@@ -53,6 +53,38 @@ test("an answer typed for a busy CFO reads sent, then delivered, and never warns
   await expect(list.locator(".delivery.succeeded")).toHaveCount(1);
 });
 
+test("an answer the board refuses after he closed its card stays waiting, and its row says it was not sent", async ({ page }) => {
+  // Arrange: the board answers only once the test lets it.
+  const refusal = "The board restarted. Reload it and send again.";
+  let refuse = () => {};
+  const closed = new Promise<void>((resolve) => { refuse = resolve; });
+  await page.route("**/api/actions", async (route) => {
+    await closed;
+    await route.fulfill({ status: 403, json: { error: refusal } });
+  });
+  await page.goto("/tests/fixtures/answer-delivery.html");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /Lift it/ }).check();
+  await dialog.getByRole("button", { name: "Send decision" }).click();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  // Act
+  const refused = page.waitForResponse("**/api/actions");
+  refuse();
+  await refused;
+
+  // Assert: nothing opens, and the item still waits with what went wrong.
+  await page.waitForTimeout(1500);
+  await expect(dialog).toBeHidden();
+  await page.getByLabel("Command Center, 1 waiting on you").click();
+  const row = page.locator(".command-center-menu section[aria-label='Waiting on you'] li");
+  await expect(row.locator("small")).toHaveText("Not sent: " + refusal);
+  await row.getByRole("button", { name: /^Answer/ }).click();
+  await expect(dialog.getByRole("alert")).toContainText(refusal);
+  await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
+});
+
 test("an answer the CFO never picks up keeps its card closed, and History says what to do", async ({ page }) => {
   // Arrange
   const answer = await answerTheCFO(page);

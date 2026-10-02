@@ -150,8 +150,13 @@ export function unseen(alerts: BoardAlert[], seen: readonly SeenAlert[], now: nu
 export const isItemAlert = (alert: BoardAlert) => alert.key !== alert.says;
 
 // The name the supervisor records an alert under, short enough for it to
-// take: a goblin's long reason is one event by how it starts.
-export const announceKey = (alert: BoardAlert) => ("alert:" + alert.key).slice(0, 160);
+// take: a goblin's long reason is one event by how it starts. The cut never
+// leaves half of a character, which the supervisor would record as another.
+export function announceKey(alert: BoardAlert): string {
+  const name = ("alert:" + alert.key).slice(0, 160);
+  const last = name.charCodeAt(name.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? name.slice(0, -1) : name;
+}
 
 // An alert whose item the snapshot shows closed has nothing left to open: he
 // answered or cleared it, here or anywhere else. An item the snapshot does

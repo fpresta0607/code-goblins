@@ -3,9 +3,7 @@ package supervisor
 import (
 	"net/http"
 	"slices"
-	"strings"
 	"time"
-	"unicode"
 )
 
 // The board announces each Command Center item once: it shows the item's
@@ -71,10 +69,11 @@ func (s *Store) claimAnnounced(keys, news []string, now time.Time) ([]string, er
 	return claimed, s.save()
 }
 
-// validAnnounceKey is a key the board makes: an item's or alert's key, short
-// and printable.
+// validAnnounceKey is a key the board makes: an item's or alert's key, not
+// empty and short. It is data, kept as JSON, and a goblin's news holds its
+// own words, with whatever tab, line break or emoji they carry.
 func validAnnounceKey(key string) bool {
-	return key != "" && len(key) <= maxAnnounceKey && strings.IndexFunc(key, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
+	return key != "" && len(key) <= maxAnnounceKey
 }
 
 // announceItems serves POST /api/announce: what the board is about to
@@ -94,7 +93,7 @@ func (h *HTTP) announceItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if slices.ContainsFunc(input.Keys, func(key string) bool { return !validAnnounceKey(key) }) || slices.ContainsFunc(input.News, func(key string) bool { return !validAnnounceKey(key) }) {
-		apiError(w, http.StatusBadRequest, "An announce key is empty, too long or not printable")
+		apiError(w, http.StatusBadRequest, "An announce key is empty or too long")
 		return
 	}
 	claimed, err := h.Service.Store.claimAnnounced(input.Keys, input.News, time.Now().UTC())

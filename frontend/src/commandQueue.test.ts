@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -360,6 +360,29 @@ test("a choice or written text not yet sent, or whose send failed, on an item st
     ["written text on a review item that was cleared", { "review:cleared": { ...blank, written: "Looks good" } }, [], false],
   ];
   for (const [name, drafts, actions, want] of cases) assert.equal(holdsUnsent(drafts, { ...waiting, actions }), want, name);
+});
+
+test("a send the board refused leaves its item waiting only while that item is still open", () => {
+  // Arrange
+  const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
+  const snapshot = parseSnapshot({ healthy: true, questions: [question("q", "gb-a", "2026-09-26T10:00:00Z"), question("closed", "gb-a", "2026-09-26T10:00:00Z", "superseded")] });
+  const refused = { submission: answer, sending: false, error: "The board restarted; reload it." };
+  const cases: [string, Parameters<typeof notSent>[0], string, Action[], boolean][] = [
+    ["an accepted send", { submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, "question:q", [], false],
+    ["a send that failed in the browser yet reached the board", refused, "question:q", [action("a1", "goblin_answer", "running")], false],
+    ["a refused send on an item still open", refused, "question:q", [], true],
+    ["a refused send on an item since closed", refused, "question:closed", [], false],
+    ["a send still on its way", { submission: answer, sending: true, error: "" }, "question:q", [], false],
+    ["an unsent draft", { submission: null, sending: false, error: "" }, "question:q", [], false],
+  ];
+
+  for (const [name, draft, key, actions, want] of cases) {
+    // Act
+    const waits = notSent(draft, itemFor(snapshot, key), actions);
+
+    // Assert
+    assert.equal(waits, want, name);
+  }
 });
 
 test("a question he answered elsewhere finishes its open card as answered, like a page answer", () => {

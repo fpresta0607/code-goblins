@@ -122,6 +122,15 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   };
 }
 
+// notSent says whether a send left nothing behind: the board refused it, or it
+// failed before the board took it, so no action exists and its item, still
+// open, waits on him as before.
+export function notSent(draft: SentDraft, item: Item | undefined, actions: Action[]): boolean {
+  const { submission } = draft;
+  const accepted = !!draft.receipt || actions.some((action) => action.id === submission?.id);
+  return !!submission && !draft.sending && !!draft.error && !accepted && !!item && isOpen(item);
+}
+
 // holdsUnsent says whether any card of an item still waiting keeps a choice
 // or written text the Overlord has not sent, or whose send failed, which a
 // reload would lose.

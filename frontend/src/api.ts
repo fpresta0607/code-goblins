@@ -15,6 +15,12 @@ export async function request(
     );
   return value;
 }
+// A tab he cannot see waits this long before it asks the supervisor, so a tab
+// he is looking at claims first and shows the alert and the Command Center
+// where he sees them. With no tab in view the hidden one claims after the
+// wait, so a board in the background still sends its Windows notification.
+const HIDDEN_TAB_WAIT_MS = 1500;
+
 // announce asks the supervisor which of these the board has not announced
 // yet, and gets back those it may announce now: an alert, a Windows
 // notification, the Command Center opening by itself. The supervisor hands
@@ -25,6 +31,7 @@ export async function request(
 // caller falls back on what this browser remembers.
 export async function announce(instance: string, keys: string[], news: string[] = []): Promise<string[] | null> {
   if (!keys.length && !news.length) return [];
+  if (document.hidden) await new Promise((resolve) => setTimeout(resolve, HIDDEN_TAB_WAIT_MS));
   try {
     const { claimed } = object(await request("/api/announce", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ keys, news }) }));
     return Array.isArray(claimed) ? claimed.filter((key): key is string => typeof key === "string") : null;
