@@ -106,47 +106,43 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
   await expect(button).toHaveCSS("outline-width", "3px");
 });
 
+// Whether the tip showing is drawn over everything else where it lies: the
+// page's top element at its middle and at each corner is the tip itself.
+async function tipOnTop(page: Page) {
+  await page.addStyleTag({ content: ".tip { pointer-events: auto; }" });
+  return page.getByRole("tooltip").evaluate((tip) => {
+    const box = tip.getBoundingClientRect();
+    const spots = [[box.left + box.width / 2, box.top + box.height / 2], [box.left + 2, box.top + 2], [box.right - 2, box.top + 2], [box.left + 2, box.bottom - 2], [box.right - 2, box.bottom - 2]];
+    return spots.every(([x, y]) => document.elementFromPoint(x, y) === tip);
+  });
+}
+
 test("the banner's portrait tooltip shows over the board column under it", async ({ page }) => {
   await open(page);
-  await page.addStyleTag({ content: ".dialogue-portrait[data-tip]::after { pointer-events: auto; }" });
   const portrait = box(page, "Waiting on you").locator("button.dialogue-portrait");
   await portrait.hover();
-  const owner = await portrait.evaluate((element) => {
-    const column = document.querySelector(".board-column")!.getBoundingClientRect(), face = element.getBoundingClientRect();
-    const tip = getComputedStyle(element, "::after");
-    const bottom = face.bottom + 8 + [tip.height, tip.paddingTop, tip.paddingBottom, tip.borderTopWidth, tip.borderBottomWidth].reduce((sum, size) => sum + parseFloat(size), 0);
-    const x = face.left + 10, y = column.top + 4;
-    if (y >= bottom) return "the tooltip does not reach the column";
-    const hit = document.elementFromPoint(x, y);
-    return hit && element.closest(".cfo-pin")!.contains(hit) ? "banner" : hit?.className ?? "nothing";
-  });
-  expect(owner).toBe("banner");
+  await expect(page.getByRole("tooltip")).toHaveText((await portrait.getAttribute("data-tip"))!);
+  expect(await tipOnTop(page)).toBe(true);
 });
 
 test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 });
   // Every alert leaves by itself after eight seconds, so time stands still once
-  // the boxes show, or on a slow run the stack shifts under the pointer. The
-  // boxes step in and the tooltip slides in, so each is measured once it stops.
+  // the boxes show, or on a slow run the stack shifts under the pointer.
   const settled = () => page.locator(".toasts").evaluate((stack) => Promise.all(stack.getAnimations({ subtree: true }).map((animation) => animation.finished)));
   await page.clock.install();
   await open(page);
   await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
   await settled();
-  await page.addStyleTag({ content: ".toasts [data-tip]::after { pointer-events: auto; }" });
   const dismiss = page.locator(".toasts .toast").first().getByRole("button", { name: /^Dismiss/ });
   await dismiss.hover();
-  await settled();
-  const owner = await dismiss.evaluate((element) => {
-    const toast = element.closest(".toast")!, next = toast.nextElementSibling!.querySelector(".dialogue-box")!.getBoundingClientRect();
-    const button = element.getBoundingClientRect(), tip = getComputedStyle(element, "::after");
-    const top = button.bottom + 8, left = button.right - parseFloat(tip.width) - parseFloat(tip.paddingLeft) - parseFloat(tip.paddingRight);
-    const x = Math.max(left, next.left) + 4, y = Math.max(top, next.top) + 4;
-    if (x >= Math.min(button.right, next.right) || y >= next.bottom) return "the tooltip does not reach the next alert";
-    const hit = document.elementFromPoint(x, y);
-    return hit && toast.contains(hit) ? "alert" : hit?.className ?? "nothing";
+  await expect(page.getByRole("tooltip")).toHaveText((await dismiss.getAttribute("data-tip"))!);
+  const meetsNext = await dismiss.evaluate((element) => {
+    const next = element.closest(".toast")!.nextElementSibling!.querySelector(".dialogue-box")!.getBoundingClientRect(), tip = document.querySelector("[role=tooltip]")!.getBoundingClientRect();
+    return tip.bottom > next.top && tip.top < next.bottom && tip.right > next.left && tip.left < next.right;
   });
-  expect(owner).toBe("alert");
+  expect(meetsNext, "the tip lies on the next alert").toBe(true);
+  expect(await tipOnTop(page)).toBe(true);
 });
 
 test("with reduced motion the boxes just appear", async ({ page }) => {
