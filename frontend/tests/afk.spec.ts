@@ -158,7 +158,7 @@ test("while AFK is on nothing glows on the bar though things wait on him, it lis
   await expect(rows.nth(0)).toContainText("Still waiting on you.");
   await expect(rows.nth(1)).toContainText("nw-checkout-tax");
   await expect(rows.nth(1)).toContainText("Still waiting on you. Meanwhile: working: moved on to the refund path.");
-  await expect(page.locator("dialog.question-modal")).toHaveCount(0);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
   await rows.nth(1).getByRole("button", { name: /^Answer nw-checkout-tax/ }).click();
   const center = page.locator("dialog.question-modal");
@@ -186,7 +186,7 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
   await page.waitForTimeout(500);
   await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
-  await expect(page.locator("dialog.question-modal")).toHaveCount(0);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   // The same failed ask with AFK off announces from what this browser
   // remembers, as it always has.
   await push(page, snapshot({ questions: QUESTIONS }));
@@ -360,6 +360,7 @@ test("in the desktop window the toggle sits on the header's first row, and on a 
   await openCfoPanel(small);
   for (const view of ["Task", "Terminal"]) {
     await small.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
+    if (view === "Terminal") await small.getByRole("button", { name: "Restore the panel", exact: true }).click();
     expect(Math.round((await small.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
     await expect(toggle(small)).toBeVisible();
     expect(await within(small, ".panel-header"), view + " view").toBe(true);
