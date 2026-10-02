@@ -595,9 +595,9 @@ func (s *Store) queue(a Action) (Action, error) {
 }
 
 // queueItemAction admits the Overlord answering or clearing one Command
-// Center item: an open review, or a question that closed without an answer.
-// A pending question cannot be cleared, so an unanswered decision is never
-// hidden. A clear carries text only to say the Overlord opened or downloaded
+// Center item: an open review, or a question that closed without an answer
+// or still waits on him, which the clear dismisses. A pending question whose
+// answer is on its way cannot be cleared. A clear carries text only to say the Overlord opened or downloaded
 // the item's document.
 func (s *Store) queueItemAction(a Action) (Action, error) {
 	answer := a.Kind == "review_answer"
