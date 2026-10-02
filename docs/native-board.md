@@ -531,7 +531,7 @@ A desktop window for the board, `goblins-window.exe`, is built in `cmd/goblins-w
 It shows the board in Microsoft's WebView2 and needs only what this repository's supervisor already provides: the board's address in `state\board.json`, the board's page, and `/api/snapshot`, which it reads every 3 seconds to notify what newly waits on the Overlord.
 It writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged; `goblins` here does not start it, so it is started from its own Start-menu entry.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, opens the board's new-tab links in the default browser, and raises the board's alerts as Windows notifications.
-The board's dictation does not work in it, because WebView2 has no speech recognition, and the board says so there.
+The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
 
