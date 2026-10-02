@@ -122,11 +122,70 @@ func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
 	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
 
 	// Act
-	err := run.StartCFO(t.TempDir())
+	saved := run.SavedAgent()
+	err := run.StartCFO("claude")
 
 	// Assert
+	if saved != "codex" {
+		t.Errorf("the first-run page reads the remembered agent as %q, want codex", saved)
+	}
 	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
 		t.Fatalf("first-run StartCFO error = %v, want claude looked up rather than codex", err)
+	}
+}
+
+// The first-run page and the quick start hold one answer for the agent: the
+// page reads what goblins remembered, none when nothing was chosen or the
+// file names no agent, and the agent the page starts is what goblins starts
+// the next CFO as.
+func TestTheFirstRunPageAndGoblinsRememberOneAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	none := run.SavedAgent()
+	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("kimi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := run.SavedAgent()
+	saveErr := run.SaveAgent("pi")
+	saved := run.SavedAgent()
+	started, startErr := cfoHarness(h.State)
+
+	// Assert
+	if none != "" || unknown != "" {
+		t.Errorf("with nothing chosen the page reads %q, and with a name that is no agent %q; want none both times", none, unknown)
+	}
+	if saveErr != nil || saved != "pi" || startErr != nil || started != "pi" {
+		t.Errorf("after the page remembers pi: saved %q (%v), goblins starts %q (%v); want pi for both", saved, saveErr, started, startErr)
+	}
+	if run.CFOHome != h.Root {
+		t.Errorf("the page names the home %q, want %q", run.CFOHome, h.Root)
+	}
+}
+
+// The page forgets the agent by remembering none: the file goes, so goblins
+// is back to having no answer, and a home that remembered none is no error.
+func TestTheFirstRunPageForgetsTheAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	if err := run.SaveAgent("codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	forgetErr := run.SaveAgent("")
+	_, statErr := os.Stat(cfoHarnessPath(h.State))
+	againErr := run.SaveAgent("")
+
+	// Assert
+	if forgetErr != nil || !os.IsNotExist(statErr) || run.SavedAgent() != "" {
+		t.Errorf("forgetting: err %v, the file's stat %v, the page reads %q; want the file gone and no agent", forgetErr, statErr, run.SavedAgent())
+	}
+	if againErr != nil {
+		t.Errorf("forgetting with none remembered: err %v, want none", againErr)
 	}
 }
 
