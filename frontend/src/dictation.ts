@@ -133,7 +133,6 @@ export class Dictation {
     this.recognizer = recognizer;
     this.started = false;
     this.events.problem("");
-    this.events.listening(true);
     if (!this.microphone) { this.begin(recognizer); return; }
     this.microphone().then((capture) => {
       // Released or closed while the microphone opened: keep nothing open.
@@ -150,16 +149,19 @@ export class Dictation {
 
   private begin(recognizer: Recognizer, track?: MediaStreamTrack): void {
     this.started = true;
-    if (!track) { recognizer.start(); return; }
-    try {
-      recognizer.start(track);
-    } catch (error) {
-      // A recognizer that cannot take a track opens its own microphone, so
-      // this one closes rather than capture twice, and shows no level.
-      if (!(error instanceof TypeError)) throw error;
-      this.release();
-      recognizer.start();
+    if (!track) recognizer.start();
+    else {
+      try {
+        recognizer.start(track);
+      } catch (error) {
+        // A recognizer that cannot take a track opens its own microphone, so
+        // this one closes rather than capture twice, and shows no level.
+        if (!(error instanceof TypeError)) throw error;
+        this.release();
+        recognizer.start();
+      }
     }
+    if (this.recognizer === recognizer) this.events.listening(true);
   }
 
   private release(): void {

@@ -31,7 +31,6 @@ export function useDictation(type: (text: string) => void, instance: string) {
     return () => clearTimeout(timer);
   }, [note]);
   useEffect(() => {
-    if (!listening) return;
     const stop = () => dictation.current?.stop();
     const release = (event: KeyboardEvent) => { if (dictationKey(event)?.action === "stop") stop(); };
     const hide = () => { if (document.hidden) stop(); };
@@ -43,7 +42,7 @@ export function useDictation(type: (text: string) => void, instance: string) {
       window.removeEventListener("blur", stop);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [listening]);
+  }, []);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
     const meaning = dictationKey(event);
     if (!meaning) return null;

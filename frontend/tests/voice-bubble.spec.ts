@@ -308,3 +308,29 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent.locator(".voice-text").first()).toHaveText("ship the voice bubble");
 });
+
+for (const stop of ["release outside the terminal", "window blur"]) {
+  test(`during microphone setup, ${stop} cancels capture before the bubble invites speech`, async ({ page }) => {
+    const { bubble, posts } = await openPane(page, { app: true });
+    await page.evaluate(() => {
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        await new Promise<void>((resolve) => window.addEventListener("allow-microphone", () => resolve(), { once: true }));
+        return capture(constraints);
+      };
+    });
+    await holdShortcut(page, 0);
+    await expect(bubble).not.toHaveClass(/recording/);
+    if (stop === "window blur") await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    else {
+      await bubble.focus();
+      await releaseShortcut(page);
+    }
+    await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures[0]?.readyState)).toBe("ended");
+    await expect(bubble).not.toHaveClass(/recording/);
+    await expect(page.locator("output")).toHaveText("");
+    expect(posts).toHaveLength(0);
+    await releaseShortcut(page);
+  });
+}

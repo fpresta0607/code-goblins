@@ -137,11 +137,13 @@ function listened(recognition: new () => Recognizer = TrackRecognizer) {
 test("the recognizer hears the one microphone track whose level the waveform shows", async () => {
   const { subject, mic, heard, listening } = listened();
   subject.start();
-  assert.deepEqual(listening, [true], "the bubble shows listening at once");
+  assert.deepEqual(listening, [], "the bubble must not invite speech before capture is ready");
   assert.equal(subject.level(), 0, "no level before the microphone opens");
   mic.allow();
   await settle();
   const recognizer = FakeRecognizer.made[0] as TrackRecognizer;
+  assert.equal(recognizer.started, true);
+  assert.deepEqual(listening, [true], "listening begins once the recognizer takes the track");
   assert.equal(mic.opened.length, 1, "one capture, never a second");
   assert.equal(recognizer.heardFrom, mic.opened[0].track, "the recognizer listens to that same track");
   assert.equal(subject.level(), .6);
@@ -213,7 +215,7 @@ test("releasing the keys before the microphone opens starts nothing and keeps no
   const { subject, mic, heard, listening } = listened();
   subject.start();
   subject.stop();
-  assert.deepEqual(listening, [true, false]);
+  assert.deepEqual(listening, [false]);
   mic.allow();
   await settle();
   assert.equal((FakeRecognizer.made[0] as TrackRecognizer).started, false);
@@ -228,7 +230,7 @@ test("a microphone the browser refuses is explained and nothing listens", async 
   subject.start();
   mic.refuse("NotAllowedError");
   await settle();
-  assert.deepEqual(listening, [true, false]);
+  assert.deepEqual(listening, [false]);
   assert.match(problems.at(-1) || "", /microphone is blocked/);
   const missing = listened();
   missing.subject.start();
@@ -260,5 +262,19 @@ test("closing the terminal while the microphone opens leaves nothing open", asyn
   mic.allow();
   await settle();
   assert.equal(mic.opened[0].closed, true);
-  assert.deepEqual(listening, [true]);
+  assert.deepEqual(listening, []);
+});
+
+test("a recognizer that fails to start never invites speech", async () => {
+  class FailedRecognizer extends TrackRecognizer {
+    start() { this.onerror?.({ error: "audio-capture" }); this.onend?.(); }
+  }
+  const { subject, mic, listening, heard, problems } = listened(FailedRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  assert.deepEqual(listening, [false]);
+  assert.equal(mic.opened[0].closed, true);
+  assert.deepEqual(heard, []);
+  assert.match(problems.at(-1) || "", /No microphone/);
 });
