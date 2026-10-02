@@ -63,18 +63,25 @@ jobs:
       # Every job runs to its end, so one run names every failure.
       fail-fast: false
       matrix:
-        # A package slow enough to hold a run back gets a job of its own. The
-        # rest job runs every package that except does not name, so a new
-        # package is tested with no change here; except must name exactly the
-        # other jobs' packages, which TestGoWorkflowRunsEveryPackageOnce
-        # checks.
+        # A package slow enough to hold a run back gets a job of its own, and
+        # internal/spawn, whose tests wait on real terminals, gets two: one
+        # runs the tests whose names match run, the other skips exactly
+        # those. The rest job runs every package that except does not name,
+        # so a new package is tested with no change here.
+        # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
+        # names exactly the other jobs' packages, and a package in two jobs
+        # is split by one pattern, run in one and skipped in the other.
         include:
           - shard: root
             packages: .
           - shard: cmd-cfo
             packages: ./cmd/cfo
-          - shard: spawn
+          - shard: spawn-1
             packages: ./internal/spawn
+            run: Spawn
+          - shard: spawn-2
+            packages: ./internal/spawn
+            skip: Spawn
           - shard: supervisor
             packages: ./internal/supervisor
           - shard: installtest
@@ -133,10 +140,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           if ($packages.Count -eq 0) { throw 'This job found no package to test.' }
-          go test $packages -json -count=1 -timeout 20m > "$env:RUNNER_TEMP\go-test.json"
+          $only = @()
+          if ($env:RUN) { $only += '-run', $env:RUN }
+          if ($env:SKIP) { $only += '-skip', $env:SKIP }
+          go test $packages $only -json -count=1 -timeout 20m > "$env:RUNNER_TEMP\go-test.json"
         env:
           PACKAGES: ${{ matrix.packages }}
           EXCEPT: ${{ matrix.except }}
+          RUN: ${{ matrix.run }}
+          SKIP: ${{ matrix.skip }}
           CFO_HOME: ${{ runner.temp }}\cfo-go-tests
           CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
       # Measurement only, removed before merge: every test this job ran, with
@@ -151,12 +163,38 @@ jobs:
       - if: matrix.shard == 'rest'
         run: go build ./cmd/cfo
 
+  # Measurement only, removed before merge: every package in one job, as
+  # before the split, to compare what it runs with what the jobs above run.
+  inventory-all:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - shell: pwsh
+        run: |
+          choco install sqlite --yes --no-progress
+          sqlite3 --version
+      - name: Run Go tests with isolated CFO state
+        shell: pwsh
+        run: go test ./... -json -count=1 -timeout 20m > "$env:RUNNER_TEMP\go-test-all.json"
+        env:
+          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
+          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-inventory-all
+          path: ${{ runner.temp }}/go-test-all.json
+          retention-days: 14
+
   # The check branch protection requires. It runs whatever happened above,
   # and fails unless every job it needs succeeded: a job that failed, was
   # cancelled or was skipped is not a pass.
   test:
     if: always()
-    needs: [frontend, go]
+    needs: [frontend, go, inventory-all]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed
