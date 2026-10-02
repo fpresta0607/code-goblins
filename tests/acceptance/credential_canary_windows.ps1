@@ -129,7 +129,10 @@ function Save-Body($Request, [string]$Name, [string]$Value) {
 # It counts every file it read in $script:searched, and every root it could
 # not find, folder it could not list and file it could not read in
 # $script:unread, because a search that skipped something has not shown it
-# clean. A file another process holds open is still read.
+# clean. A file another process holds open is still read. A file the board
+# removed between the listing and the read, as it removes its transient lock
+# files, holds nothing to find and is passed over; one that is there and
+# still cannot be read after a second counts as unread.
 $script:searched = 0
 $script:unread = 0
 function Read-Shared([string]$Path) {
@@ -149,7 +152,15 @@ function Hits([string[]]$Roots, [string]$Text) {
         if (-not (Test-Path -LiteralPath $root)) { $script:unread++; continue }
         $unlisted = @()
         foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable unlisted) {
-            try { $bytes = Read-Shared $file.FullName } catch { $script:unread++; continue }
+            $bytes = $null
+            $isGone = $false
+            for ($try = 0; $null -eq $bytes -and -not $isGone -and $try -lt 40; $try++) {
+                try { $bytes = Read-Shared $file.FullName }
+                catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] { $isGone = $true }
+                catch { Start-Sleep -Milliseconds 25 }
+            }
+            if ($isGone) { continue }
+            if ($null -eq $bytes) { $script:unread++; continue }
             $script:searched++
             $content = $latin.GetString($bytes)
             if ($content.Contains($needles[0]) -or $content.Contains($needles[1])) { $found.Add($file.FullName) }
