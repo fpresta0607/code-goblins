@@ -511,7 +511,7 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 
 A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
 Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
-Only the supervisor writes tickets, and only when a state changes; no command and no goblin does.
+Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
 An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
 An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.

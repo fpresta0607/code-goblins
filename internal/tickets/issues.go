@@ -20,7 +20,9 @@ import (
 // claim when the task names one, and opens nothing for a ticket that is
 // already closed. With one it writes only what changed: the labels that
 // differ, the body of an issue it opened (and its title, when the task's
-// changed) or the status comment of one it claimed, and the close. A claimed issue belongs to whoever filed it, so a
+// changed) or the status comment of one it claimed, and the close. A pull
+// request the record does not hold yet is a change too, so the record keeps
+// it. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again. A status comment someone deleted is
 // posted again, and an issue that is deleted (410, or 404 while the
@@ -99,7 +101,8 @@ func (g GitHub) move(ctx context.Context, repository string, record *Record, tic
 		comment = status
 	}
 	isRetitled := !record.IsClaimed && ticket.Title != "" && ticket.Title != record.Title
-	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap && !isRetitled {
+	isLinked := ticket.PullRequest.URL != "" && ticket.PullRequest.URL != record.PullRequest
+	if status == record.Status && slices.Equal(labels, record.Labels) && ticket.Overlap == record.Overlap && !isRetitled && !isLinked {
 		return record, nil
 	}
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, record.Number)

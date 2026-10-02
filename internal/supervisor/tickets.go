@@ -53,6 +53,12 @@ const (
 	ticketBackOff = time.Hour
 	// ticketWatch is how often the keeper looks for a task that moved.
 	ticketWatch = 15 * time.Second
+	// ticketGoneGrace is how long a task must stay off the board before its
+	// ticket is moved as a gone task's. The board's finished tasks come from
+	// a history that is rebuilt on its own schedule and is empty when the
+	// supervisor starts, so a task just cleaned up is briefly on neither of
+	// the board's lists.
+	ticketGoneGrace = ticketRetry
 )
 
 // ticketKeeper keeps each task's ticket where its task is. It reads the
@@ -66,6 +72,9 @@ type ticketKeeper struct {
 	labelled     map[string]bool
 	backOff      map[string]repositoryWait
 	askPullAfter map[string]time.Time
+	// offTheBoardSince is when each task with an open ticket was first seen
+	// off the board, for as long as it stays off it.
+	offTheBoardSince map[string]time.Time
 	// rowTitles and queuedIDs are the backlog as the pass under way read it.
 	rowTitles map[string]string
 	queuedIDs map[string]bool
@@ -94,7 +103,7 @@ type repositoryWait struct {
 }
 
 func newTicketKeeper(h home.Home, writer *Tickets) *ticketKeeper {
-	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]repositoryWait{}, askPullAfter: map[string]time.Time{}}
+	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]repositoryWait{}, askPullAfter: map[string]time.Time{}, offTheBoardSince: map[string]time.Time{}}
 }
 
 // Issues are the lines the board shows for tickets that wait or failed, as
@@ -240,7 +249,9 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 // A finished task leaves the board after a week, or once twenty newer ones
 // have finished, and its pull request may merge later; a queued task leaves
 // it when its brief or row is removed. A task the fleet still runs or queues
-// is only off the board's list, and its ticket stays as it is.
+// is only off the board's list, and its ticket stays as it is. Any other
+// task is gone only once it has been off the board for ticketGoneGrace
+// without a break.
 func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]bool, now time.Time) {
 	records, err := tickets.ListRecords(k.home.State)
 	if err != nil {
@@ -252,9 +263,20 @@ func (k *ticketKeeper) reconcileGone(ctx context.Context, onTheBoard map[string]
 			return
 		}
 		if record.IsDone || onTheBoard[record.TaskID] {
+			delete(k.offTheBoardSince, record.TaskID)
 			continue
 		}
 		if k.queuedIDs[record.TaskID] || exists(filepath.Join(k.home.State, record.TaskID+".meta")) {
+			delete(k.offTheBoardSince, record.TaskID)
+			k.noteOf(&record)
+			continue
+		}
+		since, wasOff := k.offTheBoardSince[record.TaskID]
+		if !wasOff {
+			since = now
+			k.offTheBoardSince[record.TaskID] = now
+		}
+		if now.Sub(since) < ticketGoneGrace {
 			k.noteOf(&record)
 			continue
 		}
