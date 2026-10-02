@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The Overlord answered cg-board-theme's mockups on the review page while its
 // card was open in the Command Center (2026-09-30): the card must finish with

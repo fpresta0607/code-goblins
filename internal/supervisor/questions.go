@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -313,7 +314,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if record.Answered != "" {
 		return "", false, fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
 	}
-	_, options, ok := wake.Question(record)
+	asked, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
 		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
 	}
@@ -354,6 +355,9 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		if err := c.recordAnswer(identity, q, id, chosen, answer, ""); err != nil {
 			unrecorded = append(unrecorded, err)
 		}
+	}
+	if err := logAFKAnswer(c.State, id, q.Task, asked, answer); err != nil {
+		unrecorded = append(unrecorded, err)
 	}
 	if err := errors.Join(unrecorded...); err != nil {
 		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
@@ -402,6 +406,11 @@ func (c *CFOConnection) RecordAnswer(ctx context.Context, id, option, note, in s
 	defer release()
 	if in != "" && !answerPlace.MatchString(in) {
 		return "", errors.New("--in names where the Overlord answered in a few plain words, such as chat")
+	}
+	if in != "" {
+		if err := overlordAway(c.State); err != nil {
+			return "", err
+		}
 	}
 	if _, err := strconv.Atoi(id); err == nil {
 		return "", fmt.Errorf("--record-only takes the question's ID, such as notify-<task>-<sequence>, not the wake sequence %s", id)
@@ -452,7 +461,44 @@ func (c *CFOConnection) RecordAnswer(ctx context.Context, id, option, note, in s
 	if err := c.recordAnswer(identity, q, q.ID, chosen, withNote(chosen, note), in); err != nil {
 		return "", err
 	}
+	if in == "" {
+		if err := logAFKAnswer(c.State, q.ID, q.Task, q.Text, withNote(chosen, note)); err != nil {
+			return chosen, fmt.Errorf("recorded on the board; do not record it again, but %w", err)
+		}
+	}
 	return chosen, nil
+}
+
+// errOverlordAway refuses an answer recorded as the Overlord's while AFK mode
+// is on: he is away, so nothing he is said to have answered is taken as his.
+var errOverlordAway = errors.New("AFK mode is on: the Overlord is away, so no answer is recorded as his. The question stays held for him; record his answer once he is back and has turned AFK mode off")
+
+// overlordAway is errOverlordAway while AFK mode is on, and the reason its
+// switch cannot be read when it cannot.
+func overlordAway(stateDir string) error {
+	switched, err := afk.Read(stateDir)
+	if err != nil {
+		return err
+	}
+	if switched.On {
+		return errOverlordAway
+	}
+	return nil
+}
+
+// logAFKAnswer logs an answer the CFO gave a goblin while AFK mode is on as a
+// decision made under its authority, with the question and the answer as its
+// evidence. It logs nothing while AFK mode is off.
+func logAFKAnswer(stateDir, id, task, question, answer string) error {
+	switched, err := afk.Read(stateDir)
+	if err != nil || !switched.On {
+		return err
+	}
+	evidence := bounded("asked: "+question+" answered: "+answer, 6000)
+	if err := sendPipeRequest(stateDir, runPipeRequest{Kind: "afk-log", AFK: &afk.Entry{Kind: afk.KindAnswer, What: id, Task: task, Evidence: evidence}}); err != nil {
+		return fmt.Errorf("AFK mode's log did not take the decision: %w", err)
+	}
+	return nil
 }
 
 // recordAnswer tells the board which choice closed a goblin's question and
@@ -619,6 +665,13 @@ func (s *Store) ingestAnswers() error {
 // recordCFOAnswer records an answer the CFO gave with cfo answer, or keeps it
 // for a later pass when its question cannot take it yet.
 func (s *Store) recordCFOAnswer(a cfoAnswer) error {
+	// An answer that reads as the Overlord's is refused while he is away,
+	// whatever command or process sent it.
+	if a.In != "" {
+		if err := overlordAway(s.Home.State); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.applyCFOAnswer(a); errors.Is(err, errAnswerWaits) {
@@ -968,18 +1021,12 @@ func (s *Store) ingestQuestions() error {
 	return nil
 }
 
+// supersedeQuestions closes the goblins' questions that no longer apply. The
+// CFO's own questions are never superseded: they follow the home's CFO across
+// a restart (followCFO).
 func (s *Store) supersedeQuestions() error {
-	// Missing evidence cannot establish replacement: an unreadable
-	// registration leaves the CFO's questions alone, and an unreadable queue
+	// Missing evidence cannot establish replacement: an unreadable queue
 	// leaves the goblins' questions alone.
-	identity := ""
-	if file, err := openPrimary(filepath.Join(s.Home.State, "primary.json")); err == nil {
-		_, current, err := decodePrimary(file)
-		_ = file.Close()
-		if err == nil {
-			identity = current
-		}
-	}
 	pending, pendingErr := wake.Pending(s.Home.State)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -990,10 +1037,6 @@ func (s *Store) supersedeQuestions() error {
 			continue
 		}
 		if q.Task == "" {
-			if identity != "" && q.Identity != identity {
-				q.Status, q.Message = "superseded", "The CFO session changed. Ask the current CFO to reissue this question."
-				changed = true
-			}
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.Home.State, q.Task)

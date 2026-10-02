@@ -1,4 +1,8 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./site";
+
+declare global {
+  interface Window { tipOutlived?: Promise<number> }
+}
 
 interface Crowding { cards: number; overlaps: string[]; outside: string[]; tallTitles: string[]; smallText: string[] }
 
@@ -94,6 +98,23 @@ async function tipsOf(part: Locator, point = () => part.hover()) {
   let tips: ShownTip[] = [];
   await expect.poll(async () => (tips = await part.evaluate(shownTips)).length).toBeGreaterThan(0);
   return tips;
+}
+
+// Starts counting, from the next time the pointer or the focus leaves a part,
+// the page's frames its tip is still drawn in. A tip goes as soon as its part
+// is left however slow the machine is, so its going is counted in the page's
+// own frames, not timed from the test.
+function watchTipGo(part: Locator, leave: "pointerout" | "blur") {
+  return part.evaluate((element, leave) => {
+    window.tipOutlived = new Promise((resolve) => element.addEventListener(leave, () => {
+      let frames = 0;
+      const look = () => {
+        if (!document.querySelector("[role=tooltip]")) resolve(frames);
+        else { frames++; requestAnimationFrame(look); }
+      };
+      look();
+    }, { once: true }));
+  }, leave);
 }
 
 // What is wrong with the tips a part shows: a tip covering the card's
@@ -226,8 +247,9 @@ test("a card's tip is gone as soon as the pointer leaves the part it names", asy
   await board(page, 1000);
   const stop = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).getByRole("button", { name: /^Stop / });
   expect(await tipsOf(stop)).toHaveLength(1);
+  await watchTipGo(stop, "pointerout");
   await page.mouse.move(1, 1);
-  await expect.poll(() => stop.evaluate(shownTips), { timeout: 300 }).toEqual([]);
+  expect(await page.evaluate(() => window.tipOutlived)).toBeLessThanOrEqual(2);
 });
 
 test("a card's tip shows on keyboard focus, clear of the card, and goes with the focus", async ({ page }) => {
@@ -241,8 +263,9 @@ test("a card's tip shows on keyboard focus, clear of the card, and goes with the
   await expect.poll(async () => (tips = await terminal.evaluate(shownTips)).length).toBe(1);
   expect(tips[0].text).toBe("Terminal");
   expect(tipProblems(tips)).toEqual([]);
+  await watchTipGo(terminal, "blur");
   await terminal.evaluate((element) => (element as HTMLElement).blur());
-  await expect.poll(() => terminal.evaluate(shownTips), { timeout: 300 }).toEqual([]);
+  expect(await page.evaluate(() => window.tipOutlived)).toBeLessThanOrEqual(2);
 });
 
 // Focus stays on a part while the page scrolls under it, so its tip moves with

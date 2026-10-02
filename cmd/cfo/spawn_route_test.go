@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // shippedRoutingJSON is the lane table that ships in data/routing.json, so a
@@ -223,11 +223,13 @@ func TestRunSpawnProjectManifestOverridesTheFleetTable(t *testing.T) {
 	}
 }
 
-// The reported failure, driven through the real spawn service: a routed spawn
-// for a project with a manifest wrote its capsule into state/tasktmp/<id>
-// before the service ran, and the service's alias check refuses any existing
-// directory of the id, so the spawn was refused and the directory it left
-// behind refused every retry too.
+// A routed spawn for a project with a manifest once wrote its capsule into
+// state/tasktmp/<id> before the service ran, and the service's alias check
+// refuses any existing directory of the id, so the spawn was refused and the
+// directory it left behind refused every retry too. The command now hands the
+// service a capsule to write once the id is proven free, which the spawn
+// package's capsule tests prove it does; here the capsule is written where
+// the service would, and holds the brief, the frozen class, lane and budget.
 func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 	fixture := newFleetE2EFixture(t)
 	manifestPath := filepath.Join(fixture.home.Data, "projects", filepath.Base(fixture.project), "project.json")
@@ -243,17 +245,23 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--backend", "herdr", "--mode", "local-only")
+	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "g-fresh1")
+	var capsuleBrief string
+	fixture.runtime.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		if request.Capsule == nil || request.Model != "open-model" {
+			return spawn.Result{}, fmt.Errorf("request = %+v, want a capsule on the project's lane", request)
+		}
+		var err error
+		capsuleBrief, err = request.Capsule(taskTmp)
+		return spawn.Result{Output: "spawned g-fresh1 window=native"}, err
+	}
+
+	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--mode", "local-only")
 	if !strings.Contains(stdout, "spawned g-fresh1 ") || !strings.Contains(stdout, "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
 		t.Errorf("stdout = %q, want the goblin spawned on the project's own lane", stdout)
 	}
-	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "g-fresh1")
-	meta, err := state.ReadTaskMeta(fixture.home.State, "g-fresh1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.Brief != filepath.Join(taskTmp, "brief.md") || meta.Model != "open-model" {
-		t.Errorf("meta brief = %q model = %q, want the capsule-augmented brief on the project's lane", meta.Brief, meta.Model)
+	if capsuleBrief != filepath.Join(taskTmp, "brief.md") {
+		t.Errorf("capsule brief = %q, want the capsule-augmented brief in the task's own directory", capsuleBrief)
 	}
 	capsule, err := os.ReadFile(filepath.Join(taskTmp, "task-capsule.json"))
 	if err != nil {
@@ -405,34 +413,5 @@ func TestRunSpawnRefusesALaneNamingAnUnknownHarness(t *testing.T) {
 	exit := runWithRuntime([]string{"spawn", "g21", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
 	if exit != 1 || called || !strings.Contains(stderr.String(), `lane "build" names harness "gemini"`) {
 		t.Errorf("exit = %d called = %v stderr = %q", exit, called, stderr.String())
-	}
-}
-
-// A routed spawn that names no backend takes it from the harness the lane
-// table chose, so a lane that routes to kimi starts in Herdr while a Claude,
-// pi or codex lane starts natively.
-func TestRunSpawnTakesTheDefaultBackendFromTheRoutedHarness(t *testing.T) {
-	for harnessName, wantBackend := range map[string]string{
-		"claude": "native",
-		"codex":  "native",
-		"pi":     "native",
-		"kimi":   "herdr",
-	} {
-		t.Run(harnessName, func(t *testing.T) {
-			table := `{"rules":[],"default_lane":"only","escalate_to":"only","lanes":{"only":{"harness":"` + harnessName + `","model":"m","effort":"high"}}}`
-			_, deps := routedRuntime(t, table)
-			got := captureSpawn(&deps, "spawned g30")
-			brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
-
-			var stdout, stderr bytes.Buffer
-			exit := runWithRuntime([]string{"spawn", "g30", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
-
-			if exit != 0 {
-				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
-			}
-			if string(got.Harness) != harnessName || got.Backend != wantBackend {
-				t.Errorf("request harness %q backend %q, want %q in %q", got.Harness, got.Backend, harnessName, wantBackend)
-			}
-		})
 	}
 }

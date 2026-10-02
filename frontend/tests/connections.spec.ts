@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 const checkedAt = "2026-09-29T14:56:12Z";
 const entries = [
