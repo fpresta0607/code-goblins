@@ -508,11 +508,14 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 | was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
 
 A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
+Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
 Only the supervisor writes tickets, and only when a state changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
 An issue a task claimed keeps its author's title and body, and its state lives in one comment that is edited in place.
 An issue in a public repository is public, so tickets wait there until you run `cfo tickets <project> --allow-public-tickets` once for that repository.
 The board says when tickets wait: for that consent, or for an hour after GitHub refused a write.
+A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
+A project with no GitHub repository simply has no tickets.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
