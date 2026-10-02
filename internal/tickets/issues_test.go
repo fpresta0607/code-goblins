@@ -465,6 +465,71 @@ func TestApplyRetriesAFailedCloseWithOneClosingComment(t *testing.T) {
 	}
 }
 
+func TestApplyPostsANewStatusCommentWhenSomeoneDeletedIt(t *testing.T) {
+	issue := "repos/" + northwind + "/issues/415"
+	deleted := "PATCH repos/" + northwind + "/issues/comments/8800"
+	cases := []struct {
+		name         string
+		to           Ticket
+		wantRequests []string
+		wantStatus   string
+		wantClosed   []string
+	}{
+		{name: "merged closes it", to: Ticket{TaskID: "nw-sync", State: Merged, Harness: "pi", PullRequest: mergedPull},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20pr%20open", deleted, "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantClosed: []string{issue}},
+		{name: "stopped releases it", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCFO},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20pr%20open", "DELETE " + issue + "/labels/goblin:%20pi", deleted, "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CFO"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{failures: map[string]int{deleted: 404}}
+			from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 8800, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: pi"}}
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, 0)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := gh.requests(); !slices.Equal(got, tc.wantRequests) {
+				t.Fatalf("requests = %v, want %v", got, tc.wantRequests)
+			}
+			if body := gh.call(t, "POST "+issue+"/comments").Fields["body"]; len(body) != 1 || body[0] != tc.wantStatus {
+				t.Fatalf("status comment = %q, want %q", body, tc.wantStatus)
+			}
+			if record.CommentID != 9001 || record.Status != tc.wantStatus || !record.IsDone || !slices.Equal(gh.closed, tc.wantClosed) {
+				t.Fatalf("record = %+v, closed = %v", record, gh.closed)
+			}
+		})
+	}
+}
+
+func TestApplyEndsATicketWhoseIssueIsGone(t *testing.T) {
+	for _, status := range []int{404, 410} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			// Arrange
+			issue := "repos/" + northwind + "/issues/501"
+			gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: status}}
+			from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, 0)
+			firstPass := len(gh.calls)
+			again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, 0)
+
+			// Assert
+			if err != nil || record == nil || !record.IsDone {
+				t.Fatalf("record = %+v, err = %v, want the ticket done without an error", record, err)
+			}
+			if againErr != nil || again != record || len(gh.calls) != firstPass {
+				t.Fatalf("record = %+v, err = %v, requests = %v, want a gone issue left alone", again, againErr, gh.requests()[firstPass:])
+			}
+		})
+	}
+}
+
 func TestApplyTakesALabelAlreadyGoneAsRemoved(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/501"
 	gh := &issueGitHub{failures: map[string]int{"DELETE " + issue + "/labels/cfo:%20queued": 404}}

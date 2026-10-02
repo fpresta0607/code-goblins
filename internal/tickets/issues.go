@@ -22,7 +22,9 @@ import (
 // differ, the body of an issue it opened or the status comment of one it
 // claimed, and the close. A claimed issue belongs to whoever filed it, so a
 // task that stops without a merge releases it open rather than closing it.
-// A done issue is never written again.
+// A done issue is never written again. A status comment someone deleted is
+// posted again, and an issue deleted or transferred ends the ticket: Apply
+// returns its record done, without an error.
 //
 // The caller keeps any record Apply returns, error or not: it is what the
 // issue then holds. When a write fails, that is the record Apply was given,
@@ -43,6 +45,18 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 	if record.IsDone {
 		return record, nil
 	}
+	next, err := g.move(ctx, repository, record, ticket)
+	if hasStatus(err, 404) || hasStatus(err, 410) {
+		gone := *record
+		gone.IsDone = true
+		return &gone, nil
+	}
+	return next, err
+}
+
+// move writes what changed between an issue's record and its ticket, and
+// returns the record it was given when a write fails.
+func (g GitHub) move(ctx context.Context, repository string, record *Record, ticket Ticket) (*Record, error) {
 	status, labels := ticket.StatusLine(), ticket.Labels()
 	isReleased := record.IsClaimed && ticket.State == Closed
 	if isReleased {
@@ -71,12 +85,16 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 			return record, err
 		}
 	}
+	commentID := record.CommentID
 	if !record.IsClaimed {
 		if _, err := g.api(ctx, "PATCH", issue, "body="+ticket.Body()); err != nil {
 			return record, err
 		}
-	} else if record.CommentID != 0 {
-		if _, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/comments/%d", repository, record.CommentID), "body="+status); err != nil {
+	} else if commentID != 0 {
+		_, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/comments/%d", repository, commentID), "body="+status)
+		if hasStatus(err, 404) {
+			commentID = 0
+		} else if err != nil {
 			return record, err
 		}
 	}
@@ -86,7 +104,7 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 		}
 	}
 	next := *record
-	if record.IsClaimed && record.CommentID == 0 {
+	if record.IsClaimed && commentID == 0 {
 		out, err := g.api(ctx, "POST", issue+"/comments", "body="+status)
 		if err != nil {
 			return record, err
