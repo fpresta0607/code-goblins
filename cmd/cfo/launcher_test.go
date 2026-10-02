@@ -81,6 +81,10 @@ type launcherFixture struct {
 	// CFO's terminal unless a test says otherwise.
 	screens []finalScreen
 	answer  int
+	// nativeArgs are the arguments each native start gave the harness, and
+	// resumeEnds makes a CFO started to resume a conversation end at once.
+	nativeArgs []string
+	resumeEnds bool
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -146,9 +150,15 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_ home.Home, project, harness string) error {
+		startNativeCFO: func(_ home.Home, project, harness string, args []string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
+			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
+			// A resumed CFO's terminal runs on, unless its harness could not
+			// resume the conversation and ended at once.
+			if len(args) > 0 {
+				f.cfoTerminalRuns = !f.resumeEnds
+			}
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
