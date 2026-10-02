@@ -34,8 +34,11 @@ func TestGoblinsResumeRestartsARunningCFOOnItsConversation(t *testing.T) {
 	if exit != 0 || f.restarts != 1 || len(f.nativeStarts)+len(f.cfoStarts) != 0 {
 		t.Fatalf("exit=%d restarts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want one restart and no other start", exit, f.restarts, f.nativeStarts, f.cfoStarts, stderr)
 	}
-	if !strings.Contains(stdout, "The CFO restarts in native terminal cfo on its conversation a1b2c3d4-session. Its current response was interrupted; goblins keep running.") {
+	if !strings.Contains(stdout, "CFO        restarted on its conversation a1b2c3d4-session, in native terminal cfo\n") || !strings.Contains(stdout, "Its current response was interrupted; goblins keep running.") {
 		t.Errorf("stdout = %q, want the restart said", stdout)
+	}
+	if strings.Count(stdout, "CFO        ") != 1 {
+		t.Errorf("stdout = %q, want the CFO said once, as restarted", stdout)
 	}
 	if len(f.screens) != 1 || !strings.HasPrefix(f.screens[0].title, "Your CFO is starting\n") || !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
 		t.Errorf("screens=%+v nativeAttached=%q, want the final screen and the CFO's terminal", f.screens, f.nativeAttached)

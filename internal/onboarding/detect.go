@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Agents are the agents a CFO can run on, in the order the quick start shows
@@ -22,6 +23,12 @@ var Agents = []string{"claude", "codex", "pi"}
 
 // agentNames are the names the quick start shows each agent by.
 var agentNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "pi": "pi"}
+
+// Name is the name the quick start shows the agent id by, in every line that
+// names it.
+func Name(id string) string {
+	return agentNames[id]
+}
 
 // State is how ready an agent is to run the CFO.
 type State int
@@ -125,7 +132,7 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 // piProvider is the provider pi's settings name as its default, or empty
 // when they name none.
 func piProvider(directory string) string {
-	data, err := os.ReadFile(filepath.Join(directory, "settings.json"))
+	data, err := fsx.ReadFile(filepath.Join(directory, "settings.json"))
 	if err != nil {
 		return ""
 	}

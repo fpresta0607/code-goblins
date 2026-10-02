@@ -49,7 +49,7 @@ func TestAClosedCFOComesBackOnItsConversation(t *testing.T) {
 	if exit != 0 || !slices.Equal(f.nativeStarts, []string{f.home.Root}) || !slices.Equal(f.nativeArgs, []string{"--resume a1b2c3d4-session"}) || len(f.cfoStarts) != 0 {
 		t.Fatalf("exit=%d nativeStarts=%q nativeArgs=%q cfoStarts=%q stderr=%q, want one native start resuming the conversation", exit, f.nativeStarts, f.nativeArgs, f.cfoStarts, stderr)
 	}
-	if !strings.Contains(stdout, "The CFO comes back as claude on its conversation a1b2c3d4-session, in "+f.home.Root+", in native terminal cfo.") {
+	if !strings.Contains(stdout, "CFO        back as Claude Code on its conversation a1b2c3d4-session, in native terminal cfo") {
 		t.Errorf("stdout = %q, want it to say the CFO comes back on its conversation", stdout)
 	}
 	if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
@@ -74,7 +74,7 @@ func TestACFOWhoseConversationCannotBeResumedStartsANewOne(t *testing.T) {
 	if exit != 0 || !slices.Equal(f.nativeArgs, []string{"--resume gone-session", ""}) {
 		t.Fatalf("exit=%d nativeArgs=%q stderr=%q, want a resume, then a new conversation", exit, f.nativeArgs, stderr)
 	}
-	if !strings.Contains(stdout, "Its conversation gone-session could not be resumed, so the CFO starts a new one.") || !strings.Contains(stdout, "The CFO starts as claude in "+f.home.Root+", in native terminal cfo.") {
+	if !strings.Contains(stdout, "Its conversation gone-session could not be resumed, so the CFO starts a new one.") || !strings.Contains(stdout, "CFO        started as Claude Code in "+f.home.Root+", in native terminal cfo") {
 		t.Errorf("stdout = %q, want the failed resume and the new start said", stdout)
 	}
 }
@@ -90,9 +90,9 @@ func TestACFOResumesOnlyAConversationItsHarnessCanResume(t *testing.T) {
 		herdr                      bool
 		said                       string
 	}{
-		{"Codex in its native terminal", "codex", supervisor.NativeCFOTerminal, "codex", []string{"resume a1b2c3d4-session"}, false, "The CFO comes back as codex on its conversation a1b2c3d4-session"},
-		{"another harness than the one chosen", "codex", supervisor.NativeCFOTerminal, "claude", []string{""}, false, "The CFO starts as claude in "},
-		{"a CFO that ran in Herdr", "claude", "", "claude", nil, true, "The CFO starts as claude in "},
+		{"Codex in its native terminal", "codex", supervisor.NativeCFOTerminal, "codex", []string{"resume a1b2c3d4-session"}, false, "CFO        back as Codex on its conversation a1b2c3d4-session"},
+		{"another harness than the one chosen", "codex", supervisor.NativeCFOTerminal, "claude", []string{""}, false, "CFO        started as Claude Code in "},
+		{"a CFO that ran in Herdr", "claude", "", "claude", nil, true, "CFO        started as Claude Code in "},
 		{"pi", "pi", supervisor.NativeCFOTerminal, "pi", []string{""}, false, "pi has no way to resume a conversation, so the CFO starts a new one."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
