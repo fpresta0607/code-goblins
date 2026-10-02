@@ -14,13 +14,15 @@ import { harnessTip } from "./workflow";
 // dialogue box, saying what it needs from him, with Open Command Center, where
 // its questions are. With no CFO running, which he sees only after choosing
 // the board without one, the box's button leads back to the first-run page to
-// start one. A CFO still starting waits in its terminal for Claude Code's
-// sign-in. The mark of the harness the registered CFO runs sits beside its
-// portrait, with the model of its newest session in that harness in its tip.
+// start one. A CFO still starting has not registered yet: Claude Code
+// registers through its SessionStart hook after its onboarding and sign-in, a
+// Codex or pi CFO when its first prompt runs cfo register. The mark of the
+// harness the registered CFO runs sits beside its portrait, with the model of
+// its newest session in that harness in its tip.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { asking, line } = cfoSummary(snapshot);
   const absent = !snapshot.cfo_runs;
-  const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: sign in to Claude Code in its terminal." : line;
+  const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : line;
   const terminal = "Open the CFO's terminal";
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
