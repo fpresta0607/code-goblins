@@ -103,8 +103,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/alive" && r.Method == "GET":
 		// Liveness for goblins and its status and stop: the supervisor's own
 		// pid, answered without building the fleet's snapshot, which can
-		// take longer than any launcher waits.
-		respond(w, 200, map[string]int{"pid": os.Getpid()})
+		// take longer than any launcher waits. Its home tells a goblins that
+		// finds the board's address in use whose fleet holds it.
+		respond(w, 200, struct {
+			PID  int    `json:"pid"`
+			Home string `json:"home"`
+		}{os.Getpid(), h.Service.Store.Home.Root})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
 		snapshot, err := h.Service.Snapshot()
 		if err != nil {
@@ -140,12 +144,18 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.refreshConnections(w, r)
 	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
 		h.fixConnection(w, r)
+	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
+		h.saveCredentials(w, r)
+	case r.URL.Path == "/api/credentials/terminal" && r.Method == "POST":
+		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
+	case r.URL.Path == "/api/announce" && r.Method == "POST":
+		h.announceItems(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
