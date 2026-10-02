@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -133,12 +134,18 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
-	// inspectCaller reads the ancestry and environment of the process a pipe
-	// request came from; nil reads the process itself.
+	// afkLog reads the stretch that is on out of AFK mode's log for each
+	// snapshot, and the file only when it has changed.
+	afkLog afk.Reader
+	// inspectCaller reads the ancestry and environment of the process a
+	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
-	done          chan struct{}
-	work          chan struct{}
-	cancel        context.CancelFunc
+	// peerOf names the process at the other end of a connection to the board;
+	// nil asks Windows.
+	peerOf func(peer, board netip.AddrPort) (int, error)
+	done   chan struct{}
+	work   chan struct{}
+	cancel context.CancelFunc
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
@@ -885,6 +892,9 @@ type Snapshot struct {
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
+	// AFK is AFK mode, the Overlord's switch for running the fleet while he
+	// is away, as the board shows it.
+	AFK AFKView `json:"afk"`
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -951,6 +961,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Runs[i] = r
 	}
 	out.Credentials = append([]CredentialRequest{}, d.Credentials...)
+	// A log of AFK mode that could not be read is said where the board says
+	// the supervisor's other troubles, unless one is already there.
+	var afkErr error
+	if out.AFK, afkErr = s.afkView(d); afkErr != nil && out.Error == "" {
+		out.Error = bounded(afkErr.Error(), 1000)
+	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
