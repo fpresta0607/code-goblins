@@ -765,33 +765,21 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
-// clearReview closes an open item the Overlord cleared, with how he closed it
-// when he opened or downloaded its document. A page's card shows the question
-// its goblin asked beside the page, so clearing it dismisses that question in
-// the same step, and the questions dismissed come back for the CFO to hear
-// of. Clearing one already closed changes nothing.
-func (s *Store) clearReview(id, identity, reason string) (Evaluation, []Question, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.Identity == identity })
-	if i < 0 {
-		return Evaluation{}, nil, fmt.Errorf("%w: the review is gone; nothing was cleared", ErrRejected)
-	}
-	if s.db.Reviews[i].State != "open" {
-		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil, nil
-	}
-	var dismissed []Question
+// clearReview closes open item i, which the Overlord cleared at at, with how
+// he closed it when he opened or downloaded its document. A page's card shows
+// the question its goblin asked beside the page, so clearing it dismisses
+// that question in the same step, and the IDs of the questions dismissed come
+// back for the CFO to hear of. The caller holds the store lock.
+func (s *Store) clearReview(i int, reason string, at time.Time) []string {
+	var dismissed []string
 	for j := range s.db.Questions {
 		if q := &s.db.Questions[j]; carriesQuestion(s.db.Reviews[i], *q) && q.AnswerID == "" {
 			q.Status, q.Message = "cleared", "You cleared its page's card."
-			dismissed = append(dismissed, *q)
+			dismissed = append(dismissed, q.ID)
 		}
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, time.Now().UTC()
-	if err := s.save(); err != nil {
-		return Evaluation{}, nil, err
-	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, dismissed, nil
+	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
+	return dismissed
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
