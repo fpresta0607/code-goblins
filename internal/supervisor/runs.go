@@ -56,12 +56,12 @@ type Run struct {
 	Made string `json:"made,omitempty"`
 	// By is "cfo" on an item the registered CFO published over the pipe. Only
 	// such an item follows the CFO and waits to tell it how it ended.
-	By    string `json:"by,omitempty"`
-	Title string `json:"title"`
-	Shell string `json:"shell"`
-	Admin    bool   `json:"admin"`
-	Command  string `json:"command"`
-	Cwd      string `json:"cwd"`
+	By      string `json:"by,omitempty"`
+	Title   string `json:"title"`
+	Shell   string `json:"shell"`
+	Admin   bool   `json:"admin"`
+	Command string `json:"command"`
+	Cwd     string `json:"cwd"`
 	// ScriptSum is the SHA-256 of the script file Run executes: Run refuses
 	// a file that changed, and the audit line records it.
 	ScriptSum string `json:"script_sum,omitempty"`
