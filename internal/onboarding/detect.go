@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Agents are the agents a CFO can run on, in the order the quick start shows
@@ -125,7 +126,7 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 // piProvider is the provider pi's settings name as its default, or empty
 // when they name none.
 func piProvider(directory string) string {
-	data, err := os.ReadFile(filepath.Join(directory, "settings.json"))
+	data, err := fsx.ReadFile(filepath.Join(directory, "settings.json"))
 	if err != nil {
 		return ""
 	}
