@@ -224,7 +224,7 @@ func (c *CFOConnection) deliverNative(ctx context.Context, terminal state.TaskMe
 // readCFOWoken reads the highest sequence a typed wake line covered and when
 // it was typed; none has been when the file is missing.
 func readCFOWoken(stateDir string) (int, time.Time, error) {
-	data, err := os.ReadFile(filepath.Join(stateDir, cfoWokenFile))
+	data, err := fsx.ReadFile(filepath.Join(stateDir, cfoWokenFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, time.Time{}, nil
 	}
