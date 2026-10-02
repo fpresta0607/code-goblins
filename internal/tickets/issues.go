@@ -24,10 +24,11 @@ import (
 // task that stops without a merge releases it open rather than closing it.
 // A done issue is never written again.
 //
-// When a write fails, Apply returns the record it was given with the error,
-// so the next pass redoes the whole move: every write in it is safe to
-// repeat but the closing comment, which comes last so it is only posted
-// once.
+// The caller keeps any record Apply returns, error or not: it is what the
+// issue then holds. When a write fails, that is the record Apply was given,
+// so the next pass redoes the whole move, or a claim whose status comment
+// failed, which the next pass finishes. Every write is safe to repeat but
+// creating a comment, so that is the last write of its move.
 func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ticket Ticket, claim int) (*Record, error) {
 	if record == nil {
 		switch {
@@ -70,24 +71,38 @@ func (g GitHub) Apply(ctx context.Context, repository string, record *Record, ti
 			return record, err
 		}
 	}
-	if record.IsClaimed {
+	if !record.IsClaimed {
+		if _, err := g.api(ctx, "PATCH", issue, "body="+ticket.Body()); err != nil {
+			return record, err
+		}
+	} else if record.CommentID != 0 {
 		if _, err := g.api(ctx, "PATCH", fmt.Sprintf("repos/%s/issues/comments/%d", repository, record.CommentID), "body="+status); err != nil {
 			return record, err
 		}
-	} else if _, err := g.api(ctx, "PATCH", issue, "body="+ticket.Body()); err != nil {
-		return record, err
 	}
 	if !ticket.IsOpen() && !isReleased {
 		if _, err := g.api(ctx, "PATCH", issue, "state=closed", "state_reason="+ticket.CloseReason()); err != nil {
 			return record, err
 		}
-		if !record.IsClaimed {
-			if _, err := g.api(ctx, "POST", issue+"/comments", "body="+status); err != nil {
-				return record, err
-			}
-		}
 	}
 	next := *record
+	if record.IsClaimed && record.CommentID == 0 {
+		out, err := g.api(ctx, "POST", issue+"/comments", "body="+status)
+		if err != nil {
+			return record, err
+		}
+		var comment struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(out, &comment); err != nil || comment.ID == 0 {
+			return record, fmt.Errorf("read the status comment GitHub added to issue #%d in %s: %v", record.Number, repository, err)
+		}
+		next.CommentID = comment.ID
+	} else if !record.IsClaimed && !ticket.IsOpen() {
+		if _, err := g.api(ctx, "POST", issue+"/comments", "body="+status); err != nil {
+			return record, err
+		}
+	}
 	next.State, next.Status, next.Labels, next.IsDone = ticket.State, status, labels, !ticket.IsOpen()
 	return &next, nil
 }
@@ -114,7 +129,9 @@ func (g GitHub) open(ctx context.Context, repository string, ticket Ticket) (*Re
 }
 
 // claim takes over issue number for a task: it labels the issue and gives it
-// a status comment, and leaves its title and body to whoever filed it.
+// a status comment, and leaves its title and body to whoever filed it. Once
+// the issue is labelled, the claim is a record Apply finishes with that
+// comment, so a failed comment still leaves the labels on record.
 func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, number int) (*Record, error) {
 	issue := fmt.Sprintf("repos/%s/issues/%d", repository, number)
 	out, err := g.api(ctx, "GET", issue)
@@ -141,17 +158,8 @@ func (g GitHub) claim(ctx context.Context, repository string, ticket Ticket, num
 			return nil, err
 		}
 	}
-	out, err = g.api(ctx, "POST", issue+"/comments", "body="+ticket.StatusLine())
-	if err != nil {
-		return nil, err
-	}
-	var comment struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal(out, &comment); err != nil || comment.ID == 0 {
-		return nil, fmt.Errorf("read the status comment GitHub added to issue #%d in %s: %v", number, repository, err)
-	}
-	return &Record{TaskID: ticket.TaskID, Repository: repository, Number: number, URL: claimed.URL, IsClaimed: true, CommentID: comment.ID, State: ticket.State, Status: ticket.StatusLine(), Labels: labels}, nil
+	labelled := &Record{TaskID: ticket.TaskID, Repository: repository, Number: number, URL: claimed.URL, IsClaimed: true, State: ticket.State, Labels: labels}
+	return g.Apply(ctx, repository, labelled, ticket, 0)
 }
 
 type githubIssue struct {

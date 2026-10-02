@@ -280,6 +280,59 @@ func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	}
 }
 
+func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
+	issue := "repos/" + northwind + "/issues/415"
+	cases := []struct {
+		name         string
+		next         Ticket
+		wantRequests []string
+		wantStatus   string
+		wantLabels   []string
+		wantClosed   []string
+	}{
+		{name: "still in progress", next: Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"},
+			wantRequests: []string{"POST " + issue + "/comments"}, wantStatus: "In progress: goblin nw-sync on pi", wantLabels: []string{"cfo: in progress", "goblin: pi"}},
+		{name: "stopped meanwhile", next: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCFO},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20in%20progress", "DELETE " + issue + "/labels/goblin:%20pi", "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CFO", wantLabels: []string{}},
+		{name: "merged meanwhile", next: Ticket{TaskID: "nw-sync", State: Merged, Harness: "pi", PullRequest: mergedPull},
+			wantRequests: []string{"DELETE " + issue + "/labels/cfo:%20in%20progress", "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantLabels: []string{"goblin: pi"}, wantClosed: []string{issue}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			comment := "POST " + issue + "/comments"
+			gh := &issueGitHub{
+				issues:    map[int]string{415: `{"number":415,"html_url":"https://github.com/` + northwind + `/issues/415","state":"open"}`},
+				failures:  map[string]int{comment: 502},
+				failTimes: map[string]int{comment: 1},
+			}
+			github := GitHub{Commands: gh}
+
+			// Act
+			partial, claimErr := github.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, 415)
+			firstPass := len(gh.calls)
+			record, err := github.Apply(context.Background(), northwind, partial, tc.next, 0)
+
+			// Assert
+			if claimErr == nil || partial == nil || !partial.IsClaimed || partial.Number != 415 || partial.CommentID != 0 || partial.Status != "" || !slices.Equal(partial.Labels, []string{"cfo: in progress", "goblin: pi"}) {
+				t.Fatalf("record = %+v, err = %v, want the labelled claim kept with the failure", partial, claimErr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := gh.requests()[firstPass:]; !slices.Equal(got, tc.wantRequests) {
+				t.Fatalf("requests = %v, want %v", got, tc.wantRequests)
+			}
+			if body := gh.calls[len(gh.calls)-1].Fields["body"]; len(body) != 1 || body[0] != tc.wantStatus {
+				t.Fatalf("status comment = %q, want %q", body, tc.wantStatus)
+			}
+			if record.CommentID != 9001 || record.Status != tc.wantStatus || !slices.Equal(record.Labels, tc.wantLabels) || !slices.Equal(gh.closed, tc.wantClosed) {
+				t.Fatalf("record = %+v, closed = %v", record, gh.closed)
+			}
+		})
+	}
+}
+
 func TestApplyRefusesToClaimWhatIsNotAnOpenIssue(t *testing.T) {
 	cases := []struct {
 		name  string
