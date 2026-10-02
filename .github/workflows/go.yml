@@ -8,10 +8,22 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request makes its older run obsolete: the older run
+# is cancelled and its runners go to the new one. Every other run is in a
+# group of its own, so a run for main is never cancelled and never waits
+# behind another, where a newer one would cancel it while it waited: every
+# commit on main keeps its own verdict.
+# TestWorkflowsCancelOnlyAPullRequestsSupersededRun holds the group and the
+# condition to that.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # The work runs as parallel jobs so a run takes as long as its slowest job,
-# not the sum: the frontend, each slow Go package, and every other Go package
-# together. The test job at the end is the one check branch protection
-# requires, and it passes only when every other job passed.
+# not the sum: the frontend's static checks and build, each shard of its
+# browser suite, each slow Go package, and every other Go package together.
+# The test job at the end is the one check branch protection requires, and it
+# passes only when every other job passed.
 jobs:
   frontend:
     runs-on: windows-latest
@@ -23,7 +35,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Check frontend and regenerate embedded assets
-        id: frontend
         working-directory: frontend
         shell: pwsh
         run: |
@@ -35,23 +46,53 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx playwright install chromium --only-shell
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:browser
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
             throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
           }
+
+  # The browser suite takes its one worker 4.7 minutes, the longest thing in
+  # a run, so it runs as shards, each in a job of its own. A shard is a share
+  # of the suite's tests that Playwright cuts the same way in every job, and
+  # TestGoWorkflowRunsEveryBrowserTestOnce holds the shards to 1 through
+  # their count, so no test falls between two of them. Playwright is called
+  # directly, with npx, so the shard does not depend on how the shell and npm
+  # run hand a flag on to a script.
+  browser:
+    name: browser (${{ matrix.shard }})
+    runs-on: windows-latest
+    strategy:
+      # Every shard runs to its end, so one run names every failure.
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Run one shard of the browser tests
+        id: browser
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright test --shard=${{ matrix.shard }}/2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results; keep them, so a failure seen once can be
       # read after the runner is gone.
       - name: Keep the browser tests' failure evidence
-        if: failure() && steps.frontend.outcome == 'failure'
+        if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-test-results
+          name: frontend-test-results-${{ matrix.shard }}
           path: frontend/test-results
           if-no-files-found: ignore
           retention-days: 14
@@ -65,13 +106,16 @@ jobs:
       matrix:
         # A package slow enough to hold a run back gets jobs of its own. These
         # three spend their time waiting on real terminals and supervisors,
-        # which no faster runner shortens, so each gets two: one runs the
-        # tests whose names match run, the other skips exactly those. The
-        # rest job runs every package that except does not name, so a new
-        # package is tested with no change here.
+        # which no faster runner shortens, so each is shared between jobs, in
+        # the order they are listed here: a job runs the tests whose names
+        # match its run and skips those an earlier job of the package runs,
+        # and the last job runs the tests that none of them matched.
+        # internal/spawn, the slowest, has three. The rest job runs every
+        # package that except does not name, so a new package is tested with
+        # no change here.
         # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
-        # names exactly the other jobs' packages, and a package in two jobs
-        # is split by one pattern, run in one and skipped in the other.
+        # names exactly the other jobs' packages, and each job of a shared
+        # package skips exactly the patterns the jobs before it run.
         include:
           - shard: cmd-cfo-1
             packages: ./cmd/cfo
@@ -81,10 +125,14 @@ jobs:
             skip: Update|Recover
           - shard: spawn-1
             packages: ./internal/spawn
-            run: Spawn
+            run: NativeSpawn
           - shard: spawn-2
             packages: ./internal/spawn
-            skip: Spawn
+            run: Switch
+            skip: NativeSpawn
+          - shard: spawn-3
+            packages: ./internal/spawn
+            skip: NativeSpawn|Switch
           - shard: supervisor-1
             packages: ./internal/supervisor
             run: ^Test[A-M]
@@ -165,7 +213,7 @@ jobs:
   # cancelled or was skipped is not a pass.
   test:
     if: always()
-    needs: [frontend, go]
+    needs: [frontend, browser, go]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed

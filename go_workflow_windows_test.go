@@ -85,9 +85,12 @@ type goWorkflowShard struct {
 // name. A package except names that no job of its own runs would be tested
 // nowhere, and so would the tests of a package whose job runs only some of
 // them, and the workflow would still pass. So except names exactly the
-// packages the other jobs run, each a package with tests, and a job runs all
-// of its package's tests unless one other job runs the rest: one runs the
-// tests a pattern matches, and the other skips exactly those.
+// packages the other jobs run, each a package with tests, and the jobs that
+// share a package run each of its tests once: in the workflow's order, every
+// job but the last runs the tests its pattern matches and skips those the
+// jobs before it run, and the last skips every pattern, which leaves it the
+// tests none matched. A test several patterns match runs in the first of
+// their jobs alone.
 func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	// Arrange
 	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
@@ -128,21 +131,16 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 		if tests, err := filepath.Glob(filepath.Join(filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 			t.Errorf("%s has a job of its own and no tests (%v)", dir, err)
 		}
-		switch in := jobs[dir]; len(in) {
-		case 1:
-			if in[0].Run != "" || in[0].Skip != "" {
-				t.Errorf("job %q runs %q and skips %q of %s, and no other job runs its other tests", in[0].Shard, in[0].Run, in[0].Skip, dir)
+		var earlier []string
+		for index, job := range jobs[dir] {
+			last := index == len(jobs[dir])-1
+			if (job.Run == "") != last {
+				t.Errorf("job %q, number %d of %d that test %s, runs %q: want every job but the last to name the tests it runs, and the last to name none", job.Shard, index+1, len(jobs[dir]), dir, job.Run)
 			}
-		case 2:
-			runs, skips := in[0], in[1]
-			if runs.Run == "" {
-				runs, skips = skips, runs
+			if want := strings.Join(earlier, "|"); job.Skip != want {
+				t.Errorf("job %q skips %q of %s, want %q, exactly what the jobs before it run", job.Shard, job.Skip, dir, want)
 			}
-			if runs.Run == "" || runs.Skip != "" || skips.Run != "" || skips.Skip != runs.Run {
-				t.Errorf("jobs %q (run %q, skip %q) and %q (run %q, skip %q) share %s: want one to run a pattern and the other to skip the same one", runs.Shard, runs.Run, runs.Skip, skips.Shard, skips.Run, skips.Skip, dir)
-			}
-		default:
-			t.Errorf("%d jobs test %s, want one, or two that split its tests by one pattern", len(in), dir)
+			earlier = append(earlier, job.Run)
 		}
 	}
 }
@@ -279,5 +277,104 @@ func TestGoWorkflowRetriesTheSQLiteInstall(t *testing.T) {
 				t.Errorf("the step succeeded with no SQLite installed:\n%s", output)
 			}
 		})
+	}
+}
+
+// workflowSource reads and parses the workflow named name into into.
+func workflowSource(t *testing.T, name string, into any) {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(source, into); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+}
+
+// A push to a pull request makes its earlier run obsolete, so the workflows
+// that check a pull request cancel that run and its runners go to the new
+// one, and one pull request's run never cancels another's. Every other run
+// is in a group of its own, the run's: a run for main shares none, since a
+// run that waits in a group is cancelled by the next one to arrive, and
+// every commit on main keeps its own verdict. The release workflow
+// publishes, and nothing cancels it halfway.
+func TestWorkflowsCancelOnlyAPullRequestsSupersededRun(t *testing.T) {
+	type workflow struct {
+		Concurrency struct {
+			Group  string `yaml:"group"`
+			Cancel any    `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
+	}
+	for _, name := range []string{"go.yml", "install.yml"} {
+		// Arrange
+		var checks workflow
+
+		// Act
+		workflowSource(t, name, &checks)
+
+		// Assert
+		if want := "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"; checks.Concurrency.Group != want {
+			t.Errorf("%s groups its runs by %q, want %q: one group for each pull request, and for any other run a group of its own", name, checks.Concurrency.Group, want)
+		}
+		if want := "${{ github.event_name == 'pull_request' }}"; fmt.Sprint(checks.Concurrency.Cancel) != want {
+			t.Errorf("%s cancels a run in progress when %v, want %q: a pull request's superseded run, never a run for main", name, checks.Concurrency.Cancel, want)
+		}
+	}
+	var release workflow
+	workflowSource(t, "release.yml", &release)
+	if release.Concurrency.Cancel != nil && fmt.Sprint(release.Concurrency.Cancel) != "false" {
+		t.Errorf("release.yml cancels a run in progress when %v, want never: a release is published once and whole", release.Concurrency.Cancel)
+	}
+}
+
+// The browser suite runs as parallel jobs, each one shard of it. The shards
+// are numbered from 1 to their count and each job runs its own shard of that
+// count, so every browser test runs in exactly one job, and no other job runs
+// the suite again.
+func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
+	// Arrange
+	var workflow struct {
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					Shard []int `yaml:"shard"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+
+	// Act
+	workflowSource(t, "go.yml", &workflow)
+
+	// Assert
+	shards := workflow.Jobs["browser"].Strategy.Matrix.Shard
+	if len(shards) < 2 {
+		t.Fatalf("the browser job runs in %d shard(s), want two or more jobs sharing the suite", len(shards))
+	}
+	for index, shard := range shards {
+		if shard != index+1 {
+			t.Errorf("the browser job's shards are %v, want 1 to %d in order", shards, len(shards))
+			break
+		}
+	}
+	// Playwright is called directly, with npx, so the shard does not depend on
+	// how a shell and npm run hand a flag on to a script: a flag lost on the
+	// way would have every job run the whole suite.
+	want := fmt.Sprintf("npx playwright test --shard=${{ matrix.shard }}/%d\n", len(shards))
+	for name, job := range workflow.Jobs {
+		runs := 0
+		for _, step := range job.Steps {
+			runs += strings.Count(step.Run, "playwright test") + strings.Count(step.Run, "test:browser")
+			if name == "browser" && strings.Contains(step.Run, "playwright test") && !strings.Contains(step.Run, want) {
+				t.Errorf("the browser job runs %q, want it to run %q", step.Run, want)
+			}
+		}
+		if (name == "browser") != (runs == 1) {
+			t.Errorf("job %s runs the browser suite %d time(s), want the browser job alone to run it, once", name, runs)
+		}
 	}
 }

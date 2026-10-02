@@ -50,6 +50,14 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request makes its older run obsolete: the older run
+# is cancelled and its runners go to the new one. Every other run is in a
+# group of its own, so a run for main is never cancelled and never waits
+# behind another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   one-line:
     strategy:
