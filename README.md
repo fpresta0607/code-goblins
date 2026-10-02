@@ -501,6 +501,9 @@ Run `cfo doctor` after installation for the current dependency and harness healt
 
 In a repository other people work in, `cfo tickets <project>` reports what they have in flight before a goblin starts: who besides you worked there in the last 30 days (bots and old fork history do not count), every open issue and open or draft pull request with the files it changes, and the branches others pushed in the last 14 days.
 Add `--brief <file>` or `--files <paths>` and it names each pull request, branch and issue that touches the same area, so overlapping work is started knowingly or not at all.
+`cfo spawn` runs the same check on the task's brief: where a teammate has work in flight it prints the overlap and starts nothing, until you repeat it with `--overlap-ok "<why>"`.
+Your reason is kept in the task's status log and shown on its ticket, and your own fleet's pull requests never stop a spawn.
+Neither does a bot's work, and a GitHub read that fails or takes longer than 30 seconds starts the task unchecked and says so.
 It only reads: one GraphQL query through `gh`, about three points of GitHub's hourly budget, and `--json` gives the same report with contributor avatars.
 
 ```text
@@ -524,7 +527,7 @@ It opens the issue when the task is queued, or claims the one the task's brief n
 | merged | closed as completed, with a comment naming the pull request |
 | was stopped, or finished without a merge | closed as not planned; an issue it had claimed is released open instead |
 
-A ticket carries the task's title, its state, who is on it and its pull request, and nothing else: never the brief, a path on your machine, a secret or a note.
+A ticket carries the task's title, its state, who is on it, its pull request and the reason you gave `cfo spawn --overlap-ok` when it was started beside a teammate's work, and nothing else: never the brief, a path on your machine, a secret or a note.
 Its title is the one the task was queued or dispatched under, or the task's id when it has none; the brief's own words are never used for it.
 Only the supervisor writes tickets, and only when something a ticket shows changes; no command and no goblin does.
 Work that was already queued when the supervisor first kept tickets gets its ticket when it starts, so an old backlog never arrives in your teammates' repository as a burst of issues.
