@@ -407,7 +407,8 @@ The commands hold what they can check: while it is on `cfo pr merge` never delet
 
 Nothing prompts him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
-Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him, and is not announced once he is back either: it is in the report.
+Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
+What the board asked to announce while he was away is not announced once he is back either.
 
 Turning it off produces the report of the stretch, which `cfo afk off` prints for him and `cfo afk report` prints again: what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, what is held for him with what became of it and what its goblin did meanwhile, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.

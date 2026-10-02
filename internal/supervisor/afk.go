@@ -24,7 +24,8 @@ import (
 // The supervisor is the only writer of it: it turns the switch for a process
 // it has proven is his own terminal, logs a decision for a process it has
 // proven is the registered CFO, records each item that waits on him as held,
-// and hands the board nothing to announce while the switch is on.
+// and hands the board nothing to announce while the switch is on
+// (announce.go).
 //
 // The proof names its adversary: an agent that follows its contract and tries
 // the command, the pipe or a wrapper around either. Every process of this
@@ -239,24 +240,10 @@ func waitingOnOverlord(d Database) []heldItem {
 	return items
 }
 
-// announceKeys are the names the board asks to announce an item under: its
-// alert, and for a question the Command Center opening on it.
-// TestTheBoardStillNamesItsItemsAsTheSupervisorExpects pins them to the
-// board's own.
-func announceKeys(kind, id string) []string {
-	switch kind {
-	case "question":
-		return []string{"alert:question:" + id, "open:question:" + id}
-	case "review", "run":
-		return []string{"alert:" + kind + ":" + id}
-	}
-	return nil
-}
-
 // holdForOverlord records each item that waits on the Overlord while AFK mode
-// is on as held for him, once in a stretch, and marks it announced, so the
-// board never alerts for it, while he is away or once he is back: it is in
-// the report instead.
+// is on as held for him, once in a stretch: the record his report is built
+// from. Nothing here keeps the board quiet; the announce endpoint does that
+// by handing it nothing while the switch is on.
 func (s *Service) holdForOverlord(now time.Time) error {
 	s.afkChange.Lock()
 	defer s.afkChange.Unlock()
@@ -277,9 +264,7 @@ func (s *Service) holdForOverlord(now time.Time) error {
 			}
 		}
 	}
-	var keys []string
 	for _, item := range waitingOnOverlord(s.Store.Snapshot()) {
-		keys = append(keys, announceKeys(item.kind, item.id)...)
 		if s.held[item.key()] {
 			continue
 		}
@@ -288,13 +273,7 @@ func (s *Service) holdForOverlord(now time.Time) error {
 		}
 		s.held[item.key()] = true
 	}
-	// Every waiting item's keys, not only the new ones: a supervisor that
-	// stopped between holding an item and marking it marks it now.
-	if len(keys) == 0 {
-		return nil
-	}
-	_, err = s.Store.claimAnnounced(keys, nil, now)
-	return err
+	return nil
 }
 
 // afkReport is the report of the stretch ended holds: the log's decisions,

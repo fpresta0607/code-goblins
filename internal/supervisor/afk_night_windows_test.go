@@ -79,6 +79,7 @@ func TestANightUnderAFKMode(t *testing.T) {
 	if err := s.holdForOverlord(time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	announcedAway = append(announcedAway, askToAnnounce(t, s, `{"keys":["alert:question:drop-legacy-invoices","open:question:drop-legacy-invoices"]}`)...)
 	_, decidedForHim := cfo.RecordAnswer(ctx, "drop-legacy-invoices", "Apply it", "", "chat")
 
 	// The Overlord is back.
@@ -89,7 +90,7 @@ func TestANightUnderAFKMode(t *testing.T) {
 
 	// Assert
 	if len(announcedAway) != 0 || len(announcedBack) != 0 {
-		t.Errorf("the board was handed %q while he was away and %q once he was back, want nothing: both items were held", announcedAway, announcedBack)
+		t.Errorf("the board was handed %q while he was away and %q once he was back, want nothing: it asked about both while he was away, and both were held", announcedAway, announcedBack)
 	}
 	if chosen != "SQLite" || len(goblinPane.prompts) != 1 || !strings.Contains(goblinPane.prompts[0], "SQLite. smallest thing that works") {
 		t.Errorf("the goblin's pane = %q (chosen %q), want the CFO's answer delivered once", goblinPane.prompts, chosen)

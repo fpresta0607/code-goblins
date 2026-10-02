@@ -343,7 +343,7 @@ func registerElsewhere(t *testing.T, stateDir string) {
 // While AFK mode is on the board is handed nothing to announce, so it shows
 // no alert, sends no Windows notification and never opens the Command Center
 // by itself. What it asked about then is not announced once he is back
-// either: it is in the report, and only what arrives after he is back alerts.
+// either, and what arrives after he is back alerts as usual.
 func TestWhileAFKModeIsOnTheBoardIsHandedNothingToAnnounce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -484,9 +484,9 @@ func waitingItems(t *testing.T, store *Store) {
 }
 
 // An item that waits on the Overlord while AFK mode is on is recorded as held
-// for him, once, with what it asks and whose it is, and the board never
-// announces it: not while he is away and not when he is back.
-func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNeverAnnounced(t *testing.T) {
+// for him, once, with what it asks and whose it is, and the board is handed
+// nothing to announce for it.
+func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store, Instance: "test-instance", subscribers: map[chan struct{}]struct{}{}, work: make(chan struct{}, 1)}
@@ -498,8 +498,12 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNeverAnnounced
 	// Act
 	s.cycle(context.Background(), false)
 	s.cycle(context.Background(), false)
+	claimed := askToAnnounce(t, s, `{"keys":["alert:question:drop-legacy-invoices","open:question:drop-legacy-invoices","alert:review:waiting-task-1-7","alert:run:delete-merged-branches"]}`)
 
 	// Assert
+	if len(claimed) != 0 {
+		t.Errorf("claimed while AFK mode is on = %q, want nothing: each item is held for him instead", claimed)
+	}
 	var held []afk.Entry
 	for _, entry := range afkEntries(t, h.State) {
 		if entry.Kind == afk.KindHeld {
@@ -518,13 +522,6 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNeverAnnounced
 	}
 	if held[2].Item != "run:delete-merged-branches" || held[2].What != "Run delete-merged-branches" {
 		t.Errorf("held run item = %+v, want the command left for him with its title", held[2])
-	}
-	if _, err := afk.TurnOff(h.State, "the board", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	keys := `{"keys":["alert:question:drop-legacy-invoices","open:question:drop-legacy-invoices","alert:review:waiting-task-1-7","alert:run:delete-merged-branches"]}`
-	if claimed := askToAnnounce(t, s, keys); len(claimed) != 0 {
-		t.Errorf("claimed once he was back = %q, want nothing: each was held, and is in the report", claimed)
 	}
 }
 
@@ -594,34 +591,6 @@ func TestAHeldItemIsHeldOnceForEachStretchAcrossARestart(t *testing.T) {
 	}
 	if entries := afkEntries(t, h.State); len(entries) != 9 {
 		t.Errorf("the log after a second stretch = %d lines, want 9: the first stretch, its end, the second switch and each item again", len(entries))
-	}
-}
-
-// The board asks about each item under names it makes itself, which the
-// supervisor has to make the same way to keep a held item from ever being
-// announced. If the board changes how it names them, this fails rather than
-// the supervisor silently missing every one.
-func TestTheBoardStillNamesItsItemsAsTheSupervisorExpects(t *testing.T) {
-	for file, fragments := range map[string][]string{
-		"commandQueue.ts":   {`key: "question:" + question.id`, `key: "review:" + review.id`, `key: "run:" + run.id`},
-		"alertRules.ts":     {`("alert:" + alert.key)`},
-		"CommandCenter.tsx": {`"open:" + key`, `key.startsWith("question:")`},
-	} {
-		source, err := os.ReadFile(filepath.Join("..", "..", "frontend", "src", file))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, fragment := range fragments {
-			if !strings.Contains(string(source), fragment) {
-				t.Errorf("frontend/src/%s no longer holds %s: the board names its items another way, and announceKeys must follow", file, fragment)
-			}
-		}
-	}
-	if got := announceKeys("question", "q1"); !slices.Equal(got, []string{"alert:question:q1", "open:question:q1"}) {
-		t.Errorf("announceKeys of a question = %q", got)
-	}
-	if got := announceKeys("review", "r1"); !slices.Equal(got, []string{"alert:review:r1"}) {
-		t.Errorf("announceKeys of a review item = %q", got)
 	}
 }
 
