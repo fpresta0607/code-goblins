@@ -1567,9 +1567,21 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	if runsPreviousBuild(running, journal) {
 		t.Fatal("a candidate supervisor whose alias now holds the previous build was taken for the previous build")
 	}
+	// A process that is still starting cannot always be read: this stand-in
+	// is a copy of the test binary, which sets its environment as it starts,
+	// and a read of its directory or environment taken meanwhile fails ("Only
+	// part of a ReadProcessMemory or WriteProcessMemory request was
+	// completed"). A failed read answers "not the previous build", so the
+	// question is asked until the process has settled. The fleet asks it of
+	// a supervisor that has been serving; asked once here, at once, it
+	// failed about one run in five on a busy machine.
 	previousServe := u.start(alias, "host", "--id", "previous")
-	if !runsPreviousBuild(serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}, journal) {
-		t.Fatal("a process running the previous build was not recognised as it")
+	previous := serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}
+	for deadline := time.Now().Add(10 * time.Second); !runsPreviousBuild(previous, journal); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			_, err := proc.Identify(previous.pid, previous.start)
+			t.Fatalf("a process running the previous build was not recognised as it within 10s (reading it: %v)", err)
+		}
 	}
 }
 
