@@ -266,22 +266,27 @@ func (g GitHub) EnsureLabels(ctx context.Context, repository string) error {
 	return nil
 }
 
-// apiError is a gh api request GitHub refused, with its HTTP status and the
+// APIError is a gh api request GitHub refused, with its HTTP status and the
 // answer it gave.
-type apiError struct {
+type APIError struct {
+	Status  int
 	request string
-	status  int
 	message string
 	answer  string
 }
 
-func (e *apiError) Error() string { return "gh api " + e.request + ": " + e.message }
+func (e *APIError) Error() string {
+	if e.request == "" {
+		return fmt.Sprintf("GitHub refused with HTTP %d", e.Status)
+	}
+	return "gh api " + e.request + ": " + e.message
+}
 
 var httpStatus = regexp.MustCompile(`\(HTTP (\d{3})\)`)
 
 func hasStatus(err error, status int) bool {
-	var refused *apiError
-	return errors.As(err, &refused) && refused.status == status
+	var refused *APIError
+	return errors.As(err, &refused) && refused.Status == status
 }
 
 // ShouldBackOff reports whether GitHub refused a request in a way that asks
@@ -292,8 +297,8 @@ func ShouldBackOff(err error) bool {
 }
 
 func isExistingLabel(err error) bool {
-	var refused *apiError
-	return errors.As(err, &refused) && refused.status == 422 && strings.Contains(refused.answer, "already_exists")
+	var refused *APIError
+	return errors.As(err, &refused) && refused.Status == 422 && strings.Contains(refused.answer, "already_exists")
 }
 
 // api sends one REST request through gh, each field as a string, and returns
@@ -308,9 +313,9 @@ func (g GitHub) api(ctx context.Context, method, path string, fields ...string) 
 		return nil, err
 	}
 	if result.ExitCode != 0 {
-		refused := &apiError{request: method + " " + path, message: strings.TrimSpace(string(result.Stderr)), answer: string(result.Stdout)}
+		refused := &APIError{request: method + " " + path, message: strings.TrimSpace(string(result.Stderr)), answer: string(result.Stdout)}
 		if match := httpStatus.FindStringSubmatch(refused.message); match != nil {
-			refused.status, _ = strconv.Atoi(match[1])
+			refused.Status, _ = strconv.Atoi(match[1])
 		}
 		if refused.message == "" {
 			refused.message = fmt.Sprintf("gh exited %d", result.ExitCode)
