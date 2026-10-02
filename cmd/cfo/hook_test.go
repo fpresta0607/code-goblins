@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -751,6 +754,7 @@ func setTinyAutoarmIntervals(t *testing.T) {
 	t.Setenv("CFO_HEARTBEAT", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", "1")
 	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "1")
+	t.Setenv("CFO_CLAUDE_AUTOARM_SETTLE_MS", "0")
 }
 
 // startLiveForeignProcess spawns a throwaway child process that stays alive
@@ -1320,6 +1324,64 @@ func TestRunHookSessionStartFullComposeOnStartup(t *testing.T) {
 	}
 }
 
+// The Overlord's report, 2026-10-01: the CFO does not survive an
+// auto-compact. Claude Code hands a session a hook's output whole only up to
+// digest.Limit characters and replaces a longer one with a preview of its
+// first 2 KB, so the 95 KB digest of a working home arrived as a session lock
+// and a few wake lines, under a contract saying every file had been read. For
+// every source that prints a digest, the hook's whole output fits, and it
+// names a file on disk that holds the context it left out.
+func TestRunHookSessionStartFitsWhatASessionIsHandedWhole(t *testing.T) {
+	for _, source := range []string{"startup", "compact", "clear", "resume"} {
+		t.Run(source, func(t *testing.T) {
+			dir := newPrimaryHome(t)
+			setAncestorPID(t, os.Getpid())
+			state, data := filepath.Join(dir, "state"), filepath.Join(dir, "data")
+			if err := os.MkdirAll(filepath.Join(data, "memory"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			directive := "- 2026-09-27: a standing directive of the Overlord, in his own words\n"
+			for name, size := range map[string]int{"overlord.md": 50_000, filepath.Join("memory", "MEMORY.md"): 30_000} {
+				if err := os.WriteFile(filepath.Join(data, name), []byte(strings.Repeat(directive, size/len(directive))), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 1; i <= 30; i++ {
+				id := fmt.Sprintf("cg-goblin-%02d", i)
+				meta := "goblin_id=" + id + "\nharness=claude\nmodel=claude-opus-5-5\nkind=ship\n"
+				if err := os.WriteFile(filepath.Join(state, id+".meta"), []byte(meta), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+
+			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
+
+			if exit != 0 {
+				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+			}
+			out := stdout.String()
+			if len(out) > digest.Limit {
+				t.Fatalf("the hook printed %d bytes, over the %d a session is handed whole", len(out), digest.Limit)
+			}
+			long := filepath.Join(state, digest.FullDigestFile)
+			if !strings.Contains(out, "READ THIS NEXT: "+long) {
+				t.Fatalf("the hook's digest does not point at %s:\n%s", long, out)
+			}
+			held, err := os.ReadFile(long)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(held), directive); got != 50_000/len(directive)+30_000/len(directive) {
+				t.Errorf("the long digest holds %d of the context lines the hook left out", got)
+			}
+			if strings.Contains(out, directive) {
+				t.Errorf("the hook printed a context file it says it left out:\n%s", out)
+			}
+		})
+	}
+}
+
 // TestRunHookSessionStartDegradesWakeReadErrorInline is the end-to-end leg
 // of Important 1's fix: a corrupt state\.wake-queue line must not turn the
 // SessionStart hook's output into a truncated four-line digest. The hook
@@ -1342,7 +1404,7 @@ func TestRunHookSessionStartDegradesWakeReadErrorInline(t *testing.T) {
 	out := stdout.String()
 	for _, header := range []string{
 		"== SESSION LOCK ==", "== WAKE QUEUE ==", "== SUPERVISION OPERATING INSTRUCTIONS ==",
-		"== READ-ONCE CONTRACT ==", "== FLEET STATE ==", "== CONTEXT ==", "== NEXT STEP ==",
+		"== FLEET ==", "== READ THIS NEXT ==", "== READ-ONCE CONTRACT ==", "== NEXT STEP ==",
 	} {
 		if !strings.Contains(out, header) {
 			t.Errorf("stdout missing header %q:\n%s", header, out)
@@ -1444,6 +1506,11 @@ func TestAutoarmPublishesEpisodeOnGenuineRunError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "FAILED after 1 attempt(s)") {
 		t.Errorf("stderr = %q, want it to contain FAILED after 1 attempt(s) (proves the fault injection landed on the FAILURE arm, not a heartbeat close)", stderr.String())
+	}
+	// The banner says which look at the watcher failed, so a failure nobody
+	// can reproduce still names its cause.
+	if !strings.Contains(stderr.String(), `Watcher: state\.watch.lock cannot be read`) {
+		t.Errorf("stderr = %q, want it to say the watcher lock record cannot be read", stderr.String())
 	}
 	episode, err := wake.ReadEpisode(state)
 	if err != nil {
@@ -1553,4 +1620,111 @@ func TestGoblinBlockedNotifyRewakesTheCFOWhileServeSupervises(t *testing.T) {
 		t.Fatalf("exit=%d stderr=%q, want the CFO rewoken for the goblin's question", exit, stderr)
 	}
 	assertEpochOutcome(t, state, "rewake")
+}
+
+// A session that starts, clears or compacts is handed the digest the hook
+// prints, so while AFK mode is on that digest says so before the wake queue,
+// with every line of its terms, within what a session is handed whole. The
+// digest package's own tests cannot see which digest the hook prints.
+func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
+	for _, source := range []string{"startup", "clear", "compact"} {
+		t.Run(source, func(t *testing.T) {
+			// Arrange
+			dir := newPrimaryHome(t)
+			setAncestorPID(t, os.Getpid())
+			state := filepath.Join(dir, "state")
+			if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+			// A fleet large enough to take all the room the digest has, so a
+			// notice printed without its size counted runs past the limit.
+			for i := 1; i <= 100; i++ {
+				id := fmt.Sprintf("cg-goblin-%03d", i)
+				meta := "goblin_id=" + id + "\nharness=claude\nmodel=claude-opus-5-5\nkind=ship\n"
+				if err := os.WriteFile(filepath.Join(state, id+".meta"), []byte(meta), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
+
+			// Assert
+			out := stdout.String()
+			notice := afk.NoticeFor(state)
+			if exit != 0 || len(notice) < 2 || len(out) > digest.Limit {
+				t.Fatalf("exit=%d, %d lines of notice, %d bytes printed of the %d a session is handed whole; stderr=%s", exit, len(notice), len(out), digest.Limit, stderr.String())
+			}
+			lockAt, noticeAt, queueAt := strings.Index(out, "== SESSION LOCK =="), strings.Index(out, "== AFK MODE =="), strings.Index(out, "== WAKE QUEUE ==")
+			if lockAt < 0 || noticeAt < lockAt || queueAt < noticeAt {
+				t.Fatalf("the hook's digest does not say AFK mode is on between the session lock and the wake queue:\n%s", out)
+			}
+			for _, line := range notice {
+				if !strings.Contains(out, line) {
+					t.Errorf("the hook's digest leaves out this line of AFK mode's notice: %q", line)
+				}
+			}
+		})
+	}
+}
+
+// A resumed session gets the short nudge instead of the digest, so while AFK
+// mode is on the nudge carries its banner: every way a session starts tells
+// the CFO it is on.
+func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
+	// Arrange
+	dir := newPrimaryHome(t)
+	state := filepath.Join(dir, "state")
+	foreign := startLiveForeignProcess(t)
+	ownerPID := foreign.Process.Pid
+	setAncestorPID(t, ownerPID)
+	if _, err := lock.AcquireOwner(state, ownerPID, "s0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, ".session-start-complete"), []byte(strconv.Itoa(ownerPID)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"resume"}`), &stdout, &stderr)
+
+	// Assert
+	banner := afk.BannerFor(state)
+	want := sessionStartNudge + banner + "\n"
+	if exit != 0 || banner == "" || stdout.String() != want {
+		t.Fatalf("exit=%d stdout=%q, want the nudge and then AFK mode's banner %q", exit, stdout.String(), want)
+	}
+}
+
+// The Stop hook's rewake is how a Claude Code CFO is woken, so while AFK mode
+// is on its banner says so on a line of its own.
+func TestAutoarmRewakeSaysAFKModeIsOn(t *testing.T) {
+	// Arrange
+	dir := newPrimaryHome(t)
+	setAncestorPID(t, os.Getpid())
+	setTinyAutoarmIntervals(t)
+	t.Setenv("CFO_CLAUDE_AUTOARM_WAIT", "30")
+	state := filepath.Join(dir, "state")
+	writeMetaFixture(t, state, "g1.meta")
+	servingWatcher(t, state)
+	if _, _, err := afk.TurnOn(state, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wake.Append(state, "notify", "g1", "blocked: Should I merge this?"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	exit, stderr, _ := runAutoarm(t)
+
+	// Assert
+	banner := afk.BannerFor(state)
+	if exit != 2 || banner == "" || !strings.Contains(stderr, "cfo watcher wake") || !strings.Contains(stderr, "\n"+banner) {
+		t.Fatalf("exit=%d stderr=%q, want the rewake banner with AFK mode's banner on its own line", exit, stderr)
+	}
 }

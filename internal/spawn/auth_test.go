@@ -3,16 +3,18 @@ package spawn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 )
 
 // stubPreflight stands in for the auth package so spawn's contribution -
-// where the credentials go and what the pane sees - is tested on its own.
+// where the credentials go and what the goblin sees - is tested on its own.
 type stubPreflight struct {
 	result   auth.Result
 	err      error
@@ -24,37 +26,32 @@ func (p *stubPreflight) Preflight(_ context.Context, project string) (auth.Resul
 	return p.result, p.err
 }
 
-func TestSpawnInjectsProjectCredentialsThroughAFileTheShellSources(t *testing.T) {
-	fixture := newFixture(t)
+// A goblin's project credentials ride the environment its terminal's host
+// starts with: no credential is typed, shown on its screen, or written to a
+// file at spawn.
+func TestSpawnHandsProjectCredentialsToTheGoblinThroughItsTerminalsEnvironment(t *testing.T) {
+	f := newQuickFixture(t)
 	preflight := &stubPreflight{result: auth.Result{
-		Env:     map[string]string{"STRIPE_SECRET_KEY": "sk_live_do_not_print", "DATABASE_URL": "postgres://db"},
-		Warning: "auth: 2/2 services green for primary",
+		Env:     map[string]string{"FIXTURE_TOKEN": "sk_live_do_not_print"},
+		Warning: "auth: 1/1 services green for primary",
 	}}
-	fixture.service.Auth = preflight
+	f.service.Auth = preflight
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
+
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-
-	// The pane shell only ever sees a path. A credential typed inline would
-	// sit in the pane's scrollback and in every `cfo peek`.
-	if strings.Contains(fixture.runner.literals[0], "sk_live_do_not_print") {
-		t.Fatalf("the typed launch line disclosed a credential: %q", fixture.runner.literals[0])
+	if got := named(f.events(t), "env")[0].Env["FIXTURE_TOKEN"]; got == nil || *got != "sk_live_do_not_print" {
+		t.Errorf("the goblin started with FIXTURE_TOKEN = %v, want the project credential", got)
 	}
-	secrets := filepath.Join(result.Meta.TaskTmp, "auth.ps1")
-	if !strings.Contains(fixture.runner.literals[0], ". '"+secrets+"'") {
-		t.Fatalf("literal = %q, want it to dot-source %q", fixture.runner.literals[0], secrets)
-	}
-
-	script, err := os.ReadFile(secrets)
-	if err != nil {
-		t.Fatalf("read secrets script: %v", err)
-	}
-	for _, want := range []string{"$env:DATABASE_URL = 'postgres://db'", "$env:STRIPE_SECRET_KEY = 'sk_live_do_not_print'"} {
-		if !strings.Contains(string(script), want) {
-			t.Errorf("secrets script lacks %q:\n%s", want, script)
+	for _, event := range f.events(t) {
+		if event.Event != "env" && strings.Contains(event.Text, "sk_live_do_not_print") {
+			t.Errorf("the credential reached the goblin's screen: %+v", event)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(result.Meta.TaskTmp, "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a credential script was written at spawn: %v", err)
 	}
 	if len(preflight.projects) != 1 || preflight.projects[0] != result.Meta.Project {
 		t.Errorf("preflight projects = %v, want the canonical project once", preflight.projects)
@@ -117,13 +114,13 @@ func TestWriteAuthScriptFailureLeavesNoArtifacts(t *testing.T) {
 }
 
 func TestSpawnReportsABlockedPreflightInItsOutput(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.service.Auth = &stubPreflight{result: auth.Result{
-		Env:     map[string]string{"DATABASE_URL": "postgres://db"},
+	f := newQuickFixture(t)
+	f.service.Auth = &stubPreflight{result: auth.Result{
+		Env:     map[string]string{"FIXTURE_TOKEN": "t0ken"},
 		Warning: "auth: 1/2 services green for primary; BLOCKING: stripe (expired)",
 	}}
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -137,95 +134,64 @@ func TestSpawnReportsABlockedPreflightInItsOutput(t *testing.T) {
 	}
 }
 
-func TestSpawnProceedsWhenAProjectDeclaresNothing(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.service.Auth = &stubPreflight{}
+// A project with nothing to inject still starts its goblin with no harness
+// billing key: a key inherited from the user environment is the case with
+// nothing declared at all, and a harness that finds one bills it instead of
+// the subscription.
+func TestSpawnStartsAGoblinWithNoBillingKeyWhenAProjectDeclaresNothing(t *testing.T) {
+	f := newQuickFixture(t)
+	f.service.Auth = &stubPreflight{}
+	f.userEnv = append(f.userEnv, "OPENAI_API_KEY=a user-scope billing key")
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	// A project with nothing to inject still gets the secrets script, because
-	// that script is also what strips every harness billing key from the pane
-	// before the harness starts. The strip must run whether or not the project
-	// declared credentials: a key inherited from the user environment is the
-	// case with nothing declared at all.
-	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
-	if err != nil {
-		t.Fatalf("a project with no credentials must still get the billing-key strip script: %v", err)
-	}
-	if !strings.Contains(string(script), "Remove-Item -Path Env:ANTHROPIC_API_KEY") {
-		t.Errorf("secrets script does not strip ANTHROPIC_API_KEY: %q", script)
-	}
-	if strings.Contains(string(script), "$env:") {
-		t.Errorf("secrets script assigned a value with nothing to inject: %q", script)
-	}
-	if !strings.Contains(fixture.runner.literals[0], "auth.ps1") {
-		t.Errorf("literal = %q, want the strip script dot-sourced even with nothing to inject", fixture.runner.literals[0])
+	if got := named(f.events(t), "env")[0].Env["OPENAI_API_KEY"]; got != nil {
+		t.Errorf("the goblin started with OPENAI_API_KEY = %q, want no billing key", *got)
 	}
 }
 
-func TestSpawnKeepsTheHarnessEnvironmentAuthoritative(t *testing.T) {
-	fixture := newFixture(t)
-	// A manifest must not be able to redirect the harness's own launch
-	// contract by declaring a variable the adapter already owns.
-	fixture.service.Auth = &stubPreflight{result: auth.Result{Env: map[string]string{"GOTMPDIR": "C:\\hijacked", "SAFE_KEY": "value"}}}
+// Credentials are merged under the launch contract, so a credential can never
+// redirect a variable the launch owns, whether it names it exactly or by
+// another case, which Windows reads as the same variable; names the launch
+// writes only at harness start are reserved all the same.
+func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
+	for name, env := range map[string]map[string]string{
+		"exact names":     {"GOTMPDIR": `C:\hijacked`, "CFO_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"case-aliased":    {"gotmpdir": `C:\hijacked`, "cfo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"the goblin role": {"Cfo_Role": "cfo", "FIXTURE_TOKEN": "t0ken"},
+		"the task's own":  {"cfo_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newQuickFixture(t)
+			f.service.Auth = &stubPreflight{result: auth.Result{Env: env}}
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
-	if err != nil {
-		t.Fatalf("read secrets script: %v", err)
-	}
-	if strings.Contains(string(script), "hijacked") {
-		t.Errorf("secrets script overrode the harness environment:\n%s", script)
-	}
-	if !strings.Contains(string(script), "$env:SAFE_KEY = 'value'") {
-		t.Errorf("secrets script dropped an unrelated credential:\n%s", script)
-	}
-	if !strings.Contains(fixture.runner.literals[0], "$env:GOTMPDIR = '"+goTmpDir(t, fixture.stateDir, result.Meta.ID)+"'") {
-		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literals[0])
-	}
-}
+			result, err := f.service.Spawn(context.Background(), f.request)
 
-func TestSpawnDropsCaseAliasedReservedCredentials(t *testing.T) {
-	fixture := newFixture(t)
-	// Credentials reach the pane through the same PowerShell the launch
-	// contract does, so a case-aliased reserved name would redirect it just
-	// as an exact one would; both are dropped, and names the launch writes
-	// only at harness start are reserved all the same.
-	fixture.service.Auth = &stubPreflight{result: auth.Result{Env: map[string]string{
-		"gotmpdir":           `C:\hijacked`,
-		"cfo_state_override": `C:\hijacked`,
-		"SAFE_KEY":           "value",
-	}}}
-
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
-	if err != nil {
-		t.Fatalf("read secrets script: %v", err)
-	}
-	if strings.Contains(string(script), "hijacked") {
-		t.Errorf("secrets script carries a case-aliased reserved name:\n%s", script)
-	}
-	if !strings.Contains(string(script), "$env:SAFE_KEY = 'value'") {
-		t.Errorf("secrets script dropped an unrelated credential:\n%s", script)
-	}
-	if !strings.Contains(fixture.runner.literals[0], "$env:CFO_STATE_OVERRIDE = '"+fixture.stateDir+"'") {
-		t.Errorf("literal = %q, want the harness CFO_STATE_OVERRIDE intact", fixture.runner.literals[0])
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			started := named(f.events(t), "env")[0].Env
+			for variable, want := range map[string]string{
+				"GOTMPDIR":           goTmpDir(t, f.stateDir, result.Meta.ID),
+				"CFO_STATE_OVERRIDE": f.stateDir,
+				"CFO_ROLE":           harness.RoleGoblin,
+				"CFO_TASK_ID":        "task-7",
+				"FIXTURE_TOKEN":      "t0ken",
+			} {
+				if got := started[variable]; got == nil || *got != want {
+					t.Errorf("the goblin started with %s = %v, want %q", variable, got, want)
+				}
+			}
+		})
 	}
 }
 
 func TestSpawnFailsLoudlyWhenThePreflightItselfBreaks(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.service.Auth = &stubPreflight{err: errTestPreflight}
+	f := newFixture(t)
+	f.service.Auth = &stubPreflight{err: errTestPreflight}
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil || !strings.Contains(err.Error(), "project auth preflight") {
 		t.Fatalf("err = %v, want the preflight failure surfaced", err)
 	}
@@ -238,14 +204,14 @@ type preflightError struct{}
 func (*preflightError) Error() string { return "credential store is unreachable" }
 
 func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Yolo = false
-	fixture.service.Auth = &stubPreflight{result: auth.Result{
+	f := newFixture(t)
+	f.request.Yolo = false
+	f.service.Auth = &stubPreflight{result: auth.Result{
 		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
 		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    cfo auth store --project primary DATABASE_URL",
 	}}
 
-	_, err := fixture.service.Spawn(context.Background(), fixture.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 	if err == nil {
 		t.Fatal("Spawn = nil, want a red blocking service to stop the dispatch")
 	}
@@ -257,15 +223,15 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 }
 
 func TestSpawnDispatchesOverARedServiceUnderYolo(t *testing.T) {
-	fixture := newFixture(t)
-	fixture.request.Yolo = true
-	fixture.service.Auth = &stubPreflight{result: auth.Result{
-		Env:     map[string]string{"SAFE_KEY": "value"},
+	f := newQuickFixture(t)
+	f.request.Yolo = true
+	f.service.Auth = &stubPreflight{result: auth.Result{
+		Env:     map[string]string{"FIXTURE_TOKEN": "t0ken"},
 		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
 		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL",
 	}}
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -276,11 +242,11 @@ func TestSpawnDispatchesOverARedServiceUnderYolo(t *testing.T) {
 }
 
 func TestSpawnRunsTheCredentialPreflightExactlyOnce(t *testing.T) {
-	fixture := newFixture(t)
-	preflight := &stubPreflight{result: auth.Result{Env: map[string]string{"SAFE_KEY": "value"}}}
-	fixture.service.Auth = preflight
+	f := newQuickFixture(t)
+	preflight := &stubPreflight{result: auth.Result{Env: map[string]string{"FIXTURE_TOKEN": "t0ken"}}}
+	f.service.Auth = preflight
 
-	if _, err := fixture.service.Spawn(context.Background(), fixture.request); err != nil {
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	// Probing twice doubles the preflight's wall clock and can report two
@@ -290,71 +256,68 @@ func TestSpawnRunsTheCredentialPreflightExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestSpawnCarriesTheSharedCachesInThePaneEnvironmentNotTheSecretsFile(t *testing.T) {
-	fixture := newFixture(t)
-	// Cache locations are paths on this machine, not credentials, so they
-	// ride the launch environment the pane shell writes. Routing them through
-	// the restricted secrets file would make an audit of what a goblin holds
-	// unreadable, and redacting a directory helps nobody.
-	fixture.service.Auth = &stubPreflight{result: auth.Result{
-		Env:    map[string]string{"SAFE_KEY": "value"},
+// Cache locations are paths on this machine, not credentials, and they reach
+// the goblin's environment all the same; the launch contract still wins, so a
+// cache redirect cannot take a name the adapter already owns.
+func TestSpawnCarriesTheSharedCachesInTheGoblinsEnvironment(t *testing.T) {
+	f := newQuickFixture(t)
+	f.service.Auth = &stubPreflight{result: auth.Result{
+		Env:    map[string]string{"FIXTURE_TOKEN": "t0ken"},
 		Caches: map[string]string{"UV_CACHE_DIR": `C:\cfo\caches\uv`, "GOTMPDIR": `C:\hijacked`},
 	}}
 
-	result, err := fixture.service.Spawn(context.Background(), fixture.request)
+	result, err := f.service.Spawn(context.Background(), f.request)
+
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	if !strings.Contains(fixture.runner.literals[0], `$env:UV_CACHE_DIR = 'C:\cfo\caches\uv'`) {
-		t.Errorf("literal = %q, want the shared uv cache redirected in the pane", fixture.runner.literals[0])
+	started := named(f.events(t), "env")[0].Env
+	if got := started["UV_CACHE_DIR"]; got == nil || *got != `C:\cfo\caches\uv` {
+		t.Errorf("the goblin started with UV_CACHE_DIR = %v, want the shared uv cache", got)
 	}
-	// The launch contract still wins: a cache redirect cannot take a name the
-	// adapter already owns.
-	if strings.Contains(fixture.runner.literals[0], "hijacked") {
-		t.Errorf("literal = %q, want the harness GOTMPDIR intact", fixture.runner.literals[0])
-	}
-	script, err := os.ReadFile(filepath.Join(result.Meta.TaskTmp, "auth.ps1"))
-	if err != nil {
-		t.Fatalf("read secrets script: %v", err)
-	}
-	if strings.Contains(string(script), "UV_CACHE_DIR") {
-		t.Errorf("a cache path was written into the restricted secrets file:\n%s", script)
+	if got := started["GOTMPDIR"]; got == nil || *got != goTmpDir(t, f.stateDir, result.Meta.ID) {
+		t.Errorf("the goblin started with GOTMPDIR = %v, want the task's own", got)
 	}
 }
 
 // A server that authenticates by bearerTokenEnvVar is handed to the goblin
-// only when that variable will be set in its pane: a declared project
-// credential, or one the pane inherits from the environment cfo runs in. A
-// harness billing key never counts, because the credentials script strips it
-// from the pane. A kept server's token reaches the file Claude reads as a
-// reference Claude expands, never as its value, and a withheld server is
-// named with its variable on the spawned line.
+// only when that variable is set in the environment its terminal starts with:
+// a declared project credential, or one of the user's own variables. A
+// harness billing key never counts, because no goblin starts with one. A kept
+// server's token reaches the file Claude reads as a reference Claude expands,
+// never as its value, and a withheld server is named with its variable on the
+// spawned line.
 func TestSpawnHandsATokenServerToTheGoblinOnlyWhenItsVariableIsSet(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		variable   string
-		value      string
-		isDeclared bool
-		isKept     bool
+		name         string
+		variable     string
+		value        string
+		isDeclared   bool
+		isUserScoped bool
+		isKept       bool
 	}{
 		{name: "declared as a project credential", variable: "NEON_API_KEY", value: "declared-token", isDeclared: true, isKept: true},
-		{name: "inherited from the environment", variable: "NEON_API_KEY", value: "inherited-token", isKept: true},
-		{name: "a harness billing key", variable: "OPENAI_API_KEY", value: "inherited-token"},
+		{name: "set in the user's environment", variable: "NEON_API_KEY", value: "users-token", isUserScoped: true, isKept: true},
+		{name: "a harness billing key", variable: "OPENAI_API_KEY", value: "users-token", isUserScoped: true},
 		{name: "set nowhere", variable: "NEON_API_KEY"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.variable, "")
+			f := newQuickFixture(t)
+			specs := []harness.LaunchSpec{}
+			f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, specs: &specs}}}
 			preflight := &stubPreflight{}
 			if test.isDeclared {
-				t.Setenv(test.variable, "")
 				preflight.result.Env = map[string]string{test.variable: test.value}
-			} else {
-				t.Setenv(test.variable, test.value)
 			}
-			fixture := newFixture(t)
-			fixture.service.Auth = preflight
-			writeFile(t, filepath.Join(fixture.project, ".mcp.json"), `{"mcpServers":{"neon":{"url":"https://mcp.neon.tech/mcp","bearerTokenEnvVar":"`+test.variable+`"}}}`)
+			if test.isUserScoped {
+				f.userEnv = append(f.userEnv, test.variable+"="+test.value)
+			}
+			f.service.Auth = preflight
+			writeFile(t, filepath.Join(f.project, ".mcp.json"), `{"mcpServers":{"neon":{"url":"https://mcp.neon.tech/mcp","bearerTokenEnvVar":"`+test.variable+`"}}}`)
 
-			result, err := fixture.service.Spawn(context.Background(), fixture.request)
+			result, err := f.service.Spawn(context.Background(), f.request)
+
 			if err != nil {
 				t.Fatalf("Spawn: %v", err)
 			}
@@ -362,7 +325,7 @@ func TestSpawnHandsATokenServerToTheGoblinOnlyWhenItsVariableIsSet(t *testing.T)
 			if got := strings.Contains(result.Output, withheld); got == test.isKept {
 				t.Errorf("output names neon withheld = %v, want %v:\n%s", got, !test.isKept, result.Output)
 			}
-			handed := fixture.specs[len(fixture.specs)-1].MCPConfig
+			handed := specs[len(specs)-1].MCPConfig
 			if !test.isKept {
 				if handed != "" {
 					t.Errorf("MCPConfig = %q, want none once neon is withheld", handed)

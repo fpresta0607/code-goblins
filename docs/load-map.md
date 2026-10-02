@@ -51,7 +51,8 @@ Subagents come from `.claude/agents`, `~/.claude/agents` and plugins.
 
 **Hooks.**
 Hooks merge across every settings scope: managed settings, `--settings`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.claude/settings.json`, and enabled plugins.
-A `SessionStart` hook's output is injected into the session; output larger than about 10 KB is saved to a file and only a short preview is injected.
+A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
+The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
 `cfo install` merges the CFO's hooks into `~/.claude/settings.json`.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
 
@@ -176,7 +177,9 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 ## The CFO's memory
 
-The `cfo session-start` digest prints the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full, and points the CFO at `data/memory/` for writing facts.
+The SessionStart hook prints a brief digest: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
+That file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
+Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.
 The `stow` skill keeps `data/overlord.md` and `data/memory/` inside a startup budget, and the backlog current: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The board as the Overlord approved it: a kanban of Tasks, In progress and
 // Completed side by side, paused tasks inside In progress under a divider,

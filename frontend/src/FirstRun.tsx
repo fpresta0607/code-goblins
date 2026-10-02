@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./Icon";
 import { startState } from "./firstRunStart";
 import { parseSetup } from "./types";
 
-const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "openai", pi: "pi" };
+const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
 
 // FirstRun is the page the board's root shows while no CFO runs. It shows as
 // done what the terminal quick start already knows, the home the CFO starts

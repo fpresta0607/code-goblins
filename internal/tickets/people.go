@@ -11,7 +11,12 @@ import (
 var knownBots = []string{"claude", "copilot", "copilot-swe-agent", "cursoragent", "devin-ai-integration", "github-actions", "dependabot"}
 
 // isBot reports whether an actor is an automated account: typed as a bot by
-// GitHub, named with the [bot] suffix, or one of knownBots.
+// GitHub, named with the [bot] suffix, one of knownBots, or named with bot or
+// robot as its last word (northwind-deps-bot, ci_robot, Release Bot).
+//
+// A name that only ends in those letters (talbot, northwindbot) stays a
+// person: counting a bot as a person costs a refusal someone reads, while
+// counting a person as a bot would hide a teammate's work.
 func isBot(actor Actor) bool {
 	if actor.IsBot {
 		return true
@@ -22,6 +27,10 @@ func isBot(actor Actor) bool {
 			continue
 		}
 		if strings.HasSuffix(name, "[bot]") || slices.Contains(knownBots, name) {
+			return true
+		}
+		words := strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' || r == '.' || r == ' ' })
+		if len(words) > 1 && (words[len(words)-1] == "bot" || words[len(words)-1] == "robot") {
 			return true
 		}
 	}
