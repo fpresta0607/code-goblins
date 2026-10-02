@@ -4,7 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -294,6 +294,54 @@ test("a wide family of goblins wraps into rows that never overlap", () => {
     const center = card.x + NODE_WIDTH / 2;
     assert.ok(first.every((above) => center < above.x || center > above.x + NODE_WIDTH), JSON.stringify({ card, first }));
   }
+});
+
+// The eight goblins on the canvas the Overlord showed on 2026-10-01, in their
+// order there: cg-board-theme waited on cg-cfo-wakes, and
+// cg-credential-requests sat where he had placed it by hand, under
+// pd-connect-quickstart's arranged place.
+const FLEET = ["cg-native-desktop", "cg-board-theme", "cg-cfo-wakes", "cg-hidden-windows", "cg-review-editor-sync", "cg-credential-requests", "pd-connect-quickstart", "cg-install-no-mistakes-pinned"];
+const PLACED_BY_HAND = { "task:cg-credential-requests": { x: 686, y: 542 } };
+const fleet = (count: number, waits: Record<string, string> = {}) => parseSnapshot({ healthy: true, tasks: FLEET.slice(0, count).map((id) => ({ id, phase: waits[id] ? "waiting" : "working", waiting_on: waits[id] || "", verified: false })) });
+const overlaps = (positions: Record<string, { x: number; y: number }>) => Object.entries(positions).flatMap(([id, one], i, all) => all.slice(i + 1)
+  .filter(([, other]) => Math.abs(one.x - other.x) < NODE_WIDTH && Math.abs(one.y - other.y) < NODE_HEIGHT).map(([other]) => id + " and " + other));
+
+test("a goblin waiting on another sits in the row under it, half a card over, and no card covers another", () => {
+  for (const count of [3, 5, FLEET.length]) {
+    const nodes = workflowNodes(fleet(count, { "cg-board-theme": "cg-cfo-wakes" }));
+    const positions = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes" });
+    const waiting = positions["task:cg-board-theme"], awaited = positions["task:cg-cfo-wakes"];
+    assert.equal(waiting.y, awaited.y + 244, count + " goblins: in the row under it");
+    assert.equal(Math.abs(waiting.x - awaited.x), (NODE_WIDTH + 44) / 2, count + " goblins: half a card over");
+    assert.deepEqual(overlaps(positions), [], count + " goblins");
+  }
+});
+
+test("a chain or a cycle of waits keeps its places, and only the first link moves under its goblin", () => {
+  const nodes = workflowNodes(fleet(FLEET.length));
+  const family = arrange(nodes);
+  const chain = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-hidden-windows" });
+  assert.equal(chain["task:cg-cfo-wakes"].y, chain["task:cg-hidden-windows"].y + 244);
+  assert.ok([...new Set(Object.values(family).map((point) => point.y))].includes(chain["task:cg-board-theme"].y), "the waiting end of a chain stays in a family row");
+  assert.deepEqual(overlaps(chain), []);
+  const cycle = arrange(nodes, { "task:cg-board-theme": "task:cg-cfo-wakes", "task:cg-cfo-wakes": "task:cg-board-theme" });
+  assert.deepEqual(cycle, family);
+});
+
+test("the dashed line's goblins are the waiting one and the one it waits on, on the canvas", () => {
+  const snapshot = fleet(3, { "cg-board-theme": "cg-cfo-wakes", "cg-native-desktop": "overlord" });
+  assert.deepEqual(waitingOn(snapshot, workflowNodes(snapshot)), { "task:cg-board-theme": "task:cg-cfo-wakes" });
+});
+
+test("no card covers another, whatever the Overlord placed by hand", () => {
+  const arranged = arrange(workflowNodes(fleet(FLEET.length)));
+  assert.notDeepEqual(overlaps({ ...arranged, ...PLACED_BY_HAND }), [], "his placed card covers an arranged one");
+  const shown = settle(arranged, PLACED_BY_HAND);
+  assert.deepEqual(overlaps(shown), []);
+  assert.deepEqual(shown["task:cg-credential-requests"], PLACED_BY_HAND["task:cg-credential-requests"], "his card stays where he put it");
+  assert.notDeepEqual(shown["task:pd-connect-quickstart"], arranged["task:pd-connect-quickstart"], "the covered card moves");
+  assert.deepEqual(shown["task:cg-cfo-wakes"], arranged["task:cg-cfo-wakes"], "a card nothing covers keeps its place");
+  assert.deepEqual(settle(arranged, {}), arranged);
 });
 
 test("a connector pulses only when a goblin reports something new", () => {

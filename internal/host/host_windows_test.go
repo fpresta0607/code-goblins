@@ -178,13 +178,29 @@ func launch(t *testing.T) (string, Record) {
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
+	pin(t, record.HostPID)
 	t.Cleanup(func() { end(record.HostPID) })
 	// Every check of the terminal's process leans on this pid, and a pid
 	// that names nothing reads as ended.
 	if record.ChildPID == record.HostPID || !running(record.ChildPID) {
 		t.Fatalf("record %+v does not name a running terminal process", record)
 	}
+	pin(t, record.ChildPID)
 	return stateDir, record
+}
+
+// pin keeps pid the pid of the process it names now until the test ends.
+// Windows hands an ended process's pid to a later one once no handle to the
+// ended one is left, and every check here is by pid: unpinned, a later process
+// under a host's pid would read as the host still running, and end would stop
+// it.
+func pin(t *testing.T, pid int) {
+	t.Helper()
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("pin pid %d: %v", pid, err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(handle) })
 }
 
 // end stops a process this test started, by its pid.
