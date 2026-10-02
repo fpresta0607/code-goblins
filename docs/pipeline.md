@@ -176,10 +176,12 @@ A build ignores a field it does not know, so the build a gate has installed keep
 A file that does not parse, or a version the build does not know, makes the change require `full`.
 A repository with no policy file has no slow packages.
 
-Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and prints the report's path in its last line.
+Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names another folder for them.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, or `not_run` when an earlier command failed.
-The newest 20 reports of a project are kept.
+The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
+A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
 
 ## Reading speed evidence

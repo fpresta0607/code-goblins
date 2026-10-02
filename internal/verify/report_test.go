@@ -101,8 +101,8 @@ func TestBeginGivesRunsThatStartTogetherTheirOwnFiles(t *testing.T) {
 
 // The store keeps a project's newest reports and removes the oldest with
 // their logs, so it never grows without bound. A log with no report belongs
-// to a run still going and stays however old it is, and one project's runs
-// never remove another's.
+// to a run still going and stays however long ago that run started, and one
+// project's runs never remove another's.
 func TestFinishKeepsOnlyAProjectsNewestReportsAndTheirLogs(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
@@ -132,6 +132,108 @@ func TestFinishKeepsOnlyAProjectsNewestReportsAndTheirLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("another project's report was removed: %v", err)
+	}
+}
+
+// gone reports whether a run's report and its log are both removed, and
+// fails the test when only one of them is.
+func gone(t *testing.T, report string) bool {
+	t.Helper()
+	_, reportErr := os.Stat(report)
+	_, logErr := os.Stat(strings.TrimSuffix(report, ".json") + ".log")
+	if os.IsNotExist(reportErr) != os.IsNotExist(logErr) {
+		t.Fatalf("%s: report gone %v, log gone %v; want both or neither", report, os.IsNotExist(reportErr), os.IsNotExist(logErr))
+	}
+	return os.IsNotExist(reportErr)
+}
+
+// A run that started before every other report of a full store, as a long
+// run does while short ones finish around it, keeps the report it just wrote
+// and its log: the oldest of the others makes room for it.
+func TestFinishKeepsTheReportItJustWroteHoweverEarlyItsRunStarted(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	var others []string
+	for minute := range keptReports {
+		others = append(others, run(t, "code-goblins", started.Add(time.Duration(minute)*time.Minute), "0123456789abcdef"))
+	}
+
+	// Act
+	long := run(t, "code-goblins", started.Add(-time.Hour), "0123456789abcdef")
+
+	// Assert
+	if gone(t, long) {
+		t.Errorf("the run removed the report it just wrote, %s", long)
+	}
+	for index, path := range others {
+		if removed := gone(t, path); removed != (index == 0) {
+			t.Errorf("other run %d of %d: gone %v; want only the oldest gone", index+1, len(others), removed)
+		}
+	}
+}
+
+// The reports kept are the ones written last, whenever their runs started:
+// a long run's report outlives a later run's finish while reports written
+// before it remain to remove.
+func TestFinishKeepsTheReportsWrittenLastWhenALaterRunFinishes(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	var others []string
+	for minute := range keptReports - 1 {
+		path := run(t, "code-goblins", started.Add(time.Duration(minute)*time.Minute), "0123456789abcdef")
+		written := time.Now().Add(time.Duration(minute)*time.Minute - time.Hour)
+		if err := os.Chtimes(path, written, written); err != nil {
+			t.Fatal(err)
+		}
+		others = append(others, path)
+	}
+	long := run(t, "code-goblins", started.Add(-time.Hour), "0123456789abcdef")
+
+	// Act
+	later := run(t, "code-goblins", started.Add(time.Hour), "0123456789abcdef")
+
+	// Assert
+	if gone(t, long) || gone(t, later) {
+		t.Errorf("the two reports written last are not both kept: %s, %s", long, later)
+	}
+	for index, path := range others {
+		if removed := gone(t, path); removed != (index == 0) {
+			t.Errorf("other run %d of %d: gone %v; want only the one written first gone", index+1, len(others), removed)
+		}
+	}
+}
+
+// A log with no report that nothing has written to for more than a day
+// belongs to a run that never finished, and the project's next finish
+// removes it; another project's is not this run's to remove.
+func TestFinishRemovesAReportlessLogOlderThanADay(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	abandoned := func(project string) string {
+		log, _, err := Begin(project, started, "0123456789abcdef", "fast")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := log.Close(); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-25 * time.Hour)
+		if err := os.Chtimes(log.Name(), old, old); err != nil {
+			t.Fatal(err)
+		}
+		return log.Name()
+	}
+	stale, elsewhere := abandoned("code-goblins"), abandoned("another-project")
+
+	// Act
+	run(t, "code-goblins", started, "0123456789abcdef")
+
+	// Assert
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("a log with no report, last written 25 hours ago, is still there: %v", err)
+	}
+	if _, err := os.Stat(elsewhere); err != nil {
+		t.Errorf("another project's log was removed: %v", err)
 	}
 }
 

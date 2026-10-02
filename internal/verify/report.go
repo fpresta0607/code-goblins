@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,10 @@ const ReportVersion = 1
 
 // keptReports is how many of a project's reports the store keeps.
 const keptReports = 20
+
+// abandonedLogAge is how long a log with no report goes unwritten before it
+// is taken for one no run is writing: no run lasts a day.
+const abandonedLogAge = 24 * time.Hour
 
 // Report is what one verification run planned and did.
 type Report struct {
@@ -126,22 +131,47 @@ func folder(project string) string {
 	return name
 }
 
-// Finish writes a run's report to path, the one Begin gave, and keeps the
-// project's newest reports: an older one is removed with its log. A log with
-// no report belongs to a run that has not finished and is left alone, and a
-// file another process holds open stays for a later run to remove.
+// Finish writes a run's report to path, the one Begin gave, and keeps it
+// with the project's other reports written last, whenever their runs
+// started: a report written before those is removed with its log, and never
+// the one just written. A log with no report belongs to a run that has not
+// finished and is left alone until nothing has written to it for
+// abandonedLogAge, when it is removed too: that is the log of a run that
+// never finished, or one another process held open while its report was
+// removed.
 func Finish(path string, report Report) error {
 	if err := Save(path, report); err != nil {
 		return err
 	}
-	reports, err := filepath.Glob(filepath.Join(filepath.Dir(path), "*.json"))
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	slices.Sort(reports)
-	for _, old := range reports[:max(0, len(reports)-keptReports)] {
-		os.Remove(strings.TrimSuffix(old, ".json") + ".log")
-		os.Remove(old)
+	written := map[string]time.Time{}
+	var others []string
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		written[entry.Name()] = info.ModTime()
+		if strings.HasSuffix(entry.Name(), ".json") && entry.Name() != filepath.Base(path) {
+			others = append(others, entry.Name())
+		}
+	}
+	slices.SortFunc(others, func(a, b string) int {
+		return cmp.Or(written[a].Compare(written[b]), strings.Compare(a, b))
+	})
+	for _, old := range others[:max(0, len(others)-(keptReports-1))] {
+		os.Remove(filepath.Join(dir, strings.TrimSuffix(old, ".json")+".log"))
+		os.Remove(filepath.Join(dir, old))
+	}
+	for name, at := range written {
+		run, isLog := strings.CutSuffix(name, ".log")
+		if _, hasReport := written[run+".json"]; isLog && !hasReport && time.Since(at) > abandonedLogAge {
+			os.Remove(filepath.Join(dir, name))
+		}
 	}
 	return nil
 }
