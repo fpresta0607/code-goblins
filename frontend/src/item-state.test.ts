@@ -55,11 +55,11 @@ test("a snapshot with nothing to hold comes back as it was", () => {
 test("what he sent closes its item before the board hears back, as the supervisor will record it", () => {
   const snapshot = board({ questions: [question("train"), question("strays")], reviews: [review("shots"), review("plan")] });
   const cases: [string, string, Sent, (held: ReturnType<typeof board>) => unknown, unknown][] = [
-    ["an answer", "question:train", { kind: "cfo_answer", id: "a1", text: "Merge it", answer_kind: "option", identity: "i-train", created_at: AT }, (held) => { const q = held.questions!.find((q) => q.id === "train")!; return [q.status, q.answer_id, q.answer, q.answer_kind]; }, ["queued", "a1", "Merge it", "option"]],
-    ["a goblin's answer", "question:train", { kind: "goblin_answer", id: "a2", text: "Hold it", answer_kind: "option", identity: "i-train", created_at: AT }, (held) => held.questions!.find((q) => q.id === "train")!.status, "queued"],
-    ["a dismissed question", "question:strays", { kind: "question_clear", id: "a3", text: "", answer_kind: "", identity: "i-strays", created_at: AT }, (held) => { const q = held.questions!.find((q) => q.id === "strays")!; return [q.status, q.message]; }, ["cleared", "You dismissed it: answered elsewhere or no longer needed."]],
-    ["a review answer", "review:shots", { kind: "review_answer", id: "a4", text: "They read well", answer_kind: "", identity: "r-shots", created_at: AT }, (held) => { const r = held.reviews!.find((r) => r.id === "shots")!; return [r.state, r.answer, r.answer_id]; }, ["answered", "They read well", "a4"]],
-    ["a cleared review", "review:plan", { kind: "review_clear", id: "a5", text: "Opened", answer_kind: "", identity: "r-plan", created_at: AT }, (held) => { const r = held.reviews!.find((r) => r.id === "plan")!; return [r.state, r.reason]; }, ["cleared", "Opened"]],
+    ["an answer", "question:train", { kind: "cfo_answer", id: "a1", text: "Merge it", answer_kind: "option", created_at: AT }, (held) => { const q = held.questions!.find((q) => q.id === "train")!; return [q.status, q.answer_id, q.answer, q.answer_kind]; }, ["queued", "a1", "Merge it", "option"]],
+    ["a goblin's answer", "question:train", { kind: "goblin_answer", id: "a2", text: "Hold it", answer_kind: "option", created_at: AT }, (held) => held.questions!.find((q) => q.id === "train")!.status, "queued"],
+    ["a dismissed question", "question:strays", { kind: "question_clear", id: "a3", text: "", answer_kind: "", created_at: AT }, (held) => { const q = held.questions!.find((q) => q.id === "strays")!; return [q.status, q.message]; }, ["cleared", "You dismissed it: answered elsewhere or no longer needed."]],
+    ["a review answer", "review:shots", { kind: "review_answer", id: "a4", text: "They read well", answer_kind: "", created_at: AT }, (held) => { const r = held.reviews!.find((r) => r.id === "shots")!; return [r.state, r.answer, r.answer_id]; }, ["answered", "They read well", "a4"]],
+    ["a cleared review", "review:plan", { kind: "review_clear", id: "a5", text: "Opened", answer_kind: "", created_at: AT }, (held) => { const r = held.reviews!.find((r) => r.id === "plan")!; return [r.state, r.reason]; }, ["cleared", "Opened"]],
   ];
   for (const [name, key, sent, read, want] of cases) {
     const held = holdClosed(snapshot, nothing, new Map([[key, sent]]));
@@ -71,7 +71,7 @@ test("what he sent closes its item before the board hears back, as the superviso
 
 test("a command he runs stays on its card while it runs", () => {
   const snapshot = board({ runs: [{ id: "install", identity: "c", title: "Install the build", state: "ready", created_at: "2026-10-02T11:00:00Z" }] });
-  const held = holdClosed(snapshot, nothing, new Map([["run:install", { kind: "run", id: "a1", text: "", answer_kind: "", identity: "c", created_at: AT }]]));
+  const held = holdClosed(snapshot, nothing, new Map([["run:install", { kind: "run", id: "a1", text: "", answer_kind: "", created_at: AT }]]));
   assert.equal(held, snapshot);
 });
 
@@ -82,19 +82,19 @@ test("the board remembers the newest closed items and forgets the oldest past it
   assert.ok(!memory.has("question:q0") && memory.has("question:q519"));
 });
 
-test("an ID published again is a new item and shows open, whatever the board remembers of the earlier one", () => {
+test("an ID published again shows open, and an item whose identity moved stays held", () => {
   const run = (state: string, extra: Record<string, unknown> = {}) => ({ id: "install", identity: "u-install", title: "Install the build", state, created_at: AT, ...extra });
   const request = (state: string, extra: Record<string, unknown> = {}) => ({ id: "keys", identity: "k-keys", task: "billing", state, created_at: AT, ...extra });
   const memory = remembered(nothing, board({ questions: [question("train", "succeeded", { answer: "Merge it", answered_by: "cfo" })], reviews: [review("shots", "cleared", { reason: "Opened" })], runs: [run("succeeded")], credentials: [request("saved")] }));
   const sends: ReadonlyMap<string, Sent> = new Map([
-    ["question:train", { kind: "cfo_answer", id: "a1", text: "Merge it", answer_kind: "option", identity: "i-train", created_at: AT }],
-    ["review:shots", { kind: "review_clear", id: "a2", text: "Opened", answer_kind: "", identity: "r-shots", created_at: AT }],
+    ["question:train", { kind: "cfo_answer", id: "a1", text: "Merge it", answer_kind: "option", created_at: AT }],
+    ["review:shots", { kind: "review_clear", id: "a2", text: "Opened", answer_kind: "", created_at: AT }],
   ]);
   const all = ["question:train", "review:shots", "run:install", "credential:keys"];
   const publications: [string, Record<string, unknown>, boolean][] = [
     ["the same publication", {}, true],
     ["a later created_at", { created_at: "2026-10-12T09:00:00Z" }, false],
-    ["another identity", { identity: "another" }, false],
+    ["another identity and the same created_at, as when the CFO registers again", { identity: "another" }, true],
   ];
   const memories: [string, ReadonlyMap<string, Item>, ReadonlyMap<string, Sent>, string[]][] = [
     ["seen closed", memory, unsent, all],

@@ -210,7 +210,7 @@ test("a snapshot taken before his answer and arriving after it does not bring th
   await expect(card(page)).toBeHidden();
 });
 
-test("an ID published again after its item closed is a new item, and waits on him", async ({ page, context }) => {
+test("an ID published again after its item closed shows its count and its CFO bar line", async ({ page, context }) => {
   // Arrange: he answers the question and the supervisor's snapshot shows it closed.
   await standInStream(context);
   await announcer(context);
