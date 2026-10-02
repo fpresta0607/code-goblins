@@ -30,7 +30,8 @@ import (
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
 // with --harness. native starts a new CFO in a native terminal rather than in
-// Herdr.
+// Herdr. What it finds running for this home it says first, so a person who
+// runs goblins beside a fleet at work sees that nothing second was started.
 func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native bool, harness string) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -38,12 +39,20 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 		return 1
 	}
 	ctx := context.Background()
-	board, _, ok := launchBoard(ctx, runtime, h, stdout, stderr)
+	board, startedServe, ok := launchBoard(ctx, runtime, h, stdout, stderr)
 	if !ok {
 		return 1
 	}
+	running := cfoRuns(runtime, h.State)
+	switch {
+	case startedServe:
+	case running:
+		fmt.Fprintln(stdout, "\nThe supervisor and the CFO of this home already run: nothing new was started.")
+	default:
+		fmt.Fprintln(stdout, "\nThe supervisor of this home already runs: it was not started again.")
+	}
 	agent := ""
-	if rerun || harness != "" || !cfoRuns(runtime, h.State) {
+	if rerun || harness != "" || !running {
 		if agent, err = runtime.setupAgent(ctx, h.State, harness, rerun, stdout, stderr); err != nil {
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
