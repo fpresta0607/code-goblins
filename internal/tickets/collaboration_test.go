@@ -3,6 +3,7 @@ package tickets
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -119,5 +120,38 @@ func TestShouldBackOffReadsGitHubsRefusals(t *testing.T) {
 	}
 	if ShouldBackOff(nil) || ShouldBackOff(errors.New("plain")) {
 		t.Fatal("an error GitHub did not send reads as a refusal to back off from")
+	}
+}
+
+func TestQueuedBeforeKeepsTheWorkQueuedWhenTicketsWereFirstKept(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := AllowPublic(dir, "fpresta0607/northwind-web"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	first, firstErr := QueuedBefore(dir, []string{"nw-old", "nw-older"})
+	later, laterErr := QueuedBefore(dir, []string{"nw-new"})
+	allowed, allowedErr := IsPublicAllowed(dir, "fpresta0607/northwind-web")
+
+	// Assert
+	if err := errors.Join(firstErr, laterErr, allowedErr); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"nw-old", "nw-older"}; !slices.Equal(first, want) || !slices.Equal(later, want) {
+		t.Fatalf("queued before = %v, then %v, want the first set both times: %v", first, later, want)
+	}
+	if !allowed {
+		t.Fatal("recording the queued work lost the public consent kept in the same file")
+	}
+}
+
+func TestQueuedBeforeRecordsThatNothingWasQueued(t *testing.T) {
+	dir := t.TempDir()
+	first, firstErr := QueuedBefore(dir, nil)
+	later, laterErr := QueuedBefore(dir, []string{"nw-new"})
+	if firstErr != nil || laterErr != nil || len(first) != 0 || len(later) != 0 {
+		t.Fatalf("queued before = %v (%v), then %v (%v), want none both times: an empty first set is still the first set", first, firstErr, later, laterErr)
 	}
 }

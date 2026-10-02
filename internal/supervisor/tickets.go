@@ -126,7 +126,24 @@ func ticketMark(tasks []Task) string {
 }
 
 // reconcile moves every task's ticket to where the task is now.
+//
+// Work that was already queued when tickets were first kept here gets its
+// ticket when it starts, not now: a backlog of old queued work must not
+// arrive in a teammate's repository as a burst of issues. Work queued later
+// gets its ticket at once.
 func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Time) {
+	var queued []string
+	for _, task := range tasks {
+		if task.Phase == "queued" {
+			queued = append(queued, task.ID)
+		}
+	}
+	queuedBefore, err := tickets.QueuedBefore(k.home.State, queued)
+	if err != nil {
+		k.note("keeping", fmt.Sprintf("Tickets wait: what the supervisor remembers about them cannot be read or saved: %v", err))
+		return
+	}
+	k.clear("keeping")
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return
@@ -135,11 +152,11 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 		if state.ValidTaskID(id) != nil {
 			continue
 		}
-		k.reconcileTask(ctx, id, task, now)
+		k.reconcileTask(ctx, id, task, slices.Contains(queuedBefore, id), now)
 	}
 }
 
-func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, now time.Time) {
+func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, wasQueuedBefore bool, now time.Time) {
 	var record *tickets.Record
 	if kept, err := tickets.ReadRecord(k.home.State, id); err == nil {
 		record = &kept
@@ -158,7 +175,7 @@ func (k *ticketKeeper) reconcileTask(ctx context.Context, id string, task Task, 
 	if record != nil {
 		repository = record.Repository
 	} else {
-		if !ticket.IsOpen() {
+		if !ticket.IsOpen() || ticket.State == tickets.Queued && wasQueuedBefore {
 			return
 		}
 		if repository = k.ticketedRepository(ctx, id, now); repository == "" {

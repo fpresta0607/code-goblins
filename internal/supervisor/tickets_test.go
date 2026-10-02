@@ -453,3 +453,53 @@ func TestSnapshotShowsTheTicketsThatWait(t *testing.T) {
 		t.Fatalf("issues = %v, want the board to say the public repository's tickets are held", after.Issues)
 	}
 }
+
+func TestKeeperGivesWorkQueuedBeforeItFirstRanItsTicketWhenItStarts(t *testing.T) {
+	// Arrange: nw-old is queued when the keeper first runs; nw-new is queued
+	// later. Both briefs name the collaborative repository's checkout.
+	h, checkout, github := ticketHome(t)
+	for _, id := range []string{"nw-old", "nw-new"} {
+		writeFile(t, filepath.Join(h.Data, id, "brief.md"), "## Project\n\n"+checkout+"\n\n## Task\n\nQueued work.\n")
+	}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	queued := func(id string) Task {
+		return Task{ID: id, Title: "Queued work " + id, Evaluation: Evaluation{Phase: "queued"}}
+	}
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{queued("nw-old")}, ticketNow)
+	atFirstRun := len(github.applied)
+	keeper.reconcile(context.Background(), []Task{queued("nw-old"), queued("nw-new")}, ticketNow.Add(time.Minute))
+	afterNewWork := slices.Clone(github.applied)
+	started := queued("nw-old")
+	started.Harness, started.Phase = "claude", "working"
+	keeper.reconcile(context.Background(), []Task{queued("nw-new"), started}, ticketNow.Add(2*time.Minute))
+
+	// Assert
+	if atFirstRun != 0 {
+		t.Fatalf("applied at the first run = %+v, want no ticket for work already queued then", github.applied)
+	}
+	if len(afterNewWork) != 1 || afterNewWork[0].ticket.TaskID != "nw-new" || afterNewWork[0].ticket.State != tickets.Queued {
+		t.Fatalf("applied = %+v, want a queued ticket for the work queued afterwards and still none for the old", afterNewWork)
+	}
+	last := github.applied[len(github.applied)-1]
+	if last.ticket.TaskID != "nw-old" || last.ticket.State != tickets.InProgress || last.hadRecord {
+		t.Fatalf("last applied = %+v, want the old work's ticket opened in progress once it starts", last)
+	}
+}
+
+func TestKeeperRemembersTheWorkQueuedBeforeItAcrossARestart(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	writeFile(t, filepath.Join(h.Data, "nw-old", "brief.md"), "## Project\n\n"+checkout+"\n\n## Task\n\nQueued work.\n")
+	tasks := []Task{{ID: "nw-old", Title: "Queued work", Evaluation: Evaluation{Phase: "queued"}}}
+	newTicketKeeper(h, github.writer(checkout)).reconcile(context.Background(), tasks, ticketNow)
+
+	// Act: a new supervisor starts with the same work still queued.
+	newTicketKeeper(h, github.writer(checkout)).reconcile(context.Background(), tasks, ticketNow.Add(time.Hour))
+
+	// Assert
+	if len(github.applied) != 0 {
+		t.Fatalf("applied = %+v, want the old queued work still without a ticket after a restart", github.applied)
+	}
+}
