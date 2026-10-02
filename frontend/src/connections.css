@@ -2,7 +2,6 @@
 .connections-panel p, .connections-panel span, .connections-panel time, .connections-panel button, .connections-panel h4, .connections-panel a { font-size: 1rem; }
 .connections .connections-panel p { color: #edf4f3; margin: 0; font-size: 1rem; }
 .disclosure.connections p { font-size: 1rem; color: #edf4f3; }
-.connections-panel [data-tip]::after { font-size: 1rem; }
 .connections-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0 16px; }
 .connections-toolbar p { font-weight: 700; }
 .connections-panel .icon-button { min-width: 44px; min-height: 44px; flex-shrink: 0; }
