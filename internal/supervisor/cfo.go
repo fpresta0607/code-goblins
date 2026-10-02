@@ -133,9 +133,10 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 		_ = file.Close()
 		drift := current.Process.Start.Sub(process.Start)
 		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
+		recorded := current
 		current.Process = lock.Info{}
 		if err == nil && sameProcess && current == primary {
-			return described, nil
+			return described, recordCFOConversation(stateDir, recorded, session)
 		}
 	}
 	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
@@ -151,7 +152,7 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
 		return "", err
 	}
-	return described, nil
+	return described, recordCFOConversation(stateDir, primary, session)
 }
 
 // nativeHarness proves this process runs under the program in native

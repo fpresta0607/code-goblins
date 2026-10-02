@@ -141,8 +141,28 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, err
 		}
 	}
+	resume, why, ranNatively := cfoResume(h, agent)
+	if why != "" {
+		fmt.Fprintln(stdout, "\n"+why)
+	}
+	// A CFO that ran in its own terminal comes back in it.
+	native = native || ranNatively
+	if len(resume) > 0 {
+		if err := runtime.startNativeCFO(h, h.Root, agent, resume); err != nil {
+			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
+		}
+		cfoResumeWait(cfoResumeSettle)
+		if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+			fmt.Fprintf(stdout, "\nThe CFO comes back as %s on its conversation %s, in %s, in native terminal %s.\n", agent, resume[len(resume)-1], h.Root, supervisor.NativeCFOTerminal)
+			for _, note := range runtime.settleCFO(ctx, h.State, agent) {
+				fmt.Fprintln(stdout, note)
+			}
+			return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
+		}
+		fmt.Fprintf(stdout, "\nIts conversation %s could not be resumed, so the CFO starts a new one.\n", resume[len(resume)-1])
+	}
 	if native {
-		if err := runtime.startNativeCFO(h, h.Root, agent); err != nil {
+		if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
 		fmt.Fprintf(stdout, "\nThe CFO starts as %s in %s, in native terminal %s.\n", agent, h.Root, supervisor.NativeCFOTerminal)

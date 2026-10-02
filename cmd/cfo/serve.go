@@ -184,7 +184,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
 		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(project string) error { return startNativeCFO(h, project, "claude") },
+		StartCFO: func(project string) error { return startNativeCFO(h, project, "claude", nil) },
 	}
 }
 

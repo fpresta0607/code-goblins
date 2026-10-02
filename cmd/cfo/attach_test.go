@@ -515,7 +515,7 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	h.State = filepath.Join(h.Root, "state")
 	project := t.TempDir()
 
-	if err := startNativeCFO(h, project, "claude"); err != nil {
+	if err := startNativeCFO(h, project, "claude", nil); err != nil {
 		t.Fatalf("startNativeCFO: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -625,7 +625,7 @@ func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
 	t.Setenv("PATH", bin)
 	stateDir := t.TempDir()
 
-	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude")
+	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil)
 
 	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
 		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)
