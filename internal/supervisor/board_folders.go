@@ -5,18 +5,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 func isNativeInboxReadFailure(stateDir string, err error) bool {
 	var pathError *os.PathError
-	return errors.As(err, &pathError) && filepath.Clean(pathError.Path) == nativehook.SpoolDir(stateDir)
+	if !errors.As(err, &pathError) || filepath.Clean(pathError.Path) != nativehook.SpoolDir(stateDir) {
+		return false
+	}
+	info, statErr := os.Stat(stateDir)
+	return statErr == nil && info.IsDir()
 }
 
 func recoverNativeInbox(stateDir string, err error) error {
+	if !isNativeInboxReadFailure(stateDir, err) {
+		return err
+	}
 	if errors.Is(err, os.ErrNotExist) {
-		if repairErr := os.MkdirAll(nativehook.SpoolDir(stateDir), 0700); repairErr == nil {
+		if repairErr := os.Mkdir(nativehook.SpoolDir(stateDir), 0700); repairErr == nil {
 			return fmt.Errorf("State folder native-inbox was missing and has been recreated; earlier native hook events may be missing: %w", err)
 		} else {
 			err = errors.Join(err, repairErr)
@@ -31,6 +39,9 @@ func (s *Service) boardSnapshot() (Snapshot, error) {
 		return snapshot, err
 	}
 	problem := recoverNativeInbox(s.Store.Home.State, err).Error()
+	if strings.Contains(snapshot.Error, problem) {
+		return snapshot, nil
+	}
 	if snapshot.Error == "" {
 		snapshot.Error = problem
 	} else {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 func TestBoardKeepsUpdatingWhenNativeInboxDisappearsOrIsUnreadable(t *testing.T) {
@@ -214,5 +215,127 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 	recovered := read()
 	if recovered.Error != "" || recovered.Revision <= problem.Revision || recovered.Instance != initial.Instance {
 		t.Fatalf("stream did not recover in place: %+v", recovered)
+	}
+}
+
+func blockNativeInbox(t *testing.T, stateDir string) {
+	t.Helper()
+	directory := nativehook.SpoolDir(stateDir)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directory, []byte("folder is unavailable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBoardShowsAnUnreadableNativeInboxOnceAfterACycle(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+	handler := NewHTTP(service, "board.local", nil)
+	blockNativeInbox(t, home.State)
+
+	// Act
+	service.cycle(context.Background(), false)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/snapshot", nil))
+
+	// Assert
+	var snapshot Snapshot
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+		t.Fatalf("board update=%d %s", response.Code, response.Body)
+	}
+	if count := strings.Count(snapshot.Error, "native-inbox cannot be read"); count != 1 {
+		t.Fatalf("folder problem shown %d times: %q", count, snapshot.Error)
+	}
+}
+
+func TestOrdinaryCycleClearsTheInboxWarningOnceAnEmptyInboxIsReadableAgain(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+	handler := NewHTTP(service, "board.local", nil)
+	blockNativeInbox(t, home.State)
+	service.cycle(context.Background(), false)
+	if !strings.Contains(service.lastError, "native-inbox") {
+		t.Fatalf("folder problem not published: %q", service.lastError)
+	}
+	directory := nativehook.SpoolDir(home.State)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	service.cycle(context.Background(), false)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/snapshot", nil))
+
+	// Assert
+	var snapshot Snapshot
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+		t.Fatalf("board update=%d %s", response.Code, response.Body)
+	}
+	if service.lastError != "" || snapshot.Error != "" {
+		t.Fatalf("stale folder warning: cycle=%q board=%q", service.lastError, snapshot.Error)
+	}
+}
+
+func TestDeletedStateRootIsNeitherRecreatedNorTreatedAsAnInboxProblem(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	if err := os.Rename(home.State, home.State+".held"); err != nil {
+		t.Fatal(err)
+	}
+	isReconciled := false
+	service := &Service{Store: store, Options: Options{Reconcile: func(context.Context) error { isReconciled = true; return nil }}}
+
+	// Act
+	ingestErr := store.Ingest()
+	service.cycle(context.Background(), true)
+
+	// Assert
+	if _, err := os.Stat(home.State); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state root was recreated: %v", err)
+	}
+	if ingestErr == nil || strings.Contains(ingestErr.Error(), "State folder native-inbox") {
+		t.Fatalf("state root failure reported as an inbox problem: %v", ingestErr)
+	}
+	if isReconciled || service.lastError == "" || strings.Contains(service.lastError, "State folder native-inbox") {
+		t.Fatalf("state root failure did not stop the cycle: reconciled=%t error=%q", isReconciled, service.lastError)
+	}
+}
+
+func TestTicketsKeepMovingWhileTheNativeInboxIsUnreadable(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blockNativeInbox(t, h.State)
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true}}
+	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work")))}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	// Act
+	go func() {
+		defer close(done)
+		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	// Assert
+	applied := github.appliedSoFar()
+	if len(applied) != 1 || applied[0].ticket.TaskID != "task-1" {
+		t.Fatalf("applied = %+v, want task-1's ticket written while the inbox is unreadable", applied)
 	}
 }
