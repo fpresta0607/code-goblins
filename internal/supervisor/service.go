@@ -117,10 +117,13 @@ type Service struct {
 	// recovery cycle. ciUnreadable is why each watched repository's CI
 	// cannot be read, as of the last fleet reading; every recovery cycle
 	// reports it for as long as the failure lasts.
-	historyErr   error
-	cfoWakeErr   error
-	fleetErr     error
-	ciUnreadable error
+	historyErr      error
+	cfoWakeErr      error
+	fleetErr        error
+	ciUnreadable    error
+	workProgress    map[string]WorkProgress
+	ciDurations     []CIDuration
+	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -400,6 +403,10 @@ func (s *Service) run(ctx context.Context) {
 }
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
+	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
+	s.mu.Lock()
+	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
+	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	if err := s.Store.Ingest(); err != nil {
 		s.publish(err)
@@ -945,6 +952,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	progress := maps.Clone(s.workProgress)
+	out.CIDurations = slices.Clone(s.ciDurations)
+	if s.progressReadErr != nil {
+		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
+	}
 	history := append([]Task(nil), s.history...)
 	checked, checkedIdentity := s.registration, s.registrationIdentity
 	for i := range d.Activity {
@@ -1148,17 +1160,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Phase = phase
 		}
 	}
-	if watched, err := readFleetWakes(s.Store.Home.State); err == nil {
-		out.CIDurations = watched.Durations
-		for i := range out.Tasks {
-			task := &out.Tasks[i]
-			if progress, exists := watched.Progress[task.ID]; exists && progress.Generation == task.Generation {
-				progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
-				task.Progress = &progress
-			}
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		if progress, exists := progress[task.ID]; exists && progress.Generation == task.Generation {
+			progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
+			task.Progress = &progress
 		}
-	} else {
-		out.Issues = append(slices.Clone(out.Issues), err.Error())
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {

@@ -179,3 +179,71 @@ func TestProgressWatchDoesNotTreatRepeatedReportsOrPausedWaitsAsWork(t *testing.
 		t.Fatal("intentional pause reported as a stall")
 	}
 }
+
+func TestSnapshotDoesNotReadProgressOrDurationsBeforeTheCycle(t *testing.T) {
+	service, h := fleetService(t)
+	liveGoblin(t, h, "progress-task", h.Root)
+	service.cycle(t.Context(), false)
+	if err := writeFleetWakes(h.State, fleetWakes{
+		Progress:  map[string]WorkProgress{"progress-task": {Generation: "s1", At: time.Now().UTC(), Head: strings.Repeat("a", 40)}},
+		Durations: []CIDuration{{Repository: "owner/repo", Kind: "ci", Seconds: 780}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := service.Snapshot()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.CIDurations) != 0 {
+		t.Fatal("snapshot read durations before the cycle refreshed them")
+	}
+	for _, task := range snapshot.Tasks {
+		if task.Progress != nil {
+			t.Fatal("snapshot read progress before the cycle refreshed it")
+		}
+	}
+}
+
+func TestSnapshotRefreshesProgressAndDurationsWhenTheCycleReadsTheirRecord(t *testing.T) {
+	service, h := fleetService(t)
+	liveGoblin(t, h, "progress-task", h.Root)
+	if _, err := service.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		head    string
+		seconds int64
+	}{
+		{strings.Repeat("a", 40), 780},
+		{strings.Repeat("b", 40), 630},
+	} {
+		now := time.Now().UTC()
+		watched := fleetWakes{
+			Progress:  map[string]WorkProgress{"progress-task": {Generation: "s1", At: now, Head: test.head}},
+			Durations: []CIDuration{{Repository: "owner/repo", Kind: "ci", Seconds: test.seconds}},
+		}
+		if err := writeFleetWakes(h.State, watched); err != nil {
+			t.Fatal(err)
+		}
+		service.cycle(t.Context(), false)
+
+		snapshot, err := service.Snapshot()
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.CIDurations) != 1 || snapshot.CIDurations[0].Seconds != test.seconds {
+			t.Fatalf("durations=%+v, want the changed record's %d seconds", snapshot.CIDurations, test.seconds)
+		}
+		index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "progress-task" })
+		if index < 0 {
+			t.Fatal("snapshot lost the progress task")
+		}
+		task := snapshot.Tasks[index]
+		if task.Progress == nil || task.Progress.Head != test.head {
+			t.Fatalf("task=%+v, want the changed progress head %s", task, test.head)
+		}
+	}
+}

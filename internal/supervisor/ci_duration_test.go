@@ -23,6 +23,7 @@ func TestCIFinishedRecordsMeasuredDurationsAndOmitsUnknownTimes(t *testing.T) {
 	if err := writeFleetWakes(h.State, watched); err != nil {
 		t.Fatal(err)
 	}
+	service.cycle(t.Context(), false)
 	snapshot, err := service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
