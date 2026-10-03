@@ -84,6 +84,7 @@ test("an answer the board refuses after he closed its card stays waiting, and it
   await expect(row.locator("small")).toHaveText("Not sent: " + refusal);
   await row.getByRole("button", { name: /^Answer/ }).click();
   await expect(dialog.getByRole("alert")).toContainText(refusal);
+  await expect(dialog.getByRole("alert")).toContainText("An unchanged retry keeps its request identity.");
   await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
 });
 

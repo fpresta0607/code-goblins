@@ -1029,6 +1029,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{}
 		}
 		lines, _ := s.statusTail(id)
+		lines = taskReports(lines, out.Decisions, id)
 		reportedAt, report := latestReport(lines, spawnTime(meta.SpawnGen))
 		decisions := out.Decisions
 		if supersedesQuestion(report) {

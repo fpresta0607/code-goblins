@@ -73,12 +73,6 @@ function taskState(task: Task): "blocked" | "failed" | "done" | "" {
   return (task.phase === "done" || task.report === "done") && task.pr ? "done" : "";
 }
 
-// A failed report that waited on the CFO was his question. Once he handled
-// it, the goblin's report still reads failed until it reports again: that is
-// the same question, not a failure. A goblin failed or blocked by its
-// evidence is news all the same.
-const handledByCFO = (prior: Task, task: Task) => asksCFO(prior) && prior.report === "failed" && task.report === "failed" && task.phase !== "failed" && task.phase !== "blocked";
-
 // A blocked goblin needs the Overlord, so its alert opens the Command Center
 // on its newest item waiting there, or with no item, on the first one waiting
 // or the inbox. Only its done or failed news opens the goblin itself. Its
@@ -123,7 +117,7 @@ export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAle
   const tasks = next.tasks.filter((task) => !task.archived).flatMap((task) => {
     const state = taskState(task);
     const prior = before.get(task.id);
-    const changed = !prior || prior.generation !== task.generation || (taskState(prior) !== state && !handledByCFO(prior, task));
+    const changed = !prior || prior.generation !== task.generation || taskState(prior) !== state;
     return state && changed ? [taskAlert(task, state, next)] : [];
   });
   return [...notices, ...items, ...tasks];
