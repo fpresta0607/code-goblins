@@ -200,7 +200,7 @@ A run that cannot write its report says so and keeps its verdict: the checks dec
 
 The tests of a run at the `affected` or `full` level wait for the run's turn on the machine: one run tests at a time, every goblin's and every gate's alike, in the order they asked.
 `go vet` takes no turn, and neither does anything at the `fast` level.
-The number is one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+One run at a time keeps heavy test steps from competing for the same machine's resources.
 `CFO_VERIFY_SLOTS` sets another number for the machine.
 Set it for the user, so that every terminal and the gate read the same one: a run counts only the turns its own setting names.
 A value that is not a number above 0 is reported and read as one.
