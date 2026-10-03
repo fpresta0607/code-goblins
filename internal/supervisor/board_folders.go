@@ -26,11 +26,14 @@ func recoverNativeInbox(stateDir string, err error) error {
 		return err
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		if repairErr := os.Mkdir(nativehook.SpoolDir(stateDir), 0700); repairErr == nil {
+		repairErr := os.Mkdir(nativehook.SpoolDir(stateDir), 0700)
+		if repairErr == nil {
 			return fmt.Errorf("%w: %w", errNativeInboxRecreated, err)
-		} else {
-			err = errors.Join(err, repairErr)
 		}
+		if _, readErr := os.ReadDir(nativehook.SpoolDir(stateDir)); errors.Is(repairErr, os.ErrExist) && readErr == nil {
+			return nil
+		}
+		err = errors.Join(err, repairErr)
 	}
 	return fmt.Errorf("State folder native-inbox cannot be read; native hook events are delayed while other board updates continue: %w", err)
 }
@@ -46,7 +49,7 @@ func (s *Service) boardSnapshot() (Snapshot, error) {
 		s.nativeInboxRepair = problem
 		s.mu.Unlock()
 	}
-	if strings.Contains(snapshot.Error, problem.Error()) {
+	if problem == nil || strings.Contains(snapshot.Error, problem.Error()) {
 		return snapshot, nil
 	}
 	if snapshot.Error == "" {

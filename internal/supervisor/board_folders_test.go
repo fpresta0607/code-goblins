@@ -438,3 +438,106 @@ func TestInboxRepairNoticeKeepsAnUnrelatedBoardError(t *testing.T) {
 		t.Fatalf("board error = %q, want the unrelated problem and the repair", snapshot.Error)
 	}
 }
+
+func TestUnchangedUnreadableInboxIsNotRepublishedEveryCycle(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+	handler := NewHTTP(service, "board.local", nil)
+	blockNativeInbox(t, home.State)
+	service.cycle(context.Background(), false)
+	first := readBoard(t, handler)
+
+	// Act
+	for range 3 {
+		service.cycle(context.Background(), false)
+	}
+	repeated := readBoard(t, handler)
+	meta, err := state.ReadTaskMeta(home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Title = "new evidence while the warning stands"
+	if err := state.WriteTaskMeta(home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	service.notify()
+	fresh := readBoard(t, handler)
+	directory := nativehook.SpoolDir(home.State)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	service.cycle(context.Background(), false)
+	restored := readBoard(t, handler)
+
+	// Assert
+	if strings.Count(first.Error, "native-inbox cannot be read") != 1 {
+		t.Fatalf("first cycle did not show the folder problem once: %q", first.Error)
+	}
+	if repeated.Revision != first.Revision || repeated.Error != first.Error {
+		t.Fatalf("unchanged warning republished: revision %d -> %d, %q", first.Revision, repeated.Revision, repeated.Error)
+	}
+	if fresh.Revision <= repeated.Revision || !slices.ContainsFunc(fresh.Tasks, func(task Task) bool { return task.Title == meta.Title }) || strings.Count(fresh.Error, "native-inbox cannot be read") != 1 {
+		t.Fatalf("fresh evidence or warning missing: %+v", fresh)
+	}
+	if restored.Revision <= fresh.Revision || restored.Error != "" {
+		t.Fatalf("restored empty inbox did not clear the warning: revision %d, %q", restored.Revision, restored.Error)
+	}
+}
+
+func TestRacingInboxRepairsReportOneRepairAndNoUnreadableFolder(t *testing.T) {
+	// Arrange
+	_, home := testStore(t)
+	directory := nativehook.SpoolDir(home.State)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	_, stale := os.ReadDir(directory)
+	results := make(chan error, 8)
+
+	// Act
+	for range cap(results) {
+		go func() { results <- recoverNativeInbox(home.State, stale) }()
+	}
+
+	// Assert
+	repairs := 0
+	for range cap(results) {
+		result := <-results
+		if errors.Is(result, errNativeInboxRecreated) {
+			repairs++
+		} else if result != nil {
+			t.Fatalf("racing repair reported a readable inbox as a problem: %v", result)
+		}
+	}
+	if info, err := os.Stat(directory); repairs != 1 || err != nil || !info.IsDir() {
+		t.Fatalf("repairs=%d folder=%v, want one repair of a usable folder", repairs, err)
+	}
+}
+
+func TestStaleRepairStillReportsAnObstructingFile(t *testing.T) {
+	// Arrange
+	_, home := testStore(t)
+	directory := nativehook.SpoolDir(home.State)
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	_, stale := os.ReadDir(directory)
+	if err := os.WriteFile(directory, []byte("folder is unavailable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	result := recoverNativeInbox(home.State, stale)
+
+	// Assert
+	if result == nil || !strings.Contains(result.Error(), "native-inbox cannot be read") {
+		t.Fatalf("obstruction not reported: %v", result)
+	}
+	if data, err := os.ReadFile(directory); err != nil || string(data) != "folder is unavailable" {
+		t.Fatalf("obstruction was changed: %q %v", data, err)
+	}
+}

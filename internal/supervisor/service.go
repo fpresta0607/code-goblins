@@ -381,6 +381,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	wasNativeInboxFailing := s.isNativeInboxFailing
 	s.isNativeInboxFailing = ingestErr != nil && !errors.Is(ingestErr, errNativeInboxRecreated)
 	s.mu.Lock()
+	isNativeInboxProblemNew := s.isNativeInboxFailing && !strings.Contains(s.lastError, ingestErr.Error())
 	ingestErr = errors.Join(ingestErr, s.nativeInboxRepair)
 	s.nativeInboxRepair = nil
 	s.mu.Unlock()
@@ -423,7 +424,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	case s.work <- struct{}{}:
 	default:
 	}
-	if recover || ingestErr != nil || wasNativeInboxFailing || before != s.Store.Snapshot().Revision {
+	if recover || wasNativeInboxFailing != s.isNativeInboxFailing || isNativeInboxProblemNew || errors.Is(ingestErr, errNativeInboxRecreated) || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
 }
