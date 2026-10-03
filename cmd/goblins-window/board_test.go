@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -220,9 +221,10 @@ func TestTheLoginCommandIsTheWindowAloneOrTheWindowOnItsBoard(t *testing.T) {
 	}
 }
 
-// Start at login is one entry under the user's Run key holding the login
-// command, added and removed; this test uses a key of its own.
-func TestStartAtLoginAddsAndRemovesItsEntry(t *testing.T) {
+// ownRunKey points runKey at a key of the test's own, in place of the user's
+// Run key, and removes that key when the test ends.
+func ownRunKey(t *testing.T) {
+	t.Helper()
 	var name [8]byte
 	if _, err := rand.Read(name[:]); err != nil {
 		t.Fatal(err)
@@ -234,6 +236,120 @@ func TestStartAtLoginAddsAndRemovesItsEntry(t *testing.T) {
 		_ = registry.DeleteKey(registry.CURRENT_USER, `Software\CodeGoblinsTest`)
 		runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 	})
+}
+
+// loginEntry reads the login entry as it is written under runKey, and whether
+// there is one.
+func loginEntry(t *testing.T) (string, bool) {
+	t.Helper()
+	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	entry, _, err := key.GetStringValue(runValue)
+	if errors.Is(err, registry.ErrNotExist) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entry, true
+}
+
+// A window from before the app opened alone left a login entry that runs the
+// goblins that started it, in a terminal. The window that goblins starts makes
+// that entry its own, once, so its tray shows Start at login as on, and turning
+// it off once removes the entry for good.
+func TestTheEarlierLoginEntryBecomesTheWindowAlone(t *testing.T) {
+	// Arrange
+	ownRunKey(t)
+	const launcher, window = `C:\app\goblins.exe`, `C:\app\goblins-window.exe`
+	login := loginCommand(launcher, window, "http://127.0.0.1:4310", `C:\home\state`)
+	if err := SetStartAtLogin(`"C:\app\goblins.exe" --window --background`, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	adopted, adoptErr := adoptEarlierLogin(launcher, window, login)
+	entry, _ := loginEntry(t)
+	on := StartsAtLogin(login)
+	again, againErr := adoptEarlierLogin(launcher, window, login)
+	entryAgain, _ := loginEntry(t)
+	offErr := SetStartAtLogin(login, false)
+	_, left := loginEntry(t)
+	afterOff, afterOffErr := adoptEarlierLogin(launcher, window, login)
+	_, back := loginEntry(t)
+
+	// Assert
+	if !adopted || entry != `"C:\app\goblins-window.exe" --background` || !on {
+		t.Errorf("the first start rewrote the entry: %v, to %s, read as on: %v; want true, the window alone with --background, true", adopted, entry, on)
+	}
+	if again || entryAgain != entry {
+		t.Errorf("the second start rewrote the entry: %v, leaving %s; want false, and %s as it was", again, entryAgain, entry)
+	}
+	if left || afterOff || back {
+		t.Errorf("after turning it off once the entry is still there: %v, a start rewrote it: %v, and it is back: %v; want false, false, false", left, afterOff, back)
+	}
+	if adoptErr != nil || againErr != nil || offErr != nil || afterOffErr != nil {
+		t.Errorf("errors: first start %v, second start %v, off %v, start after off %v", adoptErr, againErr, offErr, afterOffErr)
+	}
+}
+
+// Only the entry an earlier window wrote for the goblins beside this window is
+// made this window's: no entry, another home's, another command of the same
+// goblins, the entry of a window on its board and one that is this window's
+// already are left as they are, and a window started on its own adopts none.
+func TestNoOtherLoginEntryIsRewritten(t *testing.T) {
+	const window, board, stateDir = `C:\app\goblins-window.exe`, "http://127.0.0.1:4310", `C:\home\state`
+	onItsBoard := loginCommand("", window, board, stateDir)
+	for name, test := range map[string]struct {
+		launcher, entry string
+		on              bool
+	}{
+		"no entry":             {`C:\app\goblins.exe`, "", false},
+		"another home's entry": {`C:\app\goblins.exe`, `"C:\elsewhere\goblins.exe" --window --background`, false},
+		"the entry of a goblins in another folder":  {`C:\elsewhere\goblins.exe`, `"C:\elsewhere\goblins.exe" --window --background`, false},
+		"another command of the same goblins":       {`C:\app\goblins.exe`, `"C:\app\goblins.exe" --board`, false},
+		"the entry of a window on its board":        {`C:\app\goblins.exe`, onItsBoard, false},
+		"already the window alone":                  {`C:\app\goblins.exe`, `"C:\APP\GOBLINS-WINDOW.EXE" --background`, true},
+		"a window started on its own":               {"", `"C:\app\goblins.exe" --window --background`, false},
+		"a window on its board, with its own entry": {"", onItsBoard, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			ownRunKey(t)
+			if test.entry != "" {
+				if err := SetStartAtLogin(test.entry, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			login := loginCommand(test.launcher, window, board, stateDir)
+
+			// Act
+			adopted, err := adoptEarlierLogin(test.launcher, window, login)
+
+			// Assert
+			if adopted || err != nil {
+				t.Errorf("adoptEarlierLogin = %v, %v; want false and no error", adopted, err)
+			}
+			if entry, there := loginEntry(t); entry != test.entry || there != (test.entry != "") {
+				t.Errorf("the entry is %q (there: %v), want %q as it was", entry, there, test.entry)
+			}
+			if on := StartsAtLogin(login); on != test.on {
+				t.Errorf("Start at login reads as on: %v, want %v", on, test.on)
+			}
+		})
+	}
+}
+
+// Start at login is one entry under the user's Run key holding the login
+// command, added and removed; this test uses a key of its own.
+func TestStartAtLoginAddsAndRemovesItsEntry(t *testing.T) {
+	ownRunKey(t)
 	command := `"C:\Users\someone\AppData\Local\CodeGoblins\goblins.exe" --window --background`
 
 	before := StartsAtLogin(command)

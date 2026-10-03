@@ -56,7 +56,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window runs the goblins beside it")
 		os.Exit(2)
 	}
-	login := loginCommand(os.Getenv(launcherVariable), self, *board, *stateDir)
+	launcher := os.Getenv(launcherVariable)
+	login := loginCommand(launcher, self, *board, *stateDir)
 	// The window's tests run on a profile of their own, beside the user's
 	// window and never as its second instance.
 	instance := "dev.codegoblins.window"
@@ -172,6 +173,11 @@ func main() {
 
 	menu := app.NewMenu()
 	menu.Add("Open the board").OnClick(func(*application.Context) { show() })
+	if adopted, err := adoptEarlierLogin(launcher, self, login); err != nil {
+		log.Printf("start at login: %v", err)
+	} else if adopted {
+		log.Printf("start at login now runs %s", login)
+	}
 	atLogin := menu.AddCheckbox("Start at login", StartsAtLogin(login))
 	atLogin.OnClick(func(ctx *application.Context) {
 		if err := SetStartAtLogin(login, atLogin.Checked()); err != nil {

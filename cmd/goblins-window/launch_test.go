@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,29 +85,79 @@ func TestTheWindowAloneOpensTheAppThroughTheGoblinsBesideIt(t *testing.T) {
 	}
 }
 
+// saidIn returns the lines of goblins' that message shows, between what the
+// window says before them and where it says to see more.
+func saidIn(t *testing.T, message string) []string {
+	t.Helper()
+	parts := strings.Split(message, "\n\n")
+	if len(parts) != 3 {
+		t.Fatalf("the message is not goblins' lines between two of the window's own:\n%s", message)
+	}
+	return strings.Split(parts[1], "\n")
+}
+
 // When goblins cannot open the board, the user is told why in goblins' own
 // words, which say what to do, and where to see more; only the end of a long
 // answer is shown.
 func TestABoardThatDoesNotOpenIsExplainedInGoblinsWords(t *testing.T) {
 	// Arrange
-	var said strings.Builder
+	var said []string
 	for line := 1; line <= 20; line++ {
-		fmt.Fprintf(&said, "line %d\r\n", line)
+		said = append(said, fmt.Sprintf("line %d", line))
 	}
-	said.WriteString("goblins: the board's address 127.0.0.1:4310 is in use by another program, so no supervisor was started\r\n")
-	window, _ := goblinsBeside(t, said.String(), 1)
+	said = append(said, "goblins: the board's address 127.0.0.1:4310 is in use by another program, so no supervisor was started")
+	window, _ := goblinsBeside(t, strings.Join(said, "\r\n")+"\r\n", 1)
 
 	// Act
 	message := launch(window, false)
 
 	// Assert
-	for _, want := range []string{"Code Goblins could not open the board.", "goblins: the board's address 127.0.0.1:4310 is in use by another program", "line 10\n", "run: goblins"} {
+	for _, want := range []string{"Code Goblins could not open the board.", "run: goblins"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("the message lacks %q:\n%s", want, message)
 		}
 	}
-	if strings.Contains(message, "line 9\n") {
-		t.Errorf("the message shows more than the last %d lines goblins said:\n%s", saidLines, message)
+	if shown := saidIn(t, message); len(shown) != 16 || !slices.Equal(shown, said[len(said)-16:]) {
+		t.Errorf("the message shows %d lines, want the last 16 goblins said, from line 6 on, in order:\n%s", len(shown), message)
+	}
+}
+
+// All that goblins says when a supervisor does not start is shown, in order:
+// what to do about it, where serve.log is, and the end of that log after them.
+func TestASupervisorThatDoesNotStartIsExplainedInFull(t *testing.T) {
+	const header = `goblins: the supervisor did not start; the end of C:\home\state\serve.log says:`
+	var tail []string
+	for line := 1; line <= 12; line++ {
+		tail = append(tail, fmt.Sprintf("serve log line %d", line))
+	}
+	for name, said := range map[string][]string{
+		"the board's address is in use": append([]string{
+			`goblins: the board's address 127.0.0.1:4310 is in use by another program, so no supervisor was started (listen tcp 127.0.0.1:4310: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.). Close that program, or give this home's board an address of its own by setting CFO_BOARD_ADDRESS, for example to 127.0.0.1:4311`,
+			header,
+		}, tail...),
+		"another process held serve.log": append([]string{
+			`goblins: the supervisor was not started, because another process held C:\home\state\serve.log (start cfo serve`,
+			`open C:\home\state\serve.log: The process cannot access the file because it is being used by another process.)`,
+			header,
+		}, tail...),
+		"serve.log holds nothing": {header, "(nothing)"},
+		"this home's supervisor recorded no board": {
+			"goblins: this home's supervisor (pid 4242) holds the board's address 127.0.0.1:4310 but recorded no board. End that process in Windows PowerShell, then run goblins again:",
+			"  Stop-Process -Id 4242",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			window, _ := goblinsBeside(t, strings.Join(said, "\n")+"\n", 1)
+
+			// Act
+			message := launch(window, false)
+
+			// Assert
+			if shown := saidIn(t, message); len(shown) > 16 || !slices.Equal(shown, said) {
+				t.Errorf("the message shows %d of the %d lines goblins said, want them all, in order, in at most 16:\n%s", len(shown), len(said), message)
+			}
+		})
 	}
 }
 

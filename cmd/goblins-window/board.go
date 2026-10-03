@@ -285,6 +285,23 @@ func loginCommand(launcher, window, board, stateDir string) string {
 	return `"` + window + `" --board ` + board + ` --state "` + stateDir + `" --background`
 }
 
+// adoptEarlierLogin makes the login entry an earlier window in this folder
+// wrote, for a window that goblins started, this window's: that entry ran the
+// goblins beside window with --window --background, in a terminal at every
+// login, and becomes login, so the tray shows Start at login as on and turning
+// it off removes the entry. It reports whether it rewrote the entry. Any other
+// entry is left as it is, and a window started on its own adopts none.
+func adoptEarlierLogin(launcher, window, login string) (bool, error) {
+	earlier := `"` + filepath.Join(filepath.Dir(window), goblinsName) + `" --window --background`
+	if launcher == "" || !StartsAtLogin(earlier) {
+		return false, nil
+	}
+	if err := SetStartAtLogin(login, true); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // StartsAtLogin reports whether Windows runs command at login.
 func StartsAtLogin(command string) bool {
 	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)

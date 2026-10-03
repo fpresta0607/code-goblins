@@ -15,8 +15,11 @@ import (
 // supervisor or starts it, and starts this window on its board.
 const goblinsName = "goblins.exe"
 
-// saidLines is how many of the last lines goblins said the user is shown.
-const saidLines = 12
+// saidLines is how many of the last lines goblins said the user is shown: room
+// for all it says when a supervisor does not start, which is at most four
+// lines of its own, saying what to do and where serve.log is, and then the
+// last twelve lines of that log.
+const saidLines = 16
 
 // launch opens the app from the window program alone, as the Start menu and
 // Start at login start it: it runs the goblins beside window with --window,

@@ -585,7 +585,8 @@ A desktop window for the board, `goblins-window.exe`, is the program in `cmd/gob
 Started with neither `--board` nor `--state`, as the Start menu's Code Goblins and **Start at login** start it, the program is the app's launcher: it runs the `goblins.exe` beside it with `--window`, and `--background` when it was given that, in a console that is never shown, and exits once that has started the window on the board.
 So a supervisor is started in one way only, by `goblins`, whoever opens the app.
 A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
-When `goblins` fails, the launcher shows the last lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
+When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
+Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
 `.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, which none does yet, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
@@ -597,6 +598,7 @@ A picture that went missing while the window ran is put back before the next not
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
 For a window that `goblins` started, the value runs the window alone with `--background`, which runs that `goblins` as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
 The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
