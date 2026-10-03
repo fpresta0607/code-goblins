@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,7 +12,9 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -46,6 +49,15 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 		return 2
 	}
 	e, err := nativehook.Normalize(input, nativehook.Context{Harness: args[0], Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
+	if err == nil && e.Role == "cfo" && e.HostID != "" && os.Getenv("HERDR_PANE_ID") == "" {
+		if recipient, bindErr := nativeHookRecipient(*root, *dir, e); bindErr == nil {
+			e.Recipient = recipient
+		} else {
+			// Preserve pre-registration events without giving a later
+			// registration permission to bind an earlier prompt.
+			fmt.Fprintf(stderr, "native CFO event remains unbound: %v\n", bindErr)
+		}
+	}
 	if err == nil {
 		err = nativehook.Spool(*dir, e)
 	}
@@ -67,6 +79,30 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 		cancel()
 	}
 	return 0
+}
+
+func nativeHookRecipient(root, stateDir string, event nativehook.Event) (nativehook.CFORecipient, error) {
+	if event.Role != "cfo" || event.TaskID != "" || event.Generation != "" || event.ParentSessionID != "" || event.ParentHarness != "" || event.RootSessionID != "" || event.Relation != "" || !fsx.SamePath(event.CWD, root) {
+		return nativehook.CFORecipient{}, errors.New("the hook is not the primary CFO in this home")
+	}
+	connection := supervisor.CFOConnection{State: stateDir}
+	identity, release, err := connection.CallerIdentity(context.Background())
+	if err != nil {
+		return nativehook.CFORecipient{}, err
+	}
+	defer release()
+	recipient, err := supervisor.NativeCFORecipient(stateDir)
+	if err != nil {
+		return nativehook.CFORecipient{}, err
+	}
+	if recipient.Registration != identity || recipient.HostID != event.HostID || recipient.Harness != event.Harness || recipient.SessionID != event.SessionID || recipient.ProgramStart.After(event.OccurredAt) {
+		return nativehook.CFORecipient{}, errors.New("the hook does not match the current native CFO recipient")
+	}
+	holder, err := lock.Read(stateDir)
+	if err != nil || !holder.VerifiedAlive() || holder.PID != recipient.ProgramPID || !holder.Start.Equal(recipient.ProgramStart) {
+		return nativehook.CFORecipient{}, errors.New("the registered native CFO does not hold this home")
+	}
+	return recipient, nil
 }
 
 func runNativeSetup(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {

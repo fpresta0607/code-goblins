@@ -19,6 +19,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -327,7 +328,25 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return errors.New("session is already ended")
 		}
 	} else if e.Kind != "started" {
-		return fmt.Errorf("%w: session has no start evidence", ErrDeferred)
+		// Hooks enabled after launch have no SessionStart. Only a binding
+		// authenticated by the actual hook caller can use live custody as
+		// independent start evidence; unbound events are never retrofitted.
+		if e.Role != "cfo" || e.TaskID != "" || e.Generation != "" || e.ParentSessionID != "" || e.ParentHarness != "" || e.RootSessionID != "" || e.Relation != "" || !e.Recipient.Valid() || !fsx.SamePath(e.CWD, s.Home.Root) {
+			return fmt.Errorf("%w: session has no start evidence", ErrDeferred)
+		}
+		registration, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+		if err != nil {
+			return fmt.Errorf("%w: native CFO start registration is unavailable", ErrDeferred)
+		}
+		defer registration.Close()
+		recipient, err := NativeCFORecipient(s.Home.State)
+		if err != nil || !e.Recipient.Matches(recipient) {
+			return fmt.Errorf("%w: native CFO start recipient cannot be verified", ErrDeferred)
+		}
+		holder, err := lock.Read(s.Home.State)
+		if err != nil || !holder.VerifiedAlive() || holder.PID != recipient.ProgramPID || !holder.Start.Equal(recipient.ProgramStart) {
+			return fmt.Errorf("%w: native CFO start custody cannot be verified", ErrDeferred)
+		}
 	}
 	parent := prior.Parent
 	if e.ParentSessionID != "" {
