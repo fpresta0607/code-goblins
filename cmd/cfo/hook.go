@@ -812,12 +812,22 @@ func withAFKBanner(stateDir, text string) string {
 }
 
 // resolveSessionOwnerPID identifies the process taking custody of the
-// session lock for a SessionStart digest: the harness ancestor
-// (resolveAncestorPID, honoring the same CFO_TEST_ANCESTOR_PID test seam
-// stop-autoarm uses), or this process's own pid when no harness ancestor is
-// found, so a manual `cfo session-start` invocation still resolves an owner
-// instead of degrading to a read-only digest for no reason.
-func resolveSessionOwnerPID() int {
+// session lock for a SessionStart digest. A registered native terminal can
+// hold custody through its cmd shim rather than the nearest node ancestor.
+// Reuse that verified custodian only when this command runs beneath it.
+// Otherwise retain the hook's ancestor selection and test seam.
+func resolveSessionOwnerPID(stateDir string) int {
+	if os.Getenv("CFO_TEST_ANCESTOR_PID") == "" {
+		if holder, err := lock.Read(stateDir); err == nil && holder.VerifiedAlive() {
+			if ancestry, err := proc.Ancestry(os.Getpid(), 32); err == nil {
+				for _, ancestor := range ancestry {
+					if ancestor.PID == holder.PID {
+						return holder.PID
+					}
+				}
+			}
+		}
+	}
 	if pid, ok := resolveAncestorPID(); ok {
 		return pid
 	}
@@ -847,7 +857,7 @@ func resolveSessionOwnerPID() int {
 // arrived as a preview of its first 2 KB, a session lock and a few wake
 // lines, under a contract saying the session had read every file.
 func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
-	ownerPID := resolveSessionOwnerPID()
+	ownerPID := resolveSessionOwnerPID(h.State)
 	terminals := registerTerminals()
 
 	switch payload.Source {
