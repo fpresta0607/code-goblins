@@ -26,7 +26,8 @@ import (
 // board; one Enter at a time it makes the agent the CFO runs on ready; it
 // starts the CFO in the Code Goblins home when none runs; and it ends on one
 // screen: Enter shows the CFO's terminal here, and the board's link or B
-// opens the board. It asks for no project, since the CFO works across every
+// opens the board, B in the desktop window where one sits beside this binary.
+// It asks for no project, since the CFO works across every
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
 // with --harness. native starts a new CFO in a native terminal rather than in
@@ -126,6 +127,15 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 		return 1
 	}
 	if choice == 1 {
+		// The board opens in the desktop window where one sits beside this
+		// binary, and in the browser otherwise.
+		err := runtime.openWindow(board, h.State, false)
+		if err == nil {
+			return 0
+		}
+		if !errors.Is(err, errNoWindow) {
+			fmt.Fprintf(stderr, "goblins: the desktop window did not start (%v), so the board opens in the browser\n", err)
+		}
 		if err := runtime.openURL(board); err != nil {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 			return 1

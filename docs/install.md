@@ -14,9 +14,9 @@ It needs no clone and no Go, and `goblins` works in the same window as soon as i
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
-2. Downloads `cfo.exe` from the release this `install.ps1` was published with, so the script and the program are always one release's, and refuses it unless it matches the release's `SHA256SUMS`.
+2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` when the release lists one, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
 3. Asks once for [your projects folder](#your-projects-folder).
-4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, and the program as `cfo.exe` and `goblins.exe`.
+4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, the program as `cfo.exe` and `goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one.
    `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
 5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code and Herdr with their own installers, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
@@ -28,11 +28,18 @@ In order, it:
    Kimi has no scriptable installer, so it prints the manual step instead.
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
-8. Adds Code Goblins to your Start menu, which runs `goblins`, the quick start, in a window of its own.
+8. Adds Code Goblins to your Start menu.
+   Where the home holds the desktop window it runs `goblins --window`, which finds or starts the supervisor and opens the board in that window; in a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins`, restarts it on the new one.
+An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
+
+An install whose home holds the desktop window takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
+That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
+The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
+Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
 
 ## The quick start
 
@@ -56,7 +63,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
    For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
-6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes.
+6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CFO terminal**, which Enter takes, or **Open the board**, which B takes, in the desktop window where `goblins-window.exe` sits beside `goblins` and in the browser otherwise.
    Esc there leaves both running and exits.
 
 A CFO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
@@ -101,8 +108,10 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds `cfo.exe` from the clone and puts it beside itself as `goblins.exe`.
-  A copy still running, such as a supervisor or a terminal's host, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old` or `goblins.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
+- It builds `cfo.exe` from the clone, puts it beside itself as `goblins.exe`, and builds the desktop window, `goblins-window.exe`, beside them.
+  A copy still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
+- It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
+  A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.
 - The clone becomes the CFO home, on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
   While another CFO home is in use, such as one the one-line install set up, it refuses before changing your environment or settings; run `goblins uninstall` from that home first, then run it again.
 - It makes `.claude\skills` a junction to `.agents\skills`, so Claude Code sees this repository's skills; [load-map.md](load-map.md) shows where each harness looks for skills.
@@ -115,7 +124,7 @@ The fleet keeps its state and data in the CFO home: `%LOCALAPPDATA%\CodeGoblins`
 The home is outside every project repository: goblins work in git worktrees of your checkouts, in each checkout's ignored `.worktrees` folder, and the fleet's own state and data stay in the home.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and the desktop window's Start at login entry where it starts a program in that home, and keeps the home folder, with its state and data, until you delete it.
 
 ## Your projects folder
 

@@ -555,6 +555,8 @@ Known exited/replaced sessions are refused, but the board does not claim to elim
 
 Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
+Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
+Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
@@ -583,9 +585,11 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 
 A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
 `go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
-This repository's install and releases do not carry it yet, and `goblins` does not start it; the README's [The desktop app](../README.md#the-desktop-app) says where to get a built one, which is started from its own Start-menu entry.
+`goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window already running takes the start as its second instance and comes to the front.
+`goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
+`.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, which none does yet, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
-It writes nothing into the CFO home, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
+It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
 It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's own alert is the signal, and nothing is claimed.
 What its own look finds it claims under the key the board's page uses, `alert:` and the item's key, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
@@ -593,6 +597,7 @@ Each notification carries the goblin from `goblins-window.png`, which every star
 A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
+For a window that `goblins` started, the value runs that `goblins.exe --window --background`, so the supervisor starts before the window; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
 The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
@@ -633,7 +638,12 @@ Use a new stable ID for a new question, and keep the same ID/content for an unce
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
 For a CFO in a native terminal, a publisher whose chain of parents stops short of the CFO is proven instead by the terminal's proof value, as for a goblin's question.
 The board's stream, `GET /api/events`, sends two kinds of event.
-A `snapshot` is the whole board, and reading the fleet for one takes from a fraction of a second to several seconds, so the supervisor builds each away from the stream, one at a time.
+A `snapshot` is the whole board, read from the fleet's files, so the supervisor builds each away from the stream.
+One build serves everyone who asks while it runs: every open board, `/api/snapshot` and the ticket keeper share it, so one change costs one build however many readers there are, and one refresh every 15 seconds serves them all.
+A build opens a fleet file only when its size or its modification time changed since the build before, and otherwise keeps what the file gave then; it asks the disk about each path once, and learns of the task records, lifecycle records and monitor records from one listing of each folder.
+On 2026-10-02 a build opened 447 files at the live fleet's size and took 3 to 13 seconds on the fleet's machine, where opening a file cost 20 to 80 ms in bursts; an unchanged fleet now opens 4, and a goblin's report one more.
+A goblin's `cfo notify` tells the supervisor over its pipe as it returns, without waiting for an answer: the supervisor runs a cycle, which takes in a blocked question or a wait on the Overlord, and tells every board, so a report reaches an open board within a second rather than at the next refresh, and leaves the board's last error as it was.
+With no supervisor running, or one too busy to take it, the report shows at the next refresh.
 An `items` event is the Command Center's part alone (`questions`, `reviews`, `runs`, `credentials` and `actions`, with the supervisor's `instance` and `revision`), read from the store's memory and sent the moment it differs from what that board last received, while a snapshot may still be building; the board lays it over its last snapshot.
 A snapshot carries the items as they are when it is sent, not as they were when its build began, so it never undoes an items event sent before it.
 The Command Center shows one item at a time as a stack, a question, a review item, a run item or a credential request, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
