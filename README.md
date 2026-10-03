@@ -120,7 +120,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 ```
 
 It ends with the [quick start](#quick-start) in that same window, where `goblins` works at once.
-Code Goblins in the Start menu runs the quick start again at any time.
+Code Goblins in the Start menu runs the quick start again at any time, and opens the board in [the desktop app](#the-desktop-app) instead where the install put one.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go:
 
@@ -153,6 +153,7 @@ goblins setup        # the quick start again, choosing the agent the CFO runs on
 goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
 goblins --harness codex  # start the CFO as codex, claude or pi from now on, set up first; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
+goblins --window     # the same, with the board in the desktop window
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
@@ -179,12 +180,13 @@ Every run ends on one screen: the CFO's home and the board's link, which Ctrl+cl
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
 **Open the board**, or B, opens the board in your browser.
 `goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
+`goblins --window` does the same with [the desktop app](#the-desktop-app) in place of the browser, where `goblins-window.exe` sits beside `goblins`, and says so and exits 1 where it does not; `goblins --window --background` keeps the window in its tray.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one; it asks the supervisor for its pid, so a fleet snapshot that is slow to build never makes a live supervisor look stopped.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` undoes the install and keeps the home folder, with its state and data, until you delete it; [the install guide](docs/install.md#where-your-data-lives) says what it removes.
 
 ### Quick start
 
@@ -236,10 +238,11 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 ### The desktop app
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
-It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
-Its source is `cmd/goblins-window` in this repository; no release of this repository ships it yet, and a built one is published as a release by [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository.
-That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
-The window is unsigned, and its install says so.
+It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
+Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install puts it there from a release that ships it, which none does yet.
+Where the home holds it, Code Goblins in the Start menu and `goblins --window` find or start the supervisor and open the board in it, and **Open the board** in the quick start opens it in place of the browser.
+Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which starts the supervisor and the window in the tray when you sign in, and **Quit the window**.
+An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
 Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
 
 ### Board and Orchestration
@@ -286,7 +289,10 @@ The head of **Tasks** shows how much memory is free, as a number and a bar marke
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
 A line also warns when the kernel's paged pool passes 4 GB, which means a driver is leaking memory and a reboot frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
-The first eligible task is marked **Next up**; the board itself starts nothing on its own.
+The first eligible task is marked **Next up**.
+The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
+A future date, an unanswered question or an Overlord pause does not hold the queue.
+The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
 A blocked task names the person, time or task it waits on and has no Start button or Next up mark.
 An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
@@ -300,7 +306,22 @@ Pause allows five seconds for a stopping point and handoff, then ends the task's
 Pause and Stop count a process as stopped once Windows reports an exit status, even if Windows is still releasing its resources.
 Such processes remain listed as **Finishing Windows teardown** on the card and in status until their birth-checked identities disappear; their memory is not reported as freed early, and Resume does not wait for them.
 Its worktree, branch and session stay available, and the Paused card says when it paused, what was kept and whether a handoff was saved.
-Resume requires the same 5 GB of free memory and of free commit, and continues the saved session where supported, otherwise using the saved handoff.
+Every pause records why it paused and what resumes it.
+The board's Pause records `overlord`, which only the Overlord's Resume clears.
+The CLI requires `cfo pause <id> --reason <reason>`; the reasons are `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` and `deploy`.
+An allowance pause takes `--until <RFC3339 reset time>`; a dependency takes `--until task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>`; a question takes `--until <question id>`.
+For CI or deploy, name the exact awaited head with `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`.
+Pause for CI or deploy only when waiting on that run is the goblin's remaining work.
+The supervisor resumes memory pauses after two consecutive readings of at least 5 GB free memory and commit, allowance pauses at their reset, dependencies when the named task finishes or PR merges or date arrives, questions when the Overlord answers, and CI/deploy pauses on the matching `ci_finished` record.
+Answers to paused goblins are retained for their resume prompt.
+Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
+The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
+At 3 percent allowance remaining, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the provider resets.
+The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
+After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
+Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
+An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
+Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
 
@@ -335,6 +356,8 @@ A queued task, a task still pausing or stopping, and a merged pull request liste
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
 Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
+Connection names and statuses share a line with the status on the right in panels at least 520 px wide, and stack below that width.
+Long names show their full text in a tip; rows keep room between their separators while health checks run.
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
 Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
 Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
@@ -625,6 +648,7 @@ A ticket outlives the board's memory of its task: when a finished task's pull re
 A project with no GitHub repository simply has no tickets.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell
