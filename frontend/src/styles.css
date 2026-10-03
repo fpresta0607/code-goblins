@@ -617,14 +617,29 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The goblin panel: a top row with the Task and Terminal pill, a header that
    says who the goblin is and what it is doing, then one of the two views. */
 .goblin-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.panel-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 10px 14px 0; flex: none; }
-.panel-top-side { display: flex; align-items: center; min-width: 0; }
-.panel-top-side.end { position: relative; justify-content: flex-end; }
+/* The panel's top row, on one line at any width: the Task and Terminal
+   switch in the middle while there is room, then the controls and the corner
+   button, Close or Back, which keep their own width whatever the switch
+   takes. PanelRow decides which controls stay in the row; the 8 px gap and an
+   icon button's 44 px are the numbers it fits them by. */
+.panel-top { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 8px; padding: 10px 14px 0; flex: none; }
+.panel-controls { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.panel-corner { display: flex; flex: none; }
+/* The switch in both its forms, measured out of sight: it takes no room. */
+.panel-measure { position: absolute; left: 0; top: 0; display: flex; gap: 8px; width: max-content; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+/* More holds the controls the row has no room for, each with its name. */
+.panel-more { position: relative; display: flex; }
+.panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
+.panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
 .window-error { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); margin: 0; padding: 8px 12px; border: 1px solid #735338; border-radius: 10px; background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .panel-pill { display: flex; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); box-shadow: inset 0 2px 6px #0007; }
 .panel-pill button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: 1.0625rem; }
 .panel-pill button .icon { width: 20px; height: 20px; }
 .panel-pill button:hover { color: #edf4f3; }
+/* In a row too narrow for its words the switch shows its icons, each a full
+   button. */
+.panel-pill.icons button { width: 44px; padding: 0; justify-content: center; }
 .panel-pill button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 .panel-header { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
@@ -721,7 +736,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
 .voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.2); transition: transform 70ms linear; }
-.voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100vw - 48px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
+.voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100% - 28px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
 .voice-card::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
 .voice-card-title { padding-right: 48px; color: var(--bone); font: 400 1.1875rem/1.3 var(--font-display); }
