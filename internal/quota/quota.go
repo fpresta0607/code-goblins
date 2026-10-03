@@ -65,7 +65,7 @@ type Scope struct {
 	// Known is whether the percentage is measured; an unknown percentage
 	// never reads as zero.
 	Known            bool
-	PercentRemaining int
+	PercentRemaining float64
 	// Runway is quota-axi's verdict: through_reset, projected_exhaustion,
 	// exhausted_now, or unknown.
 	Runway               string
@@ -111,7 +111,7 @@ func (r Report) Headroom(harness, model string) Headroom {
 	}
 	h.Scope = scope.Name
 	h.Known = true
-	h.PercentRemaining = scope.PercentRemaining
+	h.PercentRemaining = int(scope.PercentRemaining)
 	h.Runway = scope.Runway
 	h.ResetsAt = scope.ResetsAt
 	h.ProjectedExhaustedAt = scope.ProjectedExhaustedAt
@@ -239,7 +239,7 @@ func Parse(data []byte, now time.Time) (Report, error) {
 		for _, e := range p.QuotaSemantics.EffectiveAvailability {
 			scope := Scope{Name: e.Scope, Runway: e.Runway.Status, ResetsAt: provider.Resets[e.Runway.LimitingWindowID]}
 			if percent, ok := number(e.EffectivePercentRemaining); ok && e.Status == "known" {
-				scope.Known, scope.PercentRemaining = true, int(percent)
+				scope.Known, scope.PercentRemaining = true, percent
 			}
 			if seconds, ok := number(e.Runway.UsableRunwaySeconds); ok {
 				scope.UsableRunwaySeconds = int(seconds)

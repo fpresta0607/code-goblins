@@ -42,6 +42,7 @@ type BacklogRow struct {
 	Title         string   `json:"title"`
 	Repo          string   `json:"repo"`
 	Kind          string   `json:"kind"`
+	Priority      string   `json:"priority,omitempty"`
 	BlockedBy     string   `json:"blocked_by"`
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
@@ -122,6 +123,7 @@ func parseBacklogRow(line string) BacklogRow {
 		Title:         backlogTitle(rest),
 		Repo:          metadataValue(rest, "repo"),
 		Kind:          metadataValue(rest, "kind"),
+		Priority:      metadataValue(rest, "priority"),
 		BlockedBy:     blockedBy,
 		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,

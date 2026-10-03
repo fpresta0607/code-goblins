@@ -68,6 +68,7 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
+	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is
@@ -89,6 +90,8 @@ func (m Memory) shortfall() string {
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
 	missingBrief                                     *fleet.QueuedTask
+	isOverlord                                       bool
+	isProductionDefect                               bool
 }
 
 func (p startPlan) args() []string {
@@ -142,6 +145,10 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 // startTask checks that id can start now and starts cfo spawn for it; one
 // task starts at a time, and the board shows it starting until spawn ends.
 func (s *Service) startTask(id string) error {
+	return s.startQueued(id, true)
+}
+
+func (s *Service) startQueued(id string, isOverlord bool) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil {
 		return StartRefusal{Reason: "This board cannot start goblins"}
@@ -178,12 +185,16 @@ func (s *Service) startTask(id string) error {
 	if err != nil {
 		return err
 	}
+	plan.isOverlord = isOverlord
 	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
+	}
+	if err := CheckLaunch(s.Store.Home, memory); err != nil {
+		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {
 		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
@@ -230,6 +241,12 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(readErr)
 		}
 		detail = "started: the Overlord started this from the board, at the top of In progress; its row is still in backlog.md's Queued section"
+		if !plan.isOverlord {
+			detail = "started: the supervisor started the next queued task after checking cleared pauses; its row is still in backlog.md's Queued section"
+		}
+		if plan.isProductionDefect {
+			detail += "; production defect jumped the order"
+		}
 	}
 	if _, err := wake.Append(h.State, "notify", plan.id, detail); err != nil {
 		s.publish(err)
@@ -285,7 +302,7 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	if len(row.BlockedByIDs) > 0 {
 		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
 	}
-	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
+	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}

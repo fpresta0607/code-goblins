@@ -167,12 +167,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
-		CI:               execx.OSRunner{},
+		CI:       execx.OSRunner{},
+		Progress: execx.OSRunner{},
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
+		Quota:              runtime.quota,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

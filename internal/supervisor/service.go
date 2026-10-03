@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -67,7 +68,8 @@ type Options struct {
 	// board starts no goblin.
 	Dispatch *Dispatch
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
-	CI execx.Runner
+	CI       execx.Runner
+	Progress execx.Runner
 	// Credentials opens the credential store cfo auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
@@ -80,6 +82,7 @@ type Options struct {
 	// says why it could not; AFK mode's report sets the reading taken when it
 	// turned on beside the one taken when it turned off.
 	Allowance func(ctx context.Context) ([]afk.Allowance, string)
+	Quota     func(ctx context.Context) (quota.Report, string)
 }
 
 type Service struct {
@@ -846,6 +849,7 @@ type Task struct {
 	QueueRevision string           `json:"queue_revision,omitempty"`
 	Detail        string           `json:"detail,omitempty"`
 	Notes         []string         `json:"notes,omitempty"`
+	Progress      *WorkProgress    `json:"progress,omitempty"`
 	Evaluation
 }
 
@@ -897,7 +901,8 @@ type Snapshot struct {
 	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory *Memory `json:"memory,omitempty"`
+	Memory      *Memory      `json:"memory,omitempty"`
+	CIDurations []CIDuration `json:"ci_durations,omitempty"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1092,7 +1097,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Lifecycle = lifecycleStatus(record)
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
-				task.Activity = record.Reason
+				if record.Pause != nil && record.Phase == "paused" {
+					task.Reason = record.Pause.Description()
+				}
+				task.Activity = task.Reason
 			}
 			if record.Phase == "stopped" {
 				task.Archived = true
@@ -1106,9 +1114,26 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.starts.Unlock()
+	if watched, err := readFleetWakes(s.Store.Home.State); err == nil {
+		out.CIDurations = watched.Durations
+		for i := range out.Tasks {
+			task := &out.Tasks[i]
+			if progress, exists := watched.Progress[task.ID]; exists && progress.Generation == task.Generation {
+				progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
+				task.Progress = &progress
+			}
+		}
+	} else {
+		out.Issues = append(slices.Clone(out.Issues), err.Error())
+	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next = memoryFloor, memoryNext
+			if capacity, err := ReadFleetCapacity(s.Store.Home, memory); err == nil {
+				memory.Capacity = &capacity
+			} else {
+				out.Issues = append(slices.Clone(out.Issues), err.Error())
+			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
