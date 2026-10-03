@@ -164,7 +164,7 @@ func TestSwitchWritesAHandoffAndPointsTheNewHarnessAtIt(t *testing.T) {
 func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
 
-	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", Generation: f.meta.SpawnGen, ResumeSession: "owned-session-7"})
 
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
@@ -172,7 +172,7 @@ func TestSwitchResumesInPlaceWhenOnlyTheModelChanges(t *testing.T) {
 	if !result.Resumed || result.Handoff != "" {
 		t.Fatalf("result = %+v, want the harness's own resume and no handoff", result)
 	}
-	if launches := named(f.events(t), "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume --last ") {
+	if launches := named(f.events(t), "env"); len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume owned-session-7 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Errorf("launches = %+v, want the resume arguments first", launches)
 	}
 	after, _ := state.ReadTaskMeta(f.stateDir, f.meta.ID)
@@ -195,6 +195,28 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+func TestSwitchRefusesASessionFromTheReplacedTaskGeneration(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{ResumeArgs: []string{"resume", "--last"}})
+	replacement := f.meta
+	replacement.SpawnGen = "replacement-generation"
+	if err := state.WriteTaskMeta(f.stateDir, replacement); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := f.service.Switch(t.Context(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9", Generation: f.meta.SpawnGen, ResumeSession: "previous-session"})
+
+	if err == nil || !strings.Contains(err.Error(), "task session changed") {
+		t.Fatalf("Switch=%v, want a generation refusal", err)
+	}
+	after, readErr := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+	if readErr != nil || after != replacement {
+		t.Fatalf("replacement changed after refusal: %+v, %v", after, readErr)
+	}
+	if _, err := os.Stat(f.record); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a harness launched after stale generation refusal: %v", err)
 	}
 }
 
