@@ -27,6 +27,10 @@ const (
 	memoryNext = 5 << 30
 )
 
+// MemoryFloor is the free memory the fleet keeps, for what starts heavy work
+// outside the supervisor: a verification run waits for it before its tests.
+const MemoryFloor = memoryFloor
+
 // The fleet's defaults for a goblin whose backlog row and brief name none.
 const (
 	defaultHarness = "claude"
