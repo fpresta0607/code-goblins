@@ -1,6 +1,7 @@
 package installtest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"net/http"
@@ -231,5 +232,64 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
+	// Arrange
+	base := serveReleaseWithWindow(t, standIn(t), nil)
+	var originalShortcut []byte
+	seed := func(local, programs string) {
+		for path, content := range map[string]string{
+			filepath.Join(local, "CodeGoblins", "goblins-window.exe"):       "retained older window",
+			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.exe"): "standalone window",
+			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.png"): "standalone picture",
+		} {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "goblins.exe"), standIn(t), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(programs, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		shortcut := filepath.Join(programs, "Code Goblins Window.lnk")
+		window := filepath.Join(local, "CodeGoblinsWindow", "goblins-window.exe")
+		out, err := execx.Command(WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command",
+			"$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut('"+strings.ReplaceAll(shortcut, "'", "''")+"'); $shortcut.TargetPath = '"+strings.ReplaceAll(window, "'", "''")+"'; $shortcut.Arguments = '--board http://127.0.0.1:4310 --state old-state'; $shortcut.Save()").CombinedOutput()
+		if err != nil {
+			t.Fatalf("create standalone shortcut: %v\n%s", err, out)
+		}
+		originalShortcut, err = os.ReadFile(shortcut)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	run := runInstallForStartMenu(t, base, nil, "for ($install = 0; $install -lt 2; $install++) { Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression }", seed)
+
+	// Assert
+	target, arguments := startMenuEntry(t, run)
+	if !strings.EqualFold(target, filepath.Join(run.local, "CodeGoblins", "goblins.exe")) || arguments != "--window" {
+		t.Errorf("Code Goblins runs %q with %q, want goblins.exe with --window", target, arguments)
+	}
+	shortcut := filepath.Join(run.programs, "Code Goblins Window.lnk")
+	if got, err := os.ReadFile(shortcut); err != nil || !bytes.Equal(got, originalShortcut) {
+		t.Errorf("standalone shortcut changed or was removed: %v\n%s", err, run.output)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(run.local, "CodeGoblins", "goblins-window.exe"):       "retained older window",
+		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.exe"): "standalone window",
+		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.png"): "standalone picture",
+	} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q (%v), want it kept as %q", path, got, err, want)
+		}
 	}
 }

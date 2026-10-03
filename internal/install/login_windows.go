@@ -5,7 +5,6 @@ package install
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -69,22 +68,6 @@ func (s Service) removeStartAtLogin(report *reporter) error {
 	}
 	report.change("start at login", "removed the desktop window's entry, which ran "+command)
 	return nil
-}
-
-// suppliesWindow reports whether this install puts a desktop window of its own
-// in the home: one shipped beside the running binary, which copyWindow copies
-// in, or one built into a checkout for it. A window that is only there
-// already, a home's own beside a binary run from that home included, is kept
-// and not supplied.
-func (s Service) suppliesWindow() bool {
-	if s.BuiltWindow {
-		return true
-	}
-	if s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.Root) {
-		return false
-	}
-	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
-	return err == nil
 }
 
 // adoptStartAtLogin makes Start at login start this home where it started the

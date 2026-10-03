@@ -766,9 +766,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
-        # The window once had an entry of its own; the one entry opens it now.
+        # A window this install delivered replaces the standalone entry.
         $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
-        if ($opensWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
+        if ($deliveredWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
             Remove-Item -LiteralPath $earlierShortcut -Force
             Write-Host ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
         }

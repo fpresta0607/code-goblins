@@ -38,11 +38,12 @@ Rerun it to update: it brings the home's contract, skills and program up to date
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins`, restarts it on the new one.
 An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 
-An install whose home holds the desktop window takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
+An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
 That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
-It starts the window alone where this install put the window in the home, and runs `goblins --window --background` where the home only kept the window it held.
 The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
+An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
+When it adopts the standalone copy's existing Start at login entry, that entry runs the home's `goblins --window --background`.
 
 ## The quick start
 

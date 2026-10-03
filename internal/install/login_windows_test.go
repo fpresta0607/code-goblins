@@ -200,6 +200,14 @@ func TestInstallStartsAtLoginTheWindowItSuppliedAndGoblinsForOneItKept(t *testin
 			writeFile(t, filepath.Join(f.root, windowName), "window 1")
 			return f
 		}, true, "window 1"},
+		"a checkout wired by a binary with a window elsewhere": {func(t *testing.T) *fixture {
+			f := newFixture(t, adopterSettings, nil)
+			f.service.Binary = filepath.Join(t.TempDir(), "cfo.exe")
+			writeFile(t, f.service.Binary, "build 1")
+			writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), windowName), "window elsewhere")
+			writeFile(t, filepath.Join(f.root, windowName), kept)
+			return f
+		}, false, kept},
 		"a checkout whose window was built before": {func(t *testing.T) *fixture {
 			f := newFixture(t, adopterSettings, nil)
 			writeFile(t, filepath.Join(f.root, windowName), kept)
@@ -288,6 +296,41 @@ func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testi
 				t.Errorf("%s in the home = %q, want %q", windowName, got, kept)
 			}
 		})
+	}
+}
+
+func TestCoreOnlyReinstallKeepsTheStandaloneWindowAndAdoptsItsLogin(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	writeFile(t, filepath.Join(f.root, windowName), "retained older window")
+	f.install()
+	command := earlierWindowAtLogin(t, f)
+	writeFile(t, filepath.Join(f.service.EarlierWindow, windowPicture), "standalone picture")
+	key := ownStartAtLogin(t, f)
+	if err := key.SetStringValue(startAtLoginValue, command); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	f.install()
+	f.install()
+
+	// Assert
+	want := `"` + filepath.Join(f.root, "goblins.exe") + `" --window --background`
+	if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
+		t.Errorf("Start at login runs %q (%v), want %s", got, err, want)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(f.root, windowName):                     "retained older window",
+		filepath.Join(f.service.EarlierWindow, windowName):    "window 0",
+		filepath.Join(f.service.EarlierWindow, windowPicture): "standalone picture",
+	} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q (%v), want it kept as %q", path, got, err, want)
+		}
+	}
+	if info, err := os.Stat(f.service.EarlierWindow); err != nil || !info.IsDir() {
+		t.Errorf("standalone folder = %v (%v), want it kept", info, err)
 	}
 }
 
