@@ -3,7 +3,9 @@ package digest
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +232,42 @@ func TestACheckpointListsOnlyCurrentLifecycleHolds(t *testing.T) {
 				t.Errorf("lifecycle %s should be listed = %t:\n%s", phase, shouldList, body)
 			}
 		})
+	}
+}
+
+// A pause whose goblin's metadata cannot be read is neither confirmed as the
+// current generation's hold nor hidden behind a claim that nothing is paused.
+func TestACheckpointDoesNotConfirmOrDenyAHoldWhoseMetadataIsUnreadable(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	target, link := t.TempDir(), filepath.Join(h.State, "task-1.meta")
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	} else if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ReadMeta(filepath.Join(h.State, "task-1.meta")); err == nil {
+		t.Fatal("premise: the metadata reads")
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "s1", Operation: "op-1", Action: "pause", Phase: "paused", Reason: "the operator chose it"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	checkpoint := readCheckpoint(t, h, time.Now())
+
+	// Assert
+	holds := section(t, checkpoint, "== HOLDS AND FREEZES ==")
+	if !strings.Contains(holds, "task-1: lifecycle paused not confirmed for its current spawn generation (metadata UNREADABLE)") {
+		t.Errorf("HOLDS AND FREEZES does not report the unverified pause:\n%s", holds)
+	}
+	if strings.Contains(holds, "task-1: paused (") || strings.Contains(holds, "No goblin is paused or stopped.") {
+		t.Errorf("HOLDS AND FREEZES confirms or denies a pause it cannot verify:\n%s", holds)
+	}
+	for _, header := range []string{"== FLEET ==", "== OPEN QUESTIONS ==", "== OWED ==", "== READ THIS NEXT =="} {
+		section(t, checkpoint, header)
 	}
 }
 

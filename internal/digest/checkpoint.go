@@ -75,16 +75,23 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 			ew.printf("%s: lifecycle UNREADABLE (%s)\n", id, err)
 			continue
 		}
-		if generations[id] == "" || record.Generation != generations[id] {
-			continue
-		}
 		switch record.Phase {
 		case "pausing", "paused", "resuming", "stopping", "stopped":
+		default:
+			continue
+		}
+		generation, isKnown := generations[id]
+		if !isKnown {
+			hasHold = true
+			ew.printf("%s: lifecycle %s not confirmed for its current spawn generation (metadata UNREADABLE)\n", id, record.Phase)
+		} else if generation != "" && record.Generation == generation {
 			hasHold = true
 			ew.printf("%s: %s (%s)\n", id, record.Phase, record.Reason)
 		}
 	}
-	if !hasHold && err == nil {
+	if err != nil {
+		ew.printf("state\\: UNREADABLE (%s)\n", err)
+	} else if !hasHold {
 		ew.println("No goblin is paused or stopped.")
 	}
 
