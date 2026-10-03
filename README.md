@@ -177,6 +177,7 @@ A conversation that cannot be resumed starts a new one, and so does one past 20 
 A CFO that ran in Herdr, or one that starts as another agent, starts a new conversation.
 `goblins resume` restarts a CFO that is running in its native terminal, as for one whose screen froze while the session kept working: it closes that terminal, which ends the agent and interrupts its current response, and starts it again there on the same conversation, while goblins and the board keep running.
 It stops nothing it cannot bring back: a CFO whose conversation cannot be resumed, such as one in pi or one past 20 MB, or whose terminal runs a process that conversation was not recorded for, is left running, and `goblins resume` says why.
+Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
 `cfo resume` with no task named is the same command.

@@ -56,7 +56,7 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
-  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back; cfo resume <id> resumes a paused task
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal; cfo resume <id> resumes a paused task
   update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)

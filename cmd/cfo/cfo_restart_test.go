@@ -277,16 +277,18 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 }
 
 // A CFO whose conversation was not recorded for the program its terminal
-// runs, or cannot be resumed, is left running, with why: a restart never
-// stops what it cannot bring back.
+// runs, or cannot be resumed, is left running, with why, and so is one asked
+// to restart from inside its own terminal, which closing would end along with
+// the restart: a restart never stops what it cannot bring back.
 func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 	for _, c := range []struct {
-		name, harness string
-		isRecorded    bool
-		why           string
+		name, harness, hostID string
+		isRecorded            bool
+		why                   string
 	}{
-		{"a conversation another process registered", "claude", false, "registered no conversation it can come back on, so it is left running"},
-		{"a pi conversation", "pi", true, "pi has no way to resume a conversation, so the CFO is left running"},
+		{"a conversation another process registered", "claude", "", false, "registered no conversation it can come back on, so it is left running"},
+		{"a pi conversation", "pi", "", true, "pi has no way to resume a conversation, so the CFO is left running"},
+		{"a restart run inside the CFO's own terminal", "claude", supervisor.NativeCFOTerminal, true, "so the CFO is left running: run goblins resume in another terminal, or from the board"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -295,9 +297,16 @@ func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 			if c.isRecorded {
 				recordConversationOf(t, h.State, record, c.harness, "a1b2c3d4-session")
 			}
+			conversation, err := os.ReadFile(filepath.Join(h.State, "cfo-conversation.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.hostID != "" {
+				t.Setenv(host.IDVariable, c.hostID)
+			}
 
 			// Act
-			_, _, err := restartCFO(h)
+			_, _, err = restartCFO(h)
 
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), c.why) || strings.Contains(err.Error(), "starts a new one") {
@@ -305,6 +314,9 @@ func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 			}
 			if _, alive := proc.StartTime(record.ChildPID); !alive || !host.Running(record) {
 				t.Errorf("the CFO, pid %d, was stopped", record.ChildPID)
+			}
+			if after, err := os.ReadFile(filepath.Join(h.State, "cfo-conversation.json")); err != nil || string(after) != string(conversation) {
+				t.Errorf("the CFO's conversation record = %q, %v after the refusal, want it as it was, %q", after, err, conversation)
 			}
 		})
 	}

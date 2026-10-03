@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -23,12 +24,13 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // returns the conversation and whether the CFO resumed it. It stops nothing it
 // cannot bring back: a CFO whose terminal runs a process its conversation was
 // not recorded for, or whose conversation cannot be resumed, is left running,
-// with the reason. A harness that ends at once, as one that cannot resume the
-// conversation does, is started again on a new conversation, as goblins does
-// for a closed CFO, so the fleet is never left without one, and the board
-// names the conversation it could not resume. Closing the
-// terminal ends the harness and everything it started; goblins, each in a
-// terminal of its own, keep running.
+// with the reason, and so is a CFO whose own terminal this runs in, which
+// closing would end before it started the CFO again. A harness that ends at
+// once, as one that cannot resume the conversation does, is started again on
+// a new conversation, as goblins does for a closed CFO, so the fleet is never
+// left without one, and the board names the conversation it could not
+// resume. Closing the terminal ends the harness and everything it started;
+// goblins, each in a terminal of its own, keep running.
 func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
 	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("another CFO restart is under way: %w", err)
@@ -37,6 +39,9 @@ func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
 	id, live := supervisor.NativeCFO(h.State)
 	if !live || id != supervisor.NativeCFOTerminal {
 		return supervisor.CFOConversation{}, false, errNoRunningCFO
+	}
+	if os.Getenv(host.IDVariable) == id {
+		return supervisor.CFOConversation{}, false, fmt.Errorf("this runs inside the CFO's own native terminal %s, which closing would end before the CFO started again, so the CFO is left running: run goblins resume in another terminal, or from the board as a run the Overlord starts there", id)
 	}
 	record, err := host.ReadRecord(h.State, id)
 	if err != nil {
