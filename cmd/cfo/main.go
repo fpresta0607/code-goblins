@@ -506,7 +506,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := digest.Compose(h, resolveSessionOwnerPID(), "", stdout); err != nil {
+		if err := digest.Compose(h, resolveSessionOwnerPID(h.State), "", stdout); err != nil {
 			fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 		}
 		return 0
