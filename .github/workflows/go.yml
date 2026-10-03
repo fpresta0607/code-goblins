@@ -100,13 +100,16 @@ jobs:
           go-version: stable
       - name: Check the Windows resource objects
         if: matrix.shard == 'rest'
-        working-directory: cmd/cfo
         shell: pwsh
         run: |
-          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (git status --porcelain --untracked-files=all -- rsrc_windows_amd64.syso rsrc_windows_arm64.syso) {
-            throw 'The resource objects differ from winres.json. In cmd/cfo run go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64, then commit them.'
+          foreach ($program in 'cmd/cfo', 'cmd/goblins-window') {
+            Push-Location $program
+            go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (git status --porcelain --untracked-files=all -- rsrc_windows_amd64.syso rsrc_windows_arm64.syso) {
+              throw "The resource objects differ from winres.json. In $program run go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64, then commit them."
+            }
+            Pop-Location
           }
       # Every job installs SQLite, not only the ones whose tests use it today:
       # a test that finds no sqlite3 skips itself, so a job without it would

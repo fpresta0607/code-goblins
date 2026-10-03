@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dropIndex, moveTo, orderShown, pendingSettled, rankLabel, stepped } from "./priority.ts";
+import { dropIndex, edgeScroll, moveTo, orderShown, pendingSettled, rankLabel, stepped } from "./priority.ts";
 
 const ids = ["a", "b", "c", "d"];
 
@@ -56,4 +56,18 @@ test("a dropped order settles once the list agrees with it or changed underneath
 
 test("a card's place is read out as its rank of the list", () => {
   assert.equal(rankLabel(0, 4), "priority 1 of 4");
+});
+
+test("a card dragged to the top or bottom edge of its list's scroller scrolls it, faster the nearer the edge", () => {
+  // The scroller shows from 100 to 900 px down the screen.
+  assert.equal(edgeScroll(500, 100, 900), 0, "clear of both edges");
+  assert.equal(edgeScroll(164, 100, 900), 0, "64 px from the top edge is still clear");
+  assert.equal(edgeScroll(163, 100, 900), -1, "inside the top edge scrolls up");
+  assert.equal(edgeScroll(132, 100, 900), -10);
+  assert.equal(edgeScroll(100, 100, 900), -20);
+  assert.equal(edgeScroll(20, 100, 900), -20, "past the edge is no faster than at it");
+  assert.equal(edgeScroll(836, 100, 900), 0);
+  assert.equal(edgeScroll(837, 100, 900), 1, "inside the bottom edge scrolls down");
+  assert.equal(edgeScroll(900, 100, 900), 20);
+  assert.equal(edgeScroll(2000, 100, 900), 20);
 });

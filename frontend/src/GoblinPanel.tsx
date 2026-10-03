@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
-import { Icon } from "./Icon";
 import { PanelHeader } from "./PanelHeader";
 import { TaskView } from "./Details";
 import { WorkspaceDetails } from "./WorkspaceDetails";
@@ -13,6 +12,7 @@ import { queuedTasks } from "./workflow";
 import { TaskControls } from "./task-controls";
 import { TaskAdjustment } from "./task-adjustment";
 import { LifecycleDetails } from "./lifecycle-details";
+import { PanelRow, type PanelControl } from "./panel-row";
 
 export type PanelView = "task" | "terminal";
 
@@ -21,22 +21,16 @@ export type PanelView = "task" | "terminal";
 // themselves live in the terminal deck below the panel, which keeps each one
 // live while the board is open, so switching goblins never reconnects.
 // The CFO's Task view also lists every queued task, as the Tasks column does.
-export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, leading, trailing }: {
+export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
   task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
-  cardStart: CardStarter; leading?: ReactNode; trailing: ReactNode;
+  // row is the top row's controls, corner button and notice (see PanelRow).
+  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   const terminal = panelViews(task, node).includes("terminal");
   return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
-    <div className="panel-top">
-      <div className="panel-top-side">{leading}</div>
-      {terminal ? <div className="panel-pill" role="group" aria-label="Panel view">
-        <button aria-pressed={view === "task"} onClick={() => onView("task")}><Icon name="task" />Task</button>
-        <button aria-pressed={view === "terminal"} onClick={() => onView("terminal")}><Icon name="terminal" />Terminal</button>
-      </div> : <div />}
-      <div className="panel-top-side end">{trailing}</div>
-    </div>
+    <PanelRow view={terminal ? view : undefined} onView={onView} {...row} />
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">

@@ -2,7 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 import { message, request, useResource } from "./api";
 import { Avatar } from "./Avatar";
 import { Icon, type IconName } from "./Icon";
-import { RECOMMENDED_AGENT, startState } from "./firstRunStart";
+import { startState } from "./firstRunStart";
 import { parseSetup } from "./types";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
@@ -71,7 +71,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
         {data.agents.map((each) => <button key={each.id} type="button" role="tab" id={"agent-tab-" + each.id} className="agent-tab" aria-selected={each.id === agent} aria-controls="agent-panel" tabIndex={each.id === agent ? 0 : -1} onClick={() => setPicked(each.id)}>
           <Icon name={AGENT_ICONS[each.id] || "sparkle"} />
           <span>{each.name}</span>
-          {each.id === RECOMMENDED_AGENT && <span className="agent-recommended">Recommended</span>}
+          {each.recommended && <span className="agent-recommended">Recommended</span>}
         </button>)}
       </div>
       {shown && <div className="agent-panel" role="tabpanel" id="agent-panel" aria-labelledby={"agent-tab-" + shown.id}>
@@ -79,6 +79,7 @@ export function FirstRun({ instance, onStarted, onBoard }: { instance: string; o
           <span className={shown.installed ? "yes" : "no"}><Icon name={shown.installed ? "check" : "close"} />{shown.installed ? "Installed" : "Not installed"}</span>
           <span className={shown.signed_in ? "yes" : "no"}><Icon name={shown.signed_in ? "check" : "close"} />{shown.signed_in ? "Signed in" : "Not signed in"}</span>
         </span>
+        {shown.note && <span className="agent-note">{shown.note}</span>}
         {shown.reason && <small>{shown.reason}</small>}
       </div>}
     </div>

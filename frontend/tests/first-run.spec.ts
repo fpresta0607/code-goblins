@@ -7,16 +7,16 @@ import { expect, test, type Page } from "./site";
 // "shouldn't it be a tab or a drop-down switch or icon selection for the
 // harness?" The page asks for no project, shows as done what the quick start
 // already knows, and offers the agents as one row of icon tabs.
-const wait = "Goblins can wake only a Claude Code CFO today";
+const missing = "Install pi to start the CFO";
 const setup = (changes: Record<string, unknown> = {}) => ({
   home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins",
   agent: "claude",
   projects_root: "C:\\dev",
   checkouts: ["alpha", "beta"],
   agents: [
-    { id: "claude", name: "Claude Code", installed: true, signed_in: true },
-    { id: "codex", name: "Codex", installed: true, signed_in: true, reason: wait },
-    { id: "pi", name: "Pi", installed: false, signed_in: false, reason: wait },
+    { id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, signed_in: true },
+    { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, signed_in: true },
+    { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest, guards or resume", installed: false, signed_in: false, reason: missing },
   ],
   cfo_runs: false,
   ...changes,
@@ -86,12 +86,13 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
   await claude.focus();
   await page.keyboard.press("ArrowRight");
 
-  // Assert: the mark and the focus move, and the page says why Codex
-  // cannot start yet.
+  // Assert: the mark and the focus move, the page says what a Codex CFO
+  // gets, and Codex starts like any agent the fleet can wake.
   await expect(codex).toHaveAttribute("aria-selected", "true");
   await expect(codex).toBeFocused();
-  await expect(page.getByRole("tabpanel")).toContainText(wait);
-  await expect(start).toBeDisabled();
+  await expect(page.getByRole("tabpanel")).toContainText("woken by a typed line; no digest or guards");
+  await expect(codex).not.toContainText("Recommended");
+  await expect(start).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath("first-run-codex.png") });
 
   // Act: Left from the first tab wraps to the last.
@@ -99,11 +100,13 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
   await page.keyboard.press("ArrowLeft");
 
   // Assert
-  await expect(tabs.getByRole("tab", { name: "Pi" })).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.getByRole("tab", { name: "pi", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tabpanel")).toContainText("Not installed");
+  await expect(page.getByRole("tabpanel")).toContainText(missing);
+  await expect(start).toBeDisabled();
 });
 
-test("an agent the quick start remembered is shown as chosen, and one click on Claude Code starts it", async ({ page }) => {
+test("an agent the quick start remembered is shown as chosen and starts as it is, and another is one click away", async ({ page }) => {
   // Arrange
   const starts = await open(page, setup({ agent: "codex" }));
   const start = page.getByRole("button", { name: "Start the CFO" });
@@ -111,6 +114,24 @@ test("an agent the quick start remembered is shown as chosen, and one click on C
   // Assert
   await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("list", { name: "Already set up" }).getByText("Codex, remembered for this home")).toBeVisible();
+  await expect(start).toBeEnabled();
+
+  // Act
+  await start.click();
+
+  // Assert
+  await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");
+  expect(starts).toEqual([{ root: "", agent: "codex" }]);
+});
+
+test("an agent this machine lacks says why and holds Start back until another is picked", async ({ page }) => {
+  // Arrange
+  const starts = await open(page, setup({ agent: "pi" }));
+  const start = page.getByRole("button", { name: "Start the CFO" });
+
+  // Assert
+  await expect(page.getByRole("tab", { name: "pi", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel")).toContainText(missing);
   await expect(start).toBeDisabled();
 
   // Act
@@ -193,5 +214,21 @@ test.describe("at the desktop window's size", () => {
     await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
     expect(overflows).toEqual({ sideways: false, down: false });
     await page.screenshot({ path: testInfo.outputPath("first-run-window.png") });
+  });
+
+  test("a Codex CFO chosen there shows what it gets and can start, with nothing cut off", async ({ page }, testInfo) => {
+    // Arrange
+    await open(page, setup({ agent: "codex" }));
+
+    // Act
+    const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+
+    // Assert
+    await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tabpanel")).toContainText("woken by a typed line; no digest or guards");
+    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Start the CFO" })).toBeInViewport({ ratio: 1 });
+    expect(sideways).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("first-run-window-codex.png") });
   });
 });

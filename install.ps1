@@ -27,8 +27,10 @@
 #
 #   .\install.cmd -Dev
 #
-# builds cfo.exe and goblins.exe from the clone, makes the clone your CFO home
-# with both on your PATH, and does everything else the one-line install does.
+# builds cfo.exe, goblins.exe and the desktop window goblins-window.exe from
+# the clone, makes the clone your CFO home with cfo and goblins on your PATH,
+# and does everything else the one-line install does. A build from source is
+# unsigned, and the install says so.
 # It refuses while another CFO home is in use; run goblins uninstall from that
 # home first. install.cmd runs this script whatever PowerShell execution
 # policy is set locally; one set by Group Policy still applies.
@@ -88,54 +90,65 @@
         return $expected
     }
 
-    # Save-VerifiedRelease downloads the release's cfo.exe to $Path and keeps it
-    # only when it matches the release's SHA256SUMS and, where this script
-    # names the release's publisher, is validly signed by it. It returns $false
-    # when the release cannot be downloaded at all, and throws on a mismatch,
-    # leaving nothing at $Path.
-    function Save-VerifiedRelease([string]$Path) {
-        $download = "$Path.download"
-        $sums = "$Path.SHA256SUMS"
+    # Save-VerifiedRelease downloads the release's cfo.exe into $Folder, and
+    # its desktop window when the release's SHA256SUMS lists one, keeping each
+    # only when it matches its sum and, where this script names the release's
+    # publisher, is validly signed by it. It returns $false when the release
+    # cannot be downloaded at all, and throws on a mismatch before anything
+    # downloaded is run; the caller then removes $Folder.
+    function Save-VerifiedRelease([string]$Folder) {
+        $sums = Join-Path $Folder "SHA256SUMS"
+        $expected = @{}
+        $names = @("cfo.exe")
         try {
             try {
                 Write-Host "Downloading cfo.exe from $releaseBase ..."
-                Invoke-WebRequest -Uri "$releaseBase/cfo.exe" -OutFile $download -UseBasicParsing
                 Invoke-WebRequest -Uri "$releaseBase/SHA256SUMS" -OutFile $sums -UseBasicParsing
+                if (Read-ReleaseChecksum $sums "goblins-window.exe") {
+                    $names += "goblins-window.exe"
+                }
+                foreach ($name in $names) {
+                    $expected[$name] = Read-ReleaseChecksum $sums $name
+                    Invoke-WebRequest -Uri "$releaseBase/$name" -OutFile (Join-Path $Folder "$name.download") -UseBasicParsing
+                }
             }
             catch {
                 Write-Host "No release could be downloaded: $($_.Exception.Message)"
                 return $false
             }
-            $expected = Read-ReleaseChecksum $sums "cfo.exe"
-            $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
-            if (-not $expected -or $actual -ne $expected) {
-                # The hashes go on a line of their own: PowerShell 7 wraps a
-                # long error across its error view.
-                Write-Host "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$expected'"
-                throw "The downloaded cfo.exe does not match the release's SHA256SUMS, so it was not installed."
-            }
-            $signed = ""
-            if ($releasePublisher) {
-                $signature = Get-AuthenticodeSignature -LiteralPath $download
-                $signer = ""
-                if ($signature.SignerCertificate) {
-                    $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
-                }
-                if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
-                    Write-Host "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
-                    throw "The downloaded cfo.exe is not validly signed by $releasePublisher, so it was not installed."
-                }
-                $signed = " and its signature by $releasePublisher"
-            }
-            else {
+            if (-not $releasePublisher) {
                 Write-Host "This copy of the install script names no publisher, so the download is checked against the release's SHA256SUMS only."
             }
-            Move-Item -LiteralPath $download -Destination $Path -Force
-            Write-Host "Verified cfo.exe against the release's SHA256SUMS ($actual)$signed."
+            foreach ($name in $names) {
+                $download = Join-Path $Folder "$name.download"
+                $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
+                if (-not $expected[$name] -or $actual -ne $expected[$name]) {
+                    # The hashes go on a line of their own: PowerShell 7 wraps
+                    # a long error across its error view.
+                    Write-Host "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$($expected[$name])'"
+                    throw "The downloaded $name does not match the release's SHA256SUMS, so it was not installed."
+                }
+                $signed = ""
+                if ($releasePublisher) {
+                    $signature = Get-AuthenticodeSignature -LiteralPath $download
+                    $signer = ""
+                    if ($signature.SignerCertificate) {
+                        $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
+                    }
+                    if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
+                        Write-Host "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
+                        throw "The downloaded $name is not validly signed by $releasePublisher, so it was not installed."
+                    }
+                    $signed = " and its signature by $releasePublisher"
+                }
+                Move-Item -LiteralPath $download -Destination (Join-Path $Folder $name) -Force
+                Write-Host "Verified $name against the release's SHA256SUMS ($actual)$signed."
+            }
             return $true
         }
         finally {
-            Remove-Item -LiteralPath $download, $sums -Force -ErrorAction SilentlyContinue
+            $leftovers = @($sums) + @($names | ForEach-Object { Join-Path $Folder "$_.download" })
+            Remove-Item -LiteralPath $leftovers -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -208,40 +221,49 @@
             }
         }
 
-        Write-Host "Building cfo.exe from $InstallDir ..."
+        Write-Host "Building cfo.exe and the desktop window from $InstallDir ..."
         $built = Join-Path $InstallDir "cfo.exe.new"
+        $builtWindow = Join-Path $InstallDir "goblins-window.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
             go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+            # -H windowsgui: the window is a program with no console.
+            go build -trimpath -o $builtWindow -ldflags "-H windowsgui" ./cmd/goblins-window
+            if ($LASTEXITCODE -ne 0) { throw "go build of the desktop window failed" }
         }
         finally {
             Pop-Location
         }
-        # cfo.exe and goblins.exe are one program under two names. A build
-        # still running from here, such as a supervisor or a terminal's host,
-        # cannot be overwritten but can be renamed, so each old copy moves
-        # aside under a name of its own and goes once nothing runs it, on
-        # this run or a later one.
-        foreach ($name in "cfo.exe", "goblins.exe") {
-            $target = Join-Path $InstallDir $name
+        # cfo.exe and goblins.exe are one program under two names, and the
+        # desktop window sits beside them. A build still running from here,
+        # such as a supervisor, a terminal's host or an open window, cannot be
+        # overwritten but can be renamed, so each old copy moves aside under a
+        # name of its own and goes once nothing runs it, on this run or a
+        # later one.
+        foreach ($program in @{ Name = "cfo.exe"; Built = $built }, @{ Name = "goblins.exe"; Built = $built }, @{ Name = "goblins-window.exe"; Built = $builtWindow }) {
+            $target = Join-Path $InstallDir $program.Name
             $aside = $null
             if (Test-Path -LiteralPath $target) {
                 $aside = "$target.$([Guid]::NewGuid().ToString("N")).old"
                 Move-Item -LiteralPath $target -Destination $aside
             }
             try {
-                Copy-Item -LiteralPath $built -Destination $target
+                Copy-Item -LiteralPath $program.Built -Destination $target
             }
             catch {
                 if ($aside) { Move-Item -LiteralPath $aside -Destination $target -Force }
                 throw
             }
-            Get-ChildItem -LiteralPath $InstallDir -Filter "$name.*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -LiteralPath $InstallDir -Filter "$($program.Name).*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
         }
-        Remove-Item -LiteralPath $built -Force
+        Remove-Item -LiteralPath $built, $builtWindow -Force
         $dest = Join-Path $InstallDir "cfo.exe"
-        Write-Host "Built cfo.exe and goblins.exe -> $InstallDir"
+        Write-Host "Built cfo.exe, goblins.exe and goblins-window.exe -> $InstallDir"
+        # Said plainly, because nothing else will: a build from source has no
+        # publisher, and no release is signed yet.
+        Write-Host "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
+        Write-Host "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
         # From the clone: run there, cfo install makes the clone the CFO home.
         $projectsRoot = Read-ProjectsRoot
@@ -259,7 +281,7 @@
         New-Item -ItemType Directory -Path $download | Out-Null
         try {
             $downloaded = Join-Path $download "cfo.exe"
-            if (-not (Save-VerifiedRelease $downloaded)) {
+            if (-not (Save-VerifiedRelease $download)) {
                 throw "Code Goblins was not installed: the release could not be downloaded from $releaseBase."
             }
 
@@ -499,6 +521,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # installed:
     #   winget     - a winget package (needs winget)
     #   npm        - a global npm package (needs npm, i.e. Node.js)
+    #   npm-file   - a global npm package from a release file, which npm would
+    #                install unchecked: the file is downloaded here and handed
+    #                to npm only when it matches the SHA256 pinned beside it
     #   powershell - an official install.ps1, saved to a file and run from it
     #                in a child shell, so its own `exit` cannot kill this
     #                install. It is never run as a download-and-run one-liner
@@ -520,7 +545,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi" },
-        @{ Name = "lavish-axi";          Kind = "npm";        Cmd = "npm.cmd install -g https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz" }
+        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"; Sha256 = "C9D491112C4B971A957B7B72D7E72378E42ECA20BFB4A3E725E60E76C18BA9B9" }
     )
 
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
@@ -572,7 +597,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             $manualSteps += $tool.Name
             continue
         }
-        if ($tool.Kind -eq "npm" -and -not $npmPresent) {
+        if (($tool.Kind -in "npm", "npm-file") -and -not $npmPresent) {
             Write-Host ("PREREQ   {0,-20} install Node.js first: winget install OpenJS.NodeJS.LTS" -f $tool.Name)
             $failedInstalls += $tool.Name
             continue
@@ -598,6 +623,27 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 }
                 finally {
                     Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
+                }
+                $installedAny = $true
+            }
+            elseif ($tool.Kind -eq "npm-file") {
+                $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
+                New-Item -ItemType Directory -Path $download | Out-Null
+                try {
+                    $file = Split-Path -Leaf $tool.Cmd
+                    $saved = Join-Path $download $file
+                    Save-Download $tool.Cmd $saved
+                    $actual = (Get-FileHash -LiteralPath $saved -Algorithm SHA256).Hash
+                    if ($actual -ne $tool.Sha256) {
+                        Write-Host "SHA256 of the download: $actual; this install pins: $($tool.Sha256)"
+                        throw "The downloaded $file does not match the SHA256 this install pins, so it was not installed."
+                    }
+                    Write-Host "Verified $file against the SHA256 this install pins ($actual)."
+                    & npm.cmd install -g $saved
+                    if ($LASTEXITCODE -ne 0) { throw "exited with code $LASTEXITCODE" }
+                }
+                finally {
+                    Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 $installedAny = $true
             }
@@ -677,21 +723,41 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Code Goblins in the Start menu runs the quick start in a window of its
-    # own: it starts the supervisor and the CFO when they are not running and
-    # ends on a screen that offers the CFO's terminal and the board.
+    # Code Goblins in the Start menu opens the app. Where the home holds the
+    # desktop window, it opens the board in it, starting the supervisor when
+    # none runs and no CFO; its console shows only minimized, for as long as
+    # that takes. A home with no window, as a build from source that built
+    # none leaves, runs the quick start in a window of its own: it starts the
+    # supervisor and the CFO when they are not running and ends on a screen
+    # that offers the CFO's terminal and the board. In a terminal, goblins is
+    # the quick start either way.
     $goblins = Join-Path $InstallDir "goblins.exe"
-    $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
+    $opensWindow = Test-Path -LiteralPath (Join-Path $InstallDir "goblins-window.exe")
+    $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    $shortcutPath = Join-Path $programs "Code Goblins.lnk"
     try {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $shortcutPath) -ErrorAction Stop | Out-Null
+        New-Item -ItemType Directory -Force -Path $programs -ErrorAction Stop | Out-Null
         $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $goblins
-        $shortcut.Arguments = ""
         $shortcut.WorkingDirectory = $InstallDir
-        $shortcut.WindowStyle = 1
-        $shortcut.Description = "Start Code Goblins"
+        if ($opensWindow) {
+            $shortcut.Arguments = "--window"
+            $shortcut.WindowStyle = 7
+            $shortcut.Description = "Open Code Goblins"
+        }
+        else {
+            $shortcut.Arguments = ""
+            $shortcut.WindowStyle = 1
+            $shortcut.Description = "Start Code Goblins"
+        }
         $shortcut.Save()
         Write-Host ("shortcut {0,-20} {1}" -f "Code Goblins", $shortcutPath)
+        # The window once had an entry of its own; the one entry opens it now.
+        $earlierShortcut = Join-Path $programs "Code Goblins Window.lnk"
+        if ($opensWindow -and (Test-Path -LiteralPath $earlierShortcut)) {
+            Remove-Item -LiteralPath $earlierShortcut -Force
+            Write-Host ("removed  {0,-20} {1}" -f "Code Goblins Window", $earlierShortcut)
+        }
     }
     catch {
         Write-Host ("WARN     {0,-20} the Start-menu shortcut was not made: {1}" -f "Code Goblins", $_.Exception.Message)
