@@ -94,6 +94,8 @@ type Service struct {
 	Started              time.Time
 	mu                   sync.Mutex
 	lastError            string
+	isNativeInboxFailing bool
+	nativeInboxRepair    error
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
@@ -408,12 +410,20 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
-	if err := s.Store.Ingest(); err != nil {
-		s.publish(err)
+	ingestErr := s.Store.Ingest()
+	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
+		s.publish(ingestErr)
 		return
 	}
+	wasNativeInboxFailing := s.isNativeInboxFailing
+	s.isNativeInboxFailing = ingestErr != nil && !errors.Is(ingestErr, errNativeInboxRecreated)
+	s.mu.Lock()
+	isNativeInboxProblemNew := s.isNativeInboxFailing && !strings.Contains(s.lastError, ingestErr.Error())
+	ingestErr = errors.Join(ingestErr, s.nativeInboxRepair)
+	s.nativeInboxRepair = nil
+	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
@@ -451,7 +461,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	case s.work <- struct{}{}:
 	default:
 	}
-	if recover || before != s.Store.Snapshot().Revision {
+	if recover || wasNativeInboxFailing != s.isNativeInboxFailing || isNativeInboxProblemNew || errors.Is(ingestErr, errNativeInboxRecreated) || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
 }
