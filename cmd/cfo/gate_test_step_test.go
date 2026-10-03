@@ -330,6 +330,9 @@ func TestGateTestRecordsEachPackagesResultAndKeepsTheFullOutputInItsLog(t *testi
 	if !strings.Contains(stdout.String(), "ok  \texample.com/m/b") || strings.Contains(stdout.String(), "=== RUN") || strings.Contains(stdout.String(), `"Action"`) {
 		t.Errorf("stdout %q; want b's summary line, and neither a passing test's lines nor an event", stdout.String())
 	}
+	if strings.Contains(stdout.String(), "go test did not pass in ") {
+		t.Errorf("stdout %q reports a failure; want no failure summary for a successful run with a package that has no tests", stdout.String())
+	}
 	log, err := os.ReadFile(report.Log)
 	if err != nil || !strings.Contains(string(log), "=== RUN   TestB\n") || !strings.Contains(string(log), "--- PASS: TestB") {
 		t.Errorf("the log %s holds %q (%v); want every line the tests wrote", report.Log, log, err)
