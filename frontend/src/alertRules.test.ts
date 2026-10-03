@@ -76,7 +76,7 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
   const withPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] });
   assert.deepEqual(boardAlerts(done, withPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/7"]);
   const nextPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/8" })] });
-  assert.deepEqual(boardAlerts(withPR, nextPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/8"]);
+  assert.deepEqual(boardAlerts(withPR, nextPR).map((alert) => alert.key), [], "a goblin already done alerts nothing more");
   const blocked = snapshot({ tasks: [task("a", "blocked")] });
   const restartedBlocked = snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] });
   assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked:"]);
@@ -131,6 +131,39 @@ test("a goblin's question to the CFO alerts nothing, whichever reaches the board
     for (const [name, snapshots] of orders) {
       const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
       assert.deepEqual(alerts.map((alert) => alert.text), [], phase + ": " + name);
+    }
+  }
+});
+
+test("a goblin's question the CFO handled is no failure news after it, and its next news still alerts", () => {
+  // As the supervisor serves it: a blocked or failed notify holds its task
+  // as Waiting on the CFO until he answers or acks it. After that the
+  // goblin's report is still that line until it reports again, with its
+  // phase back on what its pane shows.
+  const asked = "Which fix should I take?";
+  const choices = asked + " options: Retry | Revert";
+  const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
+  const pending = question("notify-a-7", { task: "a", text: asked });
+  const answered = question("notify-a-7", { task: "a", text: asked, status: "succeeded", answered_by: "cfo" });
+  for (const verb of ["blocked", "failed"]) {
+    const waiting = task("a", verb, { report: verb, reason: "Waiting on the CFO: " + choices, activity: choices });
+    const handled = (phase: string) => task("a", phase, { report: verb, reason: "Herdr reports " + phase, activity: verb + ": " + choices });
+    const orders: [string, Snapshot[]][] = [
+      ["handled, then its pane changes", [working, snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), snapshot({ tasks: [handled("working")] })]],
+      ["its question closed first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [waiting], questions: [answered] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
+      ["its task released first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
+    ];
+    for (const [name, snapshots] of orders) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), [], verb + ": " + name);
+    }
+    const news: [string, Snapshot[], string[]][] = [
+      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [task("a", "blocked", { report: verb, reason: GATE_BLOCK })] })], ["Goblin a is blocked: " + GATE_BLOCK]],
+      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke"]],
+    ];
+    for (const [name, snapshots, want] of news) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), want, verb + ": " + name);
     }
   }
 });

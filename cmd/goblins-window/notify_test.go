@@ -140,6 +140,50 @@ func TestANewItemIsNotifiedOnlyWhileTheWindowIsMinimizedOrInTheTray(t *testing.T
 	}
 }
 
+// The Overlord, 2026-10-02: "The Command Center should only give me questions
+// that the CFO has for the Overlord, for me." A question the CFO asks him and
+// what the CFO passes up name no task, and a window in its tray notifies
+// them. A goblin's question is the CFO's to answer, beside its open page or
+// once the CFO answered it: the window claims nothing for it, so nothing is
+// raised.
+func TestOnlyAQuestionTheCFOAsksIsNotifiedFromTheTray(t *testing.T) {
+	for name, test := range map[string]struct {
+		question string
+		want     []Note
+	}{
+		"the CFO asks him":                     {`{"id":"pick-a-store","text":"Which store?","status":"pending"}`, []Note{{"question:pick-a-store", "Waiting on you", "Which store?"}}},
+		"the CFO passes a goblin's ask up":     {`{"id":"from-billing","text":"billing asks: which store?","status":"pending"}`, []Note{{"question:from-billing", "Waiting on you", "billing asks: which store?"}}},
+		"a goblin asks the CFO":                {`{"id":"notify-billing-7","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":7}`, nil},
+		"a goblin asks beside its open page":   {`{"id":"notify-billing-8","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":8,"page":"plan-billing"}`, nil},
+		"a goblin's question the CFO answered": {`{"id":"notify-billing-6","text":"Which port?","status":"succeeded","task":"billing","answered_by":"cfo"}`, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var mu sync.Mutex
+			questions := ""
+			snapshots := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				_, _ = w.Write([]byte(`{"instance":"` + standInInstance + `","questions":[` + questions + `]}`))
+			}))
+			defer snapshots.Close()
+			board := newStandIn(t)
+			notifier := notifierAt(inTheTray, board)
+			watcher := &Watcher{}
+			watcher.New(snapshots.URL)
+			mu.Lock()
+			questions = test.question
+			mu.Unlock()
+
+			fresh, _ := watcher.New(snapshots.URL)
+			notifier.FromBoard(board.URL, watcher.Instance, fresh)
+
+			if !slices.Equal(notifier.sent, test.want) || len(board.asked) != len(test.want) {
+				t.Errorf("raised %+v after asking the supervisor %v; want %+v raised after %d requests", notifier.sent, board.asked, test.want, len(test.want))
+			}
+		})
+	}
+}
+
 // What the window finds waiting it claims under the page's name for it,
 // after the wait of a tab he cannot see, and raises what it is handed; what
 // the board's page asks for is raised as it is.
