@@ -320,7 +320,7 @@ func engineCard(t *testing.T, service *Service, id string) Task {
 }
 
 func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOnce(t *testing.T) {
-	spawner := &spawnRecorder{release: make(chan struct{})}
+	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	service := handler.Service
 	service.Options.FirstRun = newFirstRunMachine(t).run
@@ -350,12 +350,7 @@ func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOn
 			t.Fatalf("engine choice failure reached the board: %v", err)
 		}
 	}
-	defer func() { close(spawner.release); waitEngineChange(t, service, "other") }()
-
-	deadline := time.Now().Add(3 * time.Second)
-	for len(spawner.recorded()) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitEngineChange(t, service, "other")
 	calls := spawner.recorded()
 	if len(calls) != 1 || calls[0][0] != "switch" || calls[0][1] != "other" {
 		t.Fatalf("switch calls = %+v", calls)
@@ -376,17 +371,19 @@ func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOn
 	if err != nil {
 		t.Fatal(err)
 	}
-	digests := 0
+	digests := map[string]int{}
 	for _, record := range pending {
-		if record.Kind == "notify" && record.Key == "unavailable" {
-			digests++
+		if record.Kind == "notify" {
+			digests[record.Key]++
 		}
 		if record.Key == "unreadable" {
 			t.Fatalf("idle-read failure told the CFO: %+v", record)
 		}
 	}
-	if digests != 1 {
-		t.Fatalf("unavailable choice digests = %d in %+v", digests, pending)
+	for _, id := range []string{"unavailable", "other"} {
+		if digests[id] != 1 {
+			t.Fatalf("%s choice digests = %d in %+v", id, digests[id], pending)
+		}
 	}
 }
 
