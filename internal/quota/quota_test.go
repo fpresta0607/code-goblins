@@ -91,10 +91,15 @@ func TestReadKeepsRefreshMetadataTypeErrors(t *testing.T) {
 	} {
 		t.Run(test.kind, func(t *testing.T) {
 			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","state":{"refreshedAt":%s}}]}`, test.value)
+			parsedReport, err := Parse([]byte(data), snapshotTime)
+			var typeError *json.UnmarshalTypeError
+			if !errors.As(err, &typeError) || typeError.Value != test.kind || typeError.Type.String() != "string" {
+				t.Fatalf("parse error = %v, want a typed JSON failure for %s into string", err, test.kind)
+			}
 			report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: []byte(data)}}, snapshotTime)
-			want := fmt.Sprintf("quota-axi: unparseable snapshot: json: cannot unmarshal %s into Go struct field .providers.state.refreshedAt of type string", test.kind)
-			if skipped != want || report.Headroom("codex", "").Known {
-				t.Fatalf("metadata type failure = %q, %+v; want %q with no routing evidence", skipped, report, want)
+			t.Logf("typed JSON failure %s: %v; Reader rejection: %s", test.kind, err, skipped)
+			if !strings.HasPrefix(skipped, "quota-axi: unparseable snapshot: ") || !strings.Contains(skipped, typeError.Error()) || parsedReport.Headroom("codex", "") != (Headroom{Provider: "codex"}) || report.Headroom("codex", "") != (Headroom{Provider: "codex"}) {
+				t.Fatalf("metadata type failure = %q, parsed %+v, read %+v; want unparseable snapshot with JSON error details and no routing evidence", skipped, parsedReport, report)
 			}
 		})
 	}
