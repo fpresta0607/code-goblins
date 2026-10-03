@@ -65,7 +65,7 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			begin := time.Now()
-			record, err := service.Run(ctx, Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-teardown", Action: "pause"})
+			record, err := service.Run(ctx, Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-teardown", Action: "pause", Reason: "overlord"})
 			if time.Since(begin) >= 10*time.Second {
 				t.Fatal("Pause exceeded its ten-second deadline")
 			}

@@ -25,6 +25,9 @@ func TestWorkspaceMetadataReportsNamesAndModelEvidenceWithoutSecrets(t *testing.
 	_ = os.WriteFile(filepath.Join(meta.Worktree, ".mcp.json"), []byte(`{"mcpServers":{"repo-tools":{"command":"secret-command","headers":{"Authorization":"synthetic-authorization"},"env":{"INTERNAL_SECRET":"synthetic-secret"}}}}`), 0600)
 	s.db.TaskSessions[meta.ID] = "reported"
 	s.db.Sessions["reported"] = Session{Generation: meta.SpawnGen, Model: "gpt-6-astra"}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{Store: s}
 	details, err := service.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
 	if err != nil {
@@ -43,6 +46,9 @@ func TestWorkspaceMetadataReportsNamesAndModelEvidenceWithoutSecrets(t *testing.
 	node := s.db.Sessions["reported"]
 	node.Generation = "previous"
 	s.db.Sessions["reported"] = node
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
 	details, err = service.workspaceDetail(context.Background(), meta.ID, meta.SpawnGen)
 	if err != nil || details.Model != "Configured: default" {
 		t.Fatal("stale model presented as live", details.Model, err)
