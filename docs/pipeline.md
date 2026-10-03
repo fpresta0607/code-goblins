@@ -179,10 +179,31 @@ A repository with no policy file has no slow packages.
 Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
-The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when its tests passed but ran past their budget, or `not_run` when an earlier command failed.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when its tests passed but ran past their budget, `reused` for qualifying hosted evidence, or `not_run` when an earlier command failed.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
+
+### Reusing hosted Go evidence
+
+Before an `affected` or `full` run executes checks, it looks for a completed successful GitHub Go workflow on the exact clean head.
+The bounded read uses the existing GitHub CLI credentials and never publishes a branch or changes a policy.
+It requires the tested checkout's two parents to be current main and this head, and its tree to equal Git's computed combined merge tree.
+It checks the fingerprints of `go.mod`, `go.sum`, `config/verify.json`, `.no-mistakes.yaml`, the workflow and its evidence producer.
+Policy, workflow and producer inputs must also equal trusted main; a changed verifier cannot certify itself.
+The planning policy must equal the tested policy.
+
+Every required job and test step must have completed successfully, and each shard must have one readable retained artifact bound to its job attempt and verified SHA-256 digest.
+The manifests must prove the original package scope and complementary test filters, all package outcomes, the exact Go version and the same hashed build settings.
+Initially only Windows builds with CGO disabled and no skipped tests qualify, because the proof does not identify a CGO compiler or establish the prerequisites of a skipped integration test.
+An expired, corrupt, ambiguous, incomplete or incompatible proof runs the normal local baseline with its existing scope and timeouts.
+The `fast` level always executes its local checks.
+
+The command reads proof again after acquiring a turn, so a hosted pass that finishes during the wait can release the turn immediately without repeating tests.
+The report records the workflow URL, run ID, checkout, parents, tree, input and environment fingerprints, package coverage, job IDs and attempts, artifact IDs and digests in `reused`, with unsuccessful lookup reasons in `reuse_declined`.
+A reused command has status `reused` and no local execution time; queue time remains separate.
+Reuse also requires a writable receipt store; an initial write failure runs locally, and a final receipt failure prevents a reused pass.
+This support requires the producer workflow on main and a compatible hosted run; older green checks without manifests do not qualify.
 
 ### Taking turns
 

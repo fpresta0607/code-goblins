@@ -148,6 +148,34 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
 	}
 	printGatePlan(stdout, plan)
+	readHosted := func() {
+		if runtime.gateHosted == nil || plan.Level == gatetest.Fast || len(plan.Tests) == 0 {
+			return
+		}
+		if reportPath == "" {
+			report.ReuseDeclined = append(report.ReuseDeclined, "hosted evidence: no report store for the reuse receipt")
+			return
+		}
+		receipt, err := runtime.gateHosted(context.Background(), plan, runtime.gateBudget(plan.Level))
+		if err != nil {
+			report.ReuseDeclined = append(report.ReuseDeclined, err.Error())
+			return
+		}
+		if receipt == nil {
+			report.ReuseDeclined = append(report.ReuseDeclined, "no qualifying hosted evidence")
+			return
+		}
+		report.Reused = receipt
+		pending := report
+		pending.Status = "running"
+		if err := verify.Save(reportPath, pending); err != nil {
+			report.Reused = nil
+			report.ReuseDeclined = append(report.ReuseDeclined, "hosted evidence: the reuse receipt could not be saved")
+			return
+		}
+		fmt.Fprintf(stdout, "cfo gate test: reusing hosted Go evidence from %s, run %d, tested main %.8s and head %.8s\n", receipt.URL, receipt.RunID, receipt.Main, receipt.Head)
+	}
+	readHosted()
 
 	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
 	if report.Task != "" {
@@ -156,6 +184,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	env := gatetest.Environment(os.Environ())
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
+		if report.Reused != nil {
+			check.Status, check.ExitCode = "reused", 0
+			report.Checks = append(report.Checks, check)
+			continue
+		}
 		if report.Status == "passed" {
 			// The tests take a turn, vet does not, and at the fast level not
 			// even they do: it is seconds of work.
@@ -166,8 +199,16 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				budget = runtime.gateBudget(plan.Level)
 				turn = takeGateTurn(stdout, stderr, runtime.availableMemory, who, budget)
 				report.QueueSeconds, report.QueueNote = turn.Waited.Seconds(), turn.Note
+				readHosted()
+				if report.Reused != nil {
+					turn.Release()
+					check.Status, check.ExitCode, check.Start = "reused", 0, time.Time{}
+					report.Checks = append(report.Checks, check)
+					continue
+				}
 			}
-			check.Start, check.Status = time.Now(), "passed"
+			check.Start = time.Now()
+			check.Status = "passed"
 			exit, err := runtime.gateRun(command, dir, env, stdout, stderr)
 			check.ExitCode = exit
 			if err != nil {
@@ -186,17 +227,23 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	}
 	report.DurationSeconds = time.Since(start).Seconds()
 
+	savedReport := ""
+	if reportPath != "" {
+		if err := verify.Finish(reportPath, report); err != nil {
+			fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
+			if report.Reused != nil {
+				report.Status = "failed"
+				fmt.Fprintln(stderr, "cfo gate test: reused checks cannot pass without their saved receipt")
+			}
+		} else {
+			savedReport = "; report " + reportPath
+		}
+	}
 	verdict := fmt.Sprintf("cfo gate test: %s at level %s in %s", report.Status, plan.Level, time.Since(start).Round(time.Second))
 	if waited := time.Duration(report.QueueSeconds * float64(time.Second)).Round(time.Second); waited > 0 {
 		verdict += fmt.Sprintf(", %s of it waiting for its turn", waited)
 	}
-	if reportPath != "" {
-		if err := verify.Finish(reportPath, report); err != nil {
-			fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
-		} else {
-			verdict += "; report " + reportPath
-		}
-	}
+	verdict += savedReport
 	fmt.Fprintln(stdout, verdict)
 	if report.Status == "passed" && !plan.Level.Covers(plan.Required) {
 		fmt.Fprintf(stdout, "cfo gate test: the change still requires the %s level before it merges\n", plan.Required)

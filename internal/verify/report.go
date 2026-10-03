@@ -49,8 +49,10 @@ type Report struct {
 	Selected []Selection `json:"selected,omitempty"`
 	Left     []Left      `json:"left,omitempty"`
 	// Checks are the commands of the level, each with what became of it.
-	Checks []Result `json:"checks"`
-	// Status is passed only when every check ran and passed.
+	Checks        []Result       `json:"checks"`
+	Reused        *HostedReceipt `json:"reused,omitempty"`
+	ReuseDeclined []string       `json:"reuse_declined,omitempty"`
+	// Status is passed only when every check passed or has qualified evidence.
 	Status          string    `json:"status"`
 	Start           time.Time `json:"start"`
 	DurationSeconds float64   `json:"duration_seconds"`

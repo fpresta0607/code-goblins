@@ -35,6 +35,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -205,6 +206,7 @@ type commandRuntime struct {
 	availableMemory func() (uint64, error)
 	gateBudget      func(gatetest.Level) time.Duration
 	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	gateHosted      func(context.Context, gatetest.Plan, time.Duration) (*verify.HostedReceipt, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -337,6 +339,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		gateBudget: gateBudget,
 		gateRun:    runGateCommand,
+		gateHosted: (verify.Hosted{}).Read,
 	}
 }
 
