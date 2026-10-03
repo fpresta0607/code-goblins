@@ -123,7 +123,7 @@ The fleet keeps its state and data in the CFO home: `%LOCALAPPDATA%\CodeGoblins`
 The home is outside every project repository: goblins work in git worktrees of your checkouts, in each checkout's ignored `.worktrees` folder, and the fleet's own state and data stay in the home.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
-`goblins uninstall` removes the hooks, the environment and the Start-menu shortcut the install set, and the desktop window's Start at login entry where it starts a program in that home, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and the desktop window's Start at login entry where it starts a program in that home, and keeps the home folder, with its state and data, until you delete it.
 
 ## Your projects folder
 
