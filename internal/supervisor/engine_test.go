@@ -355,6 +355,52 @@ func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOn
 	}
 }
 
+func TestDeferredEngineIdleReadFailureClearsAfterRecoveryOrCancel(t *testing.T) {
+	for _, isCancelled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "recovered while busy", true: "cancelled"}[isCancelled], func(t *testing.T) {
+			handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+			service := handler.Service
+			service.Options.FirstRun = newFirstRunMachine(t).run
+			idleErr := errors.New("screen cannot be read")
+			readErr := idleErr
+			service.Options.Dispatch.Idle = func(context.Context, state.TaskMeta) (bool, error) { return false, readErr }
+			service.Options.Gate = &engineGate{}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "s1", Harness: "claude", Backend: "native", Worktree: h.Root, Project: h.Root}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			input := map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "harness": "codex", "model": "default", "effort": "high", "when": "turn-end"}
+			if response := taskControlRequest(handler, "/api/tasks/engine", input); response.Code != 202 {
+				t.Fatalf("deferred choice = %d: %s", response.Code, response.Body)
+			}
+			now := time.Now()
+			if err := service.applyEngineChoices(context.Background(), now); err != nil {
+				t.Fatal(err)
+			}
+			if card := engineCard(t, service, meta.ID); card.ActionError != idleErr.Error() {
+				t.Fatalf("idle-read failure card = %q", card.ActionError)
+			}
+
+			if isCancelled {
+				input["when"] = "cancel"
+				if response := taskControlRequest(handler, "/api/tasks/engine", input); response.Code != 200 {
+					t.Fatalf("cancel choice = %d: %s", response.Code, response.Body)
+				}
+			} else {
+				readErr = nil
+				if err := service.applyEngineChoices(context.Background(), now.Add(time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			card := engineCard(t, service, meta.ID)
+			if card.ActionError != "" || isCancelled == (card.PendingEngine != nil) {
+				t.Fatalf("card after recovery = %q, pending %+v", card.ActionError, card.PendingEngine)
+			}
+		})
+	}
+}
+
 func TestImmediateEngineSwitchKeepsOldValuesUntilCompletionAndReportsFailure(t *testing.T) {
 	for _, isFailed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "new session", true: "failed launch"}[isFailed], func(t *testing.T) {

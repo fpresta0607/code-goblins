@@ -37,6 +37,7 @@ type taskChangeError struct {
 	Generation string
 	Operation  string
 	Updated    time.Time
+	IsIdleRead bool
 }
 
 func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
