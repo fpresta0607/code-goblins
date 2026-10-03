@@ -157,6 +157,9 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 			continue
 		}
 		if !observation.isOwned {
+			if slices.Contains(stopped, fmt.Sprintf("%s pid %d", observation.process.Name, observation.process.PID)) {
+				t.Errorf("another task's gate test was falsely reported stopped: %s", evidence)
+			}
 			if exitCode != STILL_ACTIVE || waitResult != uint32(windows.WAIT_TIMEOUT) {
 				t.Errorf("another task's gate test is not active: %s", evidence)
 			}
