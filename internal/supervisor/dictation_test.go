@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -246,7 +247,14 @@ func TestADownloadThatStallsIsGivenUpSoTheNextDictationCanTryAgain(t *testing.T)
 }
 
 func TestANetworkTimeoutInsideTheLimitKeepsTheFetchsOwnWords(t *testing.T) {
-	_, timeout := net.DialTimeout("tcp", "127.0.0.1:1", time.Nanosecond)
+	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	// Hold the dial before connect so a refusal cannot race its deadline.
+	dialer := net.Dialer{ControlContext: func(connectionContext context.Context, _, _ string, _ syscall.RawConn) error {
+		<-connectionContext.Done()
+		return connectionContext.Err()
+	}}
+	_, timeout := dialer.DialContext(dialContext, "tcp", "127.0.0.1:1")
 	if !errors.Is(timeout, context.DeadlineExceeded) {
 		t.Fatalf("the premise does not hold: the dial answered %v, which is not read as a deadline", timeout)
 	}

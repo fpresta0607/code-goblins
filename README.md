@@ -87,6 +87,7 @@ The `no-mistakes` path owns review, bounded repair cycles, tests, lint, document
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires (`affected`, the changed Go packages and the packages that import them, or `full`, every package, once `go.mod` or `go.sum` changed), why each package is in the plan, and it leaves a report of what it ran.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
+Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn and which wait.
 See [Verification levels](docs/pipeline.md#verification-levels).
 
 The production-proof layer is intentionally fail-closed: delivery evidence must come from machine-readable PR state and terminal checks rather than a worker merely claiming that the task is finished.
@@ -119,7 +120,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 ```
 
 It ends with the [quick start](#quick-start) in that same window, where `goblins` works at once.
-Code Goblins in the Start menu runs the quick start again at any time.
+Code Goblins in the Start menu runs the quick start again at any time, and opens the board in [the desktop app](#the-desktop-app) instead where the install put one.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go:
 
@@ -152,6 +153,7 @@ goblins setup        # the quick start again, choosing the agent the CFO runs on
 goblins --native     # the same, but start a new CFO in a native terminal shown here instead of in Herdr
 goblins --harness codex  # start the CFO as codex, claude or pi from now on, set up first; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
+goblins --window     # the same, with the board in the desktop window
 goblins attach       # show the CFO's native terminal here, or name another; Ctrl-] leaves it running
 goblins status       # whether the supervisor runs: the board's link, the fleet and its pid
 goblins stop         # stop the supervisor; --force ends it when it does not stop
@@ -178,12 +180,13 @@ Every run ends on one screen: the CFO's home and the board's link, which Ctrl+cl
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
 **Open the board**, or B, opens the board in your browser.
 `goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
+`goblins --window` does the same with [the desktop app](#the-desktop-app) in place of the browser, where `goblins-window.exe` sits beside `goblins`, and says so and exits 1 where it does not; `goblins --window --background` keeps the window in its tray.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.
 `goblins serve` runs the supervisor in its own terminal instead, where Ctrl-C stops it.
 `goblins status` prints the board's link, the same status line and the supervisor's pid, and exits 1 when no supervisor runs, so a script can test for one; it asks the supervisor for its pid, so a fleet snapshot that is slow to build never makes a live supervisor look stopped.
 `goblins stop` asks the supervisor to stop, as Ctrl-C would, whichever way it was started, and waits up to 30 seconds for it to finish.
 `goblins stop --force` ends the supervisor and everything it started instead, for one that does not stop when asked.
-`goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and keeps the home folder, with its state and data, until you delete it.
+`goblins uninstall` undoes the install and keeps the home folder, with its state and data, until you delete it; [the install guide](docs/install.md#where-your-data-lives) says what it removes.
 
 ### Quick start
 
@@ -235,10 +238,11 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 ### The desktop app
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
-It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
-Its source is `cmd/goblins-window` in this repository; no release of this repository ships it yet, and a built one is published as a release by [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository.
-That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
-The window is unsigned, and its install says so.
+It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
+Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install puts it there from a release that ships it, which none does yet.
+Where the home holds it, Code Goblins in the Start menu and `goblins --window` find or start the supervisor and open the board in it, and **Open the board** in the quick start opens it in place of the browser.
+Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which starts the supervisor and the window in the tray when you sign in, and **Quit the window**.
+An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
 Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
 
 ### Board and Orchestration
@@ -350,6 +354,8 @@ A queued task, a task still pausing or stopping, and a merged pull request liste
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
 Connections shows **Connected** with a check only after a successful health check, alongside the check time; a credential present in the goblin's environment reads **Provided**.
+Connection names and statuses share a line with the status on the right in panels at least 520 px wide, and stack below that width.
+Long names show their full text in a tip; rows keep room between their separators while health checks run.
 Open the dropdown to check connections that were last checked over a minute ago, use its refresh icon to check again, and use a connection's sign-in or key icon to open its login page or a secure repair card in Command Center.
 Repairs trigger a fresh check; a token stored after a native goblin started still needs to reach that goblin before its credential row changes.
 Disabled or withheld MCP servers say why they are unavailable, and no secret values appear on the board.
@@ -577,6 +583,7 @@ cfo pipeline respond <id> --action <fix|approve> [--findings <ids>] [--instructi
 cfo pipeline recover <id>
 cfo gate tests-kept
 cfo gate test [--level fast|affected|full] [--plan]
+cfo gate turns
 cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
 cfo afk on | off | status | report
@@ -639,6 +646,7 @@ A ticket outlives the board's memory of its task: when a finished task's pull re
 A project with no GitHub repository simply has no tickets.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
 ```powershell

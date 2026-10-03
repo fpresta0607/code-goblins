@@ -58,6 +58,10 @@ func loopbackAddress(address string) bool {
 }
 
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: %v\n", err)
+		return 1
+	}
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
 	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,

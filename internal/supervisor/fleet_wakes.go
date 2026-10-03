@@ -259,7 +259,7 @@ func memoryWork(h home.Home) (queued, waiting []string) {
 			}
 		}
 	}
-	for _, task := range queuedBriefs(h) {
+	for _, task := range queuedBriefs(h, diskBriefs) {
 		if !slices.Contains(candidates, task.ID) {
 			candidates = append(candidates, task.ID)
 		}

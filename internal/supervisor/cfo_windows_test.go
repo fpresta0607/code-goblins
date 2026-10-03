@@ -451,6 +451,7 @@ func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
 // A registration that names no session leaves the last conversation as it was.
 func TestRegisterWithoutASessionKeepsTheLastConversation(t *testing.T) {
 	// Arrange
+	t.Setenv("CODEX_THREAD_ID", "")
 	store, _, cfo := registerFixture(t)
 	ctx := context.Background()
 	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
