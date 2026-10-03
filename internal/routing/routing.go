@@ -107,7 +107,44 @@ func Detect(paneTail string) (Fault, string, bool) {
 			}
 		}
 	}
+	if detail, found := codexCapacityRefusal(paneTail, lowered); found {
+		return Provider, detail, true
+	}
 	return "", "", false
+}
+
+// The complete native refusal is evidence only outside fenced quotations
+// and indented command output. Other fault recognition stays unchanged.
+func codexCapacityRefusal(original, lowered string) (string, bool) {
+	lines := strings.Split(lowered, "\n")
+	fenceEnd, toolIndent := -1, -1
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if index > fenceEnd && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
+			marker := trimmed[:1]
+			width := len(trimmed) - len(strings.TrimLeft(trimmed, marker))
+			for end := index + 1; end < len(lines); end++ {
+				closing := strings.TrimSpace(lines[end])
+				if len(closing) >= width && strings.Trim(closing, marker) == "" {
+					fenceEnd = end
+					break
+				}
+			}
+		}
+		if index <= fenceEnd {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "└") {
+			toolIndent = indent + 2
+		} else if trimmed == "" || indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0 {
+			toolIndent = -1
+		}
+		if toolIndent < 0 && trimmed == "■ selected model is at capacity. please try a different model." {
+			return strings.TrimSpace(strings.Split(original, "\n")[index]), true
+		}
+	}
+	return "", false
 }
 
 // thirdPartyMarkers name a git platform or its CI on a line: GitHub Actions
