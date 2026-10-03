@@ -24,7 +24,7 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 	if err := state.WriteTaskMeta(directory, meta); err != nil {
 		t.Fatal(err)
 	}
-	return Service{StateDir: directory, PauseWait: 10 * time.Millisecond, Operations: Operations{
+	return Service{StateDir: directory, PrepareWait: 10 * time.Millisecond, PauseWait: 10 * time.Millisecond, Operations: Operations{
 		Prepare: func(context.Context, state.TaskMeta, string) error { return nil },
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 			return []string{"fixture process"}, nil
@@ -84,10 +84,108 @@ func TestPauseRecordsAHandoffAndAnIdempotentCompletion(t *testing.T) {
 		t.Fatalf("handoff not saved: %+v %v", record, err)
 	}
 	// A fresh value represents a service restarted after the request completed.
-	restarted := Service{StateDir: service.StateDir, PauseWait: service.PauseWait, Operations: service.Operations}
+	restarted := Service{StateDir: service.StateDir, PrepareWait: service.PrepareWait, PauseWait: service.PauseWait, Operations: service.Operations}
 	again, err := restarted.Run(context.Background(), request)
 	if err != nil || again.Phase != "paused" || notices != 1 {
 		t.Fatalf("retry = %+v, %v, notices=%d", again, err, notices)
+	}
+}
+
+func TestPauseChecksThePublishedHandoffAfterUnconfirmedDelivery(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		publish        func(string) error
+		isHandoffSaved bool
+	}{
+		{name: "published", publish: func(path string) error {
+			if err := os.WriteFile(path+".partial", []byte("Continue the retained branch."), 0o600); err != nil {
+				return err
+			}
+			return os.Rename(path+".partial", path)
+		}, isHandoffSaved: true},
+		{name: "empty", publish: func(path string) error { return os.WriteFile(path, nil, 0o600) }},
+		{name: "partial", publish: func(path string) error { return os.WriteFile(path+".partial", []byte("Still writing."), 0o600) }},
+		{name: "directory", publish: func(path string) error { return os.Mkdir(path, 0o700) }},
+		{name: "absent", publish: func(string) error { return nil }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			service, meta := lifecycleFixture(t)
+			retained := filepath.Join(meta.TaskTmp, "handoff.md")
+			if err := os.WriteFile(retained, []byte("Earlier handoff."), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			service.Operations.Prepare = func(_ context.Context, _ state.TaskMeta, path string) error {
+				if err := testCase.publish(path); err != nil {
+					return err
+				}
+				return context.DeadlineExceeded
+			}
+
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+			if err != nil || record.Phase != "paused" || record.HandoffSaved != testCase.isHandoffSaved || (len(record.Problems) == 0) != testCase.isHandoffSaved {
+				t.Fatalf("published handoff=%v: %+v, %v", testCase.isHandoffSaved, record, err)
+			}
+			if data, err := os.ReadFile(retained); err != nil || string(data) != "Earlier handoff." {
+				t.Fatalf("prior handoff changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestPauseStartsTheStoppingPointWindowAfterDelivery(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	service.PrepareWait = time.Second
+	service.PauseWait = 50 * time.Millisecond
+	var accepted, stopped time.Time
+	service.Operations.Prepare = func(ctx context.Context, _ state.TaskMeta, _ string) error {
+		select {
+		case <-time.After(100 * time.Millisecond):
+			accepted = time.Now()
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		stopped = time.Now()
+		return nil, nil
+	}
+
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+	if err != nil || accepted.IsZero() || stopped.Sub(accepted) < service.PauseWait || stopped.Sub(accepted) > time.Second || record.Phase != "paused" || record.HandoffSaved || len(record.Problems) == 0 {
+		t.Fatalf("stopping-point window after acceptance=%s: %+v, %v", stopped.Sub(accepted), record, err)
+	}
+}
+
+func TestPublishedHandoffCancelsUnconfirmedDeliveryBeforeStopping(t *testing.T) {
+	service, meta := lifecycleFixture(t)
+	service.PrepareWait = time.Minute
+	prepared := make(chan struct{})
+	service.Operations.Prepare = func(ctx context.Context, _ state.TaskMeta, path string) error {
+		defer close(prepared)
+		if err := os.WriteFile(path, []byte("Continue the retained branch."), 0o600); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	isDeliveryFinished := false
+	service.Operations.Stop = func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
+		select {
+		case <-prepared:
+			isDeliveryFinished = true
+		default:
+		}
+		return nil, nil
+	}
+	started := time.Now()
+
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+	if err != nil || !record.HandoffSaved || record.Phase != "paused" || !isDeliveryFinished || time.Since(started) > time.Second {
+		t.Fatalf("handoff did not finish delivery before stopping: %+v, %v, delivery finished=%v", record, err, isDeliveryFinished)
 	}
 }
 
