@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,10 @@ type Report struct {
 
 // Provider is one subscription's headroom by scope.
 type Provider struct {
-	Name string
+	Name        string
+	Source      string
+	Status      string
+	RefreshedAt time.Time
 	// Stale is quota-axi's own verdict that its numbers are old.
 	Stale bool
 	// Known is whether quota-axi understands this provider's quota semantics
@@ -160,7 +164,7 @@ func (r Reader) Read(ctx context.Context) (Report, string) {
 		report, err = Parse(payload, now())
 	}
 	if err != nil {
-		return Report{}, strings.Join(strings.Fields(err.Error()), " ")
+		return report, strings.Join(strings.Fields(err.Error()), " ")
 	}
 	return report, ""
 }
@@ -172,6 +176,7 @@ type payload struct {
 	GeneratedAt string `json:"generatedAt"`
 	Providers   []struct {
 		Provider string `json:"provider"`
+		Source   string `json:"source"`
 		Windows  []struct {
 			ID          string          `json:"id"`
 			Label       string          `json:"label"`
@@ -184,7 +189,9 @@ type payload struct {
 			Unit      string          `json:"unit"`
 		} `json:"credits"`
 		State struct {
-			Stale bool `json:"stale"`
+			Stale       bool             `json:"stale"`
+			Status      string           `json:"status"`
+			RefreshedAt refreshTimestamp `json:"refreshedAt"`
 		} `json:"state"`
 		QuotaSemantics struct {
 			Status                string `json:"status"`
@@ -203,6 +210,16 @@ type payload struct {
 	} `json:"providers"`
 }
 
+type refreshTimestamp struct {
+	value     string
+	isPresent bool
+}
+
+func (timestamp *refreshTimestamp) UnmarshalJSON(data []byte) error {
+	*timestamp = refreshTimestamp{isPresent: true}
+	return json.Unmarshal(data, &timestamp.value)
+}
+
 // Parse interprets quota-axi --json. It fails on unparseable input, on a
 // snapshot with no generation time, and on one older than MaxAge, so all
 // three read as "no evidence" to the caller.
@@ -215,12 +232,14 @@ func Parse(data []byte, now time.Time) (Report, error) {
 	if err != nil {
 		return Report{}, errors.New("quota-axi: snapshot has no generation time")
 	}
-	if now.Sub(generated) > MaxAge {
-		return Report{}, fmt.Errorf("quota-axi: snapshot is stale (generated %s)", generated.UTC().Format(time.RFC3339))
-	}
+	isStale := now.Sub(generated) > MaxAge
 	report := Report{GeneratedAt: generated, Providers: map[string]Provider{}}
 	for _, p := range in.Providers {
-		provider := Provider{Name: p.Provider, Stale: p.State.Stale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
+		refreshed := generated
+		if p.State.RefreshedAt.isPresent {
+			refreshed, _ = time.Parse(time.RFC3339Nano, p.State.RefreshedAt.value)
+		}
+		provider := Provider{Name: p.Provider, Source: p.Source, Status: p.State.Status, RefreshedAt: refreshed, Stale: p.State.Stale || isStale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
 		for _, w := range p.Windows {
 			at, err := time.Parse(time.RFC3339Nano, w.ResetsAt)
 			if err == nil {
@@ -251,7 +270,58 @@ func Parse(data []byte, now time.Time) (Report, error) {
 		}
 		report.Providers[p.Provider] = provider
 	}
+	if isStale {
+		return report, fmt.Errorf("quota-axi: snapshot is stale (generated %s)", generated.UTC().Format(time.RFC3339))
+	}
 	return report, nil
+}
+
+type WeeklyReading struct {
+	Status           string    `json:"status"`
+	PercentRemaining *float64  `json:"percent_remaining"`
+	ResetsAt         time.Time `json:"resets_at"`
+	ReadAt           time.Time `json:"read_at"`
+	Source           string    `json:"source"`
+}
+
+func (r Report) Weekly(provider string, now time.Time) WeeklyReading {
+	reading := WeeklyReading{Status: "unavailable"}
+	windowID := map[string]string{"claude": "seven_day", "codex": "weekly"}[provider]
+	p, exists := r.Providers[provider]
+	if !exists || windowID == "" {
+		return reading
+	}
+	if p.Source == "oauth" || p.Source == "api" {
+		reading.Source = p.Source
+	}
+	reading.ReadAt = p.RefreshedAt
+	reading.ResetsAt = p.Resets[windowID]
+	if p.Status == "auth_required" {
+		reading.Status = "auth_required"
+		return reading
+	}
+	if reading.ReadAt.IsZero() {
+		return reading
+	}
+	if p.Stale || now.Sub(reading.ReadAt) > MaxAge || now.Sub(r.GeneratedAt) > MaxAge {
+		reading.Status = "stale"
+		return reading
+	}
+	if !p.Known || p.Status != "fresh" || p.Source != "oauth" || reading.ReadAt.After(now.Add(time.Minute)) || r.GeneratedAt.After(now.Add(time.Minute)) {
+		return reading
+	}
+	for _, window := range p.Windows {
+		if window.ID != windowID {
+			continue
+		}
+		if math.IsNaN(window.PercentUsed) || math.IsInf(window.PercentUsed, 0) || window.PercentUsed < 0 || window.PercentUsed > 100 {
+			return reading
+		}
+		remaining := 100 - window.PercentUsed
+		reading.Status, reading.PercentRemaining = "available", &remaining
+		return reading
+	}
+	return reading
 }
 
 // number reads a JSON number, and reports false for anything else (absent,

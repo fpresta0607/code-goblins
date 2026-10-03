@@ -958,6 +958,22 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .memory-holders, .memory-warning { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .memory-warning { display: flex; gap: 8px; align-items: flex-start; color: var(--amber); }
 .memory-warning .icon { flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
+.task-meters:has(.subscription-dials) .memory { padding-inline: 8px; }
+.subscription-dials { display: grid; gap: 6px; }
+.subscription-dial { display: flex; align-items: center; gap: 6px; min-width: 96px; border-radius: var(--radius); cursor: help; }
+.subscription-dial:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.subscription-ring { display: block; flex: none; width: 48px; height: 48px; }
+.subscription-track, .subscription-fill { fill: none; stroke-width: 3px; }
+.subscription-track { stroke: var(--muted); opacity: .24; }
+.subscription-fill { stroke: var(--mint); }
+.subscription-reserve { fill: none; stroke: var(--amber); stroke-width: 2px; }
+.subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.subscription-dial.reserve { color: var(--amber); }
+.subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
+.subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
+.subscription-dial.unknown .subscription-percent { color: var(--muted); }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 .next-chip { justify-self: start; display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; background: #123126; color: #8ff0c9; font-size: 1rem; font-weight: 800; }
