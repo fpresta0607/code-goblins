@@ -79,6 +79,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// three glyph lists; one has "*" where the others have "✳".
 			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:  []string{"[Pasted text #"},
+			// Claude Code 2.1.288 encloses its bare prompt between rules.
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
+			RuledComposer: true,
 		}, true
 	case Codex:
 		return Screens{
@@ -174,11 +177,8 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
 	}
-	if s.Empty != nil {
-		return anyRow(screen, s.Empty)
-	}
 	if !s.RuledComposer {
-		return false
+		return s.Empty != nil && anyRow(screen, s.Empty)
 	}
 	var rules []int
 	for i, row := range screen {
@@ -189,7 +189,11 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
 		return false
 	}
-	for _, row := range screen[rules[len(rules)-2]+1 : rules[len(rules)-1]] {
+	composer := screen[rules[len(rules)-2]+1 : rules[len(rules)-1]]
+	if s.Empty != nil {
+		return len(composer) == 1 && s.Empty.MatchString(strings.TrimSpace(composer[0]))
+	}
+	for _, row := range composer {
 		if strings.TrimSpace(row) != "" {
 			return false
 		}
