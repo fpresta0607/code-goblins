@@ -8,13 +8,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func gateTaskFixture(t *testing.T, holder string) (project, gateRoot, worktree string) {
+func gateTaskFixture(t *testing.T, holder string, earlier ...string) (project, gateRoot, worktree string) {
 	t.Helper()
 	project = testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	git := func(dir string, args ...string) {
@@ -24,6 +26,11 @@ func gateTaskFixture(t *testing.T, holder string) (project, gateRoot, worktree s
 		}
 	}
 	git(project, "switch", "main")
+	for _, id := range earlier {
+		if err := os.MkdirAll(filepath.Join(project, ".worktrees", "gb-"+id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	git(project, "worktree", "add", filepath.Join(project, ".worktrees", "gb-"+holder), "feature")
 	gateRoot = t.TempDir()
 	worktree = filepath.Join(gateRoot, "worktrees", "repo", "run")
@@ -95,12 +102,9 @@ func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			project, gateRoot, worktree := gateTaskFixture(t, test.holder)
+			project, gateRoot, worktree := gateTaskFixture(t, test.holder, "cg-example")
 			t.Setenv("NO_MISTAKES_GATE", test.marker)
 			owner := filepath.Join(project, ".worktrees", "gb-cg-example")
-			if err := os.MkdirAll(owner, 0o755); err != nil {
-				t.Fatal(err)
-			}
 			if err := state.WriteTaskMeta(filepath.Join(os.Getenv("CFO_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: owner}); err != nil {
 				t.Fatal(err)
 			}
@@ -134,11 +138,52 @@ func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
 	}
 }
 
+func TestAnOlderWorktreeIsNotNamedForANewerTaskSharingItsPrefix(t *testing.T) {
+	// Arrange
+	project, gateRoot, worktree := gateTaskFixture(t, "cg-example-child")
+	newer := filepath.Join(project, ".worktrees", "gb-cg-example")
+	if err := os.MkdirAll(newer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(filepath.Join(os.Getenv("CFO_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: newer}); err != nil {
+		t.Fatal(err)
+	}
+	writeGateSource(t, gateRoot, project, worktree, "feature")
+	runtime := standIn()
+	var turns bytes.Buffer
+	runtime.gateRun = func(command []string, _ string, _ []string, stdout, stderr io.Writer) (int, error) {
+		if command[1] == "test" {
+			if exit := runGateTurns(&turns, stderr, plenty); exit != 0 {
+				t.Errorf("turns exited %d", exit)
+			}
+		}
+		return 0, nil
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(runtime, &stdout, &stderr)
+
+	// Assert
+	report, _ := lastReport(t)
+	if exit != 0 || report.Task != "" || strings.Contains(turns.String(), ", task ") {
+		t.Errorf("exit=%d, task=%q, turns=%q; want a successful check that names no task", exit, report.Task, turns.String())
+	}
+	log, err := os.ReadFile(report.Log)
+	if err != nil || !strings.Contains(stderr.String(), "task attribution unavailable") || !strings.Contains(string(log), "task attribution unavailable") {
+		t.Fatalf("stderr=%q, log=%q (%v); want the unowned worktree explained and recorded", stderr.String(), log, err)
+	}
+}
+
 func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 	for _, name := range []string{"wrong run", "wrong repository", "wrong worktree", "duplicate record", "missing branch", "empty branch", "relative project", "unknown task", "wrong task project", "wrong task worktree", "unreadable task", "unreadable database", "unresolved home"} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+			holder, earlier := "cg-example", []string(nil)
+			if name == "unreadable task" {
+				holder, earlier = "cg-example-child", []string{"cg-example"}
+			}
+			project, gateRoot, worktree := gateTaskFixture(t, holder, earlier...)
 			writeGateSource(t, gateRoot, project, worktree, "feature")
 			stateDir := filepath.Join(os.Getenv("CFO_HOME"), "state")
 			meta := state.TaskMeta{ID: "cg-example", Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-cg-example")}
@@ -176,14 +221,20 @@ func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if name == "unreadable task" {
-				if err := os.Mkdir(filepath.Join(stateDir, "cg-example.meta"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			} else if name != "unknown task" {
+			if name != "unknown task" {
 				if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if name == "unreadable task" {
+				if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: holder, Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-"+holder)}); err != nil {
+					t.Fatal(err)
+				}
+				held, err := holdExclusively(state.TaskMetaPath(stateDir, holder), time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer syscall.CloseHandle(held)
 			}
 
 			// Act

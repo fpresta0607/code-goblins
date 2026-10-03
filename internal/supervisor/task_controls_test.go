@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -220,6 +221,75 @@ func TestSuccessfulCLIActionClearsAnEarlierBoardFailure(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRefusedResumeLeavesTheSharedSnapshotAndItsEarlierFailureUntilOneIsAccepted(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	t.Cleanup(func() { close(spawner.release) })
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	service := handler.Service
+	meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, Backend: "native"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Updated: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	prior, err := state.ReadLifecycle(h.State, meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.starts.Lock()
+	service.changeErrors = map[string]taskChangeError{meta.ID: {Message: "earlier failure", Generation: meta.SpawnGen, Operation: prior.Operation, Updated: prior.Updated}}
+	service.starts.Unlock()
+	reading, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	service.Options.Dispatch.Memory = func() (Memory, error) {
+		if calls.Add(1) == 1 {
+			close(reading)
+			<-release
+			return Memory{}, errors.New("memory reading failed")
+		}
+		return Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, nil
+	}
+	input := map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"}
+	refused := make(chan int, 1)
+	go func() { refused <- taskControlRequest(handler, "/api/tasks/lifecycle", input).Code }()
+	<-reading
+	during, err := service.SnapshotSince(service.Revision())
+	close(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.IndexFunc(during.Tasks, func(task Task) bool { return task.ID == meta.ID }); index < 0 || during.Tasks[index].Phase != "resuming" || during.Tasks[index].ActionError != "earlier failure" {
+		t.Fatalf("the snapshot built while Resume read memory: %+v", during.Tasks)
+	}
+	if code := <-refused; code != 409 {
+		t.Fatalf("resume with an unreadable memory=%d", code)
+	}
+
+	// Act
+	after, err := service.SnapshotSince(service.Revision())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.IndexFunc(after.Tasks, func(task Task) bool { return task.ID == meta.ID }); index < 0 || after.Tasks[index].Phase == "resuming" || after.Tasks[index].ActionError != "earlier failure" {
+		t.Fatalf("after a refused Resume the shared snapshot shows: %+v", after.Tasks)
+	}
+	input["operation"] = "resume-2"
+	if response := taskControlRequest(handler, "/api/tasks/lifecycle", input); response.Code != 202 {
+		t.Fatalf("resume=%d %s", response.Code, response.Body)
+	}
+	accepted, err := service.SnapshotSince(service.Revision())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.IndexFunc(accepted.Tasks, func(task Task) bool { return task.ID == meta.ID }); index < 0 || accepted.Tasks[index].Phase != "resuming" || accepted.Tasks[index].ActionError != "" {
+		t.Fatalf("an accepted Resume does not clear the earlier failure: %+v", accepted.Tasks)
 	}
 }
 
