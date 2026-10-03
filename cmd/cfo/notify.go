@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -28,11 +29,11 @@ import (
 //	cfo notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	cfo notify <task-id> --failed "<reason>"
 //	cfo notify <task-id> --working "<what>"
-//	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy> "<why>"
+//	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //
 // Only a question and a wait on the Overlord wake the CFO: working, and a
-// wait on another task, CI or a deploy, are status for the board. A wait that
+// wait on another task, CI, a deploy or memory, are status for the board. A wait that
 // names a Lavish page puts the page on its card, and the supervisor polls it:
 // the Overlord's feedback there goes to the CFO, never to a poll of the
 // goblin's own.
@@ -54,7 +55,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci or deploy, followed by why")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
@@ -102,8 +103,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		verb, detail = "working", *working
 	default:
 		target := *waitingOn
-		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && (state.ValidTaskID(target) != nil || target == id) {
-			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, overlord, ci or deploy, then why: --waiting-on <task-id|overlord|ci|deploy> \"<why>\"")
+		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && target != "memory" && (state.ValidTaskID(target) != nil || target == id) {
+			fmt.Fprintln(stderr, "cfo notify: --waiting-on takes another task's ID, overlord, ci, deploy or memory, then why: --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"")
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]
@@ -190,6 +191,11 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
+	// While AFK mode is on nothing prompts the Overlord, so a goblin that
+	// waits on him is told to move to what does not depend on him.
+	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
+		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off, so this wait is held for him and nothing prompts him. If any of your work does not depend on it, move to that next piece now and report it with cfo notify %s --working \"<what>\".\n", id)
+	}
 	return 0
 }
 

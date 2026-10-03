@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -714,7 +715,7 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 	if actionable {
 		_ = supervise.ResetBudget(state)
 		recordOutcome("rewake")
-		return claudehook.BlockStop(stderr, fmt.Sprintf(rewakeBannerFmt, reason))
+		return claudehook.BlockStop(stderr, withAFKBanner(state, fmt.Sprintf(rewakeBannerFmt, reason)))
 	}
 
 	// The wait ended with its window and nothing queued. Exiting quietly
@@ -800,6 +801,16 @@ func hookStopAutoarmWithConfig(h home.Home, payload claudehook.Payload, stdout, 
 // what an earlier SessionStart under the same lock already showed.
 const sessionStartNudgeLine = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses."
 
+// withAFKBanner is text followed, while AFK mode is on, by its banner on a
+// line of its own: a rewake and a resumed session each tell the CFO it is on
+// and where its terms are.
+func withAFKBanner(stateDir, text string) string {
+	if banner := afk.BannerFor(stateDir); banner != "" {
+		return text + "\n" + banner
+	}
+	return text
+}
+
 // resolveSessionOwnerPID identifies the process taking custody of the
 // session lock for a SessionStart digest: the harness ancestor
 // (resolveAncestorPID, honoring the same CFO_TEST_ANCESTOR_PID test seam
@@ -841,7 +852,7 @@ func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer)
 	switch payload.Source {
 	case "resume", "reload", "fork":
 		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
-			fmt.Fprintln(stdout, sessionStartNudgeLine)
+			fmt.Fprintln(stdout, withAFKBanner(h.State, sessionStartNudgeLine))
 			registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
 			return 0
 		}

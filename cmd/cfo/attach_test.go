@@ -536,7 +536,7 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	h.State = filepath.Join(h.Root, "state")
 	project := t.TempDir()
 
-	if err := startNativeCFO(h, project, "claude"); err != nil {
+	if err := startNativeCFO(h, project, "claude", nil); err != nil {
 		t.Fatalf("startNativeCFO: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -554,6 +554,35 @@ func TestANativeCFOIsNotStartedWithTheLaunchersSession(t *testing.T) {
 	}
 	if env["USERPROFILE"] == "" {
 		t.Error("the CFO started without the user's USERPROFILE")
+	}
+}
+
+// The CFO the board's first-run page starts runs in the Code Goblins home, as
+// the one goblins starts does, never in a project: its harness starts with
+// the home as its folder.
+func TestTheFirstRunPageStartsTheCFOInItsHome(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, self, filepath.Join(bin, "claude.exe"))
+	t.Setenv("PATH", bin)
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	err = run.StartCFO("claude")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the first-run page's StartCFO: %v", err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+	if env := waitForFakeClaudeEnvironment(t, h.Root); env["CFO_HOME"] != h.Root {
+		t.Errorf("the CFO's CFO_HOME = %q, want the home %q", env["CFO_HOME"], h.Root)
 	}
 }
 
@@ -646,7 +675,7 @@ func TestANativeCFOIsNotStartedFromAScriptShim(t *testing.T) {
 	t.Setenv("PATH", bin)
 	stateDir := t.TempDir()
 
-	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude")
+	err := startNativeCFO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil)
 
 	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
 		t.Fatalf("startNativeCFO error = %v, want the script shim refused", err)

@@ -49,7 +49,7 @@ func TestRunAllToolsPresent(t *testing.T) {
 	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
 	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
@@ -69,8 +69,8 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[5].Name != "no-mistakes" || checks[6].Name != "gh-axi" || checks[7].Name != "chrome-devtools-axi" {
 		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[5:8])
 	}
-	if checks[8].Name != "lavish-axi" || checks[8].Err != "" || checks[8].Floor != "0.1.79" {
-		t.Errorf("checks[8] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79 floor", checks[8])
+	if checks[8].Name != "lavish-axi" || checks[8].Err != "" || checks[8].Floor != "0.1.79-codegoblins.3" {
+		t.Errorf("checks[8] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79-codegoblins.3 floor", checks[8])
 	}
 	if checks[9].Name != "winget" || checks[9].Err != "" || !checks[9].Installer {
 		t.Errorf("checks[9] = %+v, want winget as an installer-only check", checks[9])
@@ -90,7 +90,7 @@ func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir())
 
@@ -125,8 +125,10 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 		{name: "unparseable", version: "lavish dev", wantErr: true},
 		{name: "upstream at floor", version: "0.1.79", wantErr: true},
 		{name: "upstream above floor", version: "lavish-axi v0.2.0", wantErr: true},
-		{name: "the fork's build at floor", version: "0.1.79-codegoblins.1"},
-		{name: "the fork's build above floor", version: "lavish-axi v0.2.0-codegoblins.3"},
+		{name: "the fork's build before the board look", version: "0.1.79-codegoblins.2", wantErr: true},
+		{name: "the fork's build at floor", version: "0.1.79-codegoblins.3"},
+		{name: "the fork's later build of the floor's version", version: "0.1.79-codegoblins.10"},
+		{name: "the fork's build above floor", version: "lavish-axi v0.2.0-codegoblins.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -159,6 +161,21 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	}
 }
 
+// The install script installs the release the doctor's hint names, so a
+// machine the install set up meets the floor the doctor checks.
+func TestInstallScriptInstallsTheReleaseTheDoctorNames(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), LavishRelease) {
+		t.Errorf("install.ps1 does not install %s", LavishRelease)
+	}
+	if !strings.Contains(LavishRelease, "/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz") {
+		t.Errorf("LavishRelease = %s, want the release at the lavish-axi floor", LavishRelease)
+	}
+}
+
 func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 	for _, tc := range []struct {
 		versionLine string
@@ -175,6 +192,13 @@ func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 		{versionLine: "0.1.71.1", floor: "0.1.71", want: true},
 		{versionLine: "0.1.79-codegoblins.1", floor: "0.1.79", want: true},
 		{versionLine: "lavish-axi v0.1.78-codegoblins.9", floor: "0.1.79"},
+		{versionLine: "0.1.79-codegoblins.3", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.10", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.2", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79-other.9", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "lavish-axi v0.2.0-codegoblins.1", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.78-codegoblins.9", floor: "0.1.79-codegoblins.3"},
 		{versionLine: "dev", floor: "0.1.71"},
 		{versionLine: "", floor: "0.1.71"},
 	} {
@@ -229,7 +253,7 @@ func TestRunMissingOrBrokenHerdrIsOptional(t *testing.T) {
 			for _, tool := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 				fakeTool(t, dir, tool, tool+" ok", 0)
 			}
-			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
 			if herdrExits >= 0 {
 				fakeTool(t, dir, "herdr", "boom", herdrExits)
 			}

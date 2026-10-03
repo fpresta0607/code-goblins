@@ -48,8 +48,11 @@ var reviewID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`)
 type Review struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
-	Task     string `json:"task,omitempty"`
-	Title    string `json:"title"`
+	// Made is the identity the item was made under, once it has followed the
+	// CFO to another registration: its directory stays named after it.
+	Made  string `json:"made,omitempty"`
+	Task  string `json:"task,omitempty"`
+	Title string `json:"title"`
 	// ImageSums are the SHA-256 of each copied image in order. They make a
 	// republish with the same ID and content change nothing and refuse other
 	// content, and the board only ever sees ImageCount.
@@ -129,7 +132,7 @@ func sameReview(a, b Review) bool {
 // its document. Its name is that publication's own digest, so no other
 // record, not even a republish of the same ID, ever names it.
 func reviewImageDir(stateDir string, r Review) string {
-	parts := []string{r.ID, r.Identity, strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}
+	parts := []string{r.ID, madeUnder(r.Made, r.Identity), strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}
 	if r.Document != nil {
 		parts = append(parts, r.Document.Sum)
 	}
@@ -589,6 +592,7 @@ func (s *Store) acceptReview(r Review) error {
 	i := slices.IndexFunc(s.db.Reviews, func(prior Review) bool { return prior.ID == r.ID })
 	switch r.State {
 	case "open":
+		r.Made = ""
 		if err := validReview(r); err != nil {
 			return err
 		}
@@ -760,33 +764,21 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
-// clearReview closes an open item the Overlord cleared, with how he closed it
-// when he opened or downloaded its document. A page's card shows the question
-// its goblin asked beside the page, so clearing it dismisses that question in
-// the same step, and the questions dismissed come back for the CFO to hear
-// of. Clearing one already closed changes nothing.
-func (s *Store) clearReview(id, identity, reason string) (Evaluation, []Question, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.Identity == identity })
-	if i < 0 {
-		return Evaluation{}, nil, fmt.Errorf("%w: the review is gone; nothing was cleared", ErrRejected)
-	}
-	if s.db.Reviews[i].State != "open" {
-		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil, nil
-	}
-	var dismissed []Question
+// clearReview closes open item i, which the Overlord cleared at at, with how
+// he closed it when he opened or downloaded its document. A page's card shows
+// the question its goblin asked beside the page, so clearing it dismisses
+// that question in the same step, and the IDs of the questions dismissed come
+// back for the CFO to hear of. The caller holds the store lock.
+func (s *Store) clearReview(i int, reason string, at time.Time) []string {
+	var dismissed []string
 	for j := range s.db.Questions {
 		if q := &s.db.Questions[j]; carriesQuestion(s.db.Reviews[i], *q) && q.AnswerID == "" {
 			q.Status, q.Message = "cleared", "You cleared its page's card."
-			dismissed = append(dismissed, *q)
+			dismissed = append(dismissed, q.ID)
 		}
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, time.Now().UTC()
-	if err := s.save(); err != nil {
-		return Evaluation{}, nil, err
-	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, dismissed, nil
+	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
+	return dismissed
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:

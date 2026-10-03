@@ -21,16 +21,16 @@ export type PanelView = "task" | "terminal";
 // themselves live in the terminal deck below the panel, which keeps each one
 // live while the board is open, so switching goblins never reconnects.
 // The CFO's Task view also lists every queued task, as the Tasks column does.
-export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, leading, trailing }: {
+export function GoblinPanel({ task, node, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, trailing }: {
   task?: Task; node?: Session; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
-  cardStart: CardStarter; leading?: ReactNode; trailing: ReactNode;
+  cardStart: CardStarter; trailing: ReactNode;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   const terminal = panelViews(task, node).includes("terminal");
   return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <div className="panel-top">
-      <div className="panel-top-side">{leading}</div>
+      <div className="panel-top-side" />
       {terminal ? <div className="panel-pill" role="group" aria-label="Panel view">
         <button aria-pressed={view === "task"} onClick={() => onView("task")}><Icon name="task" />Task</button>
         <button aria-pressed={view === "terminal"} onClick={() => onView("terminal")}><Icon name="terminal" />Terminal</button>
@@ -40,7 +40,7 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
     <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} start={task.phase === "queued" ? cardStart(task) : undefined} onAdjust={() => document.querySelector<HTMLTextAreaElement>(".task-adjustment textarea")?.focus()} />
+        <TaskControls task={task} snapshot={snapshot} labelled />
         <LifecycleDetails task={task} />
         {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
       </div>}

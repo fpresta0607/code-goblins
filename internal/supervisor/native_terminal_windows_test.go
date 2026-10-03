@@ -115,14 +115,18 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("sent")
-		case line == "register", line == "register by program":
+		case line == "register", line == "register by program", line == "register by hand":
 			// A CFO runs plain cfo register, which names no harness, so the
-			// terminal's program has to say which harness it is.
-			named := "claude"
-			if line == "register by program" {
+			// terminal's program has to say which harness it is; by hand it
+			// names no session either.
+			named, session := "claude", "session-1"
+			if line != "register" {
 				named = ""
 			}
-			described, err := Register(args[2], named, "session-1")
+			if line == "register by hand" {
+				session = ""
+			}
+			described, err := Register(args[2], named, session)
 			if err != nil {
 				record("register error: " + err.Error())
 				continue

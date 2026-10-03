@@ -38,10 +38,13 @@ const (
 	errorPipeBusy           = syscall.Errno(231)
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
-	// runReadTimeout bounds how long a client takes to send its request, and
-	// runReplyTimeout how long cfo run-request waits for the answer.
-	runReadTimeout  = 10 * time.Second
-	runReplyTimeout = 30 * time.Second
+	// runReadTimeout bounds how long a client takes to send its request,
+	// afkSwitchTimeout the one request that waits on another program, the
+	// switch of AFK mode, which reads the allowance, and runReplyTimeout how
+	// long cfo run-request waits for the answer.
+	runReadTimeout   = 10 * time.Second
+	afkSwitchTimeout = 20 * time.Second
+	runReplyTimeout  = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -123,14 +126,14 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 			_ = syscall.CloseHandle(syscall.Handle(handle))
 			continue
 		}
-		go s.handleRunClient(syscall.Handle(handle), connected)
+		go s.handleRunClient(ctx, syscall.Handle(handle), connected)
 	}
 }
 
 // handleRunClient answers one run request with the reason it was refused, or
 // nothing when the item is on the board. A client that has not sent its
 // request within runReadTimeout is disconnected unanswered.
-func (s *Service) handleRunClient(handle syscall.Handle, connected time.Time) {
+func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, connected time.Time) {
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
@@ -161,9 +164,14 @@ func (s *Service) handleRunClient(handle syscall.Handle, connected time.Time) {
 		reply.Error = "the run request is not valid JSON"
 	default:
 		s.runRequests.Lock()
-		if req.Kind == "" {
+		switch req.Kind {
+		case "":
 			err = s.acceptRunRequest(int(pid), connected, req)
-		} else {
+		case "afk-on", "afk-off":
+			switching, cancel := context.WithTimeout(ctx, afkSwitchTimeout)
+			err = s.switchAFK(switching, int(pid), connected, req.Kind == "afk-on")
+			cancel()
+		default:
 			err = s.acceptCFOItem(int(pid), connected, req)
 		}
 		s.runRequests.Unlock()

@@ -115,6 +115,20 @@ func TestPendingEmptyWhenNoQueueFile(t *testing.T) {
 	}
 }
 
+// The supervisor's fleet wakes, memory come back for waiting work and CI
+// finished, go through the queue as kinds of their own.
+func TestAppendTakesTheFleetWakeKinds(t *testing.T) {
+	dir := t.TempDir()
+	for _, kind := range []string{"memory", "ci"} {
+		if _, err := Append(dir, kind, kind, "detail"); err != nil {
+			t.Errorf("Append(%q) = %v, want it queued", kind, err)
+		}
+	}
+	if got, err := Pending(dir); err != nil || len(got) != 2 {
+		t.Errorf("pending = %+v (%v), want both fleet wakes", got, err)
+	}
+}
+
 func TestAppendRejectsUnknownKind(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Append(dir, "bogus", "k", "d")

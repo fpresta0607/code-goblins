@@ -350,3 +350,57 @@ func TestCFOTerminalReportsAStaleRegistrationAsItsOwnState(t *testing.T) {
 		t.Fatalf("stale CFO terminal: %d %+v", response.StatusCode, failure)
 	}
 }
+
+// The CFO's conversation is recorded each time it registers, its latest one
+// included when the same process registers again after a compact, clear or
+// resume, without rewriting the registration questions are bound to.
+func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
+	// Arrange
+	store, _, _ := registerFixture(t)
+	if _, err := Register(store.Home.State, "claude", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := ReadCFOConversation(store.Home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(store.Home.State, "primary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if _, err := Register(store.Home.State, "claude", "session-2"); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := ReadCFOConversation(store.Home.State)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Session != "session-1" || latest.Session != "session-2" || latest.Harness != "claude" || latest.PID != os.Getpid() {
+		t.Errorf("conversations recorded %+v then %+v, want session-1 then session-2 of this claude process", first, latest)
+	}
+	if after, err := os.ReadFile(filepath.Join(store.Home.State, "primary.json")); err != nil || !bytes.Equal(before, after) {
+		t.Errorf("registering the same process again rewrote primary.json: %v", err)
+	}
+}
+
+// A registration that names no session leaves the last conversation as it was.
+func TestRegisterWithoutASessionKeepsTheLastConversation(t *testing.T) {
+	// Arrange
+	store, _, _ := registerFixture(t)
+	if _, err := Register(store.Home.State, "claude", "session-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := Register(store.Home.State, "claude", "")
+	conversation, readErr := ReadCFOConversation(store.Home.State)
+
+	// Assert
+	if err != nil || readErr != nil || conversation.Session != "session-1" {
+		t.Errorf("after a registration with no session: %+v, %v, %v; want session-1 kept", conversation, err, readErr)
+	}
+}

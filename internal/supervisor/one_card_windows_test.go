@@ -47,6 +47,39 @@ func TestClearingAPagesCardDismissesTheQuestionItCarries(t *testing.T) {
 	}
 }
 
+// The card and the question it carries close the moment the board takes the
+// clear, so neither waits on screen for the clear's action to run; the CFO
+// hears of the dismissed question once, when that action runs.
+func TestClearingAPagesCardClosesItsQuestionBeforeItsActionRuns(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, _, cfo, connection := primaryFixture(t, store)
+	servePipe(t, store, connection)
+	askOnAPage(t, store)
+	page := store.Snapshot().Reviews[0]
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+
+	// Act
+	_, queued := store.Queue(Action{ID: "clear-1", Kind: "review_clear", ReviewID: page.ID, Generation: page.Identity})
+	taken := store.Snapshot()
+	toldBefore := len(cfo.lines(t))
+	ran := store.ProcessOne(context.Background(), s.execute)
+
+	// Assert
+	if queued != nil || ran != nil {
+		t.Fatalf("clear = %v, its action = %v, want both taken", queued, ran)
+	}
+	if got := taken.Reviews[0]; got.State != "cleared" {
+		t.Errorf("the page's item = %s before its action ran, want it cleared", got.State)
+	}
+	if got := taken.Questions[0]; got.Status != "cleared" || got.Message != "You cleared its page's card." {
+		t.Errorf("the question its card carried = %s %q before its action ran, want it dismissed with the card", got.Status, got.Message)
+	}
+	if typed := cfo.waitForLines(t, 1); toldBefore != 0 || len(typed) != 1 || !strings.Contains(typed[0], "task-1's question") {
+		t.Errorf("the CFO was told %d times before the action ran and got %q after it, want nothing before and one message naming task-1's question", toldBefore, typed)
+	}
+}
+
 // The Overlord's answer to a goblin's question on the board gives the goblin
 // what it waited for, so its waits on him up to that question close with it,
 // as they do when the CFO answers; a wait the goblin files later is its own.

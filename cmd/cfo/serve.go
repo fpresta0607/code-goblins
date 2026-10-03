@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -161,10 +162,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		// The CI wakes only read GitHub, as PullRequestState does, so an
+		// example home keeps them.
+		CI:               execx.OSRunner{},
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
+		Allowance:          readAFKAllowance(runtime),
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -197,13 +202,37 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 }
 
 // firstRunOn is what the first-run page reads and changes on this machine for
-// the CFO home h. setMachine records the projects folder as this machine's
-// setting; an example board, such as a test fixture, never calls it and
-// records the folder for itself alone.
+// the CFO home h: the home its CFO starts in, and the agent goblins
+// remembered for it, which the page shows as chosen and remembers in turn.
+// setMachine records the projects folder as this machine's setting; an
+// example board, such as a test fixture, never calls it and records the
+// folder for itself alone.
 func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error) *supervisor.FirstRun {
 	return &supervisor.FirstRun{
-		Home:         userHome,
-		LookPath:     exec.LookPath,
+		Home:     userHome,
+		LookPath: exec.LookPath,
+		CFOHome:  h.Root,
+		SavedAgent: func() string {
+			// Only a choice the quick start wrote is one: a home with none
+			// has no answer yet, and a file that names no agent is no answer.
+			if _, err := os.Stat(cfoHarnessPath(h.State)); err != nil {
+				return ""
+			}
+			agent, err := cfoHarness(h.State)
+			if err != nil {
+				return ""
+			}
+			return agent
+		},
+		SaveAgent: func(agent string) error {
+			if agent == "" {
+				if err := os.Remove(cfoHarnessPath(h.State)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				return nil
+			}
+			return fsx.AtomicWriteFile(cfoHarnessPath(h.State), []byte(agent+"\n"))
+		},
 		ProjectsRoot: install.MachineProjectsRoot,
 		SetProjectsRoot: func(root string) error {
 			if !example {
@@ -216,7 +245,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
 		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(project string) error { return startNativeCFO(h, project, "claude") },
+		StartCFO: func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
 	}
 }
 

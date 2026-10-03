@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -23,11 +24,11 @@ func TestGoblinsEndsOnOneScreenWithTheCFOsTerminalAsItsDefault(t *testing.T) {
 	f := newSessionFixture(t)
 	board, _, _ := liveBoard(context.Background(), f.home.State)
 	choose := f.runtime.choose
-	f.runtime.choose = func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
+	f.runtime.choose = func(output io.Writer, step onboarding.Step) (int, error) {
 		if !slices.Equal(f.nativeStarts, []string{f.home.Root}) || len(f.opened) != 0 {
 			t.Errorf("at the final screen: nativeStarts=%q opened=%q, want the CFO started in its home and no browser opened", f.nativeStarts, f.opened)
 		}
-		return choose(output, title, choices, selected)
+		return choose(output, step)
 	}
 
 	// Act
@@ -56,9 +57,9 @@ func TestGoblinsSaysWhatItAnsweredForANewCFOBeforeTheFinalScreen(t *testing.T) {
 	f := newSessionFixture(t)
 	f.settleNotes = []string{"Answered the workspace trust dialog in the CFO's terminal: Yes, I trust this folder."}
 	said := ""
-	f.runtime.choose = func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error) {
+	f.runtime.choose = func(output io.Writer, step onboarding.Step) (int, error) {
 		said = output.(*bytes.Buffer).String()
-		return selected, nil
+		return step.Selected, nil
 	}
 
 	// Act
@@ -97,7 +98,7 @@ func TestGoblinsOpensTheBoardOnlyWhenItIsChosen(t *testing.T) {
 func TestGoblinsAcceptsNothingWhenTheFinalScreenHasNoAnswer(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
-	f.runtime.choose = func(io.Writer, string, []onboarding.Choice, int) (int, error) {
+	f.runtime.choose = func(io.Writer, onboarding.Step) (int, error) {
 		return 0, onboarding.ErrNoConsole
 	}
 
@@ -152,8 +153,8 @@ func TestGoblinsSetupRunsTheAgentStepsAgain(t *testing.T) {
 	if exit != 0 || !slices.Equal(f.setups, []agentSetup{{chosen: "", rerun: true}}) || len(f.nativeStarts) != 0 {
 		t.Fatalf("exit=%d setups=%+v nativeStarts=%q stderr=%q, want the agent steps rerun and no CFO started", exit, f.setups, f.nativeStarts, stderr)
 	}
-	if !strings.Contains(stdout, "The CFO already runs, and keeps its harness; pi is the harness goblins starts the next CFO as.") {
-		t.Errorf("stdout = %q, want it to say the running CFO keeps its harness", stdout)
+	if !strings.Contains(stdout, "CFO        already running in native terminal cfo\n               It keeps its agent; pi is the agent goblins starts the next CFO as.\n") {
+		t.Errorf("stdout = %q, want it to say the running CFO keeps its agent", stdout)
 	}
 	if extra != 2 || !strings.Contains(extraErr, "usage: goblins setup") {
 		t.Errorf("goblins setup now: exit=%d stderr=%q, want its usage", extra, extraErr)
@@ -188,11 +189,13 @@ func (r *readyFlow) flow() onboarding.Flow {
 		Detect: func(_ context.Context, id string) onboarding.Agent {
 			return onboarding.Agent{ID: id, Name: id, State: onboarding.Ready}
 		},
-		Choose: func(_ string, _ []string, selected int) (int, error) {
+		Ask: func(step onboarding.Step) (int, error) {
 			r.chooses++
-			r.saved = append(r.saved, onboarding.Agents[selected])
+			r.saved = append(r.saved, onboarding.Agents[step.Selected])
 			return r.choice, nil
 		},
+		Done: func(string, string) {},
+		Undo: func() {},
 	}
 }
 
@@ -239,7 +242,7 @@ func TestCancelledAgentStepsLeaveTheRememberedAgentAlone(t *testing.T) {
 	}
 	asked := 0
 	steps := (&readyFlow{}).flow()
-	steps.Choose = func(string, []string, int) (int, error) {
+	steps.Ask = func(onboarding.Step) (int, error) {
 		asked++
 		return 0, onboarding.ErrCancelled
 	}
@@ -264,7 +267,7 @@ func TestGoblinsSaysWhatToChooseAtTheDialogsOfACFOStartedInHerdr(t *testing.T) {
 		agent string
 		want  string
 	}{
-		{"claude", "If Claude Code asks whether you trust this folder, its first choice, No, exits: choose Yes with Up, then press Enter.\n"},
+		{"claude", "If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter.\n"},
 		{"codex", "If Codex asks you to review hooks, Continue without trusting keeps them off; trusting them is your own decision.\n"},
 	} {
 		t.Run(c.agent, func(t *testing.T) {
@@ -286,12 +289,78 @@ func TestGoblinsSaysWhatToChooseAtTheDialogsOfACFOStartedInHerdr(t *testing.T) {
 	}
 }
 
+// goblins says first what it finds running and starts nothing beside it: a
+// supervisor and a CFO already there are each one line, no agent step is
+// asked, and the final screen says the CFO is running. A CFO it has to start
+// is one line too, said once its startup dialogs are answered.
+func TestGoblinsSaysWhatAlreadyRunsAndStartsNothingBesideIt(t *testing.T) {
+	t.Setenv("WT_SESSION", "")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("TERM", "")
+	for _, c := range []struct {
+		name      string
+		nativeCFO string
+		starts    int
+		want      string
+		heading   string
+	}{
+		{"both run", supervisor.NativeCFOTerminal, 0, "\n  \u221a Supervisor already running\n  \u221a CFO        already running in native terminal cfo\n", "Your CFO is running\n"},
+		{"only the supervisor runs", "", 1, "\n  \u221a Supervisor already running\n  \u221a Agent      claude\n  . CFO        starting as Claude Code\n  \u221a CFO        started as Claude Code in %s, in native terminal cfo\n", "Your CFO is starting\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.nativeCFO = c.nativeCFO
+			want := c.want
+			if strings.Contains(want, "%s") {
+				want = fmt.Sprintf(want, f.home.Root)
+			}
+
+			// Act
+			exit, stdout, stderr := f.launch("--native")
+
+			// Assert
+			if exit != 0 || f.starts != 0 || len(f.nativeStarts) != c.starts || len(f.cfoStarts) != 0 {
+				t.Fatalf("exit=%d supervisor starts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want no supervisor started and %d CFO", exit, f.starts, f.nativeStarts, f.cfoStarts, stderr, c.starts)
+			}
+			if !strings.HasSuffix(stdout, want) {
+				t.Errorf("stdout ends\n%q\nwant\n%q", stdout, want)
+			}
+			if len(f.screens) != 1 || !strings.HasPrefix(f.screens[0].title, c.heading) {
+				t.Errorf("the final screen is %+v, want %q", f.screens, c.heading)
+			}
+		})
+	}
+}
+
+// A supervisor goblins had to start is said to be started, not found.
+func TestGoblinsSaysItStartedTheSupervisor(t *testing.T) {
+	// Arrange
+	t.Setenv("WT_SESSION", "a1b2")
+	board := fakeBoard(t, busySnapshot)
+	f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
+		if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
+			t.Fatal(err)
+		}
+		return make(chan struct{}), nil
+	})
+	f.nativeCFO = supervisor.NativeCFOTerminal
+
+	// Act
+	exit, stdout, stderr := f.launch()
+
+	// Assert
+	if exit != 0 || f.starts != 1 || !strings.Contains(stdout, "\n  \u2713 Supervisor started\n  \u2713 CFO        already running in native terminal cfo\n") {
+		t.Fatalf("exit=%d starts=%d stdout=%q stderr=%q, want the supervisor said to be started", exit, f.starts, stdout, stderr)
+	}
+}
+
 // Escape on the final screen leaves goblins with the CFO and the board
 // running, says so, and opens and shows nothing.
 func TestEscapeOnTheFinalScreenLeavesTheCFOAndTheBoardRunning(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
-	f.runtime.choose = func(io.Writer, string, []onboarding.Choice, int) (int, error) {
+	f.runtime.choose = func(io.Writer, onboarding.Step) (int, error) {
 		return 0, onboarding.ErrBack
 	}
 
@@ -320,54 +389,5 @@ func TestGoblinsReportsEscapeAtTheChoiceAsACancel(t *testing.T) {
 	// Assert
 	if exit != 1 || stderr != "goblins: setup was cancelled; run goblins to continue\n" {
 		t.Errorf("exit=%d stderr=%q, want the cancel reported in the quick start's words", exit, stderr)
-	}
-}
-
-// goblins says first what it finds running for this home and that it started
-// nothing beside it: the supervisor and the CFO, or the supervisor alone,
-// whose CFO it then starts. A supervisor this run started is not said to
-// have been found.
-func TestGoblinsSaysWhatAlreadyRunsForItsHome(t *testing.T) {
-	const both, alone = "\nThe supervisor and the CFO of this home already run: nothing new was started.\n", "\nThe supervisor of this home already runs: it was not started again.\n"
-	board := fakeBoard(t, busySnapshot)
-	started := func(t *testing.T) *launcherFixture {
-		f := newLauncherFixture(t, func(h home.Home) (<-chan struct{}, error) {
-			if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
-				t.Fatal(err)
-			}
-			return make(chan struct{}), nil
-		})
-		f.cfoLive = false
-		return f
-	}
-	for _, c := range []struct {
-		name      string
-		fixture   func(t *testing.T) *launcherFixture
-		nativeCFO string
-		want      string
-		starts    int
-	}{
-		{"the supervisor and the CFO run", newSessionFixture, supervisor.NativeCFOTerminal, both, 0},
-		{"the supervisor runs alone", newSessionFixture, "", alone, 1},
-		{"this run started the supervisor", started, supervisor.NativeCFOTerminal, "", 0},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			// Arrange
-			f := c.fixture(t)
-			f.nativeCFO = c.nativeCFO
-
-			// Act
-			exit, stdout, stderr := f.launch("--native")
-
-			// Assert
-			if exit != 0 || len(f.nativeStarts) != c.starts || len(f.cfoStarts) != 0 {
-				t.Fatalf("exit=%d nativeStarts=%q cfoStarts=%q stderr=%q, want %d CFO started", exit, f.nativeStarts, f.cfoStarts, stderr, c.starts)
-			}
-			for _, line := range []string{both, alone} {
-				if strings.Contains(stdout, line) != (line == c.want) {
-					t.Errorf("stdout = %q; saying %q: %v, want %v", stdout, line, strings.Contains(stdout, line), line == c.want)
-				}
-			}
-		})
 	}
 }

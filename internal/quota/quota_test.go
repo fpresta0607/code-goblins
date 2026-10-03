@@ -161,3 +161,28 @@ func TestReadRequiresARunner(t *testing.T) {
 		t.Errorf("skipped = %q, want the missing runner named", skipped)
 	}
 }
+
+// AFK mode's report says what was spent while the Overlord was away, so the
+// snapshot keeps each window's use and a credit balance, which the headroom
+// scopes do not carry.
+func TestReadKeepsEachWindowsUseAndACreditBalance(t *testing.T) {
+	report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: fixture(t, "projected")}}, snapshotTime)
+	if skipped != "" {
+		t.Fatalf("skipped = %q, want the check to run", skipped)
+	}
+
+	claude := report.Providers["claude"]
+	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
+		t.Errorf("claude windows = %+v, want its session, week and model windows with what each has used", claude.Windows)
+	}
+	if claude.Credits != nil {
+		t.Errorf("claude credits = %+v, want none: quota-axi reported no balance", claude.Credits)
+	}
+	codex := report.Providers["codex"]
+	if codex.Credits == nil || *codex.Credits != (Credits{Remaining: 0, Unit: "credits"}) {
+		t.Errorf("codex credits = %+v, want the zero balance quota-axi reported", codex.Credits)
+	}
+	if len(codex.Windows) != 3 || codex.Windows[0].PercentUsed != 40 {
+		t.Errorf("codex windows = %+v, want three with the week at 40%% used", codex.Windows)
+	}
+}

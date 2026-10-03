@@ -11,6 +11,8 @@ import (
 // only for a key it claimed here first. The record is the supervisor's, so a
 // reload, a second tab, a reconnect or a supervisor restart never announces
 // the same item again (the Overlord, 2026-10-01: "no double fire or display").
+// While AFK mode is on the board is handed nothing at all, and what it asked
+// about then stays recorded, so it is not announced once he is back either.
 const (
 	// announcedFor is how long an announcement is remembered; an item open
 	// that long was announced long ago.
@@ -96,8 +98,20 @@ func (h *HTTP) announceItems(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "An announce key is empty or too long")
 		return
 	}
+	// While AFK mode is on every key is recorded as announced and none is
+	// handed back: nothing alerts the Overlord while he is away, and what the
+	// board asked about then is not announced once he is back either. What
+	// waits on him is in the report.
+	away := h.Service.afkOn()
 	claimed, err := h.Service.Store.claimAnnounced(input.Keys, input.News, time.Now().UTC())
-	if err != nil {
+	switch {
+	case away:
+		// The board reads a refusal as leave to announce, so a record that
+		// could not be saved still hands it nothing while he is away. A key
+		// that was not recorded is asked about again, and the store reports
+		// its own failed saves.
+		claimed = []string{}
+	case err != nil:
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
