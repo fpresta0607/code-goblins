@@ -22,6 +22,7 @@ type healthForge struct {
 	requests      []execx.Request
 	failureOn     string
 	failure       execx.Result
+	failureErr    error
 	responseDelay time.Duration
 }
 
@@ -31,7 +32,7 @@ func (f *healthForge) Run(ctx context.Context, request execx.Request) (execx.Res
 		f.requests = append(f.requests, request)
 		if f.failureOn != "" && strings.HasPrefix(command, f.failureOn) {
 			time.Sleep(f.responseDelay)
-			return f.failure, nil
+			return f.failure, f.failureErr
 		}
 		if strings.HasPrefix(command, "gh api graphql") {
 			return execx.Result{Stdout: []byte(f.comparisons)}, nil
@@ -187,12 +188,14 @@ func TestPRHealthRetainsAHeadOpenForWeeksAndForgetsClosedHeads(t *testing.T) {
 func TestPRHealthKeepsUnreadComparisonsVisible(t *testing.T) {
 	for _, test := range []struct {
 		name, comparisons string
+		wantHeadWakes     int
 	}{
-		{"null", `{"data":{"repository":{"ref":{"pr209":null}}}}`},
-		{"wrong head", healthComparison("another-head", 2)},
-		{"negative count", healthComparison("head-one", -1)},
-		{"missing count", `{"data":{"repository":{"ref":{"pr209":{"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base"}}}}}}`},
-		{"GraphQL error", `{"data":{"repository":{"ref":null}},"errors":[{"message":"comparison unavailable"}]}`},
+		{"null", `{"data":{"repository":{"ref":{"pr209":null}}}}`, 1},
+		{"wrong head", healthComparison("another-head", 2), 1},
+		{"negative count", healthComparison("head-one", -1), 1},
+		{"missing count", `{"data":{"repository":{"ref":{"pr209":{"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base"}}}}}}`, 1},
+		{"GraphQL error beside a readable ref", `{"data":{"repository":{"ref":{"pr209":null}}},"errors":[{"message":"could not resolve head-one"}]}`, 1},
+		{"GraphQL error", `{"data":{"repository":{"ref":null}},"errors":[{"message":"comparison unavailable"}]}`, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, h, forge, now := healthService(t, true)
@@ -206,8 +209,8 @@ func TestPRHealthKeepsUnreadComparisonsVisible(t *testing.T) {
 			if wakes := prWakes(t, h, "pr_health"); len(wakes) != 0 {
 				t.Fatalf("unread comparison inferred health: %+v", wakes)
 			}
-			if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #209 at head-one") {
-				t.Fatalf("unread comparison wakes = %+v, want one pr_unread naming the head", wakes)
+			if wakes := prWakes(t, h, "pr_unread"); len(wakes) != test.wantHeadWakes || len(wakes) > 0 && !strings.Contains(wakes[0].Detail, "PR #209 at head-one") {
+				t.Fatalf("unread comparison wakes = %+v, want %d pr_unread naming the head", wakes, test.wantHeadWakes)
 			}
 			persisted, readErr := readFleetWakes(h.State)
 			if readErr != nil || persisted.PRUnread[forge.repo].Failure == "" {
@@ -558,6 +561,9 @@ func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 				if woke := fleetWakeRecords(t, h, "ci"); len(woke) != wantWoke || wantWoke > 0 && !strings.HasPrefix(woke[0].Detail, "ci_unreadable: ") {
 					t.Fatalf("retry %d: CI wakes = %+v, want %d ci_unreadable", retry, woke, wantWoke)
 				}
+				if woke := prWakes(t, h, "pr_unread"); len(woke) != 0 {
+					t.Fatalf("retry %d: a refused comparison woke for its heads: %+v", retry, woke)
+				}
 				persisted, readErr := readFleetWakes(h.State)
 				if readErr != nil || !persisted.BackOff[forge.repo].After(lastBackOff) {
 					t.Fatalf("retry %d: backoff %s did not advance past %s: %v", retry, persisted.BackOff[forge.repo], lastBackOff, readErr)
@@ -577,5 +583,86 @@ func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 				at = lastBackOff.Add(time.Minute)
 			}
 		})
+	}
+}
+
+func TestPRUnreadKeepsBatchFailuresOnTheBoardWithoutHeadWakes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		failure    execx.Result
+		failureErr error
+	}{
+		{"refusal", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}, nil},
+		{"timeout", execx.Result{}, context.DeadlineExceeded},
+		{"server error", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 502 Bad Gateway\r\n\r\n<html>bad gateway</html>"), Stderr: []byte("gh: HTTP 502")}, nil},
+		{"unparseable body", execx.Result{Stdout: []byte("HTTP/2.0 200 OK\r\n\r\nnot json")}, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, h, forge, now := healthService(t, true)
+			forge.pulls = strings.TrimSuffix(healthPull("head-one", "CONFLICTING", false, "[]"), "]") + `,{"number":210,"url":"https://github.com/o/r/pull/210","headRefName":"other","headRefOid":"head-two","mergeable":"MERGEABLE","author":{"login":"teammate"}}]`
+			forge.runs, forge.jobs = redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+			forge.failureOn, forge.failure, forge.failureErr = "gh api graphql", test.failure, test.failureErr
+			for _, after := range []time.Duration{0, 2 * time.Minute} {
+				service = &Service{Store: service.Store, Options: service.Options}
+
+				err := service.checkFleet(context.Background(), now.Add(after))
+
+				if err == nil || !strings.Contains(err.Error(), "PR health: ") {
+					t.Fatalf("at %s the board lost the failed comparison: %v", after, err)
+				}
+				if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 0 {
+					t.Fatalf("at %s a failed comparison woke for its heads: %+v", after, wakes)
+				}
+				persisted, readErr := readFleetWakes(h.State)
+				if readErr != nil || persisted.PRUnread[forge.repo].Failure == "" || persisted.Health["https://github.com/o/r/pull/209"].HasUnreadWake || persisted.Health["https://github.com/o/r/pull/210"].HasUnreadWake {
+					t.Fatalf("at %s a failed comparison left %+v, %+v, %v", after, persisted.PRUnread, persisted.Health, readErr)
+				}
+			}
+			if wakes := prWakes(t, h, "pr_health"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "conflicts") {
+				t.Fatalf("readable conflict beside a failed comparison = %+v, want one conflict wake", wakes)
+			}
+			forge.failureOn = ""
+			forge.comparisons = `{"data":{"repository":{"ref":{"pr209":{"behindBy":1,"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base"}},"pr210":null}}}}`
+			service = &Service{Store: service.Store, Options: service.Options}
+
+			_ = service.checkFleet(context.Background(), now.Add(11*time.Minute))
+
+			if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #210 at head-two") || strings.Contains(wakes[0].Detail, "PR #209") {
+				t.Fatalf("a later individual failure of an unchanged head = %+v, want one wake naming only #210", wakes)
+			}
+			if ci := fleetWakeRecords(t, h, "ci"); !slices.ContainsFunc(ci, func(record wake.Record) bool { return strings.Contains(record.Detail, "push CI is red") }) {
+				t.Fatalf("CI wakes beside a failed comparison = %+v, want main's red run", ci)
+			}
+		})
+	}
+}
+
+func TestPRUnreadWakesOnceForAConflictingHeadWhoseComparisonFails(t *testing.T) {
+	service, h, forge, now := healthService(t, true)
+	for _, reading := range []struct {
+		after     time.Duration
+		head      string
+		wantWakes int
+	}{
+		{0, "head-one", 1},
+		{2 * time.Minute, "head-one", 1},
+		{4 * time.Minute, "head-one", 1},
+		{8 * time.Minute, "head-one", 1},
+		{10 * time.Minute, "head-two", 2},
+		{12 * time.Minute, "head-two", 2},
+	} {
+		forge.pulls = healthPull(reading.head, "CONFLICTING", false, "[]")
+		forge.comparisons = healthComparison("another-head", 3)
+		service = &Service{Store: service.Store, Options: service.Options}
+
+		_ = service.checkFleet(context.Background(), now.Add(reading.after))
+
+		conflicts, unread := prWakes(t, h, "pr_health"), prWakes(t, h, "pr_unread")
+		if len(conflicts) != reading.wantWakes || len(unread) != reading.wantWakes {
+			t.Fatalf("at %s: conflict wakes %+v and unread wakes %+v, want %d of each", reading.after, conflicts, unread, reading.wantWakes)
+		}
+		if !strings.Contains(unread[len(unread)-1].Detail, "PR #209 at "+reading.head) || strings.Contains(conflicts[len(conflicts)-1].Detail, "behind") {
+			t.Fatalf("at %s: unread %q or conflict %q misreports the head", reading.after, unread[len(unread)-1].Detail, conflicts[len(conflicts)-1].Detail)
+		}
 	}
 }

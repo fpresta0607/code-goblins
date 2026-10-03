@@ -609,7 +609,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}
-	comparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
+	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
 	if ctx.Err() != nil {
 		return nil, errs
 	}
@@ -628,11 +628,11 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		}
 		record.At = now
 		w.Health[pr.URL] = record
+		if !record.HasUnreadWake && slices.ContainsFunc(unreadComparisons, func(unread ghPullRequest) bool { return unread.URL == pr.URL }) {
+			unreadHeads = append(unreadHeads, pr)
+		}
 		comparison := comparisons[pr.Number]
 		if comparison == nil && pr.Mergeable != "CONFLICTING" {
-			if !record.HasUnreadWake {
-				unreadHeads = append(unreadHeads, pr)
-			}
 			continue
 		}
 		var owner string

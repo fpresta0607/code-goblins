@@ -37,22 +37,27 @@ type prComparison struct {
 	} `json:"baseTarget"`
 }
 
-func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, open []ghPullRequest) (map[int]*prComparison, string, error) {
-	comparisons := map[int]*prComparison{}
+// comparePullRequests compares every open head with repo's default branch in
+// one GraphQL request. It returns the comparisons read, the heads whose own
+// comparison came back missing or invalid in an otherwise readable response,
+// and why anything was not read; a request that fails as a whole names no
+// head.
+func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, open []ghPullRequest) (comparisons map[int]*prComparison, unread []ghPullRequest, branch string, err error) {
+	comparisons = map[int]*prComparison{}
 	if len(open) == 0 {
-		return comparisons, "", nil
+		return comparisons, nil, "", nil
 	}
-	branch, err := defaultBranch(ctx, runner, repo)
+	branch, err = defaultBranch(ctx, runner, repo)
 	if err != nil {
-		return comparisons, "", fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
+		return comparisons, nil, "", fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
 	}
 	origin, err := runOutput(ctx, runner, repo, "git", "config", "--get", "remote.origin.url")
 	if err != nil {
-		return comparisons, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
+		return comparisons, nil, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
 	}
 	remote := githubRemote.FindStringSubmatch(origin)
 	if remote == nil {
-		return comparisons, branch, fmt.Errorf("PR health: cannot compare the non-GitHub origin of %s", repo)
+		return comparisons, nil, branch, fmt.Errorf("PR health: cannot compare the non-GitHub origin of %s", repo)
 	}
 	owner, name, _ := strings.Cut(remote[1], "/")
 	var query strings.Builder
@@ -65,11 +70,11 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 	defer cancel()
 	result, err := runner.Run(probe, execx.Request{Dir: repo, Name: "gh", Args: []string{"api", "graphql", "--include", "-f", "query=" + query.String()}})
 	if err != nil {
-		return comparisons, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
+		return comparisons, nil, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
 	}
 	_, body, err := githubResponse(result.Stdout)
 	if err != nil {
-		return comparisons, branch, fmt.Errorf("PR health: cannot read the comparison response of %s: %w", repo, err)
+		return comparisons, nil, branch, fmt.Errorf("PR health: cannot read the comparison response of %s: %w", repo, err)
 	}
 	var response struct {
 		Data struct {
@@ -82,7 +87,7 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 		} `json:"errors"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return comparisons, branch, fmt.Errorf("PR health: cannot read the comparisons of %s: %w", repo, err)
+		return comparisons, nil, branch, fmt.Errorf("PR health: cannot read the comparisons of %s: %w", repo, err)
 	}
 	var unreadable error
 	for _, failure := range response.Errors {
@@ -91,15 +96,19 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 	if result.ExitCode != 0 {
 		unreadable = errors.Join(unreadable, fmt.Errorf("PR health: compare %s: gh exited %d: %s", repo, result.ExitCode, bounded(strings.TrimSpace(string(result.Stderr)), 300)))
 	}
+	if response.Data.Repository.Ref == nil {
+		return comparisons, nil, branch, errors.Join(unreadable, fmt.Errorf("PR health: GitHub returned no comparisons of %s against %s", repo, branch))
+	}
 	for _, pr := range open {
 		comparison := response.Data.Repository.Ref[fmt.Sprintf("pr%d", pr.Number)]
 		if comparison == nil || comparison.BehindBy == nil || *comparison.BehindBy < 0 || comparison.HeadTarget.Oid != pr.HeadRefOid || comparison.BaseTarget.Oid == "" {
 			unreadable = errors.Join(unreadable, fmt.Errorf("PR health: comparison of %s at %s against %s was not read", pr.URL, pr.HeadRefOid, branch))
+			unread = append(unread, pr)
 			continue
 		}
 		comparisons[pr.Number] = comparison
 	}
-	return comparisons, branch, unreadable
+	return comparisons, unread, branch, unreadable
 }
 
 func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullRequest, branch string, behind int, now time.Time) error {
@@ -137,8 +146,9 @@ func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullReque
 
 // reportPRUnread keeps why repo's pull request health was not all read until
 // a poll reads it all, and raises pr_unread once for each condition: each
-// open head whose comparison was not read, and the listing reaching 100 pull
-// requests, again only after it cleared and came back.
+// open head whose own comparison was not read, and the listing reaching 100
+// pull requests, again only after it cleared and came back. A comparison that
+// failed as a whole only keeps its line.
 func reportPRUnread(stateDir string, w *fleetWakes, repo string, heads []ghPullRequest, isCapped bool, failure error, now time.Time) error {
 	if failure == nil {
 		delete(w.PRUnread, repo)
