@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // startMenuInstall is one run of the install as far as it goes with a
@@ -151,8 +152,9 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 
 	// Assert
 	target, arguments := startMenuEntry(t, run)
-	if !strings.EqualFold(target, filepath.Join(checkout, "goblins-window.exe")) || arguments != "" {
-		t.Errorf("Code Goblins in the Start menu runs %q with %q, want the clone's goblins-window.exe alone:\n%s", target, arguments, run.output)
+	wantTarget := fsx.LongPath(filepath.Join(checkout, "goblins-window.exe"))
+	if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "" {
+		t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q alone:\n%s", target, arguments, wantTarget, run.output)
 	}
 	if !strings.Contains(run.record, "cfo install --window-built\r\n") {
 		t.Errorf("cfo install was not told the window was built here:\n%s\n%s", run.record, run.output)
@@ -215,8 +217,9 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			// Assert
 			home := filepath.Join(run.local, "CodeGoblins")
 			target, arguments := startMenuEntry(t, run)
-			if !strings.EqualFold(target, filepath.Join(home, test.program)) || arguments != test.arguments {
-				t.Errorf("Code Goblins in the Start menu runs %q with %q, want the home's %s with %q:\n%s", target, arguments, test.program, test.arguments, run.output)
+			wantTarget := fsx.LongPath(filepath.Join(home, test.program))
+			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != test.arguments {
+				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q with %q:\n%s", target, arguments, wantTarget, test.arguments, run.output)
 			}
 			if !strings.Contains(run.record, "cfo install\r\n") || strings.Contains(run.record, "--window-built") {
 				t.Errorf("want cfo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)
@@ -276,8 +279,9 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 
 	// Assert
 	target, arguments := startMenuEntry(t, run)
-	if !strings.EqualFold(target, filepath.Join(run.local, "CodeGoblins", "goblins.exe")) || arguments != "--window" {
-		t.Errorf("Code Goblins runs %q with %q, want goblins.exe with --window", target, arguments)
+	wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "goblins.exe"))
+	if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "--window" {
+		t.Errorf("Code Goblins runs %q with %q, want %q with --window", target, arguments, wantTarget)
 	}
 	shortcut := filepath.Join(run.programs, "Code Goblins Window.lnk")
 	if got, err := os.ReadFile(shortcut); err != nil || !bytes.Equal(got, originalShortcut) {
