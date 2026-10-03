@@ -25,7 +25,7 @@ type githubPollRunner struct {
 
 func (r githubPollRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "gh" && r.now().Before(r.state.BackOff[r.repo]) {
-		return execx.Result{}, fmt.Errorf("GitHub reads for %s wait until %s after a refusal or exhausted allowance", r.repo, r.state.BackOff[r.repo].UTC().Format(time.RFC3339))
+		return execx.Result{}, fmt.Errorf("GitHub reads for %s wait out a refusal or exhausted allowance", r.repo)
 	}
 	result, err := r.commands.Run(ctx, request)
 	if request.Name == "gh" {

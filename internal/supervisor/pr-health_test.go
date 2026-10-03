@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 type healthForge struct {
@@ -45,6 +46,18 @@ func healthPull(head, mergeable string, isFork bool, checks string) string {
 
 func healthComparison(head string, behind int) string {
 	return fmt.Sprintf(`{"data":{"repository":{"ref":{"pr209":{"behindBy":%d,"headTarget":{"oid":%q},"baseTarget":{"oid":"base-head"}}}}}}`, behind, head)
+}
+
+// prWakes returns the queued pr wakes whose detail starts with name.
+func prWakes(t *testing.T, h home.Home, name string) []wake.Record {
+	t.Helper()
+	var matching []wake.Record
+	for _, record := range fleetWakeRecords(t, h, "pr") {
+		if strings.HasPrefix(record.Detail, name+": ") {
+			matching = append(matching, record)
+		}
+	}
+	return matching
 }
 
 func healthService(t *testing.T, hasGoblin bool) (*Service, home.Home, *healthForge, time.Time) {
@@ -190,11 +203,14 @@ func TestPRHealthKeepsUnreadComparisonsVisible(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "compar") {
 				t.Fatalf("unread comparison returned %v", err)
 			}
-			if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 0 {
+			if wakes := prWakes(t, h, "pr_health"); len(wakes) != 0 {
 				t.Fatalf("unread comparison inferred health: %+v", wakes)
 			}
+			if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #209 at head-one") {
+				t.Fatalf("unread comparison wakes = %+v, want one pr_unread naming the head", wakes)
+			}
 			persisted, readErr := readFleetWakes(h.State)
-			if readErr != nil || persisted.Unreadable[forge.repo].Failure == "" {
+			if readErr != nil || persisted.PRUnread[forge.repo].Failure == "" {
 				t.Fatalf("unread evidence disappeared: %+v, %v", persisted, readErr)
 			}
 		})
@@ -346,8 +362,11 @@ func TestPRHealthReportsAReadableHeadWhenAnotherComparisonFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "head-two") {
 		t.Fatalf("partial comparison failure returned %v", err)
 	}
-	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "#209") {
+	if wakes := prWakes(t, h, "pr_health"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "#209") {
 		t.Fatalf("readable unhealthy head was dropped with the unread one: %+v", wakes)
+	}
+	if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "PR #210 at head-two") || strings.Contains(wakes[0].Detail, "PR #209") {
+		t.Fatalf("unread head wakes = %+v, want one naming only #210", wakes)
 	}
 }
 
@@ -395,8 +414,11 @@ func TestPRHealthExposesAListingAtItsLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "first 100") || !strings.Contains(err.Error(), "not read") {
 		t.Fatalf("listing cap was silent: %v", err)
 	}
-	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 0 {
+	if wakes := prWakes(t, h, "pr_health"); len(wakes) != 0 {
 		t.Fatalf("listing cap itself inferred an unhealthy head: %+v", wakes)
+	}
+	if wakes := prWakes(t, h, "pr_unread"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "limit of 100") {
+		t.Fatalf("listing cap wakes = %+v, want one pr_unread naming the limit", wakes)
 	}
 }
 
@@ -414,5 +436,146 @@ func TestPRHealthBackOffOnRunDetailsStaysVisible(t *testing.T) {
 	_ = service.checkFleet(context.Background(), now.Add(ciPollEvery))
 	if len(forge.requests) != calls {
 		t.Fatalf("main's detail refusal did not stop later repository reads: %+v", forge.requests)
+	}
+}
+
+func TestPRUnreadWakesOncePerHeadWhateverThePollErrors(t *testing.T) {
+	service, h, forge, now := healthService(t, true)
+	for poll, reading := range []struct {
+		after      time.Duration
+		head       string
+		isRead     bool
+		wantUnread int
+		wantHealth int
+	}{
+		{0, "head-one", false, 1, 0},
+		{2 * time.Minute, "head-one", false, 1, 0},
+		{4 * time.Minute, "head-one", false, 1, 0},
+		{8 * time.Minute, "head-one", false, 1, 0},
+		{10 * time.Minute, "head-two", false, 2, 0},
+		{12 * time.Minute, "head-two", false, 2, 0},
+		{14 * time.Minute, "head-two", true, 2, 1},
+		{20 * time.Minute, "head-two", false, 2, 1},
+	} {
+		forge.pulls = healthPull(reading.head, "UNKNOWN", false, "[]")
+		forge.comparisons = fmt.Sprintf(`{"data":{"repository":{"ref":{"pr209":null}}},"errors":[{"message":"timeout %d"}]}`, poll)
+		if reading.isRead {
+			forge.comparisons = healthComparison(reading.head, 2)
+		}
+		service = &Service{Store: service.Store, Options: service.Options}
+
+		err := service.checkFleet(context.Background(), now.Add(reading.after))
+
+		if reading.isRead != (err == nil) || !reading.isRead && !strings.Contains(err.Error(), reading.head) {
+			t.Fatalf("at %s the board showed %v", reading.after, err)
+		}
+		if wakes := prWakes(t, h, "pr_unread"); len(wakes) != reading.wantUnread {
+			t.Fatalf("at %s: unread wakes = %+v, want %d", reading.after, wakes, reading.wantUnread)
+		}
+		if wakes := prWakes(t, h, "pr_health"); len(wakes) != reading.wantHealth {
+			t.Fatalf("at %s: health wakes = %+v, want %d", reading.after, wakes, reading.wantHealth)
+		}
+		persisted, readErr := readFleetWakes(h.State)
+		if readErr != nil || reading.isRead != (persisted.PRUnread[forge.repo].Failure == "") {
+			t.Fatalf("at %s the persisted unread evidence was %+v, %v", reading.after, persisted.PRUnread, readErr)
+		}
+	}
+	unread := prWakes(t, h, "pr_unread")
+	if unread[1].Key != "repo:"+filepath.Base(forge.repo) || !strings.Contains(unread[1].Detail, "PR #209 at head-two") || !strings.Contains(unread[1].Detail, "next: check each by hand") || strings.Contains(unread[1].Detail, "gh auth login") {
+		t.Fatalf("unread wake = %+v, want one keyed by the repository naming the head and its own next step", unread[1])
+	}
+	if wakes := fleetWakeRecords(t, h, "ci"); len(wakes) != 0 {
+		t.Fatalf("unread PR health raised CI wakes: %+v", wakes)
+	}
+}
+
+func TestPRUnreadWakesForTheListingLimitOnceUntilItClears(t *testing.T) {
+	service, h, forge, now := healthService(t, true)
+	pull := strings.TrimSuffix(strings.TrimPrefix(healthPull("head-one", "MERGEABLE", false, "[]"), "["), "]")
+	capped := "[" + strings.TrimSuffix(strings.Repeat(pull+",", 100), ",") + "]"
+	underLimit := "[" + strings.TrimSuffix(strings.Repeat(pull+",", 99), ",") + "]"
+	forge.comparisons = healthComparison("head-one", 2)
+	forge.runs, forge.jobs = redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	for _, reading := range []struct {
+		after    time.Duration
+		listing  string
+		isCapped bool
+		wantWoke int
+	}{
+		{0, capped, true, 1},
+		{2 * time.Minute, capped, true, 1},
+		{4 * time.Minute, capped, true, 1},
+		{10 * time.Minute, capped, true, 1},
+		{12 * time.Minute, underLimit, false, 1},
+		{14 * time.Minute, capped, true, 2},
+		{20 * time.Minute, capped, true, 2},
+	} {
+		forge.pulls = reading.listing
+		service = &Service{Store: service.Store, Options: service.Options}
+
+		err := service.checkFleet(context.Background(), now.Add(reading.after))
+
+		if reading.isCapped != (err != nil && strings.Contains(err.Error(), "first 100")) || !reading.isCapped && err != nil {
+			t.Fatalf("at %s the board showed %v", reading.after, err)
+		}
+		if wakes := prWakes(t, h, "pr_unread"); len(wakes) != reading.wantWoke {
+			t.Fatalf("at %s: listing limit wakes = %+v, want %d", reading.after, wakes, reading.wantWoke)
+		}
+	}
+	if wakes := prWakes(t, h, "pr_health"); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "2 commits behind") {
+		t.Fatalf("readable health beside the listing limit = %+v, want one behind wake", wakes)
+	}
+	ci := fleetWakeRecords(t, h, "ci")
+	if len(ci) != 1 || !strings.Contains(ci[0].Detail, "push CI is red") {
+		t.Fatalf("CI wakes beside the listing limit = %+v, want main's red run and no ci_unreadable", ci)
+	}
+}
+
+func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
+	for _, test := range []struct {
+		name, command string
+		failure       execx.Result
+	}{
+		{"403", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}},
+		{"exhausted allowance", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: API rate limit exceeded")}},
+		{"Retry-After", "gh api graphql", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, h, forge, now := healthService(t, true)
+			forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
+			forge.failureOn, forge.failure = test.command, test.failure
+			at := now
+			var lastBackOff time.Time
+			for retry, wantWoke := range []int{0, 1, 1} {
+				service = &Service{Store: service.Store, Options: service.Options}
+				calls := len(forge.requests)
+
+				err := service.checkFleet(context.Background(), at)
+
+				if err == nil || len(forge.requests) == calls {
+					t.Fatalf("retry %d read nothing or showed nothing: %v, %+v", retry, err, forge.requests)
+				}
+				if woke := fleetWakeRecords(t, h, "ci"); len(woke) != wantWoke || wantWoke > 0 && !strings.HasPrefix(woke[0].Detail, "ci_unreadable: ") {
+					t.Fatalf("retry %d: CI wakes = %+v, want %d ci_unreadable", retry, woke, wantWoke)
+				}
+				persisted, readErr := readFleetWakes(h.State)
+				if readErr != nil || !persisted.BackOff[forge.repo].After(lastBackOff) {
+					t.Fatalf("retry %d: backoff %s did not advance past %s: %v", retry, persisted.BackOff[forge.repo], lastBackOff, readErr)
+				}
+				lastBackOff = persisted.BackOff[forge.repo]
+				calls = len(forge.requests)
+				service = &Service{Store: service.Store, Options: service.Options}
+
+				held := service.checkFleet(context.Background(), lastBackOff.Add(-time.Minute))
+
+				if len(forge.requests) != calls {
+					t.Fatalf("retry %d: GitHub was read before the backoff ended: %+v", retry, forge.requests[calls:])
+				}
+				if held == nil || !strings.Contains(held.Error(), "wait out a refusal") || test.command == "gh api graphql" && !strings.Contains(held.Error(), "PR health: compare") {
+					t.Fatalf("retry %d: the board lost the unread evidence during backoff: %v", retry, held)
+				}
+				at = lastBackOff.Add(time.Minute)
+			}
+		})
 	}
 }

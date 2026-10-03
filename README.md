@@ -633,6 +633,7 @@ The existing poll lists PRs once and batches all head comparisons in one additio
 GraphQL POST reads do not use conditional ETags.
 A 403, 429 or exhausted allowance pauses all GitHub reads in that poll for the affected repository across restarts, until its retry or reset time, or an hour when GitHub gives no usable time.
 Missing comparisons and a listing that reaches its 100-PR limit stay visible as unread evidence.
+They keep a line on the board and raise a `pr_unread` wake of kind `pr` once for each unread head and once for the listing limit until it clears, naming the next step; they never raise `ci_unreadable`, and readable PR health and CI wakes continue.
 
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +16,15 @@ type reportedPRHealth struct {
 	Head            string    `json:"head"`
 	HasBehindWake   bool      `json:"behind,omitempty"`
 	HasConflictWake bool      `json:"conflicting,omitempty"`
+	HasUnreadWake   bool      `json:"unread,omitempty"`
 	At              time.Time `json:"at"`
+}
+
+// unreadPRs is why a repository's pull request health was not all read on
+// its last poll, and whether the CFO was woken for its listing reaching 100.
+type unreadPRs struct {
+	Failure    string `json:"failure"`
+	HasCapWake bool   `json:"capped,omitempty"`
 }
 
 type prComparison struct {
@@ -94,15 +103,7 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 }
 
 func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullRequest, branch string, behind int, now time.Time) error {
-	if w.Health == nil {
-		w.Health = map[string]reportedPRHealth{}
-	}
 	record := w.Health[pr.URL]
-	if record.Head != pr.HeadRefOid {
-		record = reportedPRHealth{Head: pr.HeadRefOid}
-	}
-	record.At = now
-	w.Health[pr.URL] = record
 	isConflicting := pr.Mergeable == "CONFLICTING"
 	if isConflicting && record.HasConflictWake || !isConflicting && (behind == 0 || record.HasBehindWake) || !w.due("health:"+pr.URL, ciWakeGap, now) {
 		return nil
@@ -131,5 +132,52 @@ func reportPRHealth(stateDir string, w *fleetWakes, owner string, pr ghPullReque
 	}
 	w.Health[pr.URL] = record
 	w.woke("health:"+pr.URL, now)
+	return nil
+}
+
+// reportPRUnread keeps why repo's pull request health was not all read until
+// a poll reads it all, and raises pr_unread once for each condition: each
+// open head whose comparison was not read, and the listing reaching 100 pull
+// requests, again only after it cleared and came back.
+func reportPRUnread(stateDir string, w *fleetWakes, repo string, heads []ghPullRequest, isCapped bool, failure error, now time.Time) error {
+	if failure == nil {
+		delete(w.PRUnread, repo)
+		return nil
+	}
+	if w.PRUnread == nil {
+		w.PRUnread = map[string]unreadPRs{}
+	}
+	record := w.PRUnread[repo]
+	record.Failure = failure.Error()
+	record.HasCapWake = record.HasCapWake && isCapped
+	w.PRUnread[repo] = record
+	isNewCap := isCapped && !record.HasCapWake
+	key := "pr:unread:" + repo
+	if len(heads) == 0 && !isNewCap || !w.due(key, ciWakeGap, now) {
+		return nil
+	}
+	var conditions []string
+	if len(heads) > 0 {
+		named := make([]string, 0, len(heads))
+		for _, pr := range heads {
+			named = append(named, fmt.Sprintf("PR #%d at %s (%s)", pr.Number, pr.HeadRefOid, pr.URL))
+		}
+		conditions = append(conditions, fmt.Sprintf("%s could not be compared with the default branch; next: check each by hand with gh pr view <url> --json mergeable,mergeStateStatus; each head wakes again only when a later poll reads it conflicting or behind", strings.Join(named, ", ")))
+	}
+	if isNewCap {
+		conditions = append(conditions, "the listing stopped at its limit of 100 open pull requests, so any further ones were not read; next: close or merge stale pull requests, or check the rest by hand with gh pr list --limit 200; this wakes again only after the listing falls under 100 and comes back")
+	}
+	detail := fmt.Sprintf("pr_unread: the health of %s's open pull requests was not all read: %s; why: %s; CI wakes and readable pull request health from this repository continue", filepath.Base(repo), strings.Join(conditions, "; and "), bounded(record.Failure, 300))
+	if err := raiseFleetWake(stateDir, "pr", "repo:"+filepath.Base(repo), detail); err != nil {
+		return err
+	}
+	for _, pr := range heads {
+		health := w.Health[pr.URL]
+		health.HasUnreadWake = true
+		w.Health[pr.URL] = health
+	}
+	record.HasCapWake = isCapped
+	w.PRUnread[repo] = record
+	w.woke(key, now)
 	return nil
 }

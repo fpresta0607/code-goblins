@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -80,6 +81,9 @@ type fleetWakes struct {
 	// Unreadable holds, by repository, why its CI could not be read on its
 	// last poll.
 	Unreadable map[string]unreadableRepo `json:"unreadable,omitempty"`
+	// PRUnread holds, by repository, why the health of its listed pull
+	// requests was not all read on its last poll.
+	PRUnread map[string]unreadPRs `json:"pr_unread,omitempty"`
 	// Repos holds each repository watched and when a live goblin was last
 	// seen working in it.
 	Repos    map[string]time.Time `json:"repos,omitempty"`
@@ -188,6 +192,9 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 		sort.Strings(repos)
 		for _, repo := range repos {
 			unreadable = errors.Join(unreadable, errors.New(w.Unreadable[repo].Failure))
+		}
+		for _, repo := range slices.Sorted(maps.Keys(w.PRUnread)) {
+			unreadable = errors.Join(unreadable, errors.New(w.PRUnread[repo].Failure))
 		}
 	}
 	s.mu.Lock()
@@ -338,8 +345,10 @@ type ciGoblin struct {
 // pr_health for each conflicting or behind pull request head.
 // A repository with no origin remote is a local one and is asked nothing.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
-// until a poll reads it again, and raises ci_unreadable. A poll the
-// supervisor's stop cuts short leaves w.Unreadable as it was.
+// until a poll reads it again, and raises ci_unreadable; one whose pull
+// request health is not all read is remembered in w.PRUnread and raises
+// pr_unread. A poll the supervisor's stop cuts short leaves both as they
+// were.
 func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, currentTime func() time.Time) error {
 	runner := s.Options.CI
 	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
@@ -365,6 +374,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		}
 		if origin.ExitCode != 0 {
 			delete(w.Unreadable, repo)
+			delete(w.PRUnread, repo)
 			continue
 		}
 		var mine []ciGoblin
@@ -490,6 +500,7 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 			delete(w.Repos, repo)
 			delete(w.RedRuns, repo)
 			delete(w.Unreadable, repo)
+			delete(w.PRUnread, repo)
 			delete(w.BackOff, repo)
 			continue
 		}
@@ -564,9 +575,10 @@ func (c ghCheck) outcome() string {
 
 // pollPullRequests lists repo's open pull requests once and raises
 // ci_finished for each one of goblins whose checks have all concluded with
-// a result it was not woken for: its head and each check's conclusion. It
-// returns why the pull requests could not be read, apart from what went
-// wrong raising a wake.
+// a result it was not woken for: its head and each check's conclusion, and
+// pr_health or pr_unread for every open pull request. It returns why the
+// pull requests could not be listed, apart from what went wrong raising a
+// wake; health left unread stays in w.PRUnread.
 func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, now time.Time) (unreadable, err error) {
 	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", "number,url,headRefName,headRefOid,statusCheckRollup,mergeable,baseRefName,isCrossRepository,author")
 	if err != nil {
@@ -597,11 +609,32 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, now))
 		}
 	}
-	comparisons, branch, unreadable := comparePullRequests(ctx, runner, repo, open)
-	if len(open) >= 100 {
-		unreadable = errors.Join(unreadable, fmt.Errorf("PR health: %s listed the first 100 open pull requests; any further pull requests were not read", repo))
+	comparisons, branch, unread := comparePullRequests(ctx, runner, repo, open)
+	if ctx.Err() != nil {
+		return nil, errs
 	}
+	isCapped := len(open) >= 100
+	if isCapped {
+		unread = errors.Join(unread, fmt.Errorf("PR health: %s listed the first 100 open pull requests; any further pull requests were not read", repo))
+	}
+	if w.Health == nil {
+		w.Health = map[string]reportedPRHealth{}
+	}
+	var unreadHeads []ghPullRequest
 	for _, pr := range open {
+		record := w.Health[pr.URL]
+		if record.Head != pr.HeadRefOid {
+			record = reportedPRHealth{Head: pr.HeadRefOid}
+		}
+		record.At = now
+		w.Health[pr.URL] = record
+		comparison := comparisons[pr.Number]
+		if comparison == nil && pr.Mergeable != "CONFLICTING" {
+			if !record.HasUnreadWake {
+				unreadHeads = append(unreadHeads, pr)
+			}
+			continue
+		}
 		var owner string
 		for _, goblin := range goblins {
 			if slices.Contains(goblin.pullRequests, pr.URL) || !pr.IsCrossRepository && goblin.branch != "" && pr.HeadRefName == goblin.branch {
@@ -609,17 +642,13 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 				break
 			}
 		}
-		comparison := comparisons[pr.Number]
-		if comparison == nil && pr.Mergeable != "CONFLICTING" {
-			continue
-		}
 		behind := 0
 		if comparison != nil {
 			behind = *comparison.BehindBy
 		}
 		errs = errors.Join(errs, reportPRHealth(stateDir, w, owner, pr, branch, behind, now))
 	}
-	return unreadable, errs
+	return nil, errors.Join(errs, reportPRUnread(stateDir, w, repo, unreadHeads, isCapped, unread, now))
 }
 
 // reportChecks raises ci_finished for pr once every check on it has
