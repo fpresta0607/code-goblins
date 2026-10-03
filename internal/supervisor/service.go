@@ -61,6 +61,9 @@ type Options struct {
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
+	// Dictation is the speech engine the board dictates through on this
+	// machine; without it the board has no dictation of its own.
+	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
