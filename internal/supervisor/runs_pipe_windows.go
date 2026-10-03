@@ -181,7 +181,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	_, _ = pipe.Write(append(data, '\n'))
+	// DisconnectNamedPipe discards an unread reply. Flush it before disconnecting,
+	// with the same I/O bound so a client that never reads holds no pipe forever.
+	timer.Reset(runReadTimeout)
+	if _, err := pipe.Write(append(data, '\n')); err == nil {
+		_ = pipe.Sync()
+	}
+	if !timer.Stop() {
+		<-expired
+	}
 }
 
 // sendPipeRequest hands one request to the supervisor and returns the reason

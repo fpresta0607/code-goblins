@@ -171,6 +171,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
     await send(page, "snapshot", asking({ questions: [question] }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
     await expect(toasts(page)).toContainText(ASKS);
@@ -234,7 +235,6 @@ test("an ID published again after its item closed shows its count and its CFO ba
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await expect(bar(page)).not.toContainText(again);
-  await openCard(page, again);
 });
 
 test("a send the board refuses puts the item back, with why", async ({ page, context }) => {

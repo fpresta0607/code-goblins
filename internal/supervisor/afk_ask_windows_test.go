@@ -1,13 +1,17 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -160,6 +164,70 @@ func TestTheCFOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
 			}
 			if entries := afkEntries(t, h.State); len(entries) != 0 {
 				t.Errorf("the AFK log = %+v, want nothing", entries)
+			}
+		})
+	}
+}
+
+func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
+	for _, testCase := range []struct {
+		name             string
+		asked            string
+		refusal          string
+		readAfter        time.Duration
+		shouldDisconnect bool
+	}{
+		{name: "the switch", asked: hisAskOn, readAfter: 100 * time.Millisecond},
+		{name: "the refusal", asked: strings.Repeat("a", 501), refusal: "in at most 500 characters", readAfter: 100 * time.Millisecond},
+		{name: "the unread reply", asked: strings.Repeat("a", 501), refusal: "in at most 500 characters", readAfter: runReadTimeout + 100*time.Millisecond, shouldDisconnect: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			_, h, _ := asTheCFO(t)
+			var pipe *os.File
+			var err error
+			for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+				pipe, err = os.OpenFile(runPipeName(h.State), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
+				if err == nil || !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+					break
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pipe.Close()
+			if err := pipe.SetDeadline(time.Now().Add(runReplyTimeout)); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act: let the server finish before the CFO reads its reply.
+			if err := json.NewEncoder(pipe).Encode(runPipeRequest{Kind: "afk-on", Asked: testCase.asked}); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(testCase.readAfter)
+			line, err := bufio.NewReader(pipe).ReadBytes('\n')
+			var reply struct {
+				Error string `json:"error"`
+			}
+
+			// Assert
+			if testCase.shouldDisconnect {
+				if err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+					t.Fatal("a client that never read its reply stayed connected past the I/O bound")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("the CFO did not receive the reply: %v", err)
+				}
+				if err := json.Unmarshal(line, &reply); err != nil {
+					t.Fatal(err)
+				}
+				if testCase.refusal == "" && reply.Error != "" || testCase.refusal != "" && !strings.Contains(reply.Error, testCase.refusal) {
+					t.Errorf("the reply = %q, want %q", reply.Error, testCase.refusal)
+				}
+			}
+			if switched, err := afk.Read(h.State); err != nil || switched.On != (testCase.refusal == "") {
+				t.Errorf("the switch = %+v, %v, want on only for the valid ask", switched, err)
 			}
 		})
 	}
