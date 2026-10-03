@@ -177,6 +177,7 @@ func (s *Service) startTask(id string) error {
 			s.starts.Lock()
 			s.starting = ""
 			s.starts.Unlock()
+			s.notify()
 		}
 	}()
 	queueLock := ".queued-" + id + ".lock"

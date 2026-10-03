@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -131,6 +132,48 @@ func TestSnapshotDoesNotWaitForAStartReadingMachineMemory(t *testing.T) {
 	}
 	if len(handler.Service.changing) != 0 || handler.Service.starting != "" {
 		t.Error("a refused Start kept its reservation")
+	}
+}
+
+func TestSharedSnapshotStopsShowingAStartRefusedAfterItsMemoryRead(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	queueBriefedTask(t, h, "- **next-task** - Next task (repo: code-goblins)", plainBrief)
+	service := handler.Service
+	reading, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	service.Options.Dispatch.Memory = func() (Memory, error) {
+		if calls.Add(1) == 1 {
+			close(reading)
+			<-release
+			return Memory{}, errors.New("memory reading failed")
+		}
+		return Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, nil
+	}
+	startFinished := make(chan error, 1)
+	go func() { startFinished <- service.startTask("next-task") }()
+	<-reading
+	during, err := service.SnapshotSince(service.Revision())
+	close(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.IndexFunc(during.Tasks, func(task Task) bool { return task.ID == "next-task" }); index < 0 || !during.Tasks[index].Starting {
+		t.Fatalf("the snapshot built while Start read memory does not show it starting: %+v", during.Tasks)
+	}
+	if err := <-startFinished; err == nil {
+		t.Fatal("a failed memory reading started the task")
+	}
+
+	// Act
+	after, err := service.SnapshotSince(service.Revision())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index := slices.IndexFunc(after.Tasks, func(task Task) bool { return task.ID == "next-task" }); index < 0 || after.Tasks[index].Starting {
+		t.Fatalf("the shared snapshot still shows a refused Start starting: %+v", after.Tasks)
 	}
 }
 

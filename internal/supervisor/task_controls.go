@@ -87,7 +87,6 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		s.changeErrors = map[string]taskChangeError{}
 	}
 	s.changing[input.Task] = input.Action
-	delete(s.changeErrors, input.Task)
 	s.starts.Unlock()
 	isDispatched := false
 	defer func() {
@@ -95,6 +94,7 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 			s.starts.Lock()
 			delete(s.changing, input.Task)
 			s.starts.Unlock()
+			s.notify()
 		}
 	}()
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
@@ -142,6 +142,9 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	if requestGeneration == "" {
 		requestGeneration = "queued"
 	}
+	s.starts.Lock()
+	delete(s.changeErrors, input.Task)
+	s.starts.Unlock()
 	isDispatched = true
 	go func() {
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
