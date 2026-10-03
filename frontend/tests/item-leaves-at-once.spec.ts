@@ -150,6 +150,37 @@ for (const way of WAYS) {
   });
 }
 
+test("the Command Center opens when its dialogue finishes appearing during the click", async ({ page, context }, testInfo) => {
+  // Arrange: the hosted trace selected the button during the first step.
+  await standInStream(context);
+  await announcer(context);
+  await actions(context);
+  await boardAsked(page, { reviews: [wait] }, WAITS);
+  await page.locator(".cfo-pin .dialogue").evaluate((element) => {
+    for (const animation of element.getAnimations()) {
+      animation.pause();
+      animation.currentTime = 0;
+    }
+  });
+  const button = bar(page).getByRole("button", { name: "Open Command Center" });
+  const bounds = await button.boundingBox();
+  if (!bounds) throw new Error("The Command Center button has no visible bounds.");
+  const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  await page.mouse.move(point.x, point.y);
+
+  // Act: the same pointer presses and releases while the entrance completes.
+  await page.mouse.down();
+  await page.locator(".cfo-pin .dialogue").evaluate((element) => {
+    for (const animation of element.getAnimations()) animation.finish();
+  });
+  await page.mouse.up();
+  await testInfo.attach("the dialogue after the pointer click", { body: await page.screenshot(), contentType: "image/png" });
+
+  // Assert
+  await expect(card(page)).toBeVisible();
+  await expect(card(page)).toContainText(WAITS);
+});
+
 // The Overlord works in the desktop window: the board in WebView2, maximized
 // on his 2560 by 1600 screen at 150 percent, which is 1707 CSS pixels wide at
 // device scale 1.5, with the CFO's panel open beside the board.
