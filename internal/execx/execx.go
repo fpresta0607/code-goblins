@@ -17,6 +17,8 @@ type Request struct {
 	Env  []string
 	Name string
 	Args []string
+	// OutputLimit bounds each captured stream in bytes; zero is unlimited.
+	OutputLimit int
 	// KillTree makes a cancelled Run end the process and everything it
 	// started, since killing a shim such as an npm .cmd alone leaves its real
 	// child running.
@@ -46,6 +48,22 @@ type Starter interface {
 // OSRunner executes processes through the operating system.
 type OSRunner struct{}
 
+var ErrOutputLimit = errors.New("command output exceeds its capture limit")
+
+type limitedOutput struct {
+	buffer     bytes.Buffer
+	limit      int
+	isExceeded bool
+}
+
+func (output *limitedOutput) Write(data []byte) (int, error) {
+	if output.limit > 0 && len(data) > output.limit-output.buffer.Len() {
+		output.isExceeded = true
+		return 0, ErrOutputLimit
+	}
+	return output.buffer.Write(data)
+}
+
 // Run starts and waits for the requested process. A normal non-zero exit is a
 // result, not an execution error, so callers can distinguish tool refusals
 // from failures to start or wait for the process.
@@ -53,7 +71,7 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd := command(ctx, req)
 	cmd.WaitDelay = 2 * time.Second
 
-	var stdout, stderr bytes.Buffer
+	stdout, stderr := limitedOutput{limit: req.OutputLimit}, limitedOutput{limit: req.OutputLimit}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -64,10 +82,13 @@ func (OSRunner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if stdout.isExceeded || stderr.isExceeded {
+		return Result{}, ErrOutputLimit
+	}
 
 	result := Result{
-		Stdout: stdout.Bytes(),
-		Stderr: stderr.Bytes(),
+		Stdout: stdout.buffer.Bytes(),
+		Stderr: stderr.buffer.Bytes(),
 	}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
