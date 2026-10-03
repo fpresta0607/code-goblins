@@ -971,7 +971,13 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 
 func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
 	store, h := testStore(t)
+	store.mu.Lock()
 	store.db.Tasks["task-1"] = Evaluation{Phase: "done", Generation: "g1", PR: "https://github.com/owner/repository/pull/7", At: time.Now()}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
 		return PullRequestInfo{State: "MERGED", Title: "Make task completion consistent"}, nil
 	}}}

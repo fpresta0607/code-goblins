@@ -171,7 +171,11 @@ func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
 	store.mu.Lock()
 	store.db.Reviews[0].CreatedAt, store.db.Reviews[0].UpdatedAt = old, old
 	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	err := store.save()
 	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	if err := store.pruneReviews(time.Now()); err != nil {
