@@ -18,18 +18,19 @@ import (
 )
 
 type LifecycleStatus struct {
-	Phase              string    `json:"phase"`
-	Action             string    `json:"action"`
-	At                 time.Time `json:"at"`
-	Kept               []string  `json:"kept"`
-	Stopped            []string  `json:"stopped"`
-	Problems           []string  `json:"problems"`
-	HandoffSaved       bool      `json:"handoff_saved"`
-	ValidationRestarts bool      `json:"validation_restarts"`
+	Phase              string                `json:"phase"`
+	Action             string                `json:"action"`
+	At                 time.Time             `json:"at"`
+	Kept               []string              `json:"kept"`
+	Stopped            []string              `json:"stopped"`
+	Problems           []string              `json:"problems"`
+	HandoffSaved       bool                  `json:"handoff_saved"`
+	ValidationRestarts bool                  `json:"validation_restarts"`
+	Pause              *state.PauseCondition `json:"pause,omitempty"`
 }
 
 func lifecycleStatus(record state.Lifecycle) *LifecycleStatus {
-	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running")}
+	return &LifecycleStatus{Phase: record.Phase, Action: record.Action, At: record.Updated, Kept: record.Kept, Stopped: record.Stopped, Problems: record.Problems, HandoffSaved: record.HandoffSaved, Pause: record.Pause, ValidationRestarts: record.GateRun != "" && (record.Phase == "paused" || record.Action == "resume" && record.Phase != "running")}
 }
 
 type taskChangeError struct {
@@ -131,6 +132,10 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 				apiError(w, 409, short+"; Resume needs 5 GB to keep the 4 GB floor")
 				return
 			}
+			if err := CheckLaunch(s.Store.Home, memory); err != nil {
+				apiError(w, 409, err.Error())
+				return
+			}
 		}
 	}
 	command := input.Action
@@ -138,6 +143,9 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		command = "kill"
 	}
 	args := []string{command, input.Task, "--generation", input.Generation, "--revision", input.Revision, "--operation", input.Operation, "--reason", "Requested from the board"}
+	if input.Action == "pause" {
+		args[len(args)-1] = "overlord"
+	}
 	requestGeneration := input.Generation
 	if requestGeneration == "" {
 		requestGeneration = "queued"

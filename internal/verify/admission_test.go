@@ -485,15 +485,29 @@ func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
 	var waiter said
-	a.Waiting = waiter.waiting
 	type outcome struct {
 		turn Turn
 		err  error
 	}
 	ended := make(chan outcome, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	resume := make(chan struct{})
+	stopped := make(chan struct{})
+	defer func() {
+		cancel()
+		<-stopped
+	}()
+	// Pause after the line has been read, so removing it cannot race the
+	// next directory read on Windows.
+	a.Waiting = func(waited time.Duration, why string) {
+		waiter.waiting(waited, why)
+		select {
+		case <-resume:
+		case <-ctx.Done():
+		}
+	}
 	go func() {
+		defer close(stopped)
 		turn, err := a.Wait(ctx)
 		ended <- outcome{turn, err}
 	}()
@@ -508,6 +522,7 @@ func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(a.Dir, "line")); err != nil {
 		t.Fatal(err)
 	}
+	close(resume)
 	got := <-ended
 
 	// Assert

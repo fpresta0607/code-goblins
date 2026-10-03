@@ -243,7 +243,15 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		label = "Answer (Other)"
 	}
 	sent := time.Now().UTC()
-	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
+	text := fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text)
+	isSaved, err := savePausedAnswer(s.Store.Home.State, q.Task, q.Identity, text)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	result := Evaluation{Reason: "Answer saved for the goblin's Resume."}
+	if !isSaved {
+		result, err = s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, text)
+	}
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
 		result, err = s.behindGoblinsTurn(q.Task, sent, "Submitted to the goblin while it was working; it takes the answer when its current turn ends."), nil
 	}
