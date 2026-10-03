@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -119,32 +120,111 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	}
 	otherGateTest := start(otherTestBinary, otherWorktree)
 	taskProcess := start(os.Args[0], meta.Worktree)
+	detachedProcess := startDetachedFixture(t, meta.TaskTmp)
+	type processObservation struct {
+		process Process
+		handle  windows.Handle
+		isOwned bool
+	}
+	var observed []processObservation
+	for _, child := range []*exec.Cmd{taskProcess, detachedProcess, otherGateTest} {
+		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(child.Process.Pid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = windows.CloseHandle(handle) })
+		var creation, exit, kernel, user windows.Filetime
+		if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+			t.Fatal(err)
+		}
+		observed = append(observed, processObservation{process: Process{PID: child.Process.Pid, Name: filepath.Base(child.Path), Started: time.Unix(0, creation.Nanoseconds())}, handle: handle, isOwned: child != otherGateTest})
+	}
 	resources, err := TaskResources(t.Context(), stateDir, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	stopped, _, err := StopResources(ctx, resources)
-	if err != nil {
-		t.Fatalf("stopped=%v error=%v", stopped, err)
-	}
-	hasExited := func(child *exec.Cmd, timeout time.Duration) bool {
-		handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(child.Process.Pid))
-		if err != nil {
-			t.Fatal(err)
+	stopped, teardown, stopErr := StopResources(ctx, resources)
+	for _, observation := range observed {
+		var exitCode uint32
+		exitErr := windows.GetExitCodeProcess(observation.handle, &exitCode)
+		waitResult, waitErr := windows.WaitForSingleObject(observation.handle, 0)
+		evidence := fmt.Sprintf("process=%+v exit=%d exitError=%v wait=%d waitError=%v stopped=%v pending=%+v stopError=%v", observation.process, exitCode, exitErr, waitResult, waitErr, stopped, teardown, stopErr)
+		t.Log(evidence)
+		if exitErr != nil || waitErr != nil {
+			t.Errorf("cannot prove process state: %s", evidence)
+			continue
 		}
-		defer windows.CloseHandle(handle)
-		result, err := windows.WaitForSingleObject(handle, uint32(timeout.Milliseconds()))
-		if err != nil {
-			t.Fatal(err)
+		if !observation.isOwned {
+			if exitCode != STILL_ACTIVE || waitResult != uint32(windows.WAIT_TIMEOUT) {
+				t.Errorf("another task's gate test is not active: %s", evidence)
+			}
+			continue
 		}
-		return result == windows.WAIT_OBJECT_0
+		if problem := stoppedProcessProblem(observation.process, exitCode, waitResult, teardown); problem != "" {
+			t.Errorf("%s: %s", problem, evidence)
+		}
+		if !slices.Contains(stopped, fmt.Sprintf("%s pid %d", observation.process.Name, observation.process.PID)) {
+			t.Errorf("owned process was not reported stopped: %s", evidence)
+		}
 	}
-	if !hasExited(taskProcess, 3*time.Second) {
-		t.Errorf("the task's own process survived Stop: stopped=%v", stopped)
+	for _, pending := range teardown {
+		if !slices.ContainsFunc(observed, func(observation processObservation) bool {
+			return observation.isOwned && observation.process.PID == pending.PID
+		}) {
+			t.Errorf("pending teardown names a process outside the task: pending=%+v observed=%+v stopped=%v", teardown, observed, stopped)
+		}
 	}
-	if hasExited(otherGateTest, 0) {
-		t.Errorf("another task's gate test was stopped only because it runs from this task's Go temp directory: stopped=%v", stopped)
+	if stopErr != nil {
+		t.Errorf("Stop failed: stopped=%v pending=%+v error=%v", stopped, teardown, stopErr)
+	}
+}
+
+func stoppedProcessProblem(process Process, exitCode, waitResult uint32, teardown []state.TeardownProcess) string {
+	if exitCode == STILL_ACTIVE {
+		return "the task's own process is still active"
+	}
+	hasTeardown := false
+	for _, pending := range teardown {
+		if pending.PID != process.PID {
+			continue
+		}
+		if !pending.Started.Equal(process.Started) || pending.Name != process.Name {
+			return "pending teardown does not match the owned process identity"
+		}
+		hasTeardown = true
+	}
+	if waitResult != windows.WAIT_OBJECT_0 && !hasTeardown {
+		return "nonactive process with an unsignaled handle has no pending teardown identity"
+	}
+	return ""
+}
+
+func TestStoppedProcessContractRequiresNonactiveStatusAndIdentifiedTeardown(t *testing.T) {
+	process := Process{PID: 42, Name: "fixture.exe", Started: time.Unix(100, 0)}
+	pending := state.TeardownProcess{PID: process.PID, Started: process.Started, Name: process.Name}
+	for _, testCase := range []struct {
+		name         string
+		exitCode     uint32
+		waitResult   uint32
+		teardown     []state.TeardownProcess
+		shouldReject bool
+	}{
+		{name: "completed", exitCode: 1, waitResult: windows.WAIT_OBJECT_0},
+		{name: "nonactive with identified teardown", exitCode: 1, waitResult: uint32(windows.WAIT_TIMEOUT), teardown: []state.TeardownProcess{pending}},
+		{name: "completed after teardown recorded", exitCode: 1, waitResult: windows.WAIT_OBJECT_0, teardown: []state.TeardownProcess{pending}},
+		{name: "nonactive with missing teardown", exitCode: 1, waitResult: uint32(windows.WAIT_TIMEOUT), shouldReject: true},
+		{name: "wrong teardown birth", exitCode: 1, waitResult: uint32(windows.WAIT_TIMEOUT), teardown: []state.TeardownProcess{{PID: process.PID, Started: process.Started.Add(time.Second), Name: process.Name}}, shouldReject: true},
+		{name: "wrong teardown name", exitCode: 1, waitResult: uint32(windows.WAIT_TIMEOUT), teardown: []state.TeardownProcess{{PID: process.PID, Started: process.Started, Name: "other.exe"}}, shouldReject: true},
+		{name: "still active with teardown", exitCode: STILL_ACTIVE, waitResult: uint32(windows.WAIT_TIMEOUT), teardown: []state.TeardownProcess{pending}, shouldReject: true},
+		{name: "still active without teardown", exitCode: STILL_ACTIVE, waitResult: uint32(windows.WAIT_TIMEOUT), shouldReject: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			problem := stoppedProcessProblem(process, testCase.exitCode, testCase.waitResult, testCase.teardown)
+			if (problem != "") != testCase.shouldReject {
+				t.Fatalf("stop contract rejection=%v want=%v: process=%+v exit=%d wait=%d pending=%+v problem=%q", problem != "", testCase.shouldReject, process, testCase.exitCode, testCase.waitResult, testCase.teardown, problem)
+			}
+		})
 	}
 }
