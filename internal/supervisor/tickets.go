@@ -126,7 +126,7 @@ func (s *Service) keepTickets(ctx context.Context, retry, watch time.Duration) {
 	var mark string
 	var reconciled time.Time
 	for {
-		if snapshot, err := s.Snapshot(); err == nil {
+		if snapshot, err := s.SnapshotSince(s.Revision()); err == nil {
 			if next := ticketMark(snapshot.Tasks); next != mark || time.Since(reconciled) >= retry {
 				mark, reconciled = next, time.Now()
 				before := s.tickets.Issues()
@@ -213,7 +213,7 @@ func (k *ticketKeeper) readBacklog() {
 			k.queuedIDs[row.ID] = true
 		}
 	}
-	for _, brief := range queuedBriefs(k.home) {
+	for _, brief := range queuedBriefs(k.home, diskBriefs) {
 		k.queuedIDs[brief.ID] = true
 	}
 }

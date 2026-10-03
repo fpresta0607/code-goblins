@@ -73,11 +73,16 @@ func (record Lifecycle) SuppressesMonitoring(directory string) bool {
 	return false
 }
 
+// LifecyclePath is where task id's lifecycle record is.
+func LifecyclePath(directory, id string) string {
+	return filepath.Join(directory, "lifecycle", id+".json")
+}
+
 func ReadLifecycle(directory, id string) (Lifecycle, error) {
 	if err := ValidTaskID(id); err != nil {
 		return Lifecycle{}, err
 	}
-	data, err := fsx.ReadFile(filepath.Join(directory, "lifecycle", id+".json"))
+	data, err := fsx.ReadFile(LifecyclePath(directory, id))
 	if err != nil {
 		return Lifecycle{}, err
 	}

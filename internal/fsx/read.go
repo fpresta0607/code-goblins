@@ -3,7 +3,17 @@ package fsx
 import (
 	"io"
 	"os"
+	"sync/atomic"
 )
+
+// opens counts the files this process opened through Open.
+var opens atomic.Int64
+
+// Opens is how many files this process has opened for reading so far. A test
+// holds a reader to a budget of them: on a loaded machine an open costs tens
+// of milliseconds, and a reader that opens hundreds of files each time is
+// slow whatever else it does.
+func Opens() int64 { return opens.Load() }
 
 // Open is os.Open for every file a fleet program reads. Another fleet
 // process may replace the file with AtomicWriteFile while it is open, so on
@@ -16,6 +26,7 @@ func Open(path string) (*os.File, error) {
 		file, err = open(path)
 		return err
 	})
+	opens.Add(1)
 	return file, err
 }
 
