@@ -44,6 +44,11 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	if observation.Health == monitor.HealthUnknown {
 		evidence.State = "unavailable"
 	}
+	// An idle terminal can have quiet owned work. The monitor stamps both
+	// fields with the scan time only when those processes show progress.
+	if observation.Health == monitor.HealthIdle && observation.EvidenceAt != nil && observation.JobSampledAt != nil && observation.EvidenceAt.Equal(observation.LastObserved) && observation.JobSampledAt.Equal(observation.LastObserved) {
+		evidence.State, evidence.Reason = string(monitor.HealthBusy), source+" has owned processes making progress"
+	}
 	return evidence
 }
 

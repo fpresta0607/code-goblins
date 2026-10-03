@@ -106,9 +106,12 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 		name, report, gatePhase, gateStep, question, wantPhase, wantReason string
 		health                                                             monitor.Health
 		isOldObservation, isAnswered, isResumed, isVerified, isActive      bool
+		hasMovingJobs, hasSleepingJobs                                     bool
 	}{
 		{name: "manual reported PR at ready composer", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthIdle, wantPhase: "idle", wantReason: "Native terminal reports idle"},
 		{name: "held work report at ready composer", report: "working: No implementation remains; merge authority is held", health: monitor.HealthIdle, wantPhase: "idle", wantReason: "Native terminal reports idle"},
+		{name: "quiet terminal with owned work moving", report: "working: running package checks", health: monitor.HealthIdle, hasMovingJobs: true, wantPhase: "working", wantReason: "running package checks"},
+		{name: "sleeping owned process does not claim active work", report: "working: No implementation remains; merge authority is held", health: monitor.HealthIdle, hasSleepingJobs: true, wantPhase: "idle", wantReason: "Native terminal reports idle"},
 		{name: "newer work report than idle observation", report: "working: running package checks", health: monitor.HealthIdle, isOldObservation: true, wantPhase: "working", wantReason: "running package checks"},
 		{name: "done is per PR while next work runs", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "new active turn keeps independent source binding", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, isActive: true, wantPhase: "working"},
@@ -185,7 +188,16 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 				observedAt = now.Add(-30 * time.Second)
 			}
 			if test.health != monitor.HealthUnknown {
-				if err := monitor.WriteObservation(h.State, monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: observedAt, Health: test.health, Reason: monitor.None, Digest: "current-screen", LastSeen: observedAt, LastProgress: observedAt}); err != nil {
+				observation := monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: observedAt, Health: test.health, Reason: monitor.None, Digest: "current-screen", LastSeen: observedAt, LastProgress: observedAt}
+				if test.hasMovingJobs || test.hasSleepingJobs {
+					prior := observedAt.Add(-time.Minute)
+					observation.JobSampledAt, observation.JobSampledSince = &observedAt, &prior
+					observation.JobCPU, observation.EvidenceAt = 5*time.Second, &observedAt
+					if test.hasSleepingJobs {
+						observation.EvidenceAt = &prior
+					}
+				}
+				if err := monitor.WriteObservation(h.State, observation); err != nil {
 					t.Fatal(err)
 				}
 			}
