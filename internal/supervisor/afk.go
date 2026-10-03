@@ -529,7 +529,7 @@ type AFKView struct {
 func (s *Service) afkView(d Database) (AFKView, error) {
 	stateDir := s.Store.Home.State
 	view := AFKView{State: "off", Held: []afk.Held{}}
-	switched, err := afk.Read(stateDir)
+	switched, err := kept(&s.reads, "afk", []string{filepath.Join(stateDir, "afk.json")}, func() (afk.State, error) { return afk.Read(stateDir) })
 	switch {
 	case err != nil:
 		view.State, view.Problem = "unreadable", bounded(err.Error(), 1000)

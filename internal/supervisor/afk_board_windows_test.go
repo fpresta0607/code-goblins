@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -636,5 +637,52 @@ func TestTheReportWhoseHeldItemsCannotBeReadIsRefused(t *testing.T) {
 	// Assert
 	if err == nil || found || !strings.Contains(err.Error(), "what became of each item held for him cannot be read") {
 		t.Errorf("ReadAFKReport = %v, %v, want it refused for want of the items' records", found, err)
+	}
+}
+
+func TestTheBoardReadsAnAFKSwitchAgainOnlyWhenItsFileChanges(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	now := time.Now().UTC()
+	steps := []struct {
+		name   string
+		change func() error
+		state  string
+		reads  int64
+	}{
+		{"missing", func() error { return nil }, "off", 0},
+		{"on", func() error { _, _, err := afk.TurnOn(h.State, "his board", nil, now); return err }, "on", 0},
+		{"off", func() error { _, err := afk.TurnOff(h.State, "his board", now.Add(time.Minute)); return err }, "off", 0},
+		{"on again", func() error {
+			_, _, err := afk.TurnOn(h.State, "his board", nil, now.Add(2*time.Minute))
+			return err
+		}, "on", 0},
+		{"removed", func() error { return os.Remove(filepath.Join(h.State, "afk.json")) }, "off", 0},
+		{"unreadable", func() error { return os.WriteFile(filepath.Join(h.State, "afk.json"), []byte("{"), 0o600) }, "unreadable", 1},
+		{"reset", func() error { return afk.Reset(h.State, "his board", errors.New("unreadable"), now.Add(2*time.Minute)) }, "off", 0},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			if err := step.change(); err != nil {
+				t.Fatal(err)
+			}
+			view, err := s.afkView(store.Snapshot())
+			if err != nil || view.State != step.state {
+				t.Fatalf("changed switch reads %+v, %v, want %s", view, err, step.state)
+			}
+			opened := fsx.Opens()
+
+			// Act
+			again, err := s.afkView(store.Snapshot())
+
+			// Assert
+			if err != nil || again.State != step.state {
+				t.Errorf("unchanged switch reads %+v, %v, want %s", again, err, step.state)
+			}
+			if count := fsx.Opens() - opened; count != step.reads {
+				t.Errorf("unchanged %s switch opened %d files, want %d", step.name, count, step.reads)
+			}
+		})
 	}
 }
