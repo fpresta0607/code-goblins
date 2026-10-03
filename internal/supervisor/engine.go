@@ -284,8 +284,10 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 		}
 		if err != nil || !isIdle {
 			delete(s.engineIdle, id)
+			if err != nil {
+				s.recordEngineFailure(id, choice.Generation, err)
+			}
 			s.starts.Unlock()
-			failures = errors.Join(failures, err)
 			continue
 		}
 		reading, seen := s.engineIdle[id]
@@ -302,30 +304,46 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 		catalogContext, cancel := context.WithTimeout(ctx, 8*time.Second)
 		catalog, err := s.engineCatalog(catalogContext, execx.OSRunner{})
 		cancel()
-		if err == nil {
-			err = validateEngineSelection(catalog, choice)
+		if err != nil {
+			s.starts.Lock()
+			delete(s.engineIdle, id)
+			s.starts.Unlock()
+			failures = errors.Join(failures, err)
+			continue
 		}
-		if err == nil {
-			isIdle, err = s.engineTaskIdle(ctx, meta)
-			if err == nil && isIdle {
-				isIdle, err = s.engineGateIdle(ctx, meta)
+		if unavailable := validateEngineSelection(catalog, choice); unavailable != nil {
+			s.starts.Lock()
+			delete(s.engineIdle, id)
+			current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
+			if readErr != nil || current != choice {
+				s.starts.Unlock()
+				if !errors.Is(readErr, os.ErrNotExist) {
+					failures = errors.Join(failures, readErr)
+				}
+				continue
 			}
+			if err := state.RemoveEngineChoice(s.Store.Home.State, id); err != nil {
+				s.starts.Unlock()
+				failures = errors.Join(failures, err)
+				continue
+			}
+			s.recordEngineFailure(id, choice.Generation, unavailable)
+			s.starts.Unlock()
+			s.reportEngineChoice(choice, "pending choice removed: "+unavailable.Error())
+			s.notify()
+			continue
+		}
+		isIdle, err = s.engineTaskIdle(ctx, meta)
+		if err == nil && isIdle {
+			isIdle, err = s.engineGateIdle(ctx, meta)
 		}
 		s.starts.Lock()
 		if err != nil || !isIdle {
 			delete(s.engineIdle, id)
 			if err != nil {
-				if s.changeErrors == nil {
-					s.changeErrors = map[string]taskChangeError{}
-				}
-				failure := taskChangeError{Message: err.Error(), Generation: choice.Generation}
-				if record, readErr := state.ReadLifecycle(s.Store.Home.State, id); readErr == nil {
-					failure.Operation, failure.Updated = record.Operation, record.Updated
-				}
-				s.changeErrors[id] = failure
+				s.recordEngineFailure(id, choice.Generation, err)
 			}
 			s.starts.Unlock()
-			failures = errors.Join(failures, err)
 			continue
 		}
 		current, readErr := state.ReadEngineChoice(s.Store.Home.State, id)
@@ -340,6 +358,18 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 		s.starts.Unlock()
 	}
 	return failures
+}
+
+// The caller holds starts.
+func (s *Service) recordEngineFailure(id, generation string, err error) {
+	if s.changeErrors == nil {
+		s.changeErrors = map[string]taskChangeError{}
+	}
+	failure := taskChangeError{Message: err.Error(), Generation: generation}
+	if record, readErr := state.ReadLifecycle(s.Store.Home.State, id); readErr == nil {
+		failure.Operation, failure.Updated = record.Operation, record.Updated
+	}
+	s.changeErrors[id] = failure
 }
 
 func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool, error) {

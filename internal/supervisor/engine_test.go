@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 type engineGate struct {
@@ -246,8 +247,11 @@ func TestDeferredEngineContinuesOtherTasksAndRequiresFreshIdleEvidenceAfterError
 		t.Fatal(err)
 	}
 	gate.err = errors.New("gate cannot be read")
-	if err := service.applyEngineChoices(context.Background(), now.Add(time.Second)); !errors.Is(err, gate.err) {
-		t.Fatalf("gate error = %v", err)
+	if err := service.applyEngineChoices(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatalf("gate error reached the board: %v", err)
+	}
+	if card := engineCard(t, service, meta.ID); card.ActionError != gate.err.Error() || card.PendingEngine == nil {
+		t.Fatalf("gate error card = %q, pending %+v", card.ActionError, card.PendingEngine)
 	}
 	gate.err = nil
 	if err := service.applyEngineChoices(context.Background(), now.Add(2*time.Second)); err != nil || len(spawner.recorded()) != 0 {
@@ -259,6 +263,95 @@ func TestDeferredEngineContinuesOtherTasksAndRequiresFreshIdleEvidenceAfterError
 	waitEngineChange(t, service, meta.ID)
 	if len(spawner.recorded()) != 1 {
 		t.Fatalf("fresh idle evidence did not switch: %+v", spawner.recorded())
+	}
+}
+
+func engineCard(t *testing.T, service *Service, id string) Task {
+	t.Helper()
+	snapshot, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Error != "" {
+		t.Fatalf("board error = %q", snapshot.Error)
+	}
+	for _, task := range snapshot.Tasks {
+		if task.ID == id {
+			return task
+		}
+	}
+	t.Fatalf("task %s is missing from %+v", id, snapshot.Tasks)
+	return Task{}
+}
+
+func TestDeferredEngineFailuresStayOnTheirCardsAndUnavailableChoicesAreRemovedOnce(t *testing.T) {
+	spawner := &spawnRecorder{release: make(chan struct{})}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	service := handler.Service
+	service.Options.FirstRun = newFirstRunMachine(t).run
+	idleErr := errors.New("screen cannot be read")
+	service.Options.Dispatch.Idle = func(_ context.Context, meta state.TaskMeta) (bool, error) {
+		if meta.ID == "unreadable" {
+			return false, idleErr
+		}
+		return true, nil
+	}
+	service.Options.Gate = &engineGate{}
+	gitFixture(t, h.Root)
+	choices := map[string]string{"unavailable": "missing-model", "unreadable": "default", "other": "default"}
+	for id, model := range choices {
+		meta := state.TaskMeta{ID: id, SpawnGen: "s1", Harness: "claude", Backend: "native", Worktree: h.Root, Project: h.Root}
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.WriteEngineChoice(h.State, state.EngineChoice{ID: id, Generation: meta.SpawnGen, Harness: "codex", Model: model, Effort: "high", When: "turn-end", Requested: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+
+	for _, elapsed := range []time.Duration{0, time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second} {
+		if err := service.applyEngineChoices(context.Background(), now.Add(elapsed)); err != nil {
+			t.Fatalf("engine choice failure reached the board: %v", err)
+		}
+	}
+	defer func() { close(spawner.release); waitEngineChange(t, service, "other") }()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for len(spawner.recorded()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	calls := spawner.recorded()
+	if len(calls) != 1 || calls[0][0] != "switch" || calls[0][1] != "other" {
+		t.Fatalf("switch calls = %+v", calls)
+	}
+	if _, err := state.ReadEngineChoice(h.State, "unavailable"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unavailable choice was kept: %v", err)
+	}
+	if card := engineCard(t, service, "unavailable"); card.ActionError != "Model missing-model is unavailable for Codex" || card.PendingEngine != nil {
+		t.Fatalf("unavailable card = %q, pending %+v", card.ActionError, card.PendingEngine)
+	}
+	if _, err := state.ReadEngineChoice(h.State, "unreadable"); err != nil {
+		t.Fatalf("idle-read failure removed the choice: %v", err)
+	}
+	if card := engineCard(t, service, "unreadable"); card.ActionError != idleErr.Error() || card.PendingEngine == nil {
+		t.Fatalf("unreadable card = %q, pending %+v", card.ActionError, card.PendingEngine)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests := 0
+	for _, record := range pending {
+		if record.Kind == "notify" && record.Key == "unavailable" {
+			digests++
+		}
+		if record.Key == "unreadable" {
+			t.Fatalf("idle-read failure told the CFO: %+v", record)
+		}
+	}
+	if digests != 1 {
+		t.Fatalf("unavailable choice digests = %d in %+v", digests, pending)
 	}
 }
 

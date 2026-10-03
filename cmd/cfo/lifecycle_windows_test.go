@@ -45,18 +45,21 @@ func TestResumeRefusesATaskRecordedInHerdrBeforeTheGateRestarts(t *testing.T) {
 
 func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.T) {
 	for _, test := range []struct {
-		name, harness, generation, session string
-		isFailed                           bool
+		name, when, harness, generation, session string
+		isFailed                                 bool
 	}{
-		{"same harness", "claude", "s1", "session-1", false},
-		{"new harness", "codex", "s1", "", false},
-		{"stale choice", "codex", "s0", "session-1", false},
-		{"failed resume", "codex", "s1", "", true},
+		{"same harness", "resume", "claude", "s1", "session-1", false},
+		{"new harness", "resume", "codex", "s1", "", false},
+		{"stale choice", "resume", "codex", "s0", "session-1", false},
+		{"failed resume", "resume", "codex", "s1", "", true},
+		{"pending turn-end choice paused before idle", "turn-end", "codex", "s1", "", false},
+		{"failed resume keeps pending turn-end choice", "turn-end", "codex", "s1", "", true},
+		{"stale turn-end choice", "turn-end", "codex", "s0", "session-1", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h := primaryHomeFixture(t)
 			meta := state.TaskMeta{ID: "task", SpawnGen: "s1", Harness: "claude", Backend: "native"}
-			choice := state.EngineChoice{ID: meta.ID, Generation: test.generation, Harness: test.harness, Model: "selected-model", Effort: "high", When: "resume"}
+			choice := state.EngineChoice{ID: meta.ID, Generation: test.generation, Harness: test.harness, Model: "selected-model", Effort: "high", When: test.when}
 			if err := state.WriteEngineChoice(h.State, choice); err != nil {
 				t.Fatal(err)
 			}

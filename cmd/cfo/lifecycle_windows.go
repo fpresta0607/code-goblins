@@ -156,7 +156,7 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if choiceErr != nil && !errors.Is(choiceErr, os.ErrNotExist) {
 		return choiceErr
 	}
-	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen && choice.When == "resume"
+	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen
 	if prior.GateRun != "" {
 		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
 		if err != nil || branch.ExitCode != 0 {
