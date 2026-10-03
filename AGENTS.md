@@ -263,6 +263,24 @@ A `.venv` or a `node_modules` is never shared or linked between worktrees.
 Both bake absolute paths and compiled native artifacts, and a shared one fails as flaky tests rather than as an honest error, so a worktree always re-materializes its own against the shared store.
 `PLAYWRIGHT_BROWSERS_PATH` is the shape to prefer wherever it applies: a pure environment redirect to a large read-only artifact with nothing path-baked into what it produces.
 
+## Pausing and automatic resume
+
+`cfo pause <id> --reason <reason>` records one lifecycle condition before stopping any process.
+The fixed reasons are `memory`, `allowance`, `overlord`, `dependency`, `question`, `ci` and `deploy`; a missing reason is refused, and the board's Pause records `overlord`.
+Use `--until <RFC3339 reset time>` for allowance, `task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>` for dependencies, and `<question id>` for a question.
+CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`; pause only when waiting on that run is the goblin's remaining work.
+The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
+An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.
+Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
+Answers given while paused ride the resume prompt.
+For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
+His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
+Start, spawn and Resume share the memory/commit floor and the live cap from `config/fleet.json`'s `max_live_goblins`, default 8, reduced by the free resources while reserving 4 GB.
+The allowance floor is 3 percent remaining; the scheduler asks for a handoff and records an allowance pause with its reset, the seam AFK mode shares.
+The board snapshot includes pause conditions, capacity, time since real progress and recent CI/deploy durations; the visual presentation follows its mockup review.
+The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
+CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
+
 ## Switching a running goblin
 
 `cfo switch` is how a goblin changes harness, model, or effort without losing its place.
@@ -432,7 +450,8 @@ You are woken when it turns off: write that report into your terminal with `cfo 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
 Only he resets the switch, with `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
-Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and the pauses at an allowance floor and at the memory floor.
+The supervisor's single scheduler owns allowance pauses at 3 percent remaining and their automatic resume at reset, shared with AFK mode through lifecycle pause reasons.
+Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and automatic pauses at the memory floor.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command or the pipe; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
 ## Escalation
