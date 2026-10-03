@@ -306,3 +306,47 @@ func TestImmediateEngineSwitchKeepsOldValuesUntilCompletionAndReportsFailure(t *
 		})
 	}
 }
+
+func TestSuccessfulCLIActionClearsAnEarlierEngineFailure(t *testing.T) {
+	for _, hasPrior := range []bool{false, true} {
+		name := "no prior lifecycle"
+		if hasPrior {
+			name = "existing lifecycle"
+		}
+		t.Run(name, func(t *testing.T) {
+			spawner := &spawnRecorder{err: errors.New("switch failed")}
+			handler, h := startBoard(t, 5*gigabyte, spawner)
+			service := handler.Service
+			meta := state.TaskMeta{ID: "task-1", SpawnGen: "generation-1", Harness: "claude", Backend: "native", Worktree: h.Root, Project: h.Root}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "running", Updated: time.Now().Add(-time.Minute)}
+			if hasPrior {
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service.starts.Lock()
+			service.startEngineSwitch(meta, state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: "codex", Model: "default", Effort: "high"})
+			service.starts.Unlock()
+			waitEngineChange(t, service, meta.ID)
+			for _, isRecovered := range []bool{false, true} {
+				if isRecovered {
+					record.Phase, record.Updated = "paused", time.Now()
+					if err := state.WriteLifecycle(h.State, record); err != nil {
+						t.Fatal(err)
+					}
+				}
+				snapshot, err := service.Snapshot()
+				if err != nil || len(snapshot.Tasks) != 1 {
+					t.Fatalf("snapshot=%+v error=%v", snapshot.Tasks, err)
+				}
+				message := snapshot.Tasks[0].ActionError
+				if isRecovered && message != "" || !isRecovered && message == "" {
+					t.Fatalf("recovered=%t error=%q", isRecovered, message)
+				}
+			}
+		})
+	}
+}

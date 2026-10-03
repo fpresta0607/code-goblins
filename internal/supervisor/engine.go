@@ -206,7 +206,11 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 				generation = current.SpawnGen
 			}
 			reason := spawnFailure(output, err)
-			s.changeErrors[meta.ID] = taskChangeError{Message: reason, Generation: generation}
+			failure := taskChangeError{Message: reason, Generation: generation}
+			if record, readErr := state.ReadLifecycle(s.Store.Home.State, meta.ID); readErr == nil {
+				failure.Operation, failure.Updated = record.Operation, record.Updated
+			}
+			s.changeErrors[meta.ID] = failure
 			outcome = "switch failed: " + reason
 		}
 		s.starts.Unlock()
@@ -314,7 +318,11 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 				if s.changeErrors == nil {
 					s.changeErrors = map[string]taskChangeError{}
 				}
-				s.changeErrors[id] = taskChangeError{Message: err.Error(), Generation: choice.Generation}
+				failure := taskChangeError{Message: err.Error(), Generation: choice.Generation}
+				if record, readErr := state.ReadLifecycle(s.Store.Home.State, id); readErr == nil {
+					failure.Operation, failure.Updated = record.Operation, record.Updated
+				}
+				s.changeErrors[id] = failure
 			}
 			s.starts.Unlock()
 			failures = errors.Join(failures, err)

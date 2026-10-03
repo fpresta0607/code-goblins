@@ -1108,7 +1108,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if choice, err := state.ReadEngineChoice(s.Store.Home.State, task.ID); err == nil && choice.Generation == task.Generation {
 			task.PendingEngine = &choice
 		}
-		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (failure.Operation == "" || lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
 		if action := s.changing[task.ID]; action != "" {
