@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "./site";
+import { expect, openItem, test, type BrowserContext, type Page } from "./site";
 
 // The Overlord, 2026-10-02: "when I close a Command Center question or the CFO
 // answers it, the alert hangs around for a stale second or two in the goblin
@@ -78,19 +78,19 @@ const badge = (page: Page) => page.locator(".command-center-menu > summary");
 const bar = (page: Page) => page.locator(".cfo-pin");
 const card = (page: Page) => page.locator("dialog.question-modal");
 
-// A board that was quiet, then is asked: the item's alert, its count and the
-// CFO's bar are all on screen.
+// A board that was quiet, then is asked: the item's count and the CFO's bar
+// are on screen, and that is its one signal: an item shows no toast.
 async function boardAsked(page: Page, item: { questions?: object[]; reviews?: object[] }, says: string) {
   await page.goto("/");
   await send(page, "snapshot", quiet);
   await expect(bar(page)).toContainText("All quiet");
   await send(page, "snapshot", asking(item));
   await expect(bar(page)).toContainText(says);
-  await expect(toasts(page)).toContainText(says);
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+  await expect(toasts(page)).toHaveCount(0);
 }
 async function openCard(page: Page, says: string) {
-  if (!await card(page).isVisible()) await bar(page).getByRole("button", { name: "Open Command Center" }).click();
+  if (!await card(page).isVisible()) await openItem(page, says);
   await expect(card(page)).toContainText(says);
 }
 // What the board shows of the item in the very frame of a click on selector.
@@ -131,7 +131,7 @@ const WAYS = [
 ];
 
 for (const way of WAYS) {
-  test(`${way.name} leaves its alert, the count and the CFO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
+  test(`${way.name} leaves the count and the CFO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -156,7 +156,39 @@ for (const way of WAYS) {
 test.describe("in the desktop window's size, with the CFO's panel open", () => {
   test.use({ viewport: { width: 1707, height: 1000 }, deviceScaleFactor: 1.5 });
 
-  test("a question he answers leaves its alert, the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {
+  test("a goblin's question stays with the CFO, his own question waits quietly, and the ten-minute notice opens his terminal", async ({ page, context }, testInfo) => {
+    // Arrange
+    await standInStream(context);
+    await announcer(context);
+    await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      socket.send(Buffer.from("READY\r\n"));
+    });
+    await page.goto("/");
+    await send(page, "snapshot", quiet);
+    await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
+
+    // Act: the goblin asks the CFO, then the CFO asks the Overlord.
+    await send(page, "snapshot", asking({ questions: [{ ...question, task: "cg-probe" }] }));
+    await expect(badge(page)).toHaveAccessibleName("Command Center");
+    await expect(toasts(page)).toHaveCount(0);
+    await expect(card(page)).toBeHidden();
+    await send(page, "snapshot", asking({ questions: [question] }, 3));
+
+    // Assert
+    await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+    await expect(toasts(page)).toHaveCount(0);
+    await expect(card(page)).toBeHidden();
+    await testInfo.attach("one quiet item with the CFO's terminal open", { body: await page.screenshot(), contentType: "image/png" });
+    await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    await send(page, "snapshot", { ...quiet, revision: 4, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
+    await toasts(page).getByRole("button", { name: "Open the CFO's terminal", exact: true }).click();
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+  });
+
+  test("a question he answers leaves the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {
     // Arrange
     await standInStream(context);
     await announcer(context);
@@ -171,8 +203,8 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(page.locator("#panel-title")).toHaveText("CFO");
     await send(page, "snapshot", asking({ questions: [question] }));
     await expect(bar(page)).toContainText(ASKS);
-    await expect(toasts(page)).toContainText(ASKS);
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+    await expect(toasts(page)).toHaveCount(0);
     await openCard(page, ASKS);
     await card(page).getByText("Merge it", { exact: true }).click();
     await testInfo.attach("the question, before he answers", { body: await page.screenshot(), contentType: "image/png" });
@@ -254,7 +286,7 @@ test("a send the board refuses puts the item back, with why", async ({ page, con
 });
 
 test("the CFO's answer reaches the board ahead of the full snapshot, and a snapshot built before it does not undo it", async ({ page, context }) => {
-  // Arrange: the alert is on screen and the Command Center is closed.
+  // Arrange: the item waits on him and the Command Center is closed.
   await standInStream(context);
   await announcer(context);
   await boardAsked(page, { questions: [question] }, ASKS);

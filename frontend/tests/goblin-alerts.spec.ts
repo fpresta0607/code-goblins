@@ -8,7 +8,7 @@ async function open(page: Page) {
   await page.addInitScript(() => Object.defineProperty(Notification, "permission", { get: () => "default" }));
   await page.goto("/tests/fixtures/goblin-alerts.html");
   await expect(page.getByRole("group", { name: "Alerts" }).or(page.locator(".toasts"))).toBeVisible();
-  await expect(page.locator(".toasts .dialogue")).toHaveCount(4);
+  await expect(page.locator(".toasts .dialogue")).toHaveCount(3);
 }
 const box = (page: Page, text: string) => page.locator(".dialogue").filter({ hasText: text });
 const tab = (dialogue: Locator) => dialogue.locator(".dialogue-tab");
@@ -57,10 +57,9 @@ test("Open Command Center opens the first item waiting", async ({ page }) => {
   await expect(page.locator("dialog.question-modal")).toContainText("Pick the waveform");
 });
 
-test("each alert says its news once, in its speaker's box: what needs him opens the Command Center, a goblin's news opens the goblin", async ({ page }) => {
+test("each goblin's news opens its goblin, and its question for the CFO shows no toast", async ({ page }, testInfo) => {
   await open(page);
   const cases: [string, string, boolean][] = [
-    ["cg-board-kill asks: Which layout should I keep?", "Open Command Center", true],
     ["cg-board-kill finished: code-goblins #204 is ready.", "Open", false],
     ["pd-billing-admin failed: its checks failed", "Open", false],
   ];
@@ -70,11 +69,15 @@ test("each alert says its news once, in its speaker's box: what needs him opens 
     await expect(alert.locator(".dialogue-actions")).toHaveText(action);
     expect(await filled(alert.getByRole("button", { name: action, exact: true })), text).toBe(isFilled ? LANTERN : "rgba(0, 0, 0, 0)");
   }
+  await expect(page.locator(".toasts")).not.toContainText("Which layout should I keep?");
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
+  await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
   // No name tab repeats who speaks: the box's words already say it.
   await expect(page.locator(".toasts .dialogue-tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
   await page.locator(".toasts .dialogue").filter({ hasText: "finished" }).getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.locator("output")).toHaveText("opened cg-board-kill");
+  await page.mouse.move(0, 0);
   const ask = page.locator(".toasts .dialogue").filter({ hasText: "Windows notification" });
   expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN);
   expect(await filled(ask.getByRole("button", { name: "Not now" }))).toBe("rgba(0, 0, 0, 0)");
@@ -150,7 +153,7 @@ test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) =>
 test("with reduced motion the boxes just appear", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
-  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(5).fill("none"));
+  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(4).fill("none"));
 });
 
 test("the CFO's banner wears the mark of the harness the CFO runs, and no goblin's alert does", async ({ page }) => {

@@ -15,11 +15,12 @@ import "../../src/styles.css";
 const base = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }] };
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase: "working", generation: id + "-1", verified: false, ...fields });
 const quiet = parseSnapshot({ ...base, tasks: [task("cg-board-kill"), task("pd-billing-admin"), task("cg-voice")] });
-const asking = parseSnapshot({ ...base, tasks: quiet.tasks, questions: [{ id: "q1", text: "Which layout should I keep?", status: "pending", task: "cg-board-kill", created_at: "2026-09-30T12:00:00Z" }] });
-const later = parseSnapshot({ ...base, questions: asking.questions, tasks: [
+const question = { id: "q1", text: "Which layout should I keep?", status: "pending", identity: "cfo-1", created_at: "2026-09-30T12:00:00Z" };
+const asking = parseSnapshot({ ...base, tasks: quiet.tasks, questions: [question] });
+const later = parseSnapshot({ ...base, questions: [{ ...question, task: "cg-voice" }], tasks: [
   task("cg-board-kill", { phase: "done", pr: "https://github.com/fpresta0607/code-goblins/pull/204" }),
   task("pd-billing-admin", { phase: "failed", reason: "its checks failed" }),
-  task("cg-voice"),
+  task("cg-voice", { phase: "failed", report: "failed", reason: "Waiting on the CFO: " + question.text, activity: question.text }),
 ] });
 const reviewing = parseSnapshot({ ...base, tasks: quiet.tasks, reviews: [{ id: "r1", task: "cg-voice", title: "Pick the waveform", state: "open", created_at: "2026-09-30T12:00:00Z" }] });
 const ignore = () => {};
@@ -38,7 +39,7 @@ function Page() {
     </section>
     <CfoPin snapshot={quiet} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
-    <Alerts snapshot={snapshot} onOpen={(target) => setSaid("opened " + (target.kind === "command" ? "the Command Center at " + target.key : target.id))} />
+    <Alerts snapshot={snapshot} onOpen={(target) => setSaid("opened " + (target.kind === "command" ? "the Command Center at " + target.key : target.kind === "task" ? target.id : "the CFO's terminal"))} />
     <CommandCenter snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />
   </main>;
 }

@@ -6,7 +6,7 @@ import { pullRequestLabel } from "./workflow.ts";
 
 // What an alert opens: a Command Center item by its key, where an empty key
 // opens the first item waiting or the inbox, or a goblin's task.
-export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string };
+export type AlertTarget = { kind: "command"; key: string } | { kind: "task"; id: string } | { kind: "cfo" };
 
 // An alert tells the Overlord that something needs him or finished: its key
 // is the one event it stands for, a Command Center item's own id or a
@@ -57,17 +57,19 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
+// A goblin's blocked or failed notify waits on the CFO, and its task reads so
+// until he answers or acks it.
+const asksCFO = (task: Task) => task.reason.startsWith("Waiting on the CFO");
+
 // A goblin's state that the Overlord hears of: blocked or failed by its
 // evidence or failed by its own report, or done with its pull request.
 // Anything else, such as working, in review or waiting on another task, is
-// routine and says nothing. A goblin blocked on its own question, which its
-// task reads as Waiting on the CFO, says nothing either: a question with
-// choices alerts by itself when it reaches the Command Center, and one with
-// no choices is prose for the CFO, who is woken for it, so nothing waits on
-// the Overlord.
+// routine and says nothing. A goblin waiting on its own question, which its
+// task reads as Waiting on the CFO, says nothing either: its question is the
+// CFO's to answer, who is woken for it, so nothing waits on the Overlord.
 function taskState(task: Task): "blocked" | "failed" | "done" | "" {
-  if (task.phase === "blocked") return task.reason.startsWith("Waiting on the CFO") ? "" : "blocked";
-  if (task.phase === "failed" || task.report === "failed") return "failed";
+  if (task.phase === "blocked") return asksCFO(task) ? "" : "blocked";
+  if (task.phase === "failed" || task.report === "failed") return asksCFO(task) ? "" : "failed";
   return (task.phase === "done" || task.report === "done") && task.pr ? "done" : "";
 }
 
@@ -97,10 +99,18 @@ function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snaps
 // waits is under the badge.
 // A question that was open inside its page's card is not new when it shows
 // as a card of its own.
+// A goblin's failed question that the CFO handled is no failure after it.
 // The Completed column's history is not a goblin finishing, so it alerts
 // nothing either.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
-  if (!previous) return [];
+  const notices: BoardAlert[] = [];
+  const quiet = next.cfo_quiet;
+  if (quiet && quiet.since !== previous?.cfo_quiet?.since) {
+    notices.push({ key: "cfo-quiet:" + quiet.since, says: "quiet-cfo:" + quiet.since, tone: "needs", speaker: "CFO", task: "",
+      text: `The CFO has not answered ${quiet.count} question${quiet.count === 1 ? "" : "s"}; the oldest has waited ${Math.floor(quiet.oldest_age / 60)} minutes.`,
+      action: "Open the CFO's terminal", target: { kind: "cfo" } });
+  }
+  if (!previous) return notices;
   const known = openKeys(previous);
   const items = waitingItems(next).filter((item) => !known.has(item.key)).map((item) => itemAlert(item, next.tasks));
   const before = new Map(previous.tasks.map((task) => [task.id, task]));
@@ -110,7 +120,7 @@ export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAle
     const changed = !prior || prior.generation !== task.generation || taskState(prior) !== state;
     return state && changed ? [taskAlert(task, state, next)] : [];
   });
-  return [...items, ...tasks];
+  return [...notices, ...items, ...tasks];
 }
 
 // An alert a browser showed: its key, what it said, and when.
@@ -165,6 +175,7 @@ export function announceKey(alert: BoardAlert): string {
 // answered or cleared it, here or anywhere else. An item the snapshot does
 // not hold, as while the supervisor restarts, is not known to be closed.
 export function outlived(alert: BoardAlert, snapshot: Snapshot): boolean {
+  if (alert.target.kind === "cfo") return alert.key !== "cfo-quiet:" + snapshot.cfo_quiet?.since;
   const item = isItemAlert(alert) ? itemFor(snapshot, alert.key) : undefined;
   return !!item && !isOpen(item);
 }
@@ -179,11 +190,17 @@ export function arrive(shown: BoardAlert[], fresh: BoardAlert[]): BoardAlert[] {
   return [...shown.filter((toast) => !keys.has(toast.key)), ...fresh].slice(-MAX_TOASTS);
 }
 
-// A Windows notification is for an alert the Overlord would not see: the
-// board's tab is hidden or its window is not in front, and he allowed them.
-export function notifies(permission: NotificationPermission | "unsupported", hidden: boolean, focused: boolean): boolean {
-  return permission === "granted" && (hidden || !focused);
+// A Windows notification is for an alert the Overlord cannot see: the board
+// is out of sight, its tab hidden or its window minimized, and he allowed
+// them. A board on screen notifies nothing, in front or not.
+export function notifies(permission: NotificationPermission | "unsupported", hidden: boolean): boolean {
+  return permission === "granted" && hidden;
 }
+
+// One item is one signal: what waits on him shows on the bar's Open Command
+// Center button and under the count, so its alert is no toast. A goblin's
+// news, which waits on nothing, is one.
+export const showsToast = (alert: BoardAlert) => !isItemAlert(alert) || alert.target.kind === "cfo";
 
 // The board asks for Windows notifications once, with the first alert, and
 // never again once he has answered or dismissed the ask.

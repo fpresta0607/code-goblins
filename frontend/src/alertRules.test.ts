@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
-import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
+import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, showsToast, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
+import { parseSnapshot, type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
-const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "a", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
+const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
 const review = (id: string): Review => ({ id, title: "Review the plan", state: "open", task: "a", created_at: "2026-09-27T01:00:00Z" }) as Review;
 const run = (id: string, state = "ready"): Run => ({ id, title: "Restart the board", state, created_at: "2026-09-27T01:00:00Z" }) as Run;
 const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Review[]; runs?: Run[] }): Snapshot => ({ tasks: parts.tasks || [task("a", "working")], questions: parts.questions || [], reviews: parts.reviews || [], runs: parts.runs || [], attention: [] as string[] }) as Snapshot;
@@ -14,6 +14,25 @@ const MINUTE = 60 * 1000;
 // The reason the gate gives every time a step needs the Overlord's decision.
 const GATE_BLOCK = "Pipeline decision required at review; use cfo pipeline respond";
 const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
+
+test("questions left on the CFO raise one notice per stretch, with their count and age, opening his terminal", () => {
+  const quiet = parseSnapshot({ healthy: true });
+  const waiting = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
+  const [notice] = boardAlerts(quiet, waiting);
+  assert.ok(notice);
+  assert.equal(notice.text, "The CFO has not answered 3 questions; the oldest has waited 11 minutes.");
+  assert.equal(notice.action, "Open the CFO's terminal");
+  assert.deepEqual(notice.target, { kind: "cfo" });
+  assert.equal(showsToast(notice), true);
+  const changed = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 2, oldest_age: 720 } });
+  assert.deepEqual(boardAlerts(waiting, changed), []);
+  assert.equal(outlived(notice, changed), false);
+  assert.equal(outlived(notice, quiet), true);
+  assert.deepEqual(boardAlerts(null, waiting), [notice]);
+  assert.deepEqual(unseen([notice], [{ key: notice.key, says: notice.says, at: 0 }], 10 * MINUTE).fresh, []);
+  const next = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T13:00:00Z", count: 1, oldest_age: 600 } });
+  assert.equal(boardAlerts(changed, next).length, 1);
+});
 
 test("what needs the Overlord or finished alerts once, and opens its item", () => {
   const before = snapshot({});
@@ -56,6 +75,8 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
   const done = snapshot({ tasks: [task("a", "done")] });
   const withPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] });
   assert.deepEqual(boardAlerts(done, withPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/7"]);
+  const nextPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/8" })] });
+  assert.deepEqual(boardAlerts(withPR, nextPR).map((alert) => alert.key), [], "a goblin already done alerts nothing more");
   const blocked = snapshot({ tasks: [task("a", "blocked")] });
   const restartedBlocked = snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] });
   assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked:"]);
@@ -92,22 +113,60 @@ test("a goblin waiting on the Overlord says so once, and a review item asks for 
   assert.equal(plan.text, "Goblin a wants your review: Review the plan");
 });
 
-test("a goblin's own question alerts once, as its question, whichever reaches the board first", () => {
+test("a goblin's question to the CFO alerts nothing, whichever reaches the board first", () => {
   // As the supervisor serves it: the goblin's blocked notify sets its task
   // blocked, Waiting on the CFO, before or as its question reaches the
-  // Command Center, and both say the same thing.
+  // board. The CFO answers it, so neither its question nor its blocked task
+  // is news for the Overlord.
   const asked = "May I finish the remaining heavy steps now, or stay paused?";
   const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
-  const blocked = task("a", "blocked", { report: "blocked", reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
-  const pending = question("notify-a-7", { text: asked });
-  const orders: [string, Snapshot[]][] = [
-    ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
-    ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
-    ["the question first", [working, snapshot({ questions: [pending] }), snapshot({ tasks: [blocked], questions: [pending] })]],
-  ];
-  for (const [name, snapshots] of orders) {
-    const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
-    assert.deepEqual(alerts.map((alert) => alert.text), ["Goblin a asks: " + asked], name);
+  const pending = question("notify-a-7", { task: "a", text: asked });
+  for (const phase of ["blocked", "failed"]) {
+    const blocked = task("a", phase, { report: phase, reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
+    const orders: [string, Snapshot[]][] = [
+      ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
+      ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+      ["the question first", [working, snapshot({ questions: [pending] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+    ];
+    for (const [name, snapshots] of orders) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), [], phase + ": " + name);
+    }
+  }
+});
+
+test("a goblin's question the CFO handled is no failure news after it, and its next news still alerts", () => {
+  // As the supervisor serves it: a blocked or failed notify holds its task
+  // as Waiting on the CFO until he answers or acks it. After that the
+  // supervisor restores its standing report, with its phase back on
+  // what its pane shows.
+  const asked = "Which fix should I take?";
+  const choices = asked + " options: Retry | Revert";
+  const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
+  const pending = question("notify-a-7", { task: "a", text: asked });
+  const answered = question("notify-a-7", { task: "a", text: asked, status: "succeeded", answered_by: "cfo" });
+  for (const verb of ["blocked", "failed"]) {
+    const waiting = task("a", verb, { report: verb, reason: "Waiting on the CFO: " + choices, activity: choices });
+    const handled = (phase: string) => task("a", phase, { report: "working", reason: "Herdr reports " + phase, activity: "working: implementing the fix" });
+    const orders: [string, Snapshot[]][] = [
+      ["stream missed the waiting snapshot", [working, snapshot({ tasks: [handled("idle")] })]],
+      ["handled, then its pane changes", [working, snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), snapshot({ tasks: [handled("working")] })]],
+      ["its question closed first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [waiting], questions: [answered] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
+      ["its task released first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
+    ];
+    for (const [name, snapshots] of orders) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), [], verb + ": " + name);
+    }
+    const news: [string, Snapshot[], string[]][] = [
+      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [task("a", "blocked", { report: "working", reason: GATE_BLOCK })] })], ["Goblin a is blocked: " + GATE_BLOCK]],
+      ["its gate blocking and clearing", [working, snapshot({ tasks: [handled("idle")] }), snapshot({ tasks: [task("a", "blocked", { report: "working", reason: GATE_BLOCK })] }), snapshot({ tasks: [handled("working")] })], ["Goblin a is blocked: " + GATE_BLOCK]],
+      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke"]],
+    ];
+    for (const [name, snapshots, want] of news) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), want, verb + ": " + name);
+    }
   }
 });
 
@@ -263,8 +322,8 @@ test("each alert names who speaks by its goblin's title, as its card does, says 
   const before = snapshot({});
   const cfoQuestion = question("q2", { task: "", text: "Merge the release now?\n\n- details" });
   const cases: [string, Snapshot, { speaker: string; text: string; action: string }][] = [
-    ["a goblin's question", snapshot({ questions: [question("q1")] }), { speaker: "Goblin a", text: "Goblin a asks: Which option?", action: "Open Command Center" }],
-    ["a question from a goblin no longer on the board", snapshot({ questions: [question("q1", { task: "gone" })] }), { speaker: "gone", text: "gone asks: Which option?", action: "Open Command Center" }],
+    ["a goblin's review item", snapshot({ reviews: [review("r1")] }), { speaker: "Goblin a", text: "Goblin a wants your review: Review the plan", action: "Open Command Center" }],
+    ["a review item from a goblin no longer on the board", snapshot({ tasks: [], reviews: [review("r1")] }), { speaker: "a", text: "a wants your review: Review the plan", action: "Open Command Center" }],
     ["the CFO's question", snapshot({ questions: [cfoQuestion] }), { speaker: "CFO", text: "The CFO asks: Merge the release now?", action: "Open Command Center" }],
     ["a command to run", snapshot({ runs: [run("c1")] }), { speaker: "CFO", text: "A command waits for you to run it: Restart the board", action: "Open Command Center" }],
     ["a blocked goblin", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), { speaker: "Goblin a", text: "Goblin a is blocked: Needs a key", action: "Open Command Center" }],
@@ -291,23 +350,43 @@ test("fresh alerts stack below the ones on screen, at most four, the oldest leav
 
 test("an alert names who asks and what, in a few words", () => {
   const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "Ship **now**? " + "x".repeat(300) + "\n\nThe details." })] }));
-  assert.equal(alert.speaker, "Goblin a");
-  assert.ok(alert.text.startsWith("Goblin a asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
-  const [cfo] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2", { task: "" })] }));
-  assert.equal(cfo.speaker, "CFO");
-  assert.equal(cfo.text, "The CFO asks: Which option?");
+  assert.equal(alert.speaker, "CFO");
+  assert.ok(alert.text.startsWith("The CFO asks: Ship now?") && alert.text.length <= 160 && !alert.text.includes("details"), alert.text);
+  const [short] = boardAlerts(snapshot({}), snapshot({ questions: [question("q2")] }));
+  assert.equal(short.text, "The CFO asks: Which option?");
 });
 
-test("a Windows notification is only for a board he is not looking at, once allowed", () => {
-  const cases: [string, NotificationPermission | "unsupported", boolean, boolean, boolean][] = [
-    ["a hidden tab", "granted", true, false, true],
-    ["a window behind another", "granted", false, false, true],
-    ["the board in front", "granted", false, true, false],
-    ["not allowed", "denied", true, false, false],
-    ["not answered yet", "default", true, false, false],
-    ["a browser without notifications", "unsupported", true, false, false],
+// The Overlord, 2026-10-02: system notifications are only for when the app
+// is minimized, not on every notification.
+test("a Windows notification is only for a board out of sight, once allowed", () => {
+  const cases: [string, NotificationPermission | "unsupported", boolean, boolean][] = [
+    ["a hidden tab or a minimized window", "granted", true, true],
+    ["a board on screen, in front or not", "granted", false, false],
+    ["not allowed", "denied", true, false],
+    ["not answered yet", "default", true, false],
+    ["a browser without notifications", "unsupported", true, false],
   ];
-  for (const [name, permission, hidden, focused, want] of cases) assert.equal(notifies(permission, hidden, focused), want, name);
+  for (const [name, permission, hidden, want] of cases) assert.equal(notifies(permission, hidden), want, name);
+});
+
+// The Overlord, 2026-10-02, after one question reached him as a toast, a
+// Windows notification and the Command Center opening itself: one item is
+// one signal. What waits on him shows on the bar's Open Command Center
+// button and under the count; only a goblin's news is a toast.
+test("an item that waits on him shows no toast; a goblin's news does", () => {
+  const before = snapshot({});
+  const cases: [string, Snapshot, boolean][] = [
+    ["the CFO's question", snapshot({ questions: [question("q1")] }), false],
+    ["a goblin's review item", snapshot({ reviews: [review("r1")] }), false],
+    ["a command to run", snapshot({ runs: [run("c1")] }), false],
+    ["a goblin that finished", snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] }), true],
+    ["a goblin that failed", snapshot({ tasks: [task("a", "failed")] }), true],
+    ["a goblin blocked on something the CFO cannot answer", snapshot({ tasks: [task("a", "blocked", { reason: "Needs a key" })] }), true],
+  ];
+  for (const [name, next, want] of cases) {
+    const [alert] = boardAlerts(before, next);
+    assert.equal(showsToast(alert), want, name);
+  }
 });
 
 test("the board asks for notifications once, and only while the browser has not been answered", () => {

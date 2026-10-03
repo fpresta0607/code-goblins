@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { announce } from "./api";
-import { announceKey, arrive, asksPermission, boardAlerts, isItemAlert, notifies, outlived, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
+import { announceKey, arrive, asksPermission, boardAlerts, isItemAlert, notifies, outlived, showsToast, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules";
 import { personaFor } from "./workflow";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
@@ -30,15 +30,17 @@ function rememberSeen(seen: readonly SeenAlert[]) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch { /* this page still shows each alert once */ }
 }
 
-// The board's alerts: a stack of toasts at the bottom right for what needs the
-// Overlord or finished, each opening its item, and a Windows notification for
-// each while he is not looking at the board, once he allows them. The board
-// asks for that once, with the first alert. Each event shows once on each,
-// in one tab of the board: the supervisor hands each alert to the first tab
-// that asks, and remembers it through a reload and its own restart. Opening
-// or dismissing a toast closes its notification, a toast that only times out
-// leaves it, clicking the notification removes the toast and opens its item,
-// and both leave when their item is answered or cleared anywhere.
+// The board's alerts: a stack of toasts at the bottom right for a goblin's
+// news, each opening its goblin, and a Windows notification for every alert
+// while the board is out of sight, once he allows them. An item that waits
+// on him is no toast: the bar and the count show it, and that is its one
+// signal on the board. The board asks for notifications once, with the first
+// alert. Each event shows once, in one tab of the board: the supervisor
+// hands each alert to the first tab that asks, and remembers it through a
+// reload and its own restart. Opening or dismissing a toast closes its
+// notification, a toast that only times out leaves it, clicking the
+// notification removes the toast and opens what it was about, and a
+// notification leaves when its item is answered or cleared anywhere.
 export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (target: AlertTarget) => void }) {
   const previous = useRef<Snapshot | null>(null);
   const [stored] = useState(readSeen);
@@ -68,9 +70,9 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
     void announce(snapshot.instance, fresh.filter(isItemAlert).map(announceKey), fresh.filter((alert) => !isItemAlert(alert)).map(announceKey)).then((claimed) => {
       const mine = fresh.filter((alert) => (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
       if (!mine.length) return;
-      setToasts((prior) => arrive(prior, mine));
+      if (mine.some(showsToast)) setToasts((prior) => arrive(prior, mine.filter(showsToast)));
       if (asksPermission(permission(), asked())) setAsking(true);
-      if (!notifies(permission(), document.hidden, document.hasFocus())) return;
+      if (!notifies(permission(), document.hidden)) return;
       for (const alert of mine) {
         const note = new Notification(alert.speaker, { body: alert.text, tag: alert.key });
         notes.current.set(alert.key, { note, alert });

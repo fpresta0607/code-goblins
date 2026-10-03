@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const queueFile = ".wake-queue"
@@ -247,7 +248,20 @@ func AckThrough(dir string, seq int) error {
 		for _, rec := range records {
 			if rec.Seq > seq {
 				kept = append(kept, rec)
-			} else if rec.Once != "" {
+				continue
+			}
+			// The queue and answer marker disappear on ack. Preserve which
+			// report was handled before retiring it, for reconnects and restarts.
+			if _, isBlocking := BlockingNotify(rec); isBlocking && state.ValidTaskID(rec.Key) == nil {
+				data, err := json.Marshal(rec)
+				if err != nil {
+					return err
+				}
+				if err := state.AppendStatus(dir, rec.Key, "notify-handled: "+string(data)); err != nil {
+					return err
+				}
+			}
+			if rec.Once != "" {
 				if err := keepOnce(dir, rec); err != nil {
 					return err
 				}

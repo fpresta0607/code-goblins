@@ -148,6 +148,7 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  cfo_quiet: { since: string; count: number; oldest_age: number } | null;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -430,6 +431,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),

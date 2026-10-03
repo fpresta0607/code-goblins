@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { announce, message, request } from "./api";
+import { message, request } from "./api";
 import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
@@ -30,15 +30,6 @@ const ALL_DONE_MS = 1600;
 // the Overlord, or the list when nothing waits.
 export interface CommandFocus { key: string; at: number }
 
-// Whether the Overlord is typing somewhere on the board: in a text field, a
-// comment box or a terminal. The Command Center never opens itself then; what
-// is new waits under the badge with its alert (decision 3596).
-const typing = () => {
-  const active = document.activeElement;
-  return active instanceof HTMLElement && (active.isContentEditable || active instanceof HTMLTextAreaElement
-    || active instanceof HTMLInputElement && !["button", "checkbox", "radio", "submit", "reset", "range", "color", "file"].includes(active.type));
-};
-
 const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
   const box = event.currentTarget.getBoundingClientRect();
   return event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom);
@@ -47,11 +38,9 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // The Supreme Overlord Command Center: an inbox of everything waiting on him,
 // and a stack that shows one item at a time, a question or a review item. Each
 // answer goes to its asker on its own, once; drafts survive closing,
-// reconnecting and moving between cards. A new question opens the stack, once:
-// the supervisor hands each question to the first tab that asks and remembers
-// it, so no reload, other tab or supervisor restart opens it again. Any
-// other new item waits in the inbox under the badge, the board's alerts
-// announce every new item, and the tab's title counts what waits. The moment an answer is sent
+// reconnecting and moving between cards. It never opens by itself: a new
+// item waits in the inbox under the badge, the bar says so, and the tab's
+// title counts what waits. The moment an answer is sent
 // its check shows and the next open item follows while delivery goes on
 // quietly; an item he acted on never comes back, so a delivery that fails
 // later reads as its line in History. The
@@ -69,8 +58,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const asked = useRef(new Set<string>());
-  const [arrived, setArrived] = useState<string[]>([]);
   const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
   const [gallery, setGallery] = useState<number | null>(null);
   const [inbox, setInbox] = useState(false);
@@ -103,21 +90,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (finishing && item.key !== shown) setSent((prior) => new Set([...prior, item.key]));
     setCurrent(shown); setGallery(null); setAllDone(false);
   };
-  // Every question still open is asked about once, one its page's card
-  // carries too, so it never opens the Command Center when that card closes.
-  const { instance } = snapshot;
-  const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
-  useEffect(() => {
-    const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
-    if (!keys.length) return;
-    for (const key of keys) asked.current.add(key);
-    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null || claimed.includes("open:" + key))]));
-  }, [pending, instance]);
-  if (arrived.length) {
-    setArrived([]);
-    const fresh = waiting.find((item) => arrived.includes(item.key));
-    if (fresh && !open && !typing()) { setOpen(true); show(fresh.key); }
-  }
   const unsent = holdsUnsent(drafts, snapshot);
   useEffect(() => onUnsent(unsent), [unsent, onUnsent]);
   const baseTitle = useRef(document.title);

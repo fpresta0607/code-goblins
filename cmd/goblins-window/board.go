@@ -156,13 +156,15 @@ type Item struct {
 // credential names stay out of a Windows notification. Beside them it returns
 // the keys of what is open on the board without being alerted on its own: a
 // pending question asked from an open review page, which that page's card
-// shows. It names the supervisor's instance too, which every request to the
-// board that changes something carries.
+// shows. A question that names a task is a goblin's, which the CFO answers:
+// it is neither listed nor returned as a key. It names the supervisor's
+// instance too, which every request to the board that changes something
+// carries.
 func waiting(snapshot []byte) (string, []Item, []string, error) {
 	var view struct {
 		Instance  string `json:"instance"`
 		Questions []struct {
-			ID, Text, Status, Page string
+			ID, Text, Status, Page, Task string
 		} `json:"questions"`
 		Reviews []struct {
 			ID, Title, State string
@@ -181,7 +183,7 @@ func waiting(snapshot []byte) (string, []Item, []string, error) {
 	var items []Item
 	var folded []string
 	for _, q := range view.Questions {
-		if q.Status != "pending" {
+		if q.Status != "pending" || q.Task != "" {
 			continue
 		}
 		if q.Page != "" {
