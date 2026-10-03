@@ -24,7 +24,7 @@ var (
 	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
 	metadataPatterns   = func() map[string]*regexp.Regexp {
 		patterns := map[string]*regexp.Regexp{}
-		for _, key := range []string{"repo", "kind", "hold-kind", "harness", "model", "effort", "mode"} {
+		for _, key := range []string{"repo", "kind", "priority", "hold-kind", "harness", "model", "effort", "mode"} {
 			patterns[key] = regexp.MustCompile(`(?i)(?:\(|,)\s*` + key + `\s*:\s*([^,)]*)`)
 		}
 		return patterns
@@ -53,6 +53,7 @@ type BacklogRow struct {
 	Title         string   `json:"title"`
 	Repo          string   `json:"repo"`
 	Kind          string   `json:"kind"`
+	Priority      string   `json:"priority,omitempty"`
 	BlockedBy     string   `json:"blocked_by"`
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
@@ -160,6 +161,7 @@ func parseBacklogRow(line string) BacklogRow {
 		Title:         backlogTitle(rest),
 		Repo:          metadataValue(rest, "repo"),
 		Kind:          metadataValue(rest, "kind"),
+		Priority:      metadataValue(rest, "priority"),
 		BlockedBy:     blockedBy,
 		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,

@@ -56,7 +56,7 @@ func TestPauseReleasesResourcesAfterTheStoppingPointDeadline(t *testing.T) {
 		phases = append(phases, record.Phase)
 		return []string{"server pid 42", "browser pid 43"}, nil
 	}
-	record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"})
+	record, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestPauseRecordsAHandoffAndAnIdempotentCompletion(t *testing.T) {
 	}
 	notices := 0
 	service.Operations.Notify = func(state.Lifecycle) error { notices++; return nil }
-	request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}
+	request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}
 	record, err := service.Run(context.Background(), request)
 	if err != nil || !record.HandoffSaved {
 		t.Fatalf("handoff not saved: %+v %v", record, err)
@@ -93,7 +93,7 @@ func TestPauseRecordsAHandoffAndAnIdempotentCompletion(t *testing.T) {
 
 func TestResumeRequiresFiveGigabytesAndKeepsPauseOnRefusal(t *testing.T) {
 	service, meta := lifecycleFixture(t)
-	if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+	if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
 	resumed := false
@@ -128,7 +128,7 @@ func TestResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *tes
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			service, meta := lifecycleFixture(t)
-			if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+			if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 				t.Fatal(err)
 			}
 			resumed := false
@@ -275,7 +275,7 @@ func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
@@ -286,7 +286,7 @@ func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	isGateOpen = false
-	paused, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-2", Action: "pause"})
+	paused, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-2", Action: "pause", Reason: "overlord"})
 	if err != nil || paused.GateRun != "" || paused.GateIntent != "" || paused.GateHead != "" {
 		t.Fatalf("pause without an open gate kept stale restart instructions: %+v %v", paused, err)
 	}
@@ -303,7 +303,7 @@ func TestLifecycleOutcomesNeverHideTheTasksOwnReport(t *testing.T) {
 	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
 		return errors.New("harness failed to start")
 	}
-	for _, request := range []Request{{Operation: "pause-1", Action: "pause"}, {Operation: "resume-1", Action: "resume"}} {
+	for _, request := range []Request{{Operation: "pause-1", Action: "pause", Reason: "overlord"}, {Operation: "resume-1", Action: "resume"}} {
 		request.ID, request.Generation = meta.ID, meta.SpawnGen
 		_, _ = service.Run(t.Context(), request)
 		lines, err := state.TailStatus(service.StateDir, meta.ID, 200)
