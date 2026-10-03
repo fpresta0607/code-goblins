@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -536,5 +537,104 @@ func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 	}
 	if len(held) != 1 || held[0] != "run:left-for-him" {
 		t.Errorf("held = %q, want only the command the CFO left for him", held)
+	}
+}
+
+// The report read after AFK mode turned off shows each item it held as it
+// stands now, on the board's page and to cfo afk report alike, while the
+// report kept when the stretch ended still says what became of each by then.
+func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := boardService(store)
+	asOverlordsBoard(s)
+	waitingItems(t, store)
+	if code, body := askTheBoard(t, s, "POST", "/api/afk", `{"on":true}`, nil); code != 200 {
+		t.Fatalf("POST on = %d %s", code, body)
+	}
+	if err := s.holdForOverlord(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := askTheBoard(t, s, "POST", "/api/afk", `{"on":false}`, nil); code != 200 {
+		t.Fatalf("POST off = %d %s", code, body)
+	}
+	held := func() map[string]afk.Held {
+		t.Helper()
+		code, body := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
+		var page struct {
+			Held []afk.Held `json:"held"`
+		}
+		if err := json.Unmarshal([]byte(body), &page); code != 200 || err != nil {
+			t.Fatalf("GET /api/afk/report = %d %s (%v)", code, body, err)
+		}
+		report, found, err := ReadAFKReport(h)
+		if err != nil || !found {
+			t.Fatalf("ReadAFKReport = %v, %v, want the report", found, err)
+		}
+		byItem := map[string]afk.Held{}
+		for i, one := range page.Held {
+			if report.Held[i] != one {
+				t.Errorf("cfo afk report reads %+v where the board's page reads %+v", report.Held[i], one)
+			}
+			byItem[one.Item] = one
+		}
+		return byItem
+	}
+	before := held()
+
+	// Act: he answers the question and the wait is withdrawn after the off.
+	answered := time.Now().UTC()
+	store.mu.Lock()
+	store.db.Questions[0].Status, store.db.Questions[0].AnsweredBy, store.db.Questions[0].Answer, store.db.Questions[0].AnsweredAt = "succeeded", "overlord", "Keep it held", &answered
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.withdrawReview("waiting-task-1-7", "task-1 reported again: working"); err != nil {
+		t.Fatal(err)
+	}
+	after := held()
+
+	// Assert
+	for _, item := range []string{"question:drop-legacy-invoices", "review:waiting-task-1-7", "run:delete-merged-branches"} {
+		if one := before[item]; !one.Waiting || !strings.HasPrefix(one.Now, "still waiting") {
+			t.Errorf("before he acted, %s = %+v, want it still waiting on him", item, one)
+		}
+	}
+	if question := after["question:drop-legacy-invoices"]; question.Waiting || question.Now != "you answered it: Keep it held" {
+		t.Errorf("the question after his answer = %+v, want that he answered it", question)
+	}
+	if wait := after["review:waiting-task-1-7"]; wait.Waiting || wait.Now != "withdrawn: task-1 reported again: working" {
+		t.Errorf("the wait after it was withdrawn = %+v, want it withdrawn", wait)
+	}
+	if run := after["run:delete-merged-branches"]; !run.Waiting || run.Now != "still waiting for you to run it" {
+		t.Errorf("the run nobody touched = %+v, want it still waiting", run)
+	}
+	kept, _, err := afk.ReadReport(h.State)
+	if err != nil || len(kept.Held) != 3 || slices.ContainsFunc(kept.Held, func(one afk.Held) bool { return !one.Waiting }) {
+		t.Errorf("the report kept = %+v, %v, want each item as it stood when AFK mode turned off", kept.Held, err)
+	}
+}
+
+// What became of a held item that cannot be read is an error, never the
+// report's older word for it.
+func TestTheReportWhoseHeldItemsCannotBeReadIsRefused(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	waitingItems(t, store)
+	if err := afk.SaveReport(h.State, afk.Report{Session: "afk-1", Held: []afk.Held{{Item: "question:drop-legacy-invoices", What: "Apply it?", Waiting: true, Now: "still waiting on you"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, ".supervisor.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, found, err := ReadAFKReport(h)
+
+	// Assert
+	if err == nil || found || !strings.Contains(err.Error(), "what became of each item held for him cannot be read") {
+		t.Errorf("ReadAFKReport = %v, %v, want it refused for want of the items' records", found, err)
 	}
 }

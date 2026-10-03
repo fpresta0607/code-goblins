@@ -67,8 +67,9 @@ type Held struct {
 	Task string    `json:"task,omitempty"`
 	What string    `json:"what"`
 	At   time.Time `json:"at"`
-	// Waiting says it still waits on him, and Now what became of it by the
-	// time AFK mode turned off.
+	// Waiting says it still waits on him, and Now what became of it: by the
+	// time AFK mode turned off as the report is kept, and as it stands now
+	// when the report is read.
 	Waiting bool   `json:"waiting"`
 	Now     string `json:"now"`
 	// Meanwhile is what was done while it waited: its goblin's latest report.
@@ -218,7 +219,7 @@ func Render(w io.Writer, r Report) error {
 	say("AFK mode was on from %s to %s (%s): turned on %s, off %s.", at(r.Since), at(r.Ended), r.Lasted(), SwitchedBy(r.From, r.Asked), SwitchedBy(r.EndedFrom, r.EndedAsked))
 
 	say("")
-	say("Held for you (%d)", len(r.Held))
+	say("Held for you (%d), each as it stands now", len(r.Held))
 	for _, held := range r.Held {
 		whose := "the CFO's"
 		if held.Task != "" {

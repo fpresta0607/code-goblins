@@ -24,8 +24,9 @@ import "./cfo-pin.css";
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip. While AFK
 // mode is on nothing glows: the bar says since when and how much was decided
-// and held, and lists under itself what is held for him, each item a click
-// from the Command Center.
+// and held, and lists under itself what is held for him once he opens the
+// list, which never opens by itself, each item a click from the Command
+// Center.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
   const absent = !snapshot.cfo_runs;
@@ -45,7 +46,7 @@ export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Sna
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
       {!absent && waiting > 0 && <button className="cfo-command" aria-label={"Open Command Center: " + waiting + " waiting on you"} onClick={onCommand}>Open Command Center<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} data-tip-align="end" onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
-      {snapshot.afk.state === "on" && <Disclosure kind="afk-held-panel" defaultOpen={held.length > 0} title={<>Held for you <span className="column-count">{held.length}</span></>}>
+      {snapshot.afk.state === "on" && <Disclosure kind="afk-held-panel" title={<>Held for you <span className="column-count">{held.length}</span></>}>
         <AfkHeldList held={held} tasks={snapshot.tasks} onOpen={answer} />
       </Disclosure>}
     </div>

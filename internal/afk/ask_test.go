@@ -44,7 +44,7 @@ func TestASwitchAtHisAskKeepsHisWordsInTheSwitchAndTheLog(t *testing.T) {
 }
 
 func TestASwitchAtHisAskWithoutHisWordsIsNotMade(t *testing.T) {
-	for name, asked := range map[string]string{"none": "", "blank": " \t\n", "past their bound": strings.Repeat("a", 501)} {
+	for name, asked := range map[string]string{"none": "", "blank": " \t\n", "past their bound": strings.Repeat("a", 501), "past their bound in multibyte characters": strings.Repeat("界", 501)} {
 		t.Run("on with "+name, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
@@ -79,6 +79,25 @@ func TestASwitchAtHisAskWithoutHisWordsIsNotMade(t *testing.T) {
 			}
 			if entries, _, _ := Entries(dir, ""); len(entries) != 1 {
 				t.Errorf("log = %+v, want only the line that turned it on", entries)
+			}
+		})
+	}
+}
+
+// His words are bounded in characters, not bytes: 500 characters of any
+// script are his words, whatever bytes they take.
+func TestASwitchAtHisAskTakesFiveHundredCharactersOfAnyScript(t *testing.T) {
+	for name, asked := range map[string]string{"plain": strings.Repeat("a", 500), "multibyte": strings.Repeat("界", 500), "emoji": strings.Repeat("🙂", 500)} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+
+			// Act
+			on, changed, err := TurnOnAtHisAsk(dir, theCFO, asked, nil, night)
+
+			// Assert
+			if err != nil || !changed || !on.On || on.Asked != asked {
+				t.Errorf("TurnOnAtHisAsk = %v, %v, %v, want it on with all 500 characters of his words", on.On, changed, err)
 			}
 		})
 	}

@@ -127,7 +127,7 @@ type afkReportPage struct {
 }
 
 // afkReport serves GET /api/afk/report: the report of the last stretch of AFK
-// mode that ended, or that none has.
+// mode that ended, with each item it held as it stands now, or that none has.
 func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 	report, found, err := afk.ReadReport(h.Service.Store.Home.State)
 	if err != nil {
@@ -144,7 +144,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		Found: true, Session: report.Session, Since: report.Since, Ended: report.Ended, Lasted: report.Lasted(), From: report.From, EndedFrom: report.EndedFrom, Asked: report.Asked, EndedAsked: report.EndedAsked,
 		Sections: report.Sections(),
 		Finished: append([]afk.Finish{}, report.Finished...),
-		Held:     append([]afk.Held{}, report.Held...),
+		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held),
 		Spent:    append([]string{}, afk.Spent(report.Before, report.After)...),
 		Notes:    append([]string{}, report.Notes...),
 	})

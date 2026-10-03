@@ -143,9 +143,10 @@ func (r commandRuntime) afkSwitch() func(h home.Home, on bool, asked string) err
 	}
 }
 
-// printAFKReport prints the report of the last stretch that ended.
+// printAFKReport prints the report of the last stretch that ended, with each
+// item it held as it stands now.
 func printAFKReport(h home.Home, stdout, stderr io.Writer) int {
-	report, found, err := afk.ReadReport(h.State)
+	report, found, err := supervisor.ReadAFKReport(h)
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo afk: "+err.Error())
 		return 1

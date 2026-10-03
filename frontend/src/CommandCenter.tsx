@@ -105,16 +105,18 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Every question still open is asked about once, one its page's card
   // carries too, so it never opens the Command Center when that card closes.
-  // With AFK mode on, a supervisor that could not be asked opens nothing.
+  // With AFK mode on when its answer comes, a supervisor that could not be
+  // asked opens nothing.
   const { instance } = snapshot;
-  const away = snapshot.afk.state === "on";
+  const afkState = useRef(snapshot.afk.state);
+  useEffect(() => { afkState.current = snapshot.afk.state; });
   const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
   useEffect(() => {
     const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
     if (!keys.length) return;
     for (const key of keys) asked.current.add(key);
-    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null ? !away : claimed.includes("open:" + key))]));
-  }, [pending, instance, away]);
+    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null ? afkState.current !== "on" : claimed.includes("open:" + key))]));
+  }, [pending, instance]);
   if (arrived.length) {
     setArrived([]);
     const fresh = waiting.find((item) => arrived.includes(item.key));

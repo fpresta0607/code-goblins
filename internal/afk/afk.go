@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -143,7 +144,7 @@ func write(stateDir string, state State) error {
 // than their bound, is refused.
 func HisWords(asked string) (string, error) {
 	asked = strings.Join(strings.Fields(asked), " ")
-	if asked == "" || len(asked) > maxAsked {
+	if asked == "" || utf8.RuneCountInString(asked) > maxAsked {
 		return "", fmt.Errorf("a switch the CFO makes at the Overlord's ask carries his words, in at most %d characters", maxAsked)
 	}
 	return asked, nil

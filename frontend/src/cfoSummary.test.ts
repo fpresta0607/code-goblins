@@ -31,6 +31,21 @@ test("what was answered or closed no longer counts", () => {
   assert.deepEqual(cfoSummary(snapshot({ tasks: [task("a")], questions: [question("done", "Ship it?", { status: "answered" })], reviews: [review("closed", "Old", { state: "closed" })] })), { waiting: 0, line: "All quiet. The CFO supervises 1 goblin." });
 });
 
+test("a goblin's wait on the Overlord, titled Waiting on you by its item, is counted and its title never shown", () => {
+  const summary = cfoSummary(snapshot({ reviews: [review("waiting-goblin-a-7", "Waiting on you: pick the settings layout")] }));
+  assert.equal(summary.waiting, 1);
+  assert.doesNotMatch(summary.line, /Waiting on you/);
+  assert.doesNotMatch(summary.line, /pick the settings layout/);
+});
+
+test("a question is counted without its lead sentence or its details", () => {
+  for (const text of ["Which **layout** should I use?\n\n- A: stacked\n- B: tabs", "Pick one?\n- A\n- B"]) {
+    const summary = cfoSummary(snapshot({ questions: [question("q", text)] }));
+    assert.equal(summary.waiting, 1);
+    for (const words of ["Waiting on you", "Which layout should I use?", "layout", "stacked", "tabs", "Pick one?"]) assert.ok(!summary.line.includes(words), summary.line + " shows " + words);
+  }
+});
+
 test("while AFK mode is on the bar says so and counts nothing as waiting, whatever waits on the Overlord, and a switch that cannot be read is not taken for on", () => {
   const now = Date.parse("2026-10-02T12:31:00Z");
   const held = { item: "question:own", task: "", what: "Merge PR 91 now?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "" };

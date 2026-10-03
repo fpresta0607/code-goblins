@@ -1,4 +1,4 @@
-import { ORIGIN, expect, servePages, test, type Page } from "./site";
+import { ORIGIN, expect, servePages, test, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
 // bar holds for the Overlord while it is on, the offer when he is back and the
@@ -78,6 +78,13 @@ const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
 const offer = (page: Page) => page.locator("dialog.afk-dialog").filter({ hasText: "Welcome back" });
 const report = (page: Page) => page.locator("dialog.afk-report");
+const heldPanel = (page: Page) => bar(page).locator(".afk-held-panel");
+// The list of what is held opens only on his click.
+async function openHeld(page: Page) {
+  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
+  await heldPanel(page).locator("summary").click();
+  await expect(heldPanel(page)).toHaveAttribute("open", "");
+}
 // The toggle is in the header of the CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -143,7 +150,7 @@ test("a refusal is said in the supervisor's words, in the question and under the
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([true, false]);
 });
 
-test("while AFK is on nothing glows on the bar though things wait on him, it lists what is held, and Answer opens that item in the Command Center", async ({ page }) => {
+test("while AFK is on nothing glows on the bar though things wait on him, it lists what is held once he opens the list, and Answer opens that item in the Command Center", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
   // With AFK off the same items put a glowing Open Command Center on the bar.
   const glowing = bar(page).getByRole("button", { name: /^Open Command Center/ });
@@ -152,6 +159,7 @@ test("while AFK is on nothing glows on the bar though things wait on him, it lis
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
   await expect(glowing).toHaveCount(0);
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided, 2 held for you\.$/);
+  await openHeld(page);
   const rows = bar(page).locator(".afk-held li");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("CFO");
@@ -176,6 +184,34 @@ test("the list is there and empty while nothing is held, and stays shut when an 
   await expect(panel).not.toHaveAttribute("open", "");
   await panel.locator("summary").click();
   await expect(panel.locator(".afk-held li")).toHaveCount(1);
+});
+
+test("a board that loads, or reconnects, with AFK already on and items already held keeps the list shut until he opens it", async ({ page }) => {
+  await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
+  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
+  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
+  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(0);
+  await page.reload();
+  await expect.poll(() => push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }))).toBeGreaterThan(0);
+  await expect(heldPanel(page).locator("summary")).toHaveText("Held for you 2");
+  await page.waitForTimeout(300);
+  await expect(heldPanel(page)).not.toHaveAttribute("open", "");
+  await openHeld(page);
+  await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(2);
+});
+
+test("a question announced before AFK turned on opens nothing when the supervisor's answer comes back empty after it is on", async ({ page }) => {
+  await open(page, snapshot());
+  const inFlight: Route[] = [];
+  await page.route("**/api/announce", (route) => { inFlight.push(route); });
+  await push(page, snapshot({ questions: [QUESTIONS[0]] }));
+  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("open:question:q-drop-table"))).toBe(true);
+  await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
+  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
+  for (const route of inFlight.splice(0)) await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
+  await page.waitForTimeout(500);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
+  await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
 });
 
 test("with AFK on, a new item raises no alert and opens nothing, even when the supervisor cannot be asked what was announced", async ({ page }) => {
@@ -321,6 +357,7 @@ const fits = (page: Page) => page.evaluate(() => document.documentElement.scroll
 test("on a phone the bar keeps its line, its terminal and what is held inside it, and the toggle stays in the CFO panel's header, with nothing wider than the page", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
+  await openHeld(page);
   await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
   expect(await within(page, ".cfo-rest")).toBe(true);
   expect(await smallest(page)).toBeGreaterThanOrEqual(15);
@@ -337,6 +374,8 @@ test("in the desktop window the toggle sits on the header's first row, and on a 
   await servePages(context);
   const page = await context.newPage();
   await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
+  await openHeld(page);
+  await expect(bar(page).locator(".afk-held li")).toHaveCount(2);
   await openCfoPanel(page);
   for (const view of ["Task", "Terminal"]) {
     await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();

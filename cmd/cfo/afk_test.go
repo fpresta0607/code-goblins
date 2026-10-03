@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 const (
@@ -481,6 +483,97 @@ func TestAFKSwitchRefusesWhatItCannotCarryBeforeTheSupervisor(t *testing.T) {
 			// Assert
 			if exit != 2 || stderr == "" || asked != 0 {
 				t.Fatalf("exit=%d stderr=%q asked=%d, want it refused before the supervisor", exit, stderr, asked)
+			}
+			if switched, _ := afk.Read(h.State); switched.On {
+				t.Error("AFK mode reads as on after a refused switch")
+			}
+		})
+	}
+}
+
+// cfo afk report prints each held item as it stands in the supervisor's
+// records when it is run, and says so: once he answers a held question after
+// AFK mode is off, the report no longer says it waits on him. A record it
+// cannot read is an error, never the report's older word.
+func TestAFKReportPrintsEachHeldItemAsItStandsNow(t *testing.T) {
+	// Arrange
+	runtime, h := afkRuntime(t)
+	ended := time.Now().UTC()
+	if err := afk.SaveReport(h.State, afk.Report{Session: "afk-1", Since: ended.Add(-time.Hour), Ended: ended, From: overlordsShell, EndedFrom: overlordsShell, Held: []afk.Held{{Item: "question:drop-legacy", What: "Migration 0042 drops legacy_invoices. Apply it?", At: ended.Add(-time.Minute), Waiting: true, Now: "still waiting on you"}}}); err != nil {
+		t.Fatal(err)
+	}
+	board := func(question supervisor.Question) {
+		t.Helper()
+		data, err := json.Marshal(supervisor.Database{Schema: 1, Questions: []supervisor.Question{question}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(h.State, ".supervisor.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board(supervisor.Question{ID: "drop-legacy", Status: "pending"})
+
+	// Act
+	waitingExit, waiting, waitingErr := afkCommand(runtime, "report")
+	board(supervisor.Question{ID: "drop-legacy", Status: "succeeded", AnsweredBy: "overlord", Answer: "Keep it held"})
+	answeredExit, answered, answeredErr := afkCommand(runtime, "report")
+	if err := os.WriteFile(filepath.Join(h.State, ".supervisor.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unreadExit, unread, unreadErr := afkCommand(runtime, "report")
+
+	// Assert
+	if waitingExit != 0 || !strings.Contains(waiting, "Held for you (1), each as it stands now") || !strings.Contains(waiting, "Now: still waiting on you.") {
+		t.Errorf("before his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, still waiting, said to be current", waitingExit, waitingErr, waiting)
+	}
+	if answeredExit != 0 || !strings.Contains(answered, "Held for you (1), each as it stands now") || !strings.Contains(answered, "Now: you answered it: Keep it held.") || strings.Contains(answered, "still waiting on you") {
+		t.Errorf("after his answer: exit=%d stderr=%q stdout:\n%s\nwant the question held, answered by him", answeredExit, answeredErr, answered)
+	}
+	if unreadExit != 1 || unread != "" || !strings.Contains(unreadErr, "what became of each item held for him cannot be read") {
+		t.Errorf("with the records unreadable: exit=%d stdout=%q stderr=%q, want it refused", unreadExit, unread, unreadErr)
+	}
+}
+
+// His words are bounded in characters, not bytes: 500 of any script are
+// taken, normalized to one line, and 501 are refused before the supervisor.
+func TestAFKOnAtHisAskBoundsHisWordsInCharacters(t *testing.T) {
+	for name, words := range map[string]string{
+		"500 plain characters":     strings.Repeat("a", 500),
+		"500 multibyte characters": strings.Repeat("界", 500),
+		"500 emoji over two lines": strings.Repeat("🙂", 250) + "\n\t " + strings.Repeat("🙂", 249),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, h := afkRuntime(t)
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, "on", "--asked", words)
+
+			// Assert
+			switched, err := afk.Read(h.State)
+			want := strings.Join(strings.Fields(words), " ")
+			if exit != 0 || err != nil || !switched.On || switched.Asked != want {
+				t.Errorf("exit=%d stderr=%q switch=%+v (%v), want it on with his words on one line", exit, stderr, switched, err)
+			}
+		})
+	}
+	for name, words := range map[string]string{
+		"501 plain characters":     strings.Repeat("a", 501),
+		"501 multibyte characters": strings.Repeat("界", 501),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, h := afkRuntime(t)
+			asked := 0
+			runtime.switchAFK = func(home.Home, bool, string) error { asked++; return nil }
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, "on", "--asked", words)
+
+			// Assert
+			if exit != 2 || asked != 0 || !strings.Contains(stderr, "in at most 500 characters") {
+				t.Errorf("exit=%d stderr=%q asked=%d, want it refused before the supervisor", exit, stderr, asked)
 			}
 			if switched, _ := afk.Read(h.State); switched.On {
 				t.Error("AFK mode reads as on after a refused switch")

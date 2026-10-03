@@ -549,6 +549,33 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 	return view, nil
 }
 
+// ReadAFKReport returns the report of the last stretch that ended, and whether
+// there is one, with each item it held as that item stands in the
+// supervisor's records now. The rest is the record kept when the stretch
+// ended.
+func ReadAFKReport(h home.Home) (afk.Report, bool, error) {
+	report, found, err := afk.ReadReport(h.State)
+	if err != nil || !found || len(report.Held) == 0 {
+		return report, found, err
+	}
+	board, err := readBoardState(h)
+	if err != nil {
+		return afk.Report{}, false, fmt.Errorf("what became of each item held for him cannot be read: %w", err)
+	}
+	report.Held = heldAsNow(board.Snapshot(), report.Held)
+	return report, true, nil
+}
+
+// heldAsNow is each item a report held for the Overlord, as it stands in d.
+func heldAsNow(d Database, held []afk.Held) []afk.Held {
+	current := make([]afk.Held, len(held))
+	for i, one := range held {
+		one.Waiting, one.Now = heldNow(d, one.Item)
+		current[i] = one
+	}
+	return current
+}
+
 // heldNow is what became of a held item: whether it still waits on the
 // Overlord, and in what words. It is asked only about an item the log holds
 // no answer decision for.
