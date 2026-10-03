@@ -73,6 +73,9 @@ const harnessLaunch = 2 * time.Minute
 // shell has no harness and so no processes of its own.
 func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
+	if meta.Backend == "native" && strings.EqualFold(sample.Harness, "codex") && sample.Session == "" {
+		progress.TranscriptAt = nativeCodexTranscriptAt(ctx, h.Home, meta.Worktree)
+	}
 	harnessPID, err := h.harnessPID(ctx, meta, sample)
 	if err != nil || harnessPID == 0 {
 		return progress, err
@@ -221,13 +224,50 @@ func transcriptAt(home, harness, session string) time.Time {
 			continue
 		}
 		for _, match := range matches {
-			if info, err := os.Stat(match); err == nil && info.ModTime().After(latest) {
-				latest = info.ModTime()
+			file, err := fsx.Open(match)
+			if err != nil {
+				continue
 			}
-			if entry, ok := lastEntryAt(match); ok && entry.After(latest) {
-				latest = entry
+			written := transcriptFileAt(file)
+			file.Close()
+			if written.After(latest) {
+				latest = written
 			}
 		}
+	}
+	return latest
+}
+
+// Native Codex screens carry no session ID. The rollout's own metadata binds
+// it to the task's worktree; directory timestamps cannot establish progress
+// while Codex keeps the writer open.
+func nativeCodexTranscriptAt(ctx context.Context, home, worktree string) time.Time {
+	var latest time.Time
+	if home == "" || !filepath.IsAbs(worktree) {
+		return latest
+	}
+	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
+	matches, _ := filepath.Glob(filepath.Join(home, pattern))
+	for _, match := range matches {
+		if ctx.Err() != nil {
+			break
+		}
+		file, err := fsx.Open(match)
+		if err != nil {
+			continue
+		}
+		var entry struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Cwd string `json:"cwd"`
+			} `json:"payload"`
+		}
+		if json.NewDecoder(io.LimitReader(file, transcriptEntryReach)).Decode(&entry) == nil && entry.Type == "session_meta" && filepath.IsAbs(entry.Payload.Cwd) && fsx.SamePath(entry.Payload.Cwd, worktree) {
+			if written := transcriptFileAt(file); written.After(latest) {
+				latest = written
+			}
+		}
+		file.Close()
 	}
 	return latest
 }
@@ -237,24 +277,18 @@ func transcriptAt(home, harness, session string) time.Time {
 // megabytes.
 const transcriptEntryReach = 4 << 20
 
-// lastEntryAt returns the timestamp of the last complete entry within
-// transcriptEntryReach of the transcript's end. Every harness this reads
-// stamps each entry with a top-level RFC 3339 timestamp; an entry still being
-// written does not parse and is passed over.
-func lastEntryAt(path string) (time.Time, bool) {
-	file, err := fsx.Open(path)
-	if err != nil {
-		return time.Time{}, false
-	}
-	defer file.Close()
+// transcriptFileAt reads the write time and length through the open handle,
+// and uses the last complete entry's timestamp when it is newer. An entry
+// still being written does not parse and is passed over.
+func transcriptFileAt(file *os.File) time.Time {
 	info, err := file.Stat()
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}
 	}
 	start := max(0, info.Size()-transcriptEntryReach)
 	tail := make([]byte, info.Size()-start)
 	if _, err := file.ReadAt(tail, start); err != nil && !errors.Is(err, io.EOF) {
-		return time.Time{}, false
+		return info.ModTime()
 	}
 	lines := bytes.Split(tail, []byte("\n"))
 	if start > 0 {
@@ -266,8 +300,11 @@ func lastEntryAt(path string) (time.Time, bool) {
 			Timestamp time.Time `json:"timestamp"`
 		}
 		if json.Unmarshal(lines[i], &entry) == nil && !entry.Timestamp.IsZero() {
-			return entry.Timestamp, true
+			if entry.Timestamp.After(info.ModTime()) {
+				return entry.Timestamp
+			}
+			break
 		}
 	}
-	return time.Time{}, false
+	return info.ModTime()
 }
