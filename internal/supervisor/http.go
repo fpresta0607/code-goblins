@@ -61,6 +61,12 @@ type HTTP struct {
 	build string
 	// snapshot builds the board's snapshot, which reads the fleet from disk.
 	snapshot func() (Snapshot, error)
+	// dictation is the engine's one download; dictationWork waits for it,
+	// and dictationSlot runs one engine at a time.
+	dictation         dictationFetch
+	dictationWork     sync.WaitGroup
+	dictationSlot     chan struct{}
+	dictationPatience time.Duration
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -71,7 +77,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, snapshot: s.Snapshot, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
+	return &HTTP{build: build, snapshot: s.Snapshot, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +142,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, value)
+	case r.URL.Path == "/api/dictation" && r.Method == "GET":
+		h.dictationStatus(w)
+	case r.URL.Path == "/api/dictation" && r.Method == "POST":
+		h.dictate(w, r)
 	case r.URL.Path == "/api/connections" && r.Method == "GET":
 		h.readConnections(w, r)
 	case r.URL.Path == "/api/connections/check" && r.Method == "POST":

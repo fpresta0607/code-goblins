@@ -16,9 +16,14 @@ config/
 /config/*
 !/config/pipeline.json
 !/config/verify.json
+!/config/voice.json
 /cfo.exe
 # install.cmd -Dev builds both names and moves a copy still running aside.
 /goblins.exe
+# The desktop window built in the clone, and the picture of its notifications,
+# which it writes beside itself at each start.
+/goblins-window.exe
+/goblins-window.png
 /cfo.exe.new
 /cfo.exe.*.old
 /goblins.exe.*.old
