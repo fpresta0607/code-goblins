@@ -317,6 +317,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 
 .workspace-outcome { color: var(--muted); font-size: .9375rem; margin: 12px 0; overflow-wrap: anywhere; }
 .disclosure.connections { margin-top: 22px; }
+.engine-selector { container-type: inline-size; min-width: 0; margin-bottom: 18px; }
+.engine-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .8fr); gap: 10px; }
+.engine-fields label { display: grid; min-width: 0; gap: 8px; color: var(--muted); font-size: .9375rem; }
+.engine-fields select { width: 100%; min-width: 0; color: #edf4f3; padding-left: 10px; }
+.engine-harness { display: flex; align-items: center; min-width: 0; position: relative; }
+.engine-harness .mark { position: absolute; left: 8px; width: 24px; height: 24px; pointer-events: none; }
+.engine-harness .mark svg { width: 15px; height: 15px; }
+.engine-harness select { padding-left: 38px; }
+.engine-selector > button { margin-top: 12px; }
+.engine-readonly { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; overflow-wrap: anywhere; }
+.engine-pending { overflow-wrap: anywhere; }
+.engine-pending button { margin-left: 6px; }
+@container (max-width: 390px) { .engine-fields { grid-template-columns: minmax(0, 1fr) minmax(0, .5fr); } .engine-fields label:first-child { grid-column: 1 / -1; } }
 .connections p { color: var(--muted); }
 .connection-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; }
 .connection-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }

@@ -125,6 +125,8 @@ type Service struct {
 	starting     string
 	startErrors  map[string]string
 	changing     map[string]string
+	engineFrom   map[string]state.TaskMeta
+	engineIdle   map[string]engineIdleReading
 	changeErrors map[string]taskChangeError
 	// credentialSaves takes one credential save at a time, and
 	// credentialWork waits for the refresh and the CFO's notice each save
@@ -387,6 +389,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
 	s.reconcilePresentations(ctx)
 	s.watchPages(ctx)
@@ -834,15 +837,17 @@ type Task struct {
 	// Brief says queued work has its brief, which a Start needs; Starting
 	// that its Start runs cfo spawn now, and StartError why its last Start
 	// failed.
-	Brief         bool             `json:"brief"`
-	Starting      bool             `json:"starting"`
-	StartError    string           `json:"start_error"`
-	Lifecycle     *LifecycleStatus `json:"lifecycle,omitempty"`
-	Teardown      []string         `json:"teardown,omitempty"`
-	ActionError   string           `json:"action_error,omitempty"`
-	QueueRevision string           `json:"queue_revision,omitempty"`
-	Detail        string           `json:"detail,omitempty"`
-	Notes         []string         `json:"notes,omitempty"`
+	Brief         bool                `json:"brief"`
+	Starting      bool                `json:"starting"`
+	StartError    string              `json:"start_error"`
+	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	Teardown      []string            `json:"teardown,omitempty"`
+	ActionError   string              `json:"action_error,omitempty"`
+	QueueRevision string              `json:"queue_revision,omitempty"`
+	Detail        string              `json:"detail,omitempty"`
+	PendingEngine *state.EngineChoice `json:"pending_engine,omitempty"`
+	Switching     bool                `json:"switching,omitempty"`
+	Notes         []string            `json:"notes,omitempty"`
 	Evaluation
 }
 
@@ -1064,6 +1069,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if task.Phase == "queued" {
 			if queued, err := fleet.ReadQueuedTask(s.Store.Home, task.ID); err == nil {
 				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				settings := queuedEngine(queued.Row, filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+				task.Harness, task.Model, task.Effort, task.Mode = settings.harness, settings.model, settings.effort, settings.mode
 				if queued.IsBriefOnly {
 					task.Title = queued.Row.Title
 				}
@@ -1095,11 +1102,20 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				task.Archived = true
 			}
 		}
-		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+		if choice, err := state.ReadEngineChoice(s.Store.Home.State, task.ID); err == nil && choice.Generation == task.Generation {
+			task.PendingEngine = &choice
+		}
+		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (failure.Operation == "" || lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
 		if action := s.changing[task.ID]; action != "" {
-			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+			if action == "switch" {
+				task.Switching = true
+				prior := s.engineFrom[task.ID]
+				task.Harness, task.Model, task.Effort = prior.Harness, prior.Model, prior.Effort
+			} else {
+				task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+			}
 		}
 	}
 	s.starts.Unlock()
