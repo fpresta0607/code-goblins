@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -18,6 +19,35 @@ type resumeRunner struct{ requests []execx.Request }
 func (r *resumeRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.requests = append(r.requests, request)
 	return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+}
+
+func TestResumeUsesSavedSessionOnlyWithinOneDayOfThePause(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		age         time.Duration
+		wantSession string
+	}{
+		{name: "recent pause", age: time.Hour, wantSession: "saved-session"},
+		{name: "one day old", age: 24 * time.Hour},
+		{name: "older pause", age: 48 * time.Hour},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h := primaryHomeFixture(t)
+			var received spawn.SwitchRequest
+			runtime := commandRuntime{switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				received = request
+				return spawn.SwitchResult{}, nil
+			}}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Worktree: t.TempDir()}
+			prior := state.Lifecycle{Session: "saved-session", Started: time.Now().Add(-testCase.age), Handoff: "retained-handoff.md", HandoffSaved: true, ResumeNote: "The Overlord answered: continue"}
+
+			err := resumeTask(t.Context(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, prior)
+
+			if err != nil || received.ResumeSession != testCase.wantSession || received.ResumeHandoff != prior.Handoff || received.ID != meta.ID || received.ResumeNote != prior.ResumeNote {
+				t.Fatalf("resume request=%+v error=%v", received, err)
+			}
+		})
+	}
 }
 
 func TestResumeRefusesATaskRecordedInHerdrBeforeTheGateRestarts(t *testing.T) {
@@ -72,7 +102,7 @@ func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.
 				return spawn.SwitchResult{}, nil
 			}}
 
-			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, state.Lifecycle{Session: "session-1", HandoffSaved: true, Handoff: "saved handoff"})
+			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, state.Lifecycle{Session: "session-1", Started: time.Now().Add(-time.Hour), HandoffSaved: true, Handoff: "saved handoff"})
 
 			if (err != nil) != test.isFailed || request.ResumeSession != test.session || request.ResumeHandoff != "saved handoff" || !request.ForceDirty {
 				t.Fatalf("resume = %+v, %v", request, err)

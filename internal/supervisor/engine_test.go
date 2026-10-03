@@ -56,6 +56,41 @@ func TestEngineSelectionSavesQueuedSettingsForStartAndRejectsStaleEdits(t *testi
 	}
 }
 
+func TestSnapshotReflectsChangedEngineBriefAndPendingChoice(t *testing.T) {
+	store, h := testStore(t)
+	service := &Service{Store: store}
+	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: project)", plainBrief+"\nharness: codex\nmodel: first-model\neffort: high\n")
+	meta := state.TaskMeta{ID: "live-task", SpawnGen: "s1", Harness: "claude", Backend: "native"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if card := engineCard(t, service, "next-task"); card.Model != "first-model" {
+		t.Fatalf("initial queued engine = %+v", card)
+	}
+	if card := engineCard(t, service, meta.ID); card.PendingEngine != nil {
+		t.Fatalf("unexpected initial choice = %+v", card.PendingEngine)
+	}
+
+	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief+"\nharness: codex\nmodel: changed-model\neffort: high\n")
+	choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: "codex", Model: "chosen-model", Effort: "high", When: "turn-end"}
+	if err := state.WriteEngineChoice(h.State, choice); err != nil {
+		t.Fatal(err)
+	}
+
+	if card := engineCard(t, service, "next-task"); card.Model != "changed-model" {
+		t.Fatalf("changed queued engine = %+v", card)
+	}
+	if card := engineCard(t, service, meta.ID); card.PendingEngine == nil || card.PendingEngine.Model != choice.Model {
+		t.Fatalf("saved choice = %+v", card.PendingEngine)
+	}
+	if err := state.RemoveEngineChoice(h.State, meta.ID); err != nil {
+		t.Fatal(err)
+	}
+	if card := engineCard(t, service, meta.ID); card.PendingEngine != nil {
+		t.Fatalf("removed choice still visible = %+v", card.PendingEngine)
+	}
+}
+
 func TestDeferredEngineSwitchWaitsForTheTurnAndGateThenSwitchesOnce(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 5*gigabyte, spawner)

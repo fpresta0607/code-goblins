@@ -36,6 +36,7 @@ type SwitchRequest struct {
 	IsResume      bool
 	ResumeSession string
 	ResumeHandoff string
+	ResumeNote    string
 	Generation    string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
@@ -348,6 +349,9 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
+	}
+	if request.IsResume && request.ResumeNote != "" {
+		launch.Instruction += "\n" + request.ResumeNote
 	}
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."

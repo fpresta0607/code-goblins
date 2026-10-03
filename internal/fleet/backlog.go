@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -21,17 +22,27 @@ var (
 	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
 	blockerToken       = regexp.MustCompile(`(?i)\bblocked-by:\s*([^\s\)]+)`)
 	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
+	metadataPatterns   = func() map[string]*regexp.Regexp {
+		patterns := map[string]*regexp.Regexp{}
+		for _, key := range []string{"repo", "kind", "priority", "hold-kind", "harness", "model", "effort", "mode"} {
+			patterns[key] = regexp.MustCompile(`(?i)(?:\(|,)\s*` + key + `\s*:\s*([^,)]*)`)
+		}
+		return patterns
+	}()
 )
 
 // BacklogRows retains each rendered Plan 3 backlog section in source order.
 // Parked is work set aside rather than queued: the rows under ## Parked and
 // any row parked in place with hold-kind parked, in file order.
 type BacklogRows struct {
-	Path    string       `json:"path"`
-	Present bool         `json:"present"`
-	Queued  []BacklogRow `json:"queued"`
-	Parked  []BacklogRow `json:"parked"`
-	Done    []BacklogRow `json:"done"`
+	Path        string       `json:"path"`
+	Present     bool         `json:"present"`
+	Queued      []BacklogRow `json:"queued"`
+	Parked      []BacklogRow `json:"parked"`
+	Done        []BacklogRow `json:"done"`
+	queuedTasks map[string]QueuedTask
+	duplicates  map[string]bool
+	listed      map[string]bool
 }
 
 // BacklogRow is either a typed tasks-axi-compatible record or a raw source
@@ -42,6 +53,7 @@ type BacklogRow struct {
 	Title         string   `json:"title"`
 	Repo          string   `json:"repo"`
 	Kind          string   `json:"kind"`
+	Priority      string   `json:"priority,omitempty"`
 	BlockedBy     string   `json:"blocked_by"`
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
@@ -59,7 +71,7 @@ type BacklogRow struct {
 // changing their file order. Missing backlog files are a typed empty result.
 func ReadBacklog(h home.Home) (BacklogRows, error) {
 	path := filepath.Join(h.Data, "backlog.md")
-	result := BacklogRows{Path: path, Queued: []BacklogRow{}, Parked: []BacklogRow{}, Done: []BacklogRow{}}
+	result := BacklogRows{Path: path, Queued: []BacklogRow{}, Parked: []BacklogRow{}, Done: []BacklogRow{}, queuedTasks: map[string]QueuedTask{}, duplicates: map[string]bool{}, listed: map[string]bool{}}
 	data, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
@@ -69,7 +81,8 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	}
 	result.Present = true
 	section := ""
-	for _, raw := range strings.Split(string(data), "\n") {
+	lines := strings.Split(string(data), "\n")
+	for index, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		if heading := levelTwoHeading.FindStringSubmatch(trimmed); heading != nil {
@@ -85,16 +98,42 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 			}
 			continue
 		}
-		if section == "" || trimmed == "" {
+		if trimmed == "" {
 			continue
 		}
 		row := parseBacklogRow(trimmed)
+		if row.Structured {
+			result.listed[row.ID] = true
+		}
+		if section == "" {
+			continue
+		}
 		row.Raw = line
 		switch {
 		case section == "parked" || section == "queued" && strings.EqualFold(metadataValue(trimmed, "hold-kind"), "parked"):
 			result.Parked = append(result.Parked, row)
 		case section == "queued":
 			result.Queued = append(result.Queued, row)
+			if row.Structured {
+				end := index + 1
+				for next := end; next < len(lines); next++ {
+					if strings.TrimSpace(lines[next]) == "" {
+						continue
+					}
+					if !continuesRow(lines[next]) {
+						break
+					}
+					end = next + 1
+				}
+				detail := make([]string, 0, end-index-1)
+				for _, line := range lines[index+1 : end] {
+					detail = append(detail, strings.TrimSpace(line))
+				}
+				if _, exists := result.queuedTasks[row.ID]; exists {
+					result.duplicates[row.ID] = true
+				}
+				result.queuedTasks[row.ID] = QueuedTask{Row: row, Detail: strings.TrimSpace(strings.Join(detail, "\n")), Revision: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(lines[index:end], "\n"))))}
+			}
 		default:
 			result.Done = append(result.Done, row)
 		}
@@ -122,6 +161,7 @@ func parseBacklogRow(line string) BacklogRow {
 		Title:         backlogTitle(rest),
 		Repo:          metadataValue(rest, "repo"),
 		Kind:          metadataValue(rest, "kind"),
+		Priority:      metadataValue(rest, "priority"),
 		BlockedBy:     blockedBy,
 		BlockedByIDs:  blockedByIDs,
 		BlockedReason: blockedReason,
@@ -135,8 +175,7 @@ func parseBacklogRow(line string) BacklogRow {
 }
 
 func metadataValue(text, key string) string {
-	pattern := regexp.MustCompile(`(?i)(?:\(|,)\s*` + regexp.QuoteMeta(key) + `\s*:\s*([^,)]*)`)
-	match := pattern.FindStringSubmatch(text)
+	match := metadataPatterns[key].FindStringSubmatch(text)
 	if match == nil {
 		return ""
 	}

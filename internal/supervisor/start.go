@@ -73,6 +73,7 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
+	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is
@@ -94,6 +95,8 @@ func (m Memory) shortfall() string {
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
 	missingBrief                                     *fleet.QueuedTask
+	isOverlord                                       bool
+	isProductionDefect                               bool
 }
 
 func (p startPlan) args() []string {
@@ -147,31 +150,48 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 // startTask checks that id can start now and starts cfo spawn for it; one
 // task starts at a time, and the board shows it starting until spawn ends.
 func (s *Service) startTask(id string) error {
+	return s.startQueued(id, true)
+}
+
+func (s *Service) startQueued(id string, isOverlord bool) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil {
 		return StartRefusal{Reason: "This board cannot start goblins"}
 	}
 	s.starts.Lock()
-	defer s.starts.Unlock()
 	if s.startErrors == nil {
 		s.startErrors = map[string]string{}
 	}
 	if s.starting != "" {
-		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
+		starting := s.starting
+		s.starts.Unlock()
+		return StartRefusal{Reason: starting + " is starting; start another once it is up", Passing: true}
 	}
 	for task, action := range s.changing {
 		if action == "resume" {
+			s.starts.Unlock()
 			return StartRefusal{Reason: task + " is resuming; start another once it is up", Passing: true}
 		}
 	}
 	if s.changing[id] != "" {
+		s.starts.Unlock()
 		return StartRefusal{Reason: "This task is being changed", Passing: true}
 	}
+	s.starting = id
+	s.starts.Unlock()
+	isStarting := false
+	defer func() {
+		if !isStarting {
+			s.starts.Lock()
+			s.starting = ""
+			s.starts.Unlock()
+			s.notify()
+		}
+	}()
 	queueLock := ".queued-" + id + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
 		return StartRefusal{Reason: "This queued task is being changed; try again", Passing: true}
 	}
-	isStarting := false
 	defer func() {
 		if !isStarting {
 			if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
@@ -183,12 +203,16 @@ func (s *Service) startTask(id string) error {
 	if err != nil {
 		return err
 	}
+	plan.isOverlord = isOverlord
 	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
+	}
+	if err := CheckLaunch(s.Store.Home, memory); err != nil {
+		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {
 		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
@@ -198,9 +222,10 @@ func (s *Service) startTask(id string) error {
 			return err
 		}
 	}
-	s.starting = id
 	isStarting = true
+	s.starts.Lock()
 	delete(s.startErrors, id)
+	s.starts.Unlock()
 	go s.runStart(dispatch, plan)
 	return nil
 }
@@ -235,6 +260,12 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(readErr)
 		}
 		detail = "started: the Overlord started this from the board, at the top of In progress; its row is still in backlog.md's Queued section"
+		if !plan.isOverlord {
+			detail = "started: the supervisor started the next queued task after checking cleared pauses; its row is still in backlog.md's Queued section"
+		}
+		if plan.isProductionDefect {
+			detail += "; production defect jumped the order"
+		}
 	}
 	if _, err := wake.Append(h.State, "notify", plan.id, detail); err != nil {
 		s.publish(err)
@@ -284,20 +315,20 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
 		return startPlan{}, briefErr
-	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
+	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h, diskBriefs), func(task Task) bool { return task.ID == id }):
 		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
 	if len(row.BlockedByIDs) > 0 {
 		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
 	}
-	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
+	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
 	}
-	settings := queuedEngine(row, brief)
+	settings := queuedEngine(row, briefSettings(brief))
 	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
 	switch {
 	case !slices.Contains(spawnHarnesses, plan.harness):
@@ -318,8 +349,7 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	return plan, nil
 }
 
-func queuedEngine(row fleet.BacklogRow, brief string) startPlan {
-	named := briefSettings(brief)
+func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
 	pick := func(fromRow, key, fallback string) string {
 		switch {
 		case fromRow != "":

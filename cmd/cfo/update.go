@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -149,6 +150,9 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		return 1
 	}
 	updateInterrupt("prepared")
+	// An update trusts a build because the Overlord ran it; nothing here
+	// checks who built it, so it says so and names what he can check.
+	fmt.Fprintf(stdout, "Installing the build that runs this command, SHA-256 %s. An update checks no code signature, so the build is yours to check: compare that SHA-256 with the build you made or were given.\n", journal.Hash)
 	fmt.Fprintf(stdout, "Prepared: the previous build is backed up in %s. If this update stops part way, this puts it back, pasted into Windows PowerShell:\n  %s\n", update.Dir(h.State), recoverCommand(h))
 
 	// The supervisor is restarted on the address the one stopped here serves,
@@ -197,6 +201,13 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	}
 	update.CleanUp(journal)
 	fmt.Fprintf(stdout, "Updated: cfo.exe and goblins.exe in %s are %s, and its supervisor (pid %d) serves the board.\n", h.Root, journal.Hash, started.pid)
+	// The desktop window beside the candidate follows the update into the
+	// home. It takes no part in it: the window of the previous build shows
+	// this build's board, so one that could not be replaced leaves the
+	// update done.
+	if err := install.CarryWindow(h.Root, candidate, stdout); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the update is done, but the desktop window in %s was not replaced, and the one there keeps working: %v\n", h.Root, err)
+	}
 	return updateInstalled
 }
 
