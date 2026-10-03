@@ -323,7 +323,7 @@ func (s *Service) run(ctx context.Context) {
 		for ctx.Err() == nil {
 			before := time.Now()
 			if waiter != nil {
-				waiter.Wait(2 * time.Second)
+				waiter.Wait(ctx, 2*time.Second)
 			} else {
 				time.Sleep(2 * time.Second)
 			}
