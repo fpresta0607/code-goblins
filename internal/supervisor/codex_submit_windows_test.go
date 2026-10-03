@@ -30,9 +30,9 @@ type codexSubmitEvent struct {
 	Session string    `json:"session"`
 }
 
-// The consumer-side pause keeps text and Enter in the same paste burst even
-// though the host acknowledged both writes. Codex 0.160 treats Enter in that
-// burst as a newline; its queue key flushes the paste before submitting.
+// The consumer-side pause keeps text and submit keys in the same paste burst
+// even though the host acknowledged both writes. Codex 0.160 treats Enter and
+// Tab in that burst as pasted controls rather than submission.
 func TestNativeCodexSubmitProgram(t *testing.T) {
 	args := flag.Args()
 	if len(args) != 5 || args[0] != "codex-submit-program" {
@@ -122,6 +122,8 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 	var draft strings.Builder
 	var lastCharacter time.Time
 	var queued string
+	var endKey string
+	hasReadInput := false
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -138,19 +140,34 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 			if !open {
 				return
 			}
-			if lastCharacter.IsZero() {
+			if !hasReadInput {
 				time.Sleep(600 * time.Millisecond)
+				hasReadInput = true
+			}
+			if key == '\x1b' || endKey != "" {
+				endKey += string(key)
+				if endKey == "\x1b[F" {
+					lastCharacter = time.Time{}
+					record("paste-end", draft.String())
+					endKey = ""
+				} else if !strings.HasPrefix("\x1b[F", endKey) {
+					record("error", "unexpected terminal key "+endKey)
+					os.Exit(2)
+				}
+				continue
 			}
 			switch key {
-			case '\r':
+			case '\r', '\t':
 				if time.Since(lastCharacter) <= 120*time.Millisecond {
-					draft.WriteByte('\n')
-					record("newline", draft.String())
+					control := key
+					if control == '\r' {
+						control = '\n'
+					}
+					draft.WriteRune(control)
+					record("paste-control", draft.String())
 					draw(draft.String())
 					continue
 				}
-				fallthrough
-			case '\t':
 				record("submitted", draft.String())
 				if busy {
 					queued = draft.String()
@@ -271,7 +288,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 				}
 				if len(consumed) == 1 && consumed[0].Text == want {
 					record, err := host.ReadRecord(terminal.stateDir, terminal.id)
-					if err != nil || consumed[0].PID != record.ChildPID || !consumed[0].Start.Equal(submitted[0].Start) || consumed[0].Session != "codex-submit-session" {
+					if err != nil || consumed[0].PID != record.ChildPID || !consumed[0].Start.Equal(record.ChildStart) || !consumed[0].Start.Equal(submitted[0].Start) || consumed[0].Session != "codex-submit-session" {
 						t.Fatalf("recipient changed: %+v, %+v, %v", consumed, record, err)
 					}
 					break

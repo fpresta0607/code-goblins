@@ -603,9 +603,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	}
 	submit := "\r"
 	if primary.Agent == "codex" {
-		// Codex's queue key flushes paste input before submitting; Enter can
-		// join that paste as a newline even after the host wrote every byte.
-		submit = "\t"
+		// End flushes Codex's paste burst without changing the text; otherwise
+		// Enter can join that paste instead of submitting it.
+		submit = "\x1b[F\r"
 	}
 	if err := delivery.Write([]byte(submit)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether its submit key reached it is unknown: %w", err)
