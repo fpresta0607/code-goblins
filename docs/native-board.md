@@ -551,7 +551,7 @@ Known exited/replaced sessions are refused, but the board does not claim to elim
 Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
 Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
-Long names have the board's full-text tip when the wide row truncates them, and the rows have 24px of padding above and below their content while checks load and after they finish.
+Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
 Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
 Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
