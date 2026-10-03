@@ -189,9 +189,9 @@ type payload struct {
 			Unit      string          `json:"unit"`
 		} `json:"credits"`
 		State struct {
-			Stale       bool   `json:"stale"`
-			Status      string `json:"status"`
-			RefreshedAt string `json:"refreshedAt"`
+			Stale       bool    `json:"stale"`
+			Status      string  `json:"status"`
+			RefreshedAt *string `json:"refreshedAt"`
 		} `json:"state"`
 		QuotaSemantics struct {
 			Status                string `json:"status"`
@@ -225,7 +225,10 @@ func Parse(data []byte, now time.Time) (Report, error) {
 	isStale := now.Sub(generated) > MaxAge
 	report := Report{GeneratedAt: generated, Providers: map[string]Provider{}}
 	for _, p := range in.Providers {
-		refreshed, _ := time.Parse(time.RFC3339Nano, p.State.RefreshedAt)
+		refreshed := generated
+		if p.State.RefreshedAt != nil {
+			refreshed, _ = time.Parse(time.RFC3339Nano, *p.State.RefreshedAt)
+		}
 		provider := Provider{Name: p.Provider, Source: p.Source, Status: p.State.Status, RefreshedAt: refreshed, Stale: p.State.Stale || isStale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
 		for _, w := range p.Windows {
 			at, err := time.Parse(time.RFC3339Nano, w.ResetsAt)
@@ -282,19 +285,19 @@ func (r Report) Weekly(provider string, now time.Time) WeeklyReading {
 		reading.Source = p.Source
 	}
 	reading.ReadAt = p.RefreshedAt
-	if reading.ReadAt.IsZero() {
-		reading.ReadAt = r.GeneratedAt
-	}
 	reading.ResetsAt = p.Resets[windowID]
 	if p.Status == "auth_required" {
 		reading.Status = "auth_required"
+		return reading
+	}
+	if reading.ReadAt.IsZero() {
 		return reading
 	}
 	if p.Stale || now.Sub(reading.ReadAt) > MaxAge || now.Sub(r.GeneratedAt) > MaxAge {
 		reading.Status = "stale"
 		return reading
 	}
-	if !p.Known || p.Status != "fresh" || p.Source != "oauth" || reading.ReadAt.IsZero() || reading.ReadAt.After(now.Add(time.Minute)) || r.GeneratedAt.After(now.Add(time.Minute)) {
+	if !p.Known || p.Status != "fresh" || p.Source != "oauth" || reading.ReadAt.After(now.Add(time.Minute)) || r.GeneratedAt.After(now.Add(time.Minute)) {
 		return reading
 	}
 	for _, window := range p.Windows {

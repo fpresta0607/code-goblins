@@ -166,7 +166,7 @@ func TestSnapshotShowsUsageOnlyWhileTheFixtureGoblinIsLive(t *testing.T) {
 func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	now := time.Now().UTC()
 	service := &Service{Options: Options{Quota: func(context.Context) (quota.Report, string) {
-		return quota.Report{GeneratedAt: now, Providers: map[string]quota.Provider{"codex": {Source: "oauth", Status: "fresh", Known: true, Windows: []quota.Window{{ID: "weekly", PercentUsed: 24, ResetsAt: now.Add(24 * time.Hour)}}, Resets: map[string]time.Time{"weekly": now.Add(24 * time.Hour)}, Credits: &quota.Credits{Remaining: 999, Unit: "private-balance"}}}}, ""
+		return quota.Report{GeneratedAt: now, Providers: map[string]quota.Provider{"codex": {Source: "oauth", Status: "fresh", RefreshedAt: now, Known: true, Windows: []quota.Window{{ID: "weekly", PercentUsed: 24, ResetsAt: now.Add(24 * time.Hour)}}, Resets: map[string]time.Time{"weekly": now.Add(24 * time.Hour)}, Credits: &quota.Credits{Remaining: 999, Unit: "private-balance"}}}}, ""
 	}}}
 	service.refreshSubscriptionUsage(context.Background())
 	view := Snapshot{At: now}

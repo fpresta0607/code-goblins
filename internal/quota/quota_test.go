@@ -2,6 +2,7 @@ package quota
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -28,6 +29,56 @@ func TestWeeklyReadingSelectsTheProviderAccountWeek(t *testing.T) {
 			reading := report.Weekly(provider, snapshotTime)
 			if reading.Status != "available" || reading.PercentRemaining == nil || *reading.PercentRemaining != remaining || reading.ResetsAt.IsZero() || reading.ReadAt.IsZero() || reading.Source != "oauth" {
 				t.Fatalf("weekly reading = %+v, want %v%% account weekly remaining with provenance", reading, remaining)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNeverReplacesSuppliedUnknownRefreshTime(t *testing.T) {
+	now := time.Date(2026, 10, 3, 13, 7, 0, 0, time.UTC)
+	reset := time.Date(2026, 10, 9, 22, 27, 42, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		field  string
+		status string
+		readAt time.Time
+	}{
+		{"absent", "", "available", now},
+		{"fresh", `,"refreshedAt":"2026-10-03T13:06:00Z"`, "available", now.Add(-time.Minute)},
+		{"malformed", `,"refreshedAt":"not-a-date"`, "unavailable", time.Time{}},
+		{"zero", `,"refreshedAt":"0001-01-01T00:00:00Z"`, "unavailable", time.Time{}},
+		{"empty", `,"refreshedAt":""`, "unavailable", time.Time{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-10-03T13:07:00Z","providers":[{"provider":"codex","source":"oauth","state":{"status":"fresh"%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":75,"runway":{"status":"through_reset","limitingWindowId":"weekly"}}]},"windows":[{"id":"weekly","percentUsed":25,"resetsAt":"2026-10-09T22:27:42Z"}]}]}`, test.field)
+			report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: []byte(data)}}, now)
+			if skipped != "" {
+				t.Fatalf("refresh metadata changed reader error behavior: %s", skipped)
+			}
+			reading := report.Weekly("codex", now)
+			projection, err := json.Marshal(struct {
+				Provider string `json:"provider"`
+				WeeklyReading
+			}{Provider: "codex", WeeklyReading: reading})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("weekly presentation %s %s", test.name, projection)
+			if reading.Status != test.status || !reading.ReadAt.Equal(test.readAt) {
+				t.Errorf("reading = %+v, want %s with read time %s", reading, test.status, test.readAt)
+			}
+			if test.status == "available" {
+				if reading.PercentRemaining == nil || *reading.PercentRemaining != 75 {
+					t.Errorf("valid reading = %+v, want 75%%", reading)
+				}
+			} else if reading.PercentRemaining != nil {
+				t.Errorf("supplied unknown refresh time invented remaining percentage: %+v", reading)
+			}
+			if !reading.ResetsAt.Equal(reset) {
+				t.Errorf("reset lost with refresh metadata: %+v", reading)
+			}
+			if headroom := report.Headroom("codex", ""); headroom != (Headroom{Provider: "codex", Scope: "all_models", Known: true, PercentRemaining: 75, Runway: "through_reset", ResetsAt: reset}) {
+				t.Errorf("refresh metadata changed routing evidence: %+v", headroom)
 			}
 		})
 	}

@@ -61,3 +61,15 @@ test("a non-subscription quota source cannot supply a weekly percentage", () => 
     assert.equal(subscriptionState(reading({ source }), NOW).remaining, null);
   }
 });
+
+test("malformed and zero reading times stay unknown without losing a known reset", () => {
+  for (const readAt of ["not-a-date", "0001-01-01T00:00:00Z"]) {
+    const state = subscriptionState(reading({ percent_remaining: 75, read_at: readAt }), NOW);
+    assert.equal(state.remaining, null);
+    assert.equal(state.text, "?");
+    assert.match(state.details, /Reading time unknown/);
+    assert.doesNotMatch(state.details, /just now|75%/);
+    const reset = new Date("2026-10-09T22:27:42Z").toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+    assert.ok(state.details.includes(reset));
+  }
+});
