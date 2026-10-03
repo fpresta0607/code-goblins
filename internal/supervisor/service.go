@@ -371,12 +371,13 @@ func (s *Service) run(ctx context.Context) {
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
 	before := s.Store.Snapshot().Revision
-	if err := s.Store.Ingest(); err != nil {
-		s.publish(err)
+	ingestErr := s.Store.Ingest()
+	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
+		s.publish(ingestErr)
 		return
 	}
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
@@ -414,7 +415,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	case s.work <- struct{}{}:
 	default:
 	}
-	if recover || before != s.Store.Snapshot().Revision {
+	if recover || ingestErr != nil || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
 }
