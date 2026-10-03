@@ -276,7 +276,7 @@ func readRunCommand(path string) (string, error) {
 	if len(data) > maxRunCommand {
 		return "", fmt.Errorf("the command file is over %d KiB", maxRunCommand>>10)
 	}
-	return string(data), nil
+	return strings.TrimPrefix(string(data), "\ufeff"), nil
 }
 
 func (s *Store) acceptRun(r Run) error {
