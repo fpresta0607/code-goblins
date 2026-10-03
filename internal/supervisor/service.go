@@ -895,6 +895,9 @@ type Snapshot struct {
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
 	CFOHarness string `json:"cfo_harness"`
+	// CFOConversationLeft names the conversation the CFO could not resume
+	// when it last came back, and is empty when it came back on its own.
+	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory *Memory `json:"memory,omitempty"`
@@ -922,6 +925,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
+	out.CFOConversationLeft = CFOConversationLeftNotice(s.Store.Home.State)
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it

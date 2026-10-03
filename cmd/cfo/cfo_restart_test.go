@@ -215,6 +215,9 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	h := fakeClaudeHome(t)
 	before := nativeCFORunning(t, h, "a1b2c3d4-session")
 	recordConversationOf(t, h.State, before, "claude", "a1b2c3d4-session")
+	if err := supervisor.RecordCFOConversationLeft(h.State, supervisor.CFOConversationLeft{Harness: "claude", Session: "older-session", Resume: []string{"--resume", "older-session"}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +237,9 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	}
 	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		t.Error("native terminal cfo does not run after the restart")
+	}
+	if notice := supervisor.CFOConversationLeftNotice(h.State); notice != "" {
+		t.Errorf("the board says %q after the CFO came back on its conversation, want nothing", notice)
 	}
 }
 
@@ -264,6 +270,9 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 	}
 	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 		t.Error("no CFO runs in native terminal cfo after the restart")
+	}
+	if notice := supervisor.CFOConversationLeftNotice(h.State); !strings.Contains(notice, "The CFO's conversation a1b2c3d4-session could not be resumed") || !strings.Contains(notice, "claude --resume a1b2c3d4-session") {
+		t.Errorf("the board says %q, want the conversation it could not resume named with how to resume it by hand", notice)
 	}
 }
 

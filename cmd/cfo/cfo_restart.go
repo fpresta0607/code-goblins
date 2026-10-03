@@ -25,7 +25,8 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // not recorded for, or whose conversation cannot be resumed, is left running,
 // with the reason. A harness that ends at once, as one that cannot resume the
 // conversation does, is started again on a new conversation, as goblins does
-// for a closed CFO, so the fleet is never left without one. Closing the
+// for a closed CFO, so the fleet is never left without one, and the board
+// names the conversation it could not resume. Closing the
 // terminal ends the harness and everything it started; goblins, each in a
 // terminal of its own, keep running.
 func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
@@ -57,10 +58,14 @@ func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
 	}
 	cfoResumeWait(cfoResumeSettle)
 	if supervisor.NativeTerminalRuns(h.State, id) {
+		supervisor.ClearCFOConversationLeft(h.State)
 		return conversation, true, nil
 	}
 	if err := startNativeCFO(h, h.Root, conversation.Harness, nil); err != nil {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("the CFO stopped, its conversation %s could not be resumed, and it did not start on a new one; run goblins to bring it back: %w", conversation.Session, err)
+	}
+	if err := supervisor.RecordCFOConversationLeft(h.State, supervisor.CFOConversationLeft{Harness: conversation.Harness, Session: conversation.Session, Resume: args}); err != nil {
+		return supervisor.CFOConversation{}, false, fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", conversation.Session, err)
 	}
 	return conversation, false, nil
 }

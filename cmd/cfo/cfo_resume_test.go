@@ -79,6 +79,43 @@ func TestACFOWhoseConversationCannotBeResumedStartsANewOne(t *testing.T) {
 	}
 }
 
+// The board names the conversation a closed CFO could not resume, as it
+// does for a CFO restarted by goblins resume, and forgets an earlier one once
+// the CFO comes back on its conversation.
+func TestTheBoardNamesTheConversationAClosedCFOCouldNotResume(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		isResumeEnds bool
+		want         string
+	}{
+		{"a conversation that could not be resumed", true, "The CFO's conversation a1b2c3d4-session could not be resumed"},
+		{"a conversation resumed", false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			f.resumeEnds = c.isResumeEnds
+			if err := supervisor.RecordCFOConversationLeft(f.home.State, supervisor.CFOConversationLeft{Harness: "claude", Session: "older-session", Resume: []string{"--resume", "older-session"}}); err != nil {
+				t.Fatal(err)
+			}
+			recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+
+			// Act
+			exit, _, stderr := f.launch()
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the CFO back", exit, stderr)
+			}
+			notice := supervisor.CFOConversationLeftNotice(f.home.State)
+			if (c.want == "" && notice != "") || !strings.Contains(notice, c.want) {
+				t.Errorf("the board says %q, want %q", notice, c.want)
+			}
+		})
+	}
+}
+
 // Each harness resumes with its own arguments. A CFO that ran in its native
 // terminal comes back in it on a new conversation when it ran as another
 // harness or as pi, which cannot resume, and one that ran in Herdr starts a

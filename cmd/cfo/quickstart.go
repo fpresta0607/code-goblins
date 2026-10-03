@@ -197,6 +197,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	// said is what the lines under the CFO's own say, starting with why it
 	// did not come back on its conversation, when it did not.
 	var said []string
+	var left *supervisor.CFOConversationLeft
 	if why != "" {
 		said = append(said, why+", so the CFO starts a new one.")
 	}
@@ -212,6 +213,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		}
 		cfoResumeWait(cfoResumeSettle)
 		if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+			supervisor.ClearCFOConversationLeft(h.State)
 			notes := runtime.settleCFO(ctx, h.State, agent)
 			list.Done("CFO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCFOTerminal))
 			for _, note := range append(wakePath(agent), notes...) {
@@ -220,11 +222,17 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
 		}
 		said = append(said, fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation))
+		left = &supervisor.CFOConversationLeft{Harness: agent, Session: conversation, Resume: resume}
 	}
 	list.Working("CFO", "starting as "+onboarding.Name(agent))
 	if native {
 		if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
+		}
+		if left != nil {
+			if err := supervisor.RecordCFOConversationLeft(h.State, *left); err != nil {
+				return cfoSession{}, false, fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
+			}
 		}
 		// Its startup dialogs are answered before the line says it started.
 		notes := runtime.settleCFO(ctx, h.State, agent)
