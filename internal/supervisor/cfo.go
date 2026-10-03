@@ -540,7 +540,7 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 		return Evaluation{}, fmt.Errorf("%w: the primary CFO changed; refresh before sending", ErrRejected)
 	}
 	if primary.Host != "" {
-		return c.sendNative(ctx, primary, text)
+		return c.sendNative(ctx, primary, current, text)
 	}
 	guard := func(ctx context.Context, target herdr.Target, agent herdr.AgentDetail) error {
 		if target != primary.Target || agent.Agent != primary.Agent {
@@ -574,7 +574,7 @@ const (
 // reports only later, so a delivery not yet reported is sent and awaits the
 // report, which settleDeliveries hears; it is no error, and it is never typed
 // again.
-func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
+func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, identity, text string) (Evaluation, error) {
 	if err := c.verify(ctx, primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
@@ -592,6 +592,13 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	defer delivery.Close()
 	c.typing.Lock()
 	defer c.typing.Unlock()
+	recipient, err := NativeCFORecipient(c.State)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	if recipient.Registration != identity || recipient.HostPID != record.HostPID || recipient.ProgramPID != record.ChildPID || !recipient.ProgramStart.Equal(record.ChildStart) {
+		return Evaluation{}, fmt.Errorf("%w: the native CFO recipient changed; nothing was sent", ErrRejected)
+	}
 	submitted := time.Now()
 	if err := delivery.Write([]byte(oneLine("Overlord: " + text))); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
@@ -605,11 +612,11 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether Enter reached it is unknown: %w", err)
 	}
 	for deadline := time.Now().Add(nativeConfirm); ; {
-		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+		if taken, err := NativeHostPromptSince(c.State, recipient, submitted); err == nil && taken {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
 		}
 		if time.Now().After(deadline) {
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted}}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Recipient: recipient}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

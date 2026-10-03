@@ -26,14 +26,13 @@ func NativePromptSince(stateDir, taskID, generation string, since time.Time) (bo
 	})
 }
 
-// NativeHostPromptSince reports whether a harness in native terminal hostID
-// reported through its native hooks taking a prompt at or after since, the
-// proof a delivery typed into that terminal was taken.
-func NativeHostPromptSince(stateDir, hostID string, since time.Time) (bool, error) {
+// NativeHostPromptSince reports whether the exact native CFO recipient
+// reported through its hooks taking a prompt at or after since.
+func NativeHostPromptSince(stateDir string, recipient nativehook.CFORecipient, since time.Time) (bool, error) {
 	return promptSince(stateDir, since, func(e nativehook.Event) bool {
-		return e.HostID == hostID
+		return e.Validate() == nil && e.Role == "cfo" && e.HostID == recipient.HostID && e.Harness == recipient.Harness && e.SessionID == recipient.SessionID && recipient.Matches(e.Recipient)
 	}, func(s Session) bool {
-		return s.HostID == hostID
+		return s.Role == "cfo" && s.Harness == recipient.Harness && s.NativeID == recipient.SessionID && recipient.Matches(s.PromptRecipient)
 	})
 }
 

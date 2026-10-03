@@ -24,7 +24,7 @@ func sentAnswer(t *testing.T, store *Store, since time.Time) Action {
 		t.Fatal(err)
 	}
 	deliver := func(context.Context, Action) (Evaluation, error) {
-		return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Since: since}}, nil
+		return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Harness: "claude", Since: since, Recipient: cfoReceiptRecipient(store.Home.State)}}, nil
 	}
 	if err := store.ProcessOne(context.Background(), deliver); err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func tookPrompt(t *testing.T, store *Store, at time.Time) {
 	t.Helper()
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.db.Sessions["claude/cfo-1"] = Session{ID: "claude/cfo-1", NativeID: "cfo-1", Harness: "claude", Role: "cfo", Phase: "active", HostID: "cfo-host", PromptAt: at, UpdatedAt: at}
+	store.db.Sessions["claude/cfo-1"] = Session{ID: "claude/cfo-1", NativeID: "cfo-1", Harness: "claude", Role: "cfo", Phase: "active", HostID: "cfo-host", PromptAt: at, PromptRecipient: cfoReceiptRecipient(store.Home.State), UpdatedAt: at}
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 				t.Fatal(err)
 			}
 			deliver := func(context.Context, Action) (Evaluation, error) {
-				return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Since: since}}, nil
+				return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Harness: "claude", Since: since, Recipient: cfoReceiptRecipient(store.Home.State)}}, nil
 			}
 			if err := store.ProcessOne(context.Background(), deliver); err != nil {
 				t.Fatal(err)
