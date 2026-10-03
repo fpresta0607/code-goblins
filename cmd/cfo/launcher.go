@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -114,6 +117,27 @@ var (
 	aliveTimeout    = 3 * time.Second
 	snapshotTimeout = 3 * time.Second
 )
+
+// runWindowLauncher is goblins --window, which Windows runs at login with
+// --background: it finds or starts the supervisor as goblins does and shows
+// the desktop window, in the tray alone with background, and starts or shows
+// no CFO.
+func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, background bool) int {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	board, _, ok := launchBoard(context.Background(), runtime, h, stdout, stderr)
+	if !ok {
+		return 1
+	}
+	if err := runtime.openWindow(board, h.State, background); err != nil {
+		fmt.Fprintf(stderr, "goblins: the desktop window did not start: %v\n", err)
+		return 1
+	}
+	return 0
+}
 
 // runBoardLauncher is goblins --board. It finds or starts the supervisor as
 // goblins does and opens the board in the browser every time, and starts or
@@ -452,6 +476,68 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 		}
 	}
 	return nil, err
+}
+
+// errNoWindow says no desktop window sits beside this binary, as in a build
+// from source, where the browser shows the board instead.
+var errNoWindow = errors.New("no desktop window beside goblins")
+
+// windowProgram is the desktop window's executable, beside this one.
+const windowProgram = "goblins-window.exe"
+
+// windowLauncherVariable names this goblins to the window it starts, as
+// cmd/goblins-window reads it: Start at login then runs this goblins, which
+// starts the supervisor before the window.
+const windowLauncherVariable = "CODE_GOBLINS_LAUNCHER"
+
+// openWindow starts the desktop window beside this binary on board, in the
+// tray alone with background. A window already running takes the launch as
+// its second instance and comes to the front. Its output goes to
+// state/window.log, and it outlives this terminal.
+func openWindow(board, stateDir string, background bool) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	window := filepath.Join(filepath.Dir(self), windowProgram)
+	if _, err := os.Stat(window); errors.Is(err, fs.ErrNotExist) {
+		return errNoWindow
+	}
+	args := []string{"--board", board, "--state", stateDir}
+	if background {
+		args = append(args, "--background")
+	}
+	log, err := fsx.OpenAppend(filepath.Join(stateDir, "window.log"), 0o600)
+	if err != nil {
+		return err
+	}
+	defer log.Close()
+	// HideWindow stays unset, unlike the supervisor's start: it would hide
+	// the window's first show as well.
+	for _, flags := range []uint32{createNewProcessGroup | createBreakawayFromJob, createNewProcessGroup} {
+		command := execx.Command(window, args...)
+		command.Dir = filepath.Dir(self)
+		command.Env = windowEnvironment(os.Environ(), self)
+		command.Stdout, command.Stderr = log, log
+		command.SysProcAttr.CreationFlags |= flags
+		if err = command.Start(); err == nil {
+			return command.Process.Release()
+		}
+	}
+	return err
+}
+
+// windowEnvironment is what the window starts with: environment, naming
+// launcher as the goblins that started it, and without the id and proof value
+// of a native terminal that goblins ran in. The window outlives the terminal,
+// and the proof value proves a process runs in it, so the window forgets both
+// as the supervisor does.
+func windowEnvironment(environment []string, launcher string) []string {
+	kept := slices.DeleteFunc(slices.Clone(environment), func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		return strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable)
+	})
+	return append(kept, windowLauncherVariable+"="+launcher)
 }
 
 // openInBrowser opens url in the default browser through the URL protocol
