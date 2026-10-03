@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -76,6 +77,83 @@ func TestACFOWhoseConversationCannotBeResumedStartsANewOne(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Its conversation gone-session could not be resumed, so the CFO starts a new one.") || !strings.Contains(stdout, "CFO        started as Claude Code in "+f.home.Root+", in native terminal cfo") {
 		t.Errorf("stdout = %q, want the failed resume and the new start said", stdout)
+	}
+}
+
+func TestAResumedCFOThatEndsDuringStartupSettlingStartsANewConversation(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			f.agent = agent
+			recordConversation(t, f.home.State, agent, "old-conversation", supervisor.NativeCFOTerminal)
+			settles := 0
+			isFreshRunning := false
+			f.runtime.settleCFO = func(context.Context, string, string) []string {
+				settles++
+				isFreshRunning = settles > 1
+				f.cfoTerminalRuns = isFreshRunning
+				return nil
+			}
+
+			// Act
+			exit, stdout, stderr := f.launch()
+
+			// Assert
+			if exit != 0 || len(f.nativeArgs) != 2 || f.nativeArgs[1] != "" || settles != 2 || !isFreshRunning {
+				t.Fatalf("exit=%d starts=%q settles=%d runs=%v stderr=%q, want a failed resume followed by a running fresh CFO", exit, f.nativeArgs, settles, isFreshRunning, stderr)
+			}
+			if !strings.Contains(stdout, "Its conversation old-conversation could not be resumed, so the CFO starts a new one.") || strings.Contains(stdout, "CFO        back as") {
+				t.Fatalf("stdout=%q, want the old conversation and fresh start stated without claiming resume succeeded", stdout)
+			}
+		})
+	}
+}
+
+func TestANewNativeCFOThatEndsDuringStartupSettlingReportsFailure(t *testing.T) {
+	for _, agent := range []string{"claude", "codex", "pi"} {
+		t.Run(agent, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.agent = agent
+			f.runtime.settleCFO = func(context.Context, string, string) []string {
+				f.cfoTerminalRuns = false
+				return nil
+			}
+
+			// Act
+			exit, stdout, stderr := f.launch("--native")
+
+			// Assert
+			if exit != 1 || !strings.Contains(stderr, "the CFO's native terminal ended during startup") || len(f.nativeAttached) != 0 || len(f.screens) != 0 {
+				t.Fatalf("exit=%d attached=%q screens=%v stdout=%q stderr=%q, want the ended CFO reported before the final screen", exit, f.nativeAttached, f.screens, stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestAFailedResumeAndFreshStartNameTheConversationThatWasLeft(t *testing.T) {
+	// Arrange
+	noResumeWait(t)
+	f := newSessionFixture(t)
+	f.agent = "codex"
+	f.resumeEnds = true
+	recordConversation(t, f.home.State, "codex", "old-conversation", supervisor.NativeCFOTerminal)
+	f.runtime.settleCFO = func(context.Context, string, string) []string {
+		f.cfoTerminalRuns = false
+		return []string{"Answered the directory trust prompt in the CFO's terminal: 1. Yes, continue."}
+	}
+
+	// Act
+	exit, stdout, stderr := f.launch()
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr, "the CFO's native terminal ended during startup") || len(f.nativeAttached) != 0 {
+		t.Fatalf("exit=%d attached=%q stderr=%q, want the failed fresh start reported", exit, f.nativeAttached, stderr)
+	}
+	if !strings.Contains(stdout, "Its conversation old-conversation could not be resumed") || !strings.Contains(stdout, "Answered the directory trust prompt") {
+		t.Fatalf("stdout=%q, want the old conversation and answered startup dialog preserved in the failure output", stdout)
 	}
 }
 
