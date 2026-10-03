@@ -149,7 +149,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `GOTMPDIR`, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, so it draws in Claude's classic interface whatever the operator's `tui` setting and its history stays in the terminal's own scrollback.
-   Codex: `--dangerously-bypass-approvals-and-sandbox`.
+   Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
    Pi: `--tui-mode regular`.
    Kimi: no extra flags.
    Model and effort flags follow the lane table in `data/routing.json`.
