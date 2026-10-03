@@ -411,6 +411,103 @@ func TestGateTestRecordsAPackageWhoseTestsNeverEndedAsUnfinished(t *testing.T) {
 	}
 }
 
+type gateOutputWriter func([]byte) (int, error)
+
+func (write gateOutputWriter) Write(p []byte) (int, error) { return write(p) }
+
+func TestGateTestDoesNotPassWhenItsTestOutputCannotBeWritten(t *testing.T) {
+	for name, stream := range map[string]string{
+		"immediate output": "ordinary test output\n",
+		"last summary": `{"Action":"output","Package":"example.com/m/a","Output":"ok example.com/m/a\n"}` + "\n" +
+			`{"Action":"pass","Package":"example.com/m/a","Elapsed":1}`,
+		"unfinished package": `{"Action":"start","Package":"example.com/m/a"}` + "\n" +
+			`{"Action":"run","Package":"example.com/m/a","Test":"TestWaits"}` + "\n" +
+			`{"Action":"output","Package":"example.com/m/a","Test":"TestWaits","Output":"waiting\n"}` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			failure := errors.New("test output unavailable")
+			isFailing := false
+			stdout := gateOutputWriter(func(p []byte) (int, error) {
+				if isFailing {
+					return 0, failure
+				}
+				return len(p), nil
+			})
+			runtime := standIn()
+			runtime.gateRun = func(command []string, _ string, _ []string, output, _ io.Writer) (int, error) {
+				if command[1] == "test" {
+					isFailing = true
+					io.WriteString(output, stream)
+				}
+				return 0, nil
+			}
+
+			// Act
+			var stderr bytes.Buffer
+			exit := gateTestWith(runtime, stdout, &stderr)
+
+			// Assert
+			if exit != 1 || !strings.Contains(stderr.String(), failure.Error()) {
+				t.Errorf("exit=%d stderr=%q, want 1 and the output failure", exit, stderr.String())
+			}
+			report, _ := lastReport(t)
+			if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "passed" || report.Checks[1].Status != "failed" || report.Checks[1].ExitCode != 0 {
+				t.Errorf("report status=%s checks=%+v, want failed test output despite process exit 0", report.Status, report.Checks)
+			}
+		})
+	}
+}
+
+func TestGateTestKeepsProcessAndOutputFailures(t *testing.T) {
+	for _, isSameFailure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("same_failure=%t", isSameFailure), func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			outputFailure := errors.New("test output unavailable")
+			processFailure := errors.New("test process failed")
+			isFailing := false
+			stdout := gateOutputWriter(func(p []byte) (int, error) {
+				if isFailing {
+					return 0, outputFailure
+				}
+				return len(p), nil
+			})
+			runtime := standIn()
+			runtime.gateRun = func(command []string, _ string, _ []string, output, _ io.Writer) (int, error) {
+				if command[1] != "test" {
+					return 0, nil
+				}
+				isFailing = true
+				_, err := io.WriteString(output, "last test output\n")
+				if isSameFailure {
+					return 1, err
+				}
+				return 1, processFailure
+			}
+
+			// Act
+			var stderr bytes.Buffer
+			exit := gateTestWith(runtime, stdout, &stderr)
+
+			// Assert
+			if exit != 1 || strings.Count(stderr.String(), outputFailure.Error()) != 1 {
+				t.Errorf("exit=%d stderr=%q, want 1 with the output failure once", exit, stderr.String())
+			}
+			if !isSameFailure && !strings.Contains(stderr.String(), processFailure.Error()) {
+				t.Errorf("stderr=%q, want the distinct process failure kept too", stderr.String())
+			}
+			report, _ := lastReport(t)
+			if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[1].Status != "failed" || report.Checks[1].ExitCode != 1 {
+				t.Errorf("report status=%s checks=%+v, want the failed process exit kept", report.Status, report.Checks)
+			}
+		})
+	}
+}
+
 // What each kind of package that did not pass is said to have done: a test
 // failed, a test never finished, as one that hangs, or the package did not
 // compile. Names past five are counted.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -188,6 +189,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			}
 			exit, err := runtime.gateRun(command, dir, env, output, stderr)
 			stopSaying()
+			if events != nil {
+				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
+					err = errors.Join(err, outputErr)
+				}
+			}
 			check.ExitCode = exit
 			if err != nil {
 				check.Status, report.Status = "failed", "failed"
@@ -196,7 +202,6 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			ran := time.Since(check.Start)
 			check.DurationSeconds = ran.Seconds()
 			if events != nil {
-				events.End()
 				check.Packages = recordPackages(stdout, events.Results())
 			}
 			turn.Release()

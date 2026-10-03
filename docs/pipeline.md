@@ -192,6 +192,7 @@ cfo gate test: go test did not pass in 2 of 7 package(s):
 ```
 
 The log holds every line the tests wrote, as `go test -v` prints them, so a passing test's lines and every test's own time are read there.
+If the test output or log cannot be written, the test check fails even when `go test` exits zero.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.

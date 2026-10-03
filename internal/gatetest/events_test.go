@@ -2,6 +2,11 @@ package gatetest
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -64,7 +69,9 @@ func read(t *testing.T, stream string) (events *Events, short, full string) {
 	if _, err := events.Write([]byte(stream)); err != nil {
 		t.Fatal(err)
 	}
-	events.End()
+	if err := events.End(); err != nil {
+		t.Fatal(err)
+	}
 	return events, shortOutput.String(), fullOutput.String()
 }
 
@@ -311,5 +318,121 @@ func TestEventsReadsAnEventSplitAcrossWrites(t *testing.T) {
 	}
 	if pieces.String() != whole.String() {
 		t.Errorf("read in pieces the short output is\n%s\nwant what one write gives:\n%s", pieces.String(), whole.String())
+	}
+}
+
+type eventsOutputWriter func([]byte) (int, error)
+
+func (write eventsOutputWriter) Write(p []byte) (int, error) { return write(p) }
+
+func TestEventsReportsEitherOutputWriteFailure(t *testing.T) {
+	for name, stream := range map[string]string{
+		"ordinary output": "go: downloading example.com/x v1.0.0\n",
+		"build output":    `{"Action":"build-output","Output":"a/a.go:3: bad build\n"}` + "\n",
+		"passing package": `{"Action":"output","Package":"example.com/m/a","Output":"ok example.com/m/a\n"}` + "\n" +
+			`{"Action":"pass","Package":"example.com/m/a","Elapsed":1}` + "\n",
+		"failing package": `{"Action":"output","Package":"example.com/m/a","Output":"FAIL example.com/m/a\n"}` + "\n" +
+			`{"Action":"fail","Package":"example.com/m/a","Elapsed":1}` + "\n",
+	} {
+		for _, output := range []string{"short", "full"} {
+			for _, isShortWrite := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/short_write=%t", name, output, isShortWrite), func(t *testing.T) {
+					// Arrange
+					failure := errors.New("output unavailable")
+					if isShortWrite {
+						failure = io.ErrShortWrite
+					}
+					broken := eventsOutputWriter(func(p []byte) (int, error) {
+						if isShortWrite {
+							return len(p) - 1, nil
+						}
+						return 0, failure
+					})
+					var short, full io.Writer = io.Discard, io.Discard
+					if output == "short" {
+						short = broken
+					} else {
+						full = broken
+					}
+					events := NewEvents(short, full)
+
+					// Act
+					_, err := events.Write([]byte(stream))
+
+					// Assert
+					if !errors.Is(err, failure) {
+						t.Errorf("Write error = %v, want %v", err, failure)
+					}
+					if _, _, last := events.Progress(); output == "short" && last != "" {
+						t.Errorf("last output = %q after its write failed, want none", last)
+					}
+					if n, err := events.Write([]byte("later output\n")); n != 0 || !errors.Is(err, failure) {
+						t.Errorf("later Write = %d, %v, want 0 and the original output failure", n, err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestEventsKeepsAnOutputFailureWhileEndingTheStream(t *testing.T) {
+	for name, stream := range map[string]string{
+		"last line": "a line without its newline",
+		"unfinished package": `{"Action":"start","Package":"example.com/m/a"}` + "\n" +
+			`{"Action":"run","Package":"example.com/m/a","Test":"TestWaits"}` + "\n" +
+			`{"Action":"output","Package":"example.com/m/a","Test":"TestWaits","Output":"waiting\n"}` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			failure := errors.New("output unavailable at end")
+			events := NewEvents(eventsOutputWriter(func([]byte) (int, error) { return 0, failure }), io.Discard)
+			if _, err := events.Write([]byte(stream)); err != nil {
+				t.Fatalf("Write before End: %v", err)
+			}
+
+			// Act
+			err := events.End()
+
+			// Assert
+			if !errors.Is(err, failure) {
+				t.Errorf("End error = %v, want %v", err, failure)
+			}
+			if _, err := events.Write(nil); !errors.Is(err, failure) {
+				t.Errorf("Write after End error = %v, want %v", err, failure)
+			}
+		})
+	}
+}
+
+func TestEventsReportsAClosedOutputWhileFlushingTheLastLine(t *testing.T) {
+	for _, output := range []string{"short", "full"} {
+		t.Run(output, func(t *testing.T) {
+			// Arrange
+			closed, err := os.Create(filepath.Join(t.TempDir(), "output.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := closed.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var short, full io.Writer = io.Discard, io.Discard
+			if output == "short" {
+				short = closed
+			} else {
+				full = closed
+			}
+			events := NewEvents(short, full)
+			if _, err := events.Write([]byte("last line")); err != nil {
+				t.Fatalf("Write before End: %v", err)
+			}
+
+			// Act
+			err = events.End()
+
+			// Assert
+			if !errors.Is(err, os.ErrClosed) {
+				t.Errorf("End error = %v, want a closed file error from %s", err, output)
+			}
+		})
 	}
 }

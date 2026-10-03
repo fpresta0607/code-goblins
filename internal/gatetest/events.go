@@ -44,6 +44,7 @@ type Events struct {
 	mu          sync.Mutex
 	short, full io.Writer
 	partial     []byte
+	err         error
 	packages    map[string]*packageRun
 	order       []string
 	// last is the last line written to short that says something.
@@ -81,11 +82,14 @@ func NewEvents(short, full io.Writer) *Events {
 func (e *Events) Write(p []byte) (int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.err != nil {
+		return 0, e.err
+	}
 	e.partial = append(e.partial, p...)
 	for {
 		end := bytes.IndexByte(e.partial, '\n')
 		if end < 0 {
-			return len(p), nil
+			return len(p), e.err
 		}
 		e.line(e.partial[:end])
 		e.partial = e.partial[end+1:]
@@ -95,7 +99,7 @@ func (e *Events) Write(p []byte) (int, error) {
 // End says the output is over: a last line with no newline is read, and
 // every package that started and did not end is unfinished, with what it
 // wrote kept as a failed package's is.
-func (e *Events) End() {
+func (e *Events) End() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if len(e.partial) > 0 {
@@ -107,6 +111,7 @@ func (e *Events) End() {
 			e.end(run, "unfinished", 0)
 		}
 	}
+	return e.err
 }
 
 // line reads one line of the output: an event, or a line go test printed
@@ -125,7 +130,7 @@ func (e *Events) line(line []byte) {
 	if err := json.Unmarshal(line, &event); err != nil || event.Action == "" {
 		text := strings.TrimSuffix(string(line), "\r") + "\n"
 		e.say(text)
-		io.WriteString(e.full, text)
+		e.writeOutput(e.full, text)
 		return
 	}
 	if event.Time.IsZero() {
@@ -136,7 +141,7 @@ func (e *Events) line(line []byte) {
 		// arrives, as go test prints it.
 		if event.Action == "build-output" {
 			e.say(event.Output)
-			io.WriteString(e.full, event.Output)
+			e.writeOutput(e.full, event.Output)
 		}
 		return
 	}
@@ -149,7 +154,7 @@ func (e *Events) line(line []byte) {
 	test := run.tests[event.Test]
 	switch event.Action {
 	case "output":
-		io.WriteString(e.full, event.Output)
+		e.writeOutput(e.full, event.Output)
 		if !run.ended {
 			run.lines = append(run.lines, written{event.Test, event.Output})
 		}
@@ -217,10 +222,23 @@ func (e *Events) end(run *packageRun, status string, seconds float64) {
 // say writes text to the short output and keeps its last line that says
 // something.
 func (e *Events) say(text string) {
-	io.WriteString(e.short, text)
+	if err := e.writeOutput(e.short, text); err != nil {
+		return
+	}
 	if line := strings.TrimSpace(text); line != "" {
 		e.last = line
 	}
+}
+
+func (e *Events) writeOutput(writer io.Writer, text string) error {
+	n, err := io.WriteString(writer, text)
+	if err == nil && n != len(text) {
+		err = io.ErrShortWrite
+	}
+	if e.err == nil {
+		e.err = err
+	}
+	return err
 }
 
 // Results are the packages' results, in the order the packages started.
