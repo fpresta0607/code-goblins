@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
@@ -405,6 +406,77 @@ func TestUninstallRemovesTheStartMenuShortcut(t *testing.T) {
 	}
 	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") || !strings.Contains(output, "no shortcut at "+shortcut) {
 		t.Errorf("a second uninstall found more to remove:\n%s", output)
+	}
+}
+
+// A home holding the desktop window removes the legacy window shortcut on
+// uninstall, where that shortcut is still present.
+func TestUninstallRemovesTheWindowsStartMenuShortcut(t *testing.T) {
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	earlierWindow(t, f)
+	programs := t.TempDir()
+	shortcut, window := filepath.Join(programs, "Code Goblins.lnk"), filepath.Join(programs, "Code Goblins Window.lnk")
+	for _, path := range []string{shortcut, window} {
+		if err := os.WriteFile(path, []byte("shortcut"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.StartMenuShortcut = shortcut
+	f.install()
+
+	output := f.uninstall()
+
+	if !strings.Contains(output, "removed "+window) {
+		t.Errorf("the uninstall output does not report the window's shortcut removed:\n%s", output)
+	}
+	if _, err := os.Stat(window); !os.IsNotExist(err) {
+		t.Errorf("%s survived the uninstall: %v", window, err)
+	}
+	if output := f.uninstall(); !strings.Contains(output, "nothing to remove") || strings.Contains(output, window) {
+		t.Errorf("a second uninstall mentions a window's shortcut that is not there:\n%s", output)
+	}
+}
+
+func TestUninstallPreservesTheStandaloneWindowWhenTheHomeHoldsNone(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	f.service.EarlierWindow = filepath.Join(t.TempDir(), "CodeGoblinsWindow")
+	programs := t.TempDir()
+	f.service.StartMenuShortcut = filepath.Join(programs, "Code Goblins.lnk")
+	windowShortcut := filepath.Join(programs, windowShortcutName)
+	standaloneFiles := map[string]string{
+		filepath.Join(f.service.EarlierWindow, windowName):    "standalone window",
+		filepath.Join(f.service.EarlierWindow, windowPicture): "standalone picture",
+		windowShortcut: "shortcut to " + filepath.Join(f.service.EarlierWindow, windowName),
+	}
+	for path, content := range standaloneFiles {
+		writeFile(t, path, content)
+	}
+	writeFile(t, f.service.StartMenuShortcut, "shortcut to this home")
+	f.install()
+	if _, err := os.Stat(filepath.Join(f.root, windowName)); !os.IsNotExist(err) {
+		t.Fatalf("the installed home must hold no window: %v", err)
+	}
+	for path, want := range standaloneFiles {
+		if got := readFile(t, path); got != want {
+			t.Fatalf("install changed %s to %q, want %q", path, got, want)
+		}
+	}
+
+	// Act
+	output := f.uninstall()
+
+	// Assert
+	for path, want := range standaloneFiles {
+		if got := readFile(t, path); got != want {
+			t.Errorf("uninstall changed %s to %q, want %q", path, got, want)
+		}
+	}
+	if _, err := os.Stat(f.service.StartMenuShortcut); !os.IsNotExist(err) {
+		t.Errorf("this home's shortcut survived uninstall: %v", err)
+	}
+	if strings.Contains(output, windowShortcut) {
+		t.Errorf("uninstall mentions the standalone window shortcut:\n%s", output)
 	}
 }
 

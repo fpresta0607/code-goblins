@@ -2,10 +2,13 @@
 
 package supervisor
 
-import "time"
+import (
+	"io/fs"
+	"time"
+)
 
-// fileCreated is always zero, since other systems keep no creation time Go
-// can read and a modification time moves with every write.
-func fileCreated(string) time.Time {
+// created is always zero, since other systems keep no creation time Go can
+// read and a modification time moves with every write.
+func created(fs.FileInfo) time.Time {
 	return time.Time{}
 }
