@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { announceKey, arrive, asksPermission, boardAlerts, notifies, outlived, SEEN_LIMIT, showsToast, unseen, type AlertTarget, type BoardAlert, type SeenAlert } from "./alertRules.ts";
-import type { Question, Review, Run, Snapshot, Task } from "./types.ts";
+import { parseSnapshot, type Question, type Review, type Run, type Snapshot, type Task } from "./types.ts";
 
 const task = (id: string, phase: string, extra: Partial<Task> = {}): Task => ({ id, title: "Goblin " + id, phase, pr: "", reason: "", activity: "", generation: id + "-1", ...extra }) as Task;
 const question = (id: string, extra: Partial<Question> = {}): Question => ({ id, text: "Which option?", status: "pending", task: "", created_at: "2026-09-27T01:00:00Z", ...extra }) as Question;
@@ -14,6 +14,25 @@ const MINUTE = 60 * 1000;
 // The reason the gate gives every time a step needs the Overlord's decision.
 const GATE_BLOCK = "Pipeline decision required at review; use cfo pipeline respond";
 const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
+
+test("questions left on the CFO raise one notice per stretch, with their count and age, opening his terminal", () => {
+  const quiet = parseSnapshot({ healthy: true });
+  const waiting = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } });
+  const [notice] = boardAlerts(quiet, waiting);
+  assert.ok(notice);
+  assert.equal(notice.text, "The CFO has not answered 3 questions; the oldest has waited 11 minutes.");
+  assert.equal(notice.action, "Open the CFO's terminal");
+  assert.deepEqual(notice.target, { kind: "cfo" });
+  assert.equal(showsToast(notice), true);
+  const changed = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 2, oldest_age: 720 } });
+  assert.deepEqual(boardAlerts(waiting, changed), []);
+  assert.equal(outlived(notice, changed), false);
+  assert.equal(outlived(notice, quiet), true);
+  assert.deepEqual(boardAlerts(null, waiting), [notice]);
+  assert.deepEqual(unseen([notice], [{ key: notice.key, says: notice.says, at: 0 }], 10 * MINUTE).fresh, []);
+  const next = parseSnapshot({ healthy: true, cfo_quiet: { since: "2026-10-02T13:00:00Z", count: 1, oldest_age: 600 } });
+  assert.equal(boardAlerts(changed, next).length, 1);
+});
 
 test("what needs the Overlord or finished alerts once, and opens its item", () => {
   const before = snapshot({});
@@ -56,6 +75,8 @@ test("a done goblin alerts when its pull request arrives, and a restarted goblin
   const done = snapshot({ tasks: [task("a", "done")] });
   const withPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/7" })] });
   assert.deepEqual(boardAlerts(done, withPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/7"]);
+  const nextPR = snapshot({ tasks: [task("a", "done", { pr: "https://github.com/o/r/pull/8" })] });
+  assert.deepEqual(boardAlerts(withPR, nextPR).map((alert) => alert.key), ["task:a:a-1:done:https://github.com/o/r/pull/8"]);
   const blocked = snapshot({ tasks: [task("a", "blocked")] });
   const restartedBlocked = snapshot({ tasks: [task("a", "blocked", { generation: "a-2" })] });
   assert.deepEqual(boardAlerts(blocked, restartedBlocked).map((alert) => alert.key), ["task:a:a-2:blocked:"]);
@@ -99,16 +120,18 @@ test("a goblin's question to the CFO alerts nothing, whichever reaches the board
   // is news for the Overlord.
   const asked = "May I finish the remaining heavy steps now, or stay paused?";
   const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
-  const blocked = task("a", "blocked", { report: "blocked", reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
   const pending = question("notify-a-7", { task: "a", text: asked });
-  const orders: [string, Snapshot[]][] = [
-    ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
-    ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
-    ["the question first", [working, snapshot({ questions: [pending] }), snapshot({ tasks: [blocked], questions: [pending] })]],
-  ];
-  for (const [name, snapshots] of orders) {
-    const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
-    assert.deepEqual(alerts.map((alert) => alert.text), [], name);
+  for (const phase of ["blocked", "failed"]) {
+    const blocked = task("a", phase, { report: phase, reason: "Waiting on the CFO: " + asked, activity: asked + " options: Finish it now (Recommended) | Stay paused" });
+    const orders: [string, Snapshot[]][] = [
+      ["both in one snapshot", [working, snapshot({ tasks: [blocked], questions: [pending] })]],
+      ["the task blocked first", [working, snapshot({ tasks: [blocked] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+      ["the question first", [working, snapshot({ questions: [pending] }), snapshot({ tasks: [blocked], questions: [pending] })]],
+    ];
+    for (const [name, snapshots] of orders) {
+      const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
+      assert.deepEqual(alerts.map((alert) => alert.text), [], phase + ": " + name);
+    }
   }
 });
 

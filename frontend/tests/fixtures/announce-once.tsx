@@ -29,6 +29,9 @@ const snapshots = {
   second: parseSnapshot({ ...base, instance: "one", revision: 5, tasks: [working], questions: [answered, second] }),
   goblinAsks: parseSnapshot({ ...base, instance: "one", revision: 6, tasks: [blocked], questions: [goblinAsks] }),
   restarting: parseSnapshot({ ...base, instance: "two", revision: 1, tasks: [] }),
+  quietCFO: parseSnapshot({ ...base, instance: "one", revision: 7, tasks: [blocked], questions: [goblinAsks], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 3, oldest_age: 660 } }),
+  quietChanged: parseSnapshot({ ...base, instance: "one", revision: 8, tasks: [blocked], questions: [goblinAsks], cfo_quiet: { since: "2026-10-02T12:10:00Z", count: 2, oldest_age: 720 } }),
+  quietAgain: parseSnapshot({ ...base, instance: "two", revision: 2, tasks: [blocked], questions: [goblinAsks], cfo_quiet: { since: "2026-10-02T13:10:00Z", count: 1, oldest_age: 600 } }),
 };
 const ignore = () => {};
 
@@ -37,10 +40,12 @@ declare global { interface Window { advance: (name: keyof typeof snapshots) => v
 function Page() {
   const [shown, setShown] = useState<keyof typeof snapshots>("working");
   const [focus, setFocus] = useState<CommandFocus | null>(null);
+  const [said, setSaid] = useState("");
   const snapshot = snapshots[shown];
   useEffect(() => { window.advance = setShown; window.focusOn = (key) => setFocus({ key, at: Date.now() }); }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24 }}>
-    <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setFocus({ key: target.key, at: Date.now() }); }} />
+    <output>{said}</output>
+    <Alerts snapshot={snapshot} onOpen={(target) => { setSaid("opened " + target.kind); if (target.kind === "command") setFocus({ key: target.key, at: Date.now() }); }} />
     <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
   </main>;
 }

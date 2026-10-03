@@ -221,5 +221,6 @@ test("a notification for an item he already answered opens the list, never anoth
   // Assert
   await expect(page.locator(".command-center-menu[open]")).toBeVisible();
   await expect(commandCenter(page)).toBeHidden();
+  await page.locator(".command-center-menu .disclosure > summary").filter({ hasText: "History" }).click();
   await expect(page.locator(".command-center-menu")).toContainText(ASKS);
 });
