@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "./site";
 
-// The grids the terminal's view asked its terminal for, newest last: a larger
-// text size leaves room for fewer columns.
+// The grids the terminal's view asked its terminal for, newest last.
 let grids: { cols: number; rows: number }[];
 
 const STORED = "cfo-terminal-font-size";
@@ -9,14 +8,43 @@ const readout = (page: Page) => page.getByRole("button", { name: /^Reset the ter
 const stored = (page: Page) => page.evaluate((key) => localStorage.getItem(key), STORED);
 const terminal = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
 
-// sized waits for the size to show on the panel, be remembered, and reach the
-// terminal as a grid of fewer columns when larger and more when smaller.
-async function sized(page: Page, size: number, was: number) {
-  const before = grids.at(-1)!.cols;
+// The first line says ready; the cursor is on the next line, outside this
+// crop, so moving focus cannot masquerade as a change of the rendered text.
+async function textPixels(page: Page) {
+  const screen = (await page.locator(".xterm-screen").boundingBox())!;
+  return page.screenshot({ clip: { x: screen.x, y: screen.y, width: 100, height: 24 } });
+}
+
+// Adjacent font sizes can round to the same cell dimensions. The rendered
+// text must change, both grid dimensions must move in the right direction,
+// and the drawn grid must still fill the panel.
+async function sized(page: Page, size: number, was: number, act: () => Promise<unknown>) {
+  const pixels = await textPixels(page);
+  const before = grids.at(-1)!;
+  await act();
   await expect(readout(page)).toHaveText(String(size));
   expect(await stored(page)).toBe(String(size));
-  if (size > was) await expect.poll(() => grids.at(-1)!.cols, { message: size + " px after " + was }).toBeLessThan(before);
-  if (size < was) await expect.poll(() => grids.at(-1)!.cols, { message: size + " px after " + was }).toBeGreaterThan(before);
+  await expect.poll(async () => !(await textPixels(page)).equals(pixels), { message: size + " px text after " + was }).toBe(true);
+  await expect.poll(() => page.locator(".terminal-view").evaluate((view, grid) => {
+    const panel = view.getBoundingClientRect();
+    const screen = view.querySelector(".xterm-screen")!.getBoundingClientRect();
+    const cell = { width: screen.width / grid.cols, height: screen.height / grid.rows };
+    const side = (panel.width - screen.width) / 2;
+    return {
+      columnsFill: side >= 10 && side < 10 + cell.width / 2,
+      rowsFill: panel.height - 2 * side - screen.height >= -0.1 && panel.height - 2 * side - screen.height < cell.height,
+      centered: Math.abs(screen.left - panel.left - side) < 0.1,
+      inputAtBottom: Math.abs(panel.bottom - screen.bottom - side) < 0.1,
+    };
+  }, grids.at(-1)!)).toEqual({ columnsFill: true, rowsFill: true, centered: true, inputAtBottom: true });
+  const after = grids.at(-1)!;
+  if (size > was) {
+    expect(after.cols).toBeLessThanOrEqual(before.cols);
+    expect(after.rows).toBeLessThanOrEqual(before.rows);
+  } else {
+    expect(after.cols).toBeGreaterThanOrEqual(before.cols);
+    expect(after.rows).toBeGreaterThanOrEqual(before.rows);
+  }
 }
 
 test.beforeEach(async ({ page }) => {
@@ -53,8 +81,7 @@ for (const [where, focus] of [
       ["Control+Minus", 19], ["Control+NumpadSubtract", 18],
       ["Control+0", 20],
     ] as const) {
-      await page.keyboard.press(key);
-      await sized(page, next, size);
+      await sized(page, next, size, () => page.keyboard.press(key));
       size = next;
     }
   });
@@ -67,37 +94,31 @@ test("the wheel with Ctrl held over the terminal sizes the text, and the wheel a
   await page.mouse.wheel(0, -100);
   await expect(readout(page)).toHaveText("20");
   await page.keyboard.down("Control");
-  await page.mouse.wheel(0, -100);
-  await sized(page, 21, 20);
-  await page.mouse.wheel(0, 200);
-  await sized(page, 19, 21);
+  await sized(page, 21, 20, () => page.mouse.wheel(0, -100));
+  await sized(page, 19, 21, () => page.mouse.wheel(0, 200));
   await page.keyboard.up("Control");
 });
 
 test("a pinch, which arrives as small turns of that wheel, adds up to a step and never reaches the page", async ({ page }) => {
-  const taken = await page.locator(".terminal-view").evaluate((view) => [-30, -30, -30, -30].map((deltaY) =>
-    !view.dispatchEvent(new WheelEvent("wheel", { deltaY, ctrlKey: true, bubbles: true, cancelable: true }))));
-
-  expect(taken).toEqual([true, true, true, true]);
-  await sized(page, 21, 20);
+  await sized(page, 21, 20, async () => {
+    const taken = await page.locator(".terminal-view").evaluate((view) => [-30, -30, -30, -30].map((deltaY) =>
+      !view.dispatchEvent(new WheelEvent("wheel", { deltaY, ctrlKey: true, bubbles: true, cancelable: true }))));
+    expect(taken).toEqual([true, true, true, true]);
+  });
 });
 
 test("the panel's buttons size the text, and it is remembered across a reload", async ({ page }) => {
-  await page.getByRole("button", { name: "Larger terminal text" }).click();
-  await sized(page, 21, 20);
-  await page.getByRole("button", { name: "Larger terminal text" }).click();
-  await sized(page, 22, 21);
-  await page.getByRole("button", { name: "Smaller terminal text" }).click();
-  await sized(page, 21, 22);
+  await sized(page, 21, 20, () => page.getByRole("button", { name: "Larger terminal text" }).click());
+  await sized(page, 22, 21, () => page.getByRole("button", { name: "Larger terminal text" }).click());
+  await sized(page, 21, 22, () => page.getByRole("button", { name: "Smaller terminal text" }).click());
 
-  const chosen = grids.at(-1)!.cols;
+  const chosen = grids.at(-1)!;
   grids = [];
   await page.reload();
   await expect(readout(page)).toHaveText("21");
-  await expect.poll(() => grids.at(-1)?.cols).toBe(chosen);
+  await expect.poll(() => grids.at(-1)).toEqual(chosen);
 
-  await readout(page).click();
-  await sized(page, 20, 21);
+  await sized(page, 20, 21, () => readout(page).click());
 });
 
 test("the buttons stop at the smallest and the largest size", async ({ page }) => {
