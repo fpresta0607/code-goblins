@@ -32,6 +32,43 @@ func (git *progressGit) Run(_ context.Context, request execx.Request) (execx.Res
 	return execx.Result{Stdout: []byte("*\trefs/heads/feat/task\t" + git.head + "\n \trefs/remotes/origin/feat/task\t" + git.pushed + "\n")}, nil
 }
 
+type stalledGit struct {
+	progressGit
+	stalled string
+}
+
+func (git *stalledGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Dir == git.stalled {
+		<-ctx.Done()
+		return execx.Result{}, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return execx.Result{}, err
+	}
+	return git.progressGit.Run(ctx, request)
+}
+
+func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
+	service, h := fleetService(t)
+	liveGoblin(t, h, "a-stalled-task", h.Root)
+	liveGoblin(t, h, "b-later-task", h.Root)
+	head := strings.Repeat("a", 40)
+	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalled: filepath.Join(h.Root, ".worktrees", "gb-a-stalled-task")}
+
+	err := service.checkFleet(t.Context(), time.Now().UTC())
+
+	if err == nil || !strings.Contains(err.Error(), "a-stalled-task") || strings.Contains(err.Error(), "b-later-task") {
+		t.Fatalf("errors=%v, want only the stalled goblin's", err)
+	}
+	watched, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := watched.Progress["b-later-task"].Head; got != head {
+		t.Fatalf("later goblin head=%q, want it measured past the stalled worktree", got)
+	}
+}
+
 func TestProgressWatchReportsOnceAndResetsOnRealProgress(t *testing.T) {
 	for _, source := range []string{"commit", "push", "gate", "report"} {
 		t.Run(source, func(t *testing.T) {

@@ -13,7 +13,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-const PROGRESS_THRESHOLD = 20 * time.Minute
+const (
+	PROGRESS_THRESHOLD   = 20 * time.Minute
+	progressProbeTimeout = 10 * time.Second
+)
 
 type WorkProgress struct {
 	Generation string    `json:"generation"`
@@ -31,8 +34,6 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	if s.Options.Progress == nil {
 		return nil
 	}
-	probe, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
 	if watched.Progress == nil {
 		watched.Progress = map[string]WorkProgress{}
 	}
@@ -55,43 +56,10 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 			watched.Progress[meta.ID] = prior
 			continue
 		}
-		head, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "rev-parse", "HEAD")
+		head, pushed, gate, err := s.observeWork(ctx, meta, database.Tasks[meta.ID].GateStep)
 		if err != nil {
-			problems = errors.Join(problems, fmt.Errorf("progress for %s: %w", meta.ID, err))
+			problems = errors.Join(problems, err)
 			continue
-		}
-		refs, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "for-each-ref", "--format=%(HEAD)%09%(refname)%09%(objectname)", "refs/heads", "refs/remotes")
-		if err != nil {
-			problems = errors.Join(problems, fmt.Errorf("push progress for %s: %w", meta.ID, err))
-			continue
-		}
-		branch, pushed := "", ""
-		for _, line := range strings.Split(refs, "\n") {
-			fields := strings.Split(line, "\t")
-			if len(fields) == 3 && fields[0] == "*" {
-				branch = strings.TrimPrefix(fields[1], "refs/heads/")
-			}
-		}
-		for _, line := range strings.Split(refs, "\n") {
-			fields := strings.Split(line, "\t")
-			if len(fields) == 3 && branch != "" && fields[1] == "refs/remotes/origin/"+branch {
-				pushed = fields[2]
-			}
-		}
-		gate := database.Tasks[meta.ID].GateStep
-		if meta.Mode == "no-mistakes" && branch != "" && s.Options.Gate != nil {
-			progress, err := s.Options.Gate.Progress(probe, meta.Project, branch)
-			if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
-				problems = errors.Join(problems, fmt.Errorf("gate progress for %s: %w", meta.ID, err))
-				continue
-			}
-			if err == nil {
-				steps, err := json.Marshal(progress.Steps)
-				if err != nil {
-					return err
-				}
-				gate = progress.RunID + ":" + string(steps)
-			}
 		}
 		lines, err := state.TailStatus(s.Store.Home.State, meta.ID, 200)
 		if err != nil {
@@ -141,4 +109,44 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 		}
 	}
 	return problems
+}
+
+func (s *Service) observeWork(ctx context.Context, meta state.TaskMeta, gate string) (string, string, string, error) {
+	probe, cancel := context.WithTimeout(ctx, progressProbeTimeout)
+	defer cancel()
+	head, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "", "", "", fmt.Errorf("progress for %s: %w", meta.ID, err)
+	}
+	refs, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "for-each-ref", "--format=%(HEAD)%09%(refname)%09%(objectname)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return "", "", "", fmt.Errorf("push progress for %s: %w", meta.ID, err)
+	}
+	branch, pushed := "", ""
+	for _, line := range strings.Split(refs, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) == 3 && fields[0] == "*" {
+			branch = strings.TrimPrefix(fields[1], "refs/heads/")
+		}
+	}
+	for _, line := range strings.Split(refs, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) == 3 && branch != "" && fields[1] == "refs/remotes/origin/"+branch {
+			pushed = fields[2]
+		}
+	}
+	if meta.Mode == "no-mistakes" && branch != "" && s.Options.Gate != nil {
+		progress, err := s.Options.Gate.Progress(probe, meta.Project, branch)
+		if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
+			return "", "", "", fmt.Errorf("gate progress for %s: %w", meta.ID, err)
+		}
+		if err == nil {
+			steps, err := json.Marshal(progress.Steps)
+			if err != nil {
+				return "", "", "", err
+			}
+			gate = progress.RunID + ":" + string(steps)
+		}
+	}
+	return head, pushed, gate, nil
 }

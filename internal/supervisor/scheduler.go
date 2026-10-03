@@ -49,6 +49,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	}
 	var problems error
 	var ready []state.Lifecycle
+	isMemoryPending := false
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		if allowanceBlocked(watched, meta.Harness, meta.Model, now) {
 			continue
@@ -71,6 +72,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		}
 		if isReady {
 			ready = append(ready, record)
+		} else if record.Pause.Reason == "memory" {
+			isMemoryPending = true
 		}
 	}
 	slices.SortFunc(ready, func(left, right state.Lifecycle) int {
@@ -82,7 +85,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	if len(ready) > 0 {
 		return errors.Join(problems, s.resumeAutomatically(ready[0]))
 	}
-	if len(queued) > 0 {
+	if len(queued) > 0 && !isMemoryPending {
 		return errors.Join(problems, s.startQueued(queued[0], false))
 	}
 	return problems

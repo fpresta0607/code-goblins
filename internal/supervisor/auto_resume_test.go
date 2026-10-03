@@ -145,6 +145,34 @@ func TestClearedPauseRunsBeforeQueueAndDatesDoNotHoldTheSlot(t *testing.T) {
 	}
 }
 
+func TestFirstGoodMemoryReadingHoldsTheQueueForAMemoryPause(t *testing.T) {
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	now := time.Now().UTC()
+	pausedGoblin(t, h, "paused-task", "memory", "", now.Add(-time.Hour))
+	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+	meter := &memoryReadings{readings: [][2]float64{{8, 8}, {8, 8}}}
+	handler.Service.Options.Dispatch.Memory = meter.read
+
+	if err := handler.Service.checkFleet(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	handler.Service.starts.Lock()
+	isChanging := handler.Service.starting != "" || len(handler.Service.changing) > 0
+	handler.Service.starts.Unlock()
+	if calls := spawner.recorded(); len(calls) != 0 || isChanging {
+		t.Fatalf("first good reading dispatched %v (changing %t)", calls, isChanging)
+	}
+	if err := handler.Service.checkFleet(t.Context(), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := awaitDispatch(t, handler.Service, spawner, 1)
+	if calls[0][0] != "resume" || calls[0][1] != "paused-task" {
+		t.Fatalf("first dispatch=%v, want the memory pause resumed before the queue", calls)
+	}
+}
+
 func TestPRPauseResumesOnlyWhenTheNamedPRMerged(t *testing.T) {
 	for _, phase := range []string{"OPEN", "CLOSED", "MERGED"} {
 		t.Run(phase, func(t *testing.T) {
