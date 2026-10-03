@@ -555,10 +555,14 @@ The model catalog is not a model-name list embedded in the board; each model's r
 `POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
 A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
 A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart and no running, fixing or fix-review gate step.
-Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty`; its confirmation says uncommitted work stays.
+A task paused while that choice is still pending uses it on its next Resume, which removes it only after the launch succeeds.
+The catalog is read again as the choice applies: a selection that is no longer available is removed, with its reason on the task's card.
+An idle or gate reading that fails shows on that card until a later reading succeeds or the choice is cancelled; neither kind of failure becomes the board-wide error.
+Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty` and `--generation`, which refuses the switch when the task's session has changed; its confirmation says uncommitted work stays.
 The old native terminal closes, ending the processes it started, and there is no additional leftover-process refusal.
 The target launch is built before the old harness stops, so an invalid launch leaves the session untouched; a failure after the stop shows the CLI's recovery reason and preserves the worktree.
-The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason; the CFO receives one digest line per applied switch outcome.
+The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
+The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
