@@ -3,6 +3,8 @@ package quota
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,89 @@ import (
 // snapshotTime is a minute after the fixtures' generatedAt, so they read as
 // fresh unless a test moves the clock.
 var snapshotTime = time.Date(2026, 9, 17, 12, 31, 0, 0, time.UTC)
+
+func TestWeeklyReadingSelectsTheProviderAccountWeek(t *testing.T) {
+	report, err := Parse(fixture(t, "projected"), snapshotTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for provider, remaining := range map[string]float64{"claude": 99, "codex": 60} {
+		t.Run(provider, func(t *testing.T) {
+			reading := report.Weekly(provider, snapshotTime)
+			if reading.Status != "available" || reading.PercentRemaining == nil || *reading.PercentRemaining != remaining || reading.ResetsAt.IsZero() || reading.ReadAt.IsZero() || reading.Source != "oauth" {
+				t.Fatalf("weekly reading = %+v, want %v%% account weekly remaining with provenance", reading, remaining)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingPreservesBoundsAndRejectsInvalidMeasurements(t *testing.T) {
+	for _, test := range []struct {
+		used      string
+		remaining float64
+		status    string
+	}{
+		{"0", 100, "available"}, {"100", 0, "available"}, {"95", 5, "available"}, {"94.9", 5.1, "available"},
+		{"-1", 0, "unavailable"}, {"101", 0, "unavailable"}, {"null", 0, "unavailable"}, {`"unknown"`, 0, "unavailable"}, {"1e999", 0, "unavailable"},
+	} {
+		t.Run(test.used, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","source":"oauth","state":{"status":"fresh"},"quotaSemantics":{"status":"known"},"windows":[{"id":"weekly","percentUsed":%s,"resetsAt":"2026-09-20T12:00:00Z"}]}]}`, test.used)
+			report, err := Parse([]byte(data), snapshotTime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reading := report.Weekly("codex", snapshotTime)
+			if reading.Status != test.status || (test.status == "available" && (reading.PercentRemaining == nil || math.Abs(*reading.PercentRemaining-test.remaining) > 0.000001)) || (test.status != "available" && reading.PercentRemaining != nil) {
+				t.Fatalf("reading = %+v, want %s %v", reading, test.status, test.remaining)
+			}
+			if !reading.ResetsAt.Equal(time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)) {
+				t.Fatalf("known reset lost with percentage %s: %+v", test.used, reading)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNamesStaleAndSignInStatesWithoutNumbers(t *testing.T) {
+	for _, test := range []struct {
+		state  string
+		now    time.Time
+		status string
+	}{
+		{`"status":"auth_required","error":"private token payload"`, snapshotTime, "auth_required"},
+		{`"status":"fresh","stale":true`, snapshotTime, "stale"},
+		{`"status":"fresh","refreshedAt":"2026-09-17T10:00:00Z"`, snapshotTime, "stale"},
+		{`"status":"fresh"`, snapshotTime.Add(2 * time.Hour), "stale"},
+		{`"status":"fresh"`, snapshotTime.Add(-2 * time.Hour), "unavailable"},
+		{`"status":"failed"`, snapshotTime, "unavailable"},
+	} {
+		t.Run(test.status+test.state, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"claude","source":"oauth","state":{%s},"quotaSemantics":{"status":"known"},"windows":[{"id":"seven_day","percentUsed":20}]}]}`, test.state)
+			report, _ := Parse([]byte(data), test.now)
+			reading := report.Weekly("claude", test.now)
+			if reading.Status != test.status || reading.PercentRemaining != nil {
+				t.Fatalf("reading = %+v, want %s without a percentage", reading, test.status)
+			}
+		})
+	}
+}
+
+func TestWeeklyReadingNeverUsesAPICreditsOrModelWindows(t *testing.T) {
+	for _, test := range []struct{ source, window string }{
+		{"api", "weekly"}, {"oauth", "model:codex_bengalfox:5h"}, {"oauth", "five_hour"},
+	} {
+		t.Run(test.source+test.window, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","source":%q,"state":{"status":"fresh"},"quotaSemantics":{"status":"known"},"credits":{"remaining":500},"windows":[{"id":%q,"percentUsed":0}]}]}`, test.source, test.window)
+			report, err := Parse([]byte(data), snapshotTime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reading := report.Weekly("codex", snapshotTime)
+			if reading.Status != "unavailable" || reading.PercentRemaining != nil {
+				t.Fatalf("non-subscription reading = %+v", reading)
+			}
+		})
+	}
+}
 
 func TestParseKeepsTheMeasuredFractionForAllowanceFloors(t *testing.T) {
 	data := strings.ReplaceAll(string(fixture(t, "projected")), `"effectivePercentRemaining": 12`, `"effectivePercentRemaining": 3.1`)
