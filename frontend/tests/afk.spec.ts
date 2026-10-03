@@ -200,18 +200,33 @@ test("a board that loads, or reconnects, with AFK already on and items already h
   await expect(heldPanel(page).locator(".afk-held li")).toHaveCount(2);
 });
 
-test("a question announced before AFK turned on opens nothing when the supervisor's answer comes back empty after it is on", async ({ page }) => {
+for (const response of ["successful", "failed"] as const) test(`a late ${response} announcement reply opens nothing and sends no notification after AFK turns on`, async ({ page }) => {
+  await page.addInitScript(() => {
+    class Note {
+      static permission = "granted";
+      onclick: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor(title: string) { (window as unknown as { notes: string[] }).notes.push(title); }
+      close() { this.onclose?.(); }
+    }
+    Object.assign(window, { notes: [], Notification: Note });
+    document.hasFocus = () => false;
+  });
   await open(page, snapshot());
   const inFlight: Route[] = [];
   await page.route("**/api/announce", (route) => { inFlight.push(route); });
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
   await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("open:question:q-drop-table"))).toBe(true);
+  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table"))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
-  for (const route of inFlight.splice(0)) await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
+  for (const route of inFlight.splice(0)) await route.fulfill(response === "successful"
+    ? { json: { claimed: (route.request().postDataJSON() as { keys: string[] }).keys } }
+    : { status: 503, json: { error: "The supervisor is restarting" } });
   await page.waitForTimeout(500);
-  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { notes: string[] }).notes)).toEqual([]);
   await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 });
 
 test("with AFK on, a new item raises no alert and opens nothing, even when the supervisor cannot be asked what was announced", async ({ page }) => {

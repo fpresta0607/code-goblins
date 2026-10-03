@@ -498,7 +498,7 @@ If the switch itself ever cannot be read, a press on the board's toggle or `cfo 
 AFK MODE REPORT
 AFK mode was on from 2026-10-02 02:10 UTC to 2026-10-02 12:31 UTC (10h21m): turned on from his own terminal (powershell.exe pid 4242), off from his own terminal (powershell.exe pid 5151).
 
-Held for you (1)
+Held for you (1), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
   Now: still waiting on you.
 
