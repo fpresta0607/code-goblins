@@ -58,11 +58,20 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 	list.Keep()
 	restarted := false
 	if restart {
-		conversation, err := runtime.restartCFO(h)
+		conversation, resumed, err := runtime.restartCFO(h)
 		switch {
 		case err == nil:
-			list.Done("CFO", fmt.Sprintf("restarted on its conversation %s, in native terminal %s", conversation, supervisor.NativeCFOTerminal))
+			notes := runtime.settleCFO(ctx, h.State, conversation.Harness)
+			if resumed {
+				list.Done("CFO", fmt.Sprintf("restarted on its conversation %s, in native terminal %s", conversation.Session, supervisor.NativeCFOTerminal))
+			} else {
+				list.Done("CFO", fmt.Sprintf("restarted as %s on a new conversation, in native terminal %s", onboarding.Name(conversation.Harness), supervisor.NativeCFOTerminal))
+				list.Note(fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation.Session))
+			}
 			list.Note("Its current response was interrupted; goblins keep running.")
+			for _, note := range append(wakePath(conversation.Harness), notes...) {
+				list.Note(note)
+			}
 			restarted = true
 		case errors.Is(err, errNoRunningCFO):
 			// A CFO that is not running comes back below, as goblins brings it.
@@ -189,7 +198,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	// did not come back on its conversation, when it did not.
 	var said []string
 	if why != "" {
-		said = append(said, why)
+		said = append(said, why+", so the CFO starts a new one.")
 	}
 	// A CFO that ran in its own terminal comes back in it, and a harness the
 	// supervisor wakes by typing is woken only in a native terminal, so its

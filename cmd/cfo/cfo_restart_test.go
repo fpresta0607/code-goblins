@@ -18,30 +18,66 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-// goblins resume restarts a CFO running in its native terminal, its screen
-// frozen or not, on its conversation, says so, and ends on the same screen
-// as goblins.
+// goblins resume, and cfo resume with no task named, restart a CFO running in
+// its native terminal, its screen frozen or not, on its conversation, answer
+// its startup dialogs, say so, and end on the same screen as goblins.
 func TestGoblinsResumeRestartsARunningCFOOnItsConversation(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		isGoblins bool
+	}{
+		{"goblins resume", true},
+		{"cfo resume", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.runtime.goblins = c.isGoblins
+			f.nativeCFO = supervisor.NativeCFOTerminal
+			f.restartSession = "a1b2c3d4-session"
+			f.settleNotes = []string{"Answered the update prompt in the CFO's terminal: Skip."}
+
+			// Act
+			exit, stdout, stderr := f.launch("resume")
+
+			// Assert
+			if exit != 0 || f.restarts != 1 || len(f.nativeStarts)+len(f.cfoStarts) != 0 {
+				t.Fatalf("exit=%d restarts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want one restart and no other start", exit, f.restarts, f.nativeStarts, f.cfoStarts, stderr)
+			}
+			if !strings.Contains(stdout, "CFO        restarted on its conversation a1b2c3d4-session, in native terminal cfo\n") || !strings.Contains(stdout, "Its current response was interrupted; goblins keep running.") {
+				t.Errorf("stdout = %q, want the restart said", stdout)
+			}
+			if !strings.Contains(stdout, f.settleNotes[0]) {
+				t.Errorf("stdout = %q, want the restarted CFO's startup dialogs answered and said", stdout)
+			}
+			if strings.Count(stdout, "CFO        ") != 1 {
+				t.Errorf("stdout = %q, want the CFO said once, as restarted", stdout)
+			}
+			if len(f.screens) != 1 || !strings.HasPrefix(f.screens[0].title, "Your CFO is starting\n") || !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
+				t.Errorf("screens=%+v nativeAttached=%q, want the final screen and the CFO's terminal", f.screens, f.nativeAttached)
+			}
+		})
+	}
+}
+
+// A restarted CFO whose harness could not resume its conversation runs on a
+// new one, and goblins resume says so, naming the conversation it left.
+func TestGoblinsResumeSaysTheRestartedCFOStartedANewConversation(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
 	f.nativeCFO = supervisor.NativeCFOTerminal
 	f.restartSession = "a1b2c3d4-session"
+	f.resumeEnds = true
 
 	// Act
 	exit, stdout, stderr := f.launch("resume")
 
 	// Assert
-	if exit != 0 || f.restarts != 1 || len(f.nativeStarts)+len(f.cfoStarts) != 0 {
-		t.Fatalf("exit=%d restarts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want one restart and no other start", exit, f.restarts, f.nativeStarts, f.cfoStarts, stderr)
+	if exit != 0 || f.restarts != 1 {
+		t.Fatalf("exit=%d restarts=%d stderr=%q, want one restart", exit, f.restarts, stderr)
 	}
-	if !strings.Contains(stdout, "CFO        restarted on its conversation a1b2c3d4-session, in native terminal cfo\n") || !strings.Contains(stdout, "Its current response was interrupted; goblins keep running.") {
-		t.Errorf("stdout = %q, want the restart said", stdout)
-	}
-	if strings.Count(stdout, "CFO        ") != 1 {
-		t.Errorf("stdout = %q, want the CFO said once, as restarted", stdout)
-	}
-	if len(f.screens) != 1 || !strings.HasPrefix(f.screens[0].title, "Your CFO is starting\n") || !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
-		t.Errorf("screens=%+v nativeAttached=%q, want the final screen and the CFO's terminal", f.screens, f.nativeAttached)
+	if !strings.Contains(stdout, "CFO        restarted as Claude Code on a new conversation, in native terminal cfo\n") || !strings.Contains(stdout, "Its conversation a1b2c3d4-session could not be resumed, so the CFO starts a new one.") {
+		t.Errorf("stdout = %q, want the new conversation and the one left said", stdout)
 	}
 }
 
@@ -64,7 +100,7 @@ func TestGoblinsResumeBringsBackAClosedCFO(t *testing.T) {
 
 // A restart that would lose the CFO's conversation is refused with its
 // reason, the CFO left running and nothing else started; anything after
-// resume is refused too.
+// goblins resume is refused too.
 func TestGoblinsResumeSaysWhyItLeftTheCFORunning(t *testing.T) {
 	// Arrange
 	f := newSessionFixture(t)
@@ -82,6 +118,22 @@ func TestGoblinsResumeSaysWhyItLeftTheCFORunning(t *testing.T) {
 	if extra != 2 || !strings.Contains(extraErr, "usage: goblins resume") {
 		t.Errorf("goblins resume now: exit=%d stderr=%q, want its usage", extra, extraErr)
 	}
+}
+
+// fakeClaudeHome is a home whose PATH finds only the test binary, as
+// claude.exe.
+func fakeClaudeHome(t *testing.T) home.Home {
+	t.Helper()
+	bin := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, self, filepath.Join(bin, "claude.exe"))
+	t.Setenv("PATH", bin)
+	h := home.Home{Root: t.TempDir()}
+	h.State = filepath.Join(h.Root, "state")
+	return h
 }
 
 // nativeCFORunning starts the test binary as Claude Code in native terminal
@@ -125,34 +177,75 @@ func nativeCFORunning(t *testing.T, h home.Home, session string) host.Record {
 	return record
 }
 
+// recordConversationOf records session in harness as the conversation of the
+// program native terminal cfo runs, as that program's registration does.
+func recordConversationOf(t *testing.T, stateDir string, record host.Record, harness, session string) {
+	t.Helper()
+	data, err := json.Marshal(supervisor.CFOConversation{Harness: harness, Session: session, Host: supervisor.NativeCFOTerminal, PID: record.ChildPID, Updated: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "cfo-conversation.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitForFakeClaudeArguments waits for the test binary, run as claude.exe in
+// dir, to record arguments other than skip, and returns them.
+func waitForFakeClaudeArguments(t *testing.T, dir string, skip []string) []string {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		raw, err := os.ReadFile(filepath.Join(dir, fakeClaudeArguments))
+		if err != nil {
+			continue
+		}
+		if got := strings.Split(string(raw), "\n"); !slices.Equal(got, skip) {
+			return got
+		}
+	}
+	t.Fatal("the CFO did not start again in native terminal cfo within 15s")
+	return nil
+}
+
 // A CFO running in native terminal cfo is restarted there on its
 // conversation: its harness ends with its terminal, and the terminal runs
 // Claude Code again with --resume and that conversation.
 func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	// Arrange
-	bin := t.TempDir()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	copyFile(t, self, filepath.Join(bin, "claude.exe"))
-	t.Setenv("PATH", bin)
-	h := home.Home{Root: t.TempDir()}
-	h.State = filepath.Join(h.Root, "state")
+	h := fakeClaudeHome(t)
 	before := nativeCFORunning(t, h, "a1b2c3d4-session")
-	data, err := os.ReadFile(filepath.Join(h.State, "cfo-conversation.json"))
-	if err != nil {
+	recordConversationOf(t, h.State, before, "claude", "a1b2c3d4-session")
+	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
 		t.Fatal(err)
 	}
-	var conversation supervisor.CFOConversation
-	if err := json.Unmarshal(data, &conversation); err != nil {
-		t.Fatal(err)
+
+	// Act
+	conversation, resumed, err := restartCFO(h)
+
+	// Assert
+	if err != nil || !resumed || conversation.Session != "a1b2c3d4-session" {
+		t.Fatalf("restartCFO = %+v, %v, %v; want the conversation resumed", conversation, resumed, err)
 	}
-	conversation.PID = before.ChildPID
-	if data, err = json.Marshal(conversation); err != nil {
-		t.Fatal(err)
+	if _, alive := proc.StartTime(before.ChildPID); alive {
+		t.Errorf("the CFO's earlier program, pid %d, still runs", before.ChildPID)
 	}
-	if err := os.WriteFile(filepath.Join(h.State, "cfo-conversation.json"), data, 0o600); err != nil {
+	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{"--resume", "a1b2c3d4-session"}) {
+		t.Errorf("the restarted CFO started with %q, want --resume and its conversation", got)
+	}
+	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		t.Error("native terminal cfo does not run after the restart")
+	}
+}
+
+// A restarted CFO whose harness ends at once, as one that cannot resume its
+// conversation does, is started again there on a new conversation, so the
+// fleet is never left without a CFO.
+func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T) {
+	// Arrange
+	h := fakeClaudeHome(t)
+	before := nativeCFORunning(t, h, "a1b2c3d4-session")
+	recordConversationOf(t, h.State, before, "claude", "a1b2c3d4-session")
+	if err := os.WriteFile(filepath.Join(h.Root, fakeClaudeResumeEnds), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
@@ -160,50 +253,50 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	}
 
 	// Act
-	session, err := restartCFO(h)
+	conversation, resumed, err := restartCFO(h)
 
 	// Assert
-	if err != nil || session != "a1b2c3d4-session" {
-		t.Fatalf("restartCFO = %q, %v; want the conversation restarted", session, err)
+	if err != nil || resumed || conversation.Session != "a1b2c3d4-session" {
+		t.Fatalf("restartCFO = %+v, %v, %v; want the conversation it could not resume named", conversation, resumed, err)
 	}
-	if _, alive := proc.StartTime(before.ChildPID); alive {
-		t.Errorf("the CFO's earlier program, pid %d, still runs", before.ChildPID)
+	if got := waitForFakeClaudeArguments(t, h.Root, []string{"--resume", "a1b2c3d4-session"}); !slices.Equal(got, []string{""}) {
+		t.Errorf("the CFO started again with %q, want a new conversation", got)
 	}
-	arguments := filepath.Join(h.Root, fakeClaudeArguments)
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if raw, err := os.ReadFile(arguments); err == nil && len(raw) > 0 {
-			if got := strings.Split(string(raw), "\n"); !slices.Equal(got, []string{"--resume", "a1b2c3d4-session"}) {
-				t.Errorf("the restarted CFO started with %q, want --resume and its conversation", got)
-			}
-			return
-		}
+	if !supervisor.NativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		t.Error("no CFO runs in native terminal cfo after the restart")
 	}
-	t.Fatal("the CFO did not start again in native terminal cfo within 15s")
 }
 
 // A CFO whose conversation was not recorded for the program its terminal
-// runs is left running: a restart never stops what it cannot bring back.
+// runs, or cannot be resumed, is left running, with why: a restart never
+// stops what it cannot bring back.
 func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
-	// Arrange
-	bin := t.TempDir()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	copyFile(t, self, filepath.Join(bin, "claude.exe"))
-	t.Setenv("PATH", bin)
-	h := home.Home{Root: t.TempDir()}
-	h.State = filepath.Join(h.Root, "state")
-	record := nativeCFORunning(t, h, "a1b2c3d4-session")
+	for _, c := range []struct {
+		name, harness string
+		isRecorded    bool
+		why           string
+	}{
+		{"a conversation another process registered", "claude", false, "registered no conversation it can come back on, so it is left running"},
+		{"a pi conversation", "pi", true, "pi has no way to resume a conversation, so the CFO is left running"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := fakeClaudeHome(t)
+			record := nativeCFORunning(t, h, "a1b2c3d4-session")
+			if c.isRecorded {
+				recordConversationOf(t, h.State, record, c.harness, "a1b2c3d4-session")
+			}
 
-	// Act
-	_, err = restartCFO(h)
+			// Act
+			_, _, err := restartCFO(h)
 
-	// Assert
-	if err == nil || !strings.Contains(err.Error(), "so it is left running") {
-		t.Fatalf("restartCFO error = %v, want the CFO left running", err)
-	}
-	if _, alive := proc.StartTime(record.ChildPID); !alive || !host.Running(record) {
-		t.Errorf("the CFO, pid %d, was stopped", record.ChildPID)
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), c.why) || strings.Contains(err.Error(), "starts a new one") {
+				t.Fatalf("restartCFO error = %v, want %q and the CFO left running", err, c.why)
+			}
+			if _, alive := proc.StartTime(record.ChildPID); !alive || !host.Running(record) {
+				t.Errorf("the CFO, pid %d, was stopped", record.ChildPID)
+			}
+		})
 	}
 }

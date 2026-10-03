@@ -577,6 +577,11 @@ const fakeClaudeArguments = "claude-arguments.txt"
 // native terminal, writes its environment to, in its working directory.
 const fakeClaudeEnvironment = "claude-environment.txt"
 
+// fakeClaudeResumeEnds is the file whose presence in its working directory
+// makes the test binary, run as claude.exe to resume a conversation, end a
+// second after it starts, as a harness that cannot resume it does.
+const fakeClaudeResumeEnds = "claude-resume-ends"
+
 // runFakeClaude is the test binary run as claude.exe: it records the
 // environment it started with and stays until its terminal closes, as a
 // harness does. One that ended at once could take its host with it before
@@ -588,6 +593,10 @@ func runFakeClaude() int {
 	}
 	if err := os.WriteFile(fakeClaudeEnvironment, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if _, err := os.Stat(fakeClaudeResumeEnds); err == nil && slices.Contains(os.Args[1:], "--resume") {
+		time.Sleep(time.Second)
 		return 1
 	}
 	_, _ = io.Copy(io.Discard, os.Stdin)
