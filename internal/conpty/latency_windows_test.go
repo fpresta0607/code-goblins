@@ -37,6 +37,20 @@ func TestConsoleLatencyChild(t *testing.T) {
 		}()
 	}
 	fmt.Println("latency-ready")
+	wrapMarker := func() {
+		if arguments[1] != "wrapped" {
+			return
+		}
+		output := windows.Handle(os.Stdout.Fd())
+		var info windows.ConsoleScreenBufferInfo
+		if err := windows.GetConsoleScreenBufferInfo(output, &info); err != nil {
+			t.Fatal(err)
+		}
+		position := uint32(116) | uint32(uint16(info.CursorPosition.Y))<<16
+		if ok, _, err := kernel32.NewProc("SetConsoleCursorPosition").Call(uintptr(output), uintptr(position)); ok == 0 {
+			t.Fatal(err)
+		}
+	}
 	readEvents := windows.NewLazySystemDLL("kernel32.dll").NewProc("ReadConsoleInputW")
 	var burst []byte
 	isBurst := false
@@ -63,21 +77,23 @@ func TestConsoleLatencyChild(t *testing.T) {
 			if isBurst {
 				burst = append(burst, character)
 				if len(burst) == 2000 {
-					fmt.Printf("burst-%x\n", sha256.Sum256(burst))
+					wrapMarker()
+					fmt.Printf("\rburst-%x\n", sha256.Sum256(burst))
 					isBurst = false
 				}
 			} else if character == '!' {
 				isBurst = true
 			} else {
 				sequence++
-				fmt.Printf("key-%04d\n", sequence)
+				wrapMarker()
+				fmt.Printf("\rkey-%04d\n", sequence)
 			}
 		}
 	}
 }
 
 func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
-	for _, activity := range []string{"idle", "busy"} {
+	for _, activity := range []string{"idle", "busy", "wrapped"} {
 		t.Run(activity, func(t *testing.T) {
 			console, err := Start(Spec{Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity}, Cols: 120, Rows: 40})
 			if err != nil {
