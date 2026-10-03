@@ -8,8 +8,10 @@ export const DEFAULT_FONT_SIZE = 20;
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 28;
 // Every terminal the board sizes draws at the one text size the Overlord last
-// chose with Ctrl+Plus and Ctrl+Minus, remembered in this browser.
+// chose, by its keys, the wheel or the panel's buttons, remembered in this
+// browser.
 const FONT_KEY = "cfo-terminal-font-size";
+const followers = new Set<(size: number) => void>();
 
 export function storedFontSize(): number {
   try {
@@ -18,8 +20,18 @@ export function storedFontSize(): number {
   } catch { return DEFAULT_FONT_SIZE; }
 }
 
+// storeFontSize remembers the size and tells every terminal on the page, so
+// they all draw at it at once, wherever it was chosen.
 export function storeFontSize(size: number): void {
-  try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this view */ }
+  try { localStorage.setItem(FONT_KEY, String(size)); } catch { /* the size still applies to this page */ }
+  for (const follow of [...followers]) follow(size);
+}
+
+// followFontSize calls follow with each size chosen from now on, until the
+// function it returns is called.
+export function followFontSize(follow: (size: number) => void): () => void {
+  followers.add(follow);
+  return () => { followers.delete(follow); };
 }
 // Output is acknowledged in steps of this many bytes, or at once when xterm
 // has caught up with everything received.
@@ -46,6 +58,20 @@ export function fontSizeFor(key: string, current: number): number | null {
   if (key === "-") return Math.max(MIN_FONT_SIZE, current - 1);
   if (key === "0") return DEFAULT_FONT_SIZE;
   return null;
+}
+
+// How far the wheel travels for one step of the font size: one notch of a
+// mouse wheel, in the pixels a browser reports it as, or three of its lines.
+const WHEEL_STEP = 100;
+
+// The wheel with Ctrl held steps the font size, away from him larger and
+// toward him smaller, and so does a pinch, which a browser reports as that
+// wheel in many small moves: rest is what earlier moves left over, so they
+// add up to a step. A delta in lines (mode 1) or pages (2) counts as such.
+export function wheelFontSize(rest: number, delta: number, mode: number, current: number): { size: number; rest: number } {
+  const travel = rest + (mode === 1 ? delta * WHEEL_STEP / 3 : mode === 2 ? delta * WHEEL_STEP : delta);
+  const steps = Math.trunc(travel / WHEEL_STEP);
+  return { size: Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, current - steps)), rest: travel - steps * WHEEL_STEP };
 }
 
 export function parseSize(text: string): { cols: number; rows: number } | null {

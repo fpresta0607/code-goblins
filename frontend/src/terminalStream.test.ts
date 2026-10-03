@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, reconnects, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, reconnects, usableSize, storeFontSize, wheelFontSize } from "./terminalStream.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -32,6 +32,35 @@ test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys
   assert.equal(fontSizeFor("0", 22), DEFAULT_FONT_SIZE);
   assert.equal(fontSizeFor("c", 16), null);
   assert.equal(fontSizeFor("_", 16), null);
+});
+
+test("the wheel with Ctrl steps the font once a notch, a pinch's small moves add up, and the size stays within bounds", () => {
+  const cases: [string, number, number, number, number, { size: number; rest: number }][] = [
+    ["a notch away is one size larger", 0, -100, 0, 20, { size: 21, rest: 0 }],
+    ["a notch toward is one size smaller", 0, 100, 0, 20, { size: 19, rest: 0 }],
+    ["a small move is kept for the next", 0, -30, 0, 20, { size: 20, rest: -30 }],
+    ["small moves add up to a step", -80, -30, 0, 20, { size: 21, rest: -10 }],
+    ["a turn the other way takes back what was kept", -80, 30, 0, 20, { size: 20, rest: -50 }],
+    ["three lines are a notch", 0, 3, 1, 20, { size: 19, rest: 0 }],
+    ["a page is a notch", 0, -1, 2, 20, { size: 21, rest: 0 }],
+    ["no larger than the largest", 0, -300, 0, MAX_FONT_SIZE - 1, { size: MAX_FONT_SIZE, rest: 0 }],
+    ["no smaller than the smallest", 0, 300, 0, MIN_FONT_SIZE + 1, { size: MIN_FONT_SIZE, rest: 0 }],
+  ];
+  for (const [name, rest, delta, mode, current, want] of cases) assert.deepEqual(wheelFontSize(rest, delta, mode, current), want, name);
+});
+
+test("a chosen font size reaches every terminal that follows it, until it stops following", () => {
+  const first: number[] = [], second: number[] = [];
+  const stopFirst = followFontSize((size) => first.push(size));
+  const stopSecond = followFontSize((size) => second.push(size));
+
+  storeFontSize(22);
+  stopFirst();
+  storeFontSize(18);
+  stopSecond();
+  storeFontSize(20);
+
+  assert.deepEqual([first, second], [[22], [22, 18]]);
   assert.equal(DEFAULT_FONT_SIZE, 20);
 });
 

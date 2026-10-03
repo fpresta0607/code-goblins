@@ -10,12 +10,12 @@ import { PanelMore } from "./panel-more";
 // its tip and its menu item say, label its accessible name as an icon, and
 // importance its claim on the row: where there is not room for all, the
 // controls with the highest stay.
-export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; onPress: () => void }
+export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; isDisabled?: boolean; onPress: () => void }
 
 // The importance of every control of the row, written once. The Task and
 // Terminal switch and the corner button, Close or Back, are not controls:
 // they always show. A control that joins the row takes its place here.
-export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
+export const PANEL_IMPORTANCE = { maximize: 20, smaller: 15, larger: 15, window: 10 } as const;
 
 const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "task", name: "Task", icon: "task" }, { id: "terminal", name: "Terminal", icon: "terminal" }];
 // A control's width, an icon button's in styles.css, and the row's gap there.
@@ -62,7 +62,7 @@ export function PanelRow({ view, onView, controls, corner, notice }: {
     <span />
     {view ? pill(fit.hasWords) : <span />}
     <div className="panel-controls">
-      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} data-tip-align="end" onClick={control.onPress}><Icon name={control.icon} /></button>)}
+      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} data-tip-align="end" disabled={control.isDisabled} onClick={control.onPress}><Icon name={control.icon} /></button>)}
       {kept.size < count && <PanelMore controls={controls.filter((control) => !kept.has(control.id)).sort((a, b) => b.importance - a.importance)} />}
       <div ref={cornerBox} className="panel-corner">{corner}</div>
       {notice}

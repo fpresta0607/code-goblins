@@ -16,6 +16,7 @@ import { PaneDivider } from "./PaneDivider";
 import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
 import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
+import { followFontSize, fontSizeFor, MAX_FONT_SIZE, MIN_FONT_SIZE, storedFontSize, storeFontSize } from "./terminalStream";
 import { unsentComment, updateAction } from "./boardUpdate";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
@@ -78,6 +79,7 @@ export function App() {
   const [resizing, setResizing] = useState(false);
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
+  const [textSize, setTextSize] = useState(storedFontSize);
   const [switchFocus, setSwitchFocus] = useState(0);
   // windowError is a refused Open in terminal and the terminal it was for.
   const [windowError, setWindowError] = useState({ shown: "", text: "" });
@@ -98,6 +100,7 @@ export function App() {
   // board hidden behind a maximized panel has no width to judge.
   const [boardNarrow, setBoardNarrow] = useState(false);
   useEffect(watchTips, []);
+  useEffect(() => followFontSize(setTextSize), []);
   useEffect(() => {
     const query = matchMedia("(max-width: 40rem)");
     const changed = () => setCompact(query.matches);
@@ -227,6 +230,10 @@ export function App() {
   const controls: PanelControl[] = [];
   if (shownWindow) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
+  if (terminalShown) controls.push(
+    { id: "smaller", name: "Smaller text", label: "Smaller terminal text", icon: "minus", importance: PANEL_IMPORTANCE.smaller, isDisabled: textSize <= MIN_FONT_SIZE, onPress: () => storeFontSize(textSize - 1) },
+    { id: "larger", name: "Larger text", label: "Larger terminal text", icon: "plus", importance: PANEL_IMPORTANCE.larger, isDisabled: textSize >= MAX_FONT_SIZE, onPress: () => storeFontSize(textSize + 1) },
+  );
   const row = {
     controls,
     corner: backShown
@@ -275,7 +282,13 @@ export function App() {
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)} />}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
-      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
+      <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"} onKeyDown={(event) => {
+        if (!terminalShown || event.defaultPrevented || !event.ctrlKey || event.altKey || event.metaKey) return;
+        const size = fontSizeFor(event.key, textSize);
+        if (size === null) return;
+        event.preventDefault();
+        storeFontSize(size);
+      }}>
         {snapshot && cardStart && paneOpen && (!showsPanel
           ? <><PanelRow {...row} />
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
