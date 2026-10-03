@@ -237,7 +237,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state and writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged, and quitting it leaves the supervisor, the CFO and every goblin running.
-It lives in [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository, and is published there as a release; no release of this repository ships it yet.
+Its source is `cmd/goblins-window` in this repository; no release of this repository ships it yet, and a built one is published as a release by [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository.
 That repository's README has the one command that downloads the window, checks its SHA-256 and adds it beside your CFO home, with **Code Goblins Window** in the Start menu, and how to update and remove it.
 The window is unsigned, and its install says so.
 Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
@@ -357,6 +357,7 @@ The terminal fills the panel, and you pick the goblin on the board; every termin
 A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
+The panel's top row stays on one line however narrow you drag the panel: what it has no room for goes into a **More** menu, and at its narrowest the Task and Terminal switch shows its icons alone.
 A goblin still in Herdr stays live and sized to the panel while its view is open, focused or not, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom, and follows the panel as it changes size; a Herdr window shows it at the board's size, and closing the view hands the pane back its Herdr size; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
 A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, from the first turn and without piling up turns after the wheel stops, unless a review gate owns the goblin, when the board says to scroll it in Herdr; once it is scrolled up, a click on it jumps back to the bottom, as **Ctrl+End** does.
 **Open in terminal** at the panel's top right opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
@@ -478,7 +479,7 @@ While it is on:
   They are never decided for you.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
-  The desktop app is the exception: while its window runs, AFK mode does not silence the window's own Windows notifications for what newly waits on you, until the window ships a fix.
+  The desktop app is quiet too: its window claims what it would notify from the supervisor first, which hands out nothing in AFK mode.
 
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the report of the stretch: what merged, deployed and installed, each with its link and its verification, what each goblin finished, what is held for you and what became of it, and what was spent, read from `quota-axi` when it turned on and when it turned off.
@@ -512,7 +513,7 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The toggle on the board, the Held for you list and the report page are not built yet, and neither are silence in the desktop app and the pauses at an allowance floor and at the memory floor.
+The toggle on the board, the Held for you list and the report page are not built yet, and neither are the pauses at an allowance floor and at the memory floor.
 
 ### Open in VS Code
 
