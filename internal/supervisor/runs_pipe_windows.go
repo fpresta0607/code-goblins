@@ -23,7 +23,6 @@ var (
 	kernel32                        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateNamedPipeW            = kernel32.NewProc("CreateNamedPipeW")
 	procConnectNamedPipe            = kernel32.NewProc("ConnectNamedPipe")
-	procDisconnectNamedPipe         = kernel32.NewProc("DisconnectNamedPipe")
 	procGetNamedPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
 	procGetNamedPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
 	procConvertSDDL                 = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
@@ -136,10 +135,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
-	defer func() {
-		_, _, _ = procDisconnectNamedPipe.Call(uintptr(handle))
-		_ = pipe.Close()
-	}()
+	defer pipe.Close()
 	var reply struct {
 		Error string `json:"error,omitempty"`
 	}
@@ -187,7 +183,25 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	_, _ = pipe.Write(append(data, '\n'))
+	// DisconnectNamedPipe discards unread bytes. The one-request client closes
+	// after reading its reply; wait for that close outside the request locks.
+	// Bound both a write blocked by a silent reader and the wait for its close.
+	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	defer cancel()
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(replyCtx, func() {
+		_ = pipe.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+	}()
+	if _, err := pipe.Write(append(data, '\n')); err != nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, pipe)
 }
 
 // lookNow has the supervisor's loop run a cycle now, which reads what a
