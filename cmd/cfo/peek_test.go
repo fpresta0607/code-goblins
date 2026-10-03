@@ -79,16 +79,21 @@ func TestPeekAndReadinessReadAnInlineCodexScreen(t *testing.T) {
 	if !ok {
 		t.Fatal("Codex has no native readiness detector")
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
-		rows, err := host.ReadScreen(record)
-		if err != nil {
-			t.Fatal(err)
+	readAttempts := 0
+	readScreen := func(record host.Record) ([]string, error) {
+		readAttempts++
+		if readAttempts == 1 {
+			return nil, errors.New("forced transient console-attach error")
 		}
-		if screens.IsReady(rows) && screens.ComposerEmpty(rows) {
+		return host.ReadScreen(record)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		rows, err := readScreen(record)
+		if err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("inline Codex screen never became ready: %q", rows)
+			t.Fatalf("inline Codex screen never became ready: %q; last read error: %v", rows, err)
 		}
 	}
 	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
