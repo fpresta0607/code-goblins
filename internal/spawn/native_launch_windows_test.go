@@ -240,7 +240,15 @@ func fakeHarness() {
 // machine, and reports whether they ended at its composer.
 func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
 	if strings.HasPrefix(mode, "daybreak") {
-		draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "› 1. Set up security", "", "Press a number to choose · esc to dismiss · type to continue", "", "› Ask Codex to do anything", "100% context left")
+		var draft strings.Builder
+		offer := func() {
+			text := draft.String()
+			if text == "" {
+				text = "Ask Codex to do anything"
+			}
+			draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "› 1. Set up security", "", "Press a number to choose · esc to dismiss · type to continue", "", "› "+text, "100% context left")
+		}
+		offer()
 		for key := range keys {
 			switch key {
 			case "\x1b":
@@ -253,7 +261,9 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 			case "\r":
 				record(codexEvent{Event: "security enrollment", Text: key})
 			default:
+				draft.WriteString(key)
 				record(codexEvent{Event: "typed into security offer", Text: key})
+				offer()
 			}
 		}
 		return false
@@ -587,11 +597,12 @@ func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testi
 }
 
 func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 3 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
 	f := newNativeFixture(t, harness.Codex, "daybreak-stuck")
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
 
-	_, err := f.service.Spawn(ctx, f.request)
+	_, err := f.service.Spawn(context.Background(), f.request)
 
 	if err == nil || !strings.Contains(err.Error(), "still shows the optional Daybreak security setup offer after Escape") {
 		t.Errorf("native spawn: %v, want an unconfirmed dismissal error", err)
