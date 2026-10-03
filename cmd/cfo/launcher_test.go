@@ -69,6 +69,10 @@ type launcherFixture struct {
 	harnesses []string
 	// cfoTerminalRuns is whether native terminal cfo's host answers.
 	cfoTerminalRuns bool
+	// window is what starting the desktop window answers, errNoWindow by
+	// default, and windows each start it was asked for.
+	window  error
+	windows []string
 	// setups are the quick start's agent steps as each launch asked for them.
 	// They run the real steps over agents whose states are missing, ready
 	// unless named, choosing agent wherever they ask, and remember what they
@@ -81,6 +85,10 @@ type launcherFixture struct {
 	// CFO's terminal unless a test says otherwise.
 	screens []finalScreen
 	answer  int
+	// nativeArgs are the arguments each native start gave the harness, and
+	// resumeEnds makes a CFO started to resume a conversation end at once.
+	nativeArgs []string
+	resumeEnds bool
 	// settleNotes are what the watch of a new native CFO's startup dialogs
 	// says.
 	settleNotes []string
@@ -112,7 +120,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		t.Fatal(err)
 	}
 	// A live CFO by default, so a supervisor test prints only the banner.
-	f := &launcherFixture{t: t, home: h, cfoLive: true, agent: "claude"}
+	f := &launcherFixture{t: t, home: h, cfoLive: true, agent: "claude", window: errNoWindow}
 	f.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		goblins:     true,
@@ -123,6 +131,13 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		openURL: func(target string) error {
 			f.opened = append(f.opened, target)
 			return nil
+		},
+		openWindow: func(board, stateDir string, background bool) error {
+			if stateDir != h.State {
+				t.Errorf("the window was given state %s, want the fixture home's %s", stateDir, h.State)
+			}
+			f.windows = append(f.windows, fmt.Sprintf("%s background=%v", board, background))
+			return f.window
 		},
 		nativeCFO: func(string) (string, bool) {
 			return f.nativeCFO, f.nativeCFO != ""
@@ -146,9 +161,15 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.attached = append(f.attached, session)
 			return 0
 		},
-		startNativeCFO: func(_ home.Home, project, harness string) error {
+		startNativeCFO: func(_ home.Home, project, harness string, args []string) error {
 			f.nativeStarts = append(f.nativeStarts, project)
 			f.harnesses = append(f.harnesses, harness)
+			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
+			// A resumed CFO's terminal runs on, unless its harness could not
+			// resume the conversation and ended at once.
+			if len(args) > 0 {
+				f.cfoTerminalRuns = !f.resumeEnds
+			}
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -798,5 +819,132 @@ func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	}
 	if got := string(data); got != "processes=1 visible=false" {
 		t.Fatalf("stand-in console: %s, want a hidden console only it is attached to", got)
+	}
+}
+
+// Where the desktop window sits beside goblins, Open the board on the quick
+// start's last screen shows the board in it and opens no browser tab.
+func TestGoblinsShowsTheBoardInTheDesktopWindow(t *testing.T) {
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins started a second supervisor")
+		return nil, nil
+	})
+	f.window = nil
+	f.answer = 1
+	board := fakeBoard(t, busySnapshot)
+	f.record(board)
+
+	exit, _, stderr := f.launch()
+
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr)
+	}
+	if want := []string{board + " background=false"}; !slices.Equal(f.windows, want) || len(f.opened) != 0 {
+		t.Errorf("windows %q, browser %q; want the window once on %s and no browser", f.windows, f.opened, board)
+	}
+}
+
+// A desktop window that fails to start leaves the board to the browser, and
+// says why.
+func TestGoblinsOpensTheBrowserWhenTheWindowFails(t *testing.T) {
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins started a second supervisor")
+		return nil, nil
+	})
+	f.window = errors.New("WebView2 is missing")
+	f.answer = 1
+	board := fakeBoard(t, busySnapshot)
+	f.record(board)
+
+	exit, _, stderr := f.launch()
+
+	if exit != 0 || !strings.Contains(stderr, "the desktop window did not start (WebView2 is missing)") {
+		t.Fatalf("exit=%d stderr=%q, want the window's failure named", exit, stderr)
+	}
+	if !slices.Equal(f.opened, []string{board}) {
+		t.Errorf("browser %q, want the board opened there instead", f.opened)
+	}
+}
+
+// goblins --window --background, which Windows runs at login, finds or starts
+// the supervisor and keeps the window in the tray: it neither opens a browser
+// nor starts or shows a CFO. goblins --window alone shows the window.
+func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
+	for _, test := range []struct {
+		args       []string
+		background bool
+	}{
+		{[]string{"--window", "--background"}, true},
+		{[]string{"--window"}, false},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+				t.Fatal("goblins started a second supervisor")
+				return nil, nil
+			})
+			f.window = nil
+			f.cfoLive = false
+			board := fakeBoard(t, busySnapshot)
+			f.record(board)
+
+			exit, _, stderr := f.launch(test.args...)
+
+			if exit != 0 {
+				t.Fatalf("exit=%d stderr=%q", exit, stderr)
+			}
+			if want := []string{fmt.Sprintf("%s background=%v", board, test.background)}; !slices.Equal(f.windows, want) {
+				t.Errorf("windows %q, want %q", f.windows, want)
+			}
+			if len(f.opened) != 0 || len(f.cfoStarts) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
+				t.Errorf("browser %q, CFO starts %q and %q, attached %q; want none", f.opened, f.cfoStarts, f.nativeStarts, f.attached)
+			}
+		})
+	}
+}
+
+// With no window beside goblins, goblins --window says so and fails rather
+// than opening something else.
+func TestGoblinsWindowFailsWithoutTheWindow(t *testing.T) {
+	f := newLauncherFixture(t, func(home.Home) (<-chan struct{}, error) {
+		t.Fatal("goblins started a second supervisor")
+		return nil, nil
+	})
+	f.record(fakeBoard(t, busySnapshot))
+
+	exit, _, stderr := f.launch("--window")
+
+	if exit != 1 || !strings.Contains(stderr, "no desktop window beside goblins") {
+		t.Errorf("exit=%d stderr=%q, want the missing window named", exit, stderr)
+	}
+}
+
+// A build from source has no goblins-window.exe beside it, so the real start
+// answers errNoWindow and starts nothing.
+func TestOpenWindowAnswersNoWindowWithoutOneBesideGoblins(t *testing.T) {
+	stateDir := t.TempDir()
+
+	err := openWindow("http://127.0.0.1:4310", stateDir, false)
+
+	if !errors.Is(err, errNoWindow) {
+		t.Errorf("openWindow = %v, want errNoWindow", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "window.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("window.log: %v, want none written", err)
+	}
+}
+
+// The window outlives the terminal goblins ran in, so it starts without that
+// terminal's id and proof value, and is told which goblins started it, which
+// Start at login then runs.
+func TestTheWindowStartsWithoutItsTerminalsProofAndKnowsItsGoblins(t *testing.T) {
+	environment := []string{`PATH=C:\Windows`, "CFO_HOST_ID=cfo", "cfo_host_proof=a-secret", "CFO_HOME=C:\\home"}
+
+	got := windowEnvironment(environment, `C:\home\goblins.exe`)
+
+	if want := []string{`PATH=C:\Windows`, "CFO_HOME=C:\\home", `CODE_GOBLINS_LAUNCHER=C:\home\goblins.exe`}; !slices.Equal(got, want) {
+		t.Errorf("windowEnvironment = %q, want %q", got, want)
+	}
+	if len(environment) != 4 {
+		t.Errorf("the caller's environment was changed: %q", environment)
 	}
 }

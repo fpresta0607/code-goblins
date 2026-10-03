@@ -34,6 +34,12 @@ type Flow struct {
 	Undo func()
 	// Marks are each agent's own mark on its tab.
 	Marks map[string]string
+	// Recommended is the agent whose tab says it is the recommended one, and
+	// Notes are the few words each agent's note says a CFO in it gets. Both
+	// come from the one table of what is proved, which this package does not
+	// hold.
+	Recommended string
+	Notes       map[string]string
 	// Install installs an agent, and Login opens the agent's own sign-in and
 	// returns when it ends. Neither is ever run without the person's Enter.
 	Install func(id string) error
@@ -170,9 +176,9 @@ func (f Flow) step(agent Agent) (Step, func(string) error) {
 }
 
 // agentStep is the choice of agent: one row of tabs, each with the agent's
-// own mark, and under the row how ready the marked agent is. Claude Code's
-// tab says it is the recommended one, the remembered agent's note says it is
-// the current one, and a Codex or pi note says what such a CFO goes without.
+// own mark, and under the row how ready the marked agent is and what a CFO in
+// it gets. The recommended agent's tab says so, and the remembered agent's
+// note says it is the current one.
 func (f Flow) agentStep(agents []Agent, saved string, selected int) Step {
 	choices := make([]Choice, len(agents))
 	for index, agent := range agents {
@@ -180,11 +186,11 @@ func (f Flow) agentStep(agents []Agent, saved string, selected int) Step {
 		if agent.State == Ready {
 			note = "Ready"
 		}
-		if agent.ID == "claude" {
+		if agent.ID == f.Recommended {
 			label += " (recommended)"
-			note += " · the best experience"
-		} else {
-			note += " · goblin reports do not wake it yet"
+		}
+		if said := f.Notes[agent.ID]; said != "" {
+			note += " · " + said
 		}
 		if agent.ID == saved {
 			note += " · current"

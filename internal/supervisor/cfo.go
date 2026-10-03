@@ -118,6 +118,11 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err != nil {
 		return "", err
 	}
+	// Plain cfo register names no session. Codex gives every command it runs
+	// its thread, which is the conversation a closed Codex CFO comes back on.
+	if session == "" && primary.Agent == "codex" {
+		session = os.Getenv("CODEX_THREAD_ID")
+	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if !slices.ContainsFunc(ancestry[:harnessAt+1], func(entry proc.Entry) bool { return lock.HeldBy(stateDir, entry.PID) }) {
 		if _, err := lock.AcquireOwner(stateDir, ancestry[harnessAt].PID, session); err != nil {
@@ -141,9 +146,10 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 		_ = file.Close()
 		drift := current.Process.Start.Sub(process.Start)
 		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
+		recorded := current
 		current.Process = lock.Info{}
 		if err == nil && sameProcess && current == primary {
-			return described, nil
+			return described, recordCFOConversation(stateDir, recorded, session)
 		}
 	}
 	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
@@ -159,7 +165,7 @@ func Register(ctx context.Context, stateDir string, terminals terminal.Opener, h
 	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
 		return "", err
 	}
-	return described, nil
+	return described, recordCFOConversation(stateDir, primary, session)
 }
 
 // nativeHarness proves this process runs under the program in native
@@ -440,8 +446,9 @@ type cfoState struct {
 	// registered says a CFO is registered and running.
 	registered bool
 	// starting says native terminal cfo is up for a CFO that has not
-	// registered yet: Claude Code registers the CFO only once its onboarding
-	// and sign-in are done, in that terminal.
+	// registered yet: Claude Code registers through its SessionStart hook
+	// after its onboarding and sign-in, in that terminal, and a Codex or pi
+	// CFO when its first prompt runs cfo register.
 	starting bool
 	// terminal is the native terminal the board shows the CFO in: the one the
 	// registered CFO names or, while it is starting, native terminal cfo,
@@ -455,7 +462,7 @@ type cfoState struct {
 	identity string
 	// problem says why the board cannot reach the CFO this read found, with
 	// the fix. It is empty while the board can, and while the CFO is starting
-	// and registers itself after sign-in.
+	// and has not registered yet.
 	problem string
 }
 

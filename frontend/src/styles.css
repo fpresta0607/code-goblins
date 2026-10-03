@@ -58,21 +58,22 @@
   --merged: #ab7df8;
   --closed: #f85149;
   --radius: 0.625rem;
+  /* A tip's own surface: solid, a step lighter than the cards it floats
+     over, with a mint edge. */
+  --tip-surface: #10222a;
+  --tip-edge: #2f7d66;
 }
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #38564d transparent; }
 /* Every icon-only control names itself twice: aria-label for assistive
-   technology and data-tip for sighted pointer and keyboard users. */
+   technology and data-tip for sighted pointer and keyboard users. The tip is
+   one box that floats over the whole page (tips.ts), so no scrolling box
+   clips it and no dimmed control dims it: it holds its whole text, wrapping
+   past 320 px, on a solid surface with an edge that reads over a card, a
+   terminal or the workshop picture alike. */
 [data-tip] { position: relative; }
-[data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; top: calc(100% + 8px); z-index: 30; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: 280px; pointer-events: none; opacity: 0; transform: translate(-50%, -4px); transition: opacity .12s ease, transform .12s ease; }
-[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-[data-tip-align="end"]::after { left: auto; right: 0; transform: translateY(-4px); }
-[data-tip-align="start"]::after { left: 0; transform: translateY(-4px); }
-[data-tip-align="end"]:hover::after, [data-tip-align="end"]:focus-visible::after, [data-tip-align="start"]:hover::after, [data-tip-align="start"]:focus-visible::after { transform: none; }
-/* A task card's parts show their tips in one tip floating over the whole page,
-   over or under the card, so a tip never covers the card's own controls or
-   links. */
-.task-card-shell [data-tip]::after { content: none; }
-.card-tip { position: fixed; z-index: 50; padding: 6px 11px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); color: #edf4f3; font: 700 .9375rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
+.tip { position: fixed; z-index: 60; padding: 6px 11px; border: 1px solid var(--tip-edge); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); color: #edf4f3; font: 700 1rem/1.3 var(--font-body); width: max-content; max-width: min(320px, calc(100vw - 16px)); overflow-wrap: anywhere; pointer-events: none; }
+/* These open their tips over them, clear of what they sit above. */
+.canvas-controls, .voice-dock, .comment-mark { --tip-side: over; }
 body { margin: 0; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, select, input, textarea {
@@ -124,11 +125,23 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .view-switch button:hover { color: #edf4f3; }
 .view-switch button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 .topbar-controls { display: flex; justify-content: flex-end; align-items: center; gap: 18px; min-width: 0; }
+/* The layout button while the board is too narrow for either layout to differ. */
+.topbar-controls [aria-disabled="true"] { cursor: not-allowed; }
+.topbar-controls [aria-disabled="true"] .icon { opacity: .5; }
 .connection { display: flex; align-items: center; gap: 9px; color: #b8cbda; font-size: .9375rem; }
 .live-dot, .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); flex: none; }
 .live-dot.offline { background: var(--amber); }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; gap: 10px; }
 .workspace.with-pane { grid-template-columns: minmax(0, 1fr) 10px minmax(420px, 1fr); column-gap: 0; }
+/* Beside a kanban board the panel yields: the board keeps 980 px, the 961 its
+   three columns need (the 960 px container rule on .task-board) with 2 px for
+   the canvas's border and up to 17 px for its scroll bar, whenever the
+   workspace is wider than 1410 px, which holds that, the divider and the
+   panel's own 420 px. A workspace no wider cannot show the columns beside a
+   panel at all, so the clamp gives the board no minimum there and the half
+   split stays. A width the Overlord dragged is an inline style and wins, as
+   an open Changes section does below. */
+.workspace.with-pane.kanban { grid-template-columns: minmax(clamp(0px, (100% - 1410px) * 9999, 980px), 1fr) 10px minmax(420px, 1fr); }
 .workspace.with-pane:has(.changes-section[open]) { grid-template-columns: minmax(290px, .9fr) 10px minmax(0, 1.1fr); }
 .canvas-region { container-type: inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: inset 0 2px 18px #0009; background: linear-gradient(rgba(3, 5, 10, 0.4), rgba(3, 5, 10, 0.4)), url('/assets/goblin-workshop.png') right bottom / cover; position: relative; }
 /* The board is a kanban: Tasks, In progress and Completed side by side, with
@@ -156,8 +169,9 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
 .column-divider { display: flex; align-items: center; gap: 10px; margin: 0; color: #edf4f3; font: 700 1rem/1.3 var(--font-body); }
 .column-divider::before, .column-divider::after { content: ""; flex: 1; height: 1px; background: var(--glass-border-hover); }
-/* The first-run page: one card over the workshop, the folder, the project
-   the CFO starts in, the agents with what this machine has, and Start. */
+/* The first-run page: one card over the workshop, what is already set up,
+   the agents as one row of icon tabs, the optional projects folder, and
+   Start. */
 .first-run-region { display: grid; align-content: start; justify-items: center; flex: 1; min-height: 0; overflow: auto; padding: 40px 16px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: linear-gradient(rgba(3, 5, 10, 0.6), rgba(3, 5, 10, 0.6)), url('/assets/goblin-workshop.png') right bottom / cover; }
 .first-run { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; width: min(640px, 100%); padding: clamp(18px, 4vw, 28px); border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
 .first-run-head { display: flex; align-items: center; gap: 16px; }
@@ -165,27 +179,34 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .first-run-head h2 { margin: 0 0 6px; font-size: 1.625rem; }
 .first-run-head p { margin: 0; }
 .first-run-step { display: grid; gap: 8px; margin: 0; min-width: 0; }
-.first-run-step > label, .first-run-agents legend { font-weight: 700; }
+.first-run-step > label { font-weight: 700; }
+.first-run-step > label .muted { font-weight: 400; }
 .first-run-step p { margin: 0; font-size: .9375rem; }
 .first-run-folder { display: flex; gap: 8px; }
 .first-run-folder input { flex: 1 1 0; width: 0; min-width: 0; font-family: var(--font-mono); }
 .first-run-folder button, .first-run-actions .primary { display: inline-flex; flex: none; align-items: center; gap: 8px; }
 .first-run .icon { width: 18px; height: 18px; flex: none; }
-.first-run-agents { padding: 0; border: 0; }
-.first-run-agents legend { margin-bottom: 8px; padding: 0; }
-.agent-choice { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); cursor: pointer; }
-.agent-choice + .agent-choice { margin-top: 8px; }
-.agent-choice:has(input:checked) { border-color: var(--accent-green); }
-.agent-choice.unavailable { cursor: default; }
-.agent-choice input { width: 18px; height: 18px; min-height: 0; margin: 3px 0 0; padding: 0; accent-color: var(--accent-green); }
-.agent-choice > .icon { width: 22px; height: 22px; margin-top: 1px; }
-.agent-copy { display: grid; gap: 4px; min-width: 0; }
+.first-run-label { font-weight: 700; }
+.first-run-done { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.first-run-done li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.first-run-done .icon { align-self: center; color: #90e1b3; }
+.first-run-done strong { flex: none; min-width: 3.5em; }
+.first-run-done span { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.first-run-path { font-family: var(--font-mono); font-size: .9375rem; }
+.agent-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-tab { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); color: var(--muted); cursor: pointer; }
+.agent-tab > .icon { width: 22px; height: 22px; }
+.agent-tab[aria-selected="true"] { border-color: var(--accent-green); color: inherit; box-shadow: inset 0 -2px 0 var(--accent-green); }
+.agent-recommended { padding: 1px 8px; border: 1px solid var(--accent-green); border-radius: 999px; color: var(--accent-green); font-size: .8125rem; }
+.agent-panel { display: grid; gap: 4px; min-width: 0; padding: 10px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
+.agent-panel small { color: var(--amber); font-size: .9375rem; }
+.agent-note { color: var(--muted); font-size: .9375rem; }
+.agent-note::first-letter { text-transform: uppercase; }
 .agent-state { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: .9375rem; }
 .agent-state > span { display: inline-flex; align-items: center; gap: 5px; }
 .agent-state .icon { width: 16px; height: 16px; }
 .agent-state .yes .icon { color: #90e1b3; }
 .agent-state .no .icon { color: #f6a3a3; }
-.agent-copy small { color: var(--amber); font-size: .9375rem; }
 .first-run-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
 .first-run .quiet-link { justify-self: center; min-height: 0; padding: 4px 8px; border: 0; background: none; color: var(--muted); font-size: .9375rem; text-decoration: underline; text-underline-offset: 3px; }
 .first-run .quiet-link:hover, .first-run .quiet-link:focus-visible { color: #e4eeeb; }
@@ -346,7 +367,6 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .canvas-controls > div { display: flex; align-items: center; border-radius: var(--radius); padding: 2px; }
 
 .canvas-controls > button { border-radius: 50%; }
-.canvas-controls > button[data-tip]::after, .canvas-controls div button[data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 .canvas-controls output { min-width: 62px; text-align: center; color: #bcd2e3; font-size: .9375rem; }
 .layout-notice { position: absolute; bottom: 76px; left: 18px; right: 18px; padding: 10px; background: #241e12; color: var(--amber); font-size: .9375rem; border-radius: 10px; }
 .context-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); }
@@ -597,14 +617,29 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The goblin panel: a top row with the Task and Terminal pill, a header that
    says who the goblin is and what it is doing, then one of the two views. */
 .goblin-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.panel-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 10px 14px 0; flex: none; }
-.panel-top-side { display: flex; align-items: center; min-width: 0; }
-.panel-top-side.end { position: relative; justify-content: flex-end; }
+/* The panel's top row, on one line at any width: the Task and Terminal
+   switch in the middle while there is room, then the controls and the corner
+   button, Close or Back, which keep their own width whatever the switch
+   takes. PanelRow decides which controls stay in the row; the 8 px gap and an
+   icon button's 44 px are the numbers it fits them by. */
+.panel-top { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 8px; padding: 10px 14px 0; flex: none; }
+.panel-controls { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.panel-corner { display: flex; flex: none; }
+/* The switch in both its forms, measured out of sight: it takes no room. */
+.panel-measure { position: absolute; left: 0; top: 0; display: flex; gap: 8px; width: max-content; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+/* More holds the controls the row has no room for, each with its name. */
+.panel-more { position: relative; display: flex; }
+.panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
+.panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
 .window-error { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); margin: 0; padding: 8px 12px; border: 1px solid #735338; border-radius: 10px; background: #292116f2; color: #f1c598; box-shadow: var(--glass-shadow); overflow-wrap: anywhere; }
 .panel-pill { display: flex; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); box-shadow: inset 0 2px 6px #0007; }
 .panel-pill button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: 1.0625rem; }
 .panel-pill button .icon { width: 20px; height: 20px; }
 .panel-pill button:hover { color: #edf4f3; }
+/* In a row too narrow for its words the switch shows its icons, each a full
+   button. */
+.panel-pill.icons button { width: 44px; padding: 0; justify-content: center; }
 .panel-pill button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 .panel-header { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
@@ -689,7 +724,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
    never covers the terminal's text. It stays still while idle: only
    recording moves, and only with the microphone's level. */
 .voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
-.voice-dock [data-tip]::after { top: auto; bottom: calc(100% + 8px); }
 /* The voice bubble and its cards wear the goblin alerts' look: the same
    palette, and stepped pixel frames drawn behind them, so their tooltips and
    focus rings show in full. */
@@ -705,7 +739,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .voice-dot { width: 10px; height: 10px; flex: none; background: #ff5f57; }
 .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 24px; }
 .voice-bars span { width: 3px; height: 24px; background: var(--moss); transform: scaleY(.2); transition: transform 70ms linear; }
-.voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100vw - 48px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
+.voice-card { position: absolute; right: 14px; bottom: calc(100% + 8px); z-index: 4; display: grid; gap: 10px; width: min(400px, calc(100% - 28px)); padding: 18px 20px; color: var(--bone); filter: drop-shadow(3px 3px 0 var(--soot)); }
 .voice-card::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .voice-card p { margin: 0; overflow-wrap: anywhere; }
 .voice-card-title { padding-right: 48px; color: var(--bone); font: 400 1.1875rem/1.3 var(--font-display); }
@@ -735,8 +769,6 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 /* The speech bubble shows only on the hovered row, on keyboard focus and on
    selected lines, so it never reads as an added or removed marker. */
 .diff-row:hover .comment-mark, .split-cell:hover .comment-mark, .line-number:focus-visible .comment-mark, .line-number[aria-pressed="true"] .comment-mark { opacity: 1; }
-.comment-mark[data-tip]::after { top: auto; bottom: calc(100% + 6px); transform: translateY(4px); }
-.comment-mark[data-tip]:hover::after { transform: none; }
 /* The comment floats over the rows after the selection. The anchor has no
    height, and the diff keeps room at its end so a comment on the last lines
    is never clipped. */
@@ -888,9 +920,10 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 .card-meta .plain-status { flex: 0 1 auto; min-width: 0; font-weight: 600; }
 .card-status-text { min-width: 0; overflow-wrap: anywhere; }
-/* A board list of up to ten cards shows them all; past ten it shows as many
-   as fit the visible board, and a pager under it turns to the rest; a
-   sideways swipe does the same. */
+/* In progress shows every card. Any other board list shows up to ten whole;
+   past ten it shows a page, as many as fit the visible board and never fewer
+   than five, and a pager under it turns to the rest; a sideways swipe does
+   the same. */
 .fit-list { min-width: 0; touch-action: pan-y; }
 /* Cards not measured yet are laid out here, on the list's grid, to learn their
    heights; it takes no room and shows nothing. */

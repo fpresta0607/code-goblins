@@ -479,19 +479,32 @@ func proxyHeader(name string) bool {
 // shared through Tailscale serve reaches the same port on this machine, so the
 // proxy's headers are what tell it apart.
 func loopbackProblem(r *http.Request, board string) string {
-	refusal := "The board takes values only from its own page on this PC, at 127.0.0.1; use the terminal command on the card."
+	switch offMachine(r, board) {
+	case "":
+		return ""
+	case "proxy":
+		return "This save came through a proxy, and the board takes values only from its own page on this PC; use the terminal command on the card."
+	default:
+		return "The board takes values only from its own page on this PC, at 127.0.0.1; use the terminal command on the card."
+	}
+}
+
+// offMachine says how a request did not come from the board's own page on
+// this machine, or "" when it did: "remote" when its Host or its peer is not
+// this machine, "proxy" when a proxy handled it.
+func offMachine(r *http.Request, board string) string {
 	host, port, err := net.SplitHostPort(r.Host)
 	_, boardPort, boardErr := net.SplitHostPort(board)
 	if err != nil || boardErr != nil || port != boardPort || host != "127.0.0.1" && host != "localhost" && host != "::1" {
-		return refusal
+		return "remote"
 	}
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if ip := net.ParseIP(peer); err != nil || ip == nil || !ip.IsLoopback() {
-		return refusal
+		return "remote"
 	}
 	for name := range r.Header {
 		if proxyHeader(name) {
-			return "This save came through a proxy, and the board takes values only from its own page on this PC; use the terminal command on the card."
+			return "proxy"
 		}
 	}
 	return ""

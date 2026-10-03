@@ -197,6 +197,10 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	if code != updateInstalled {
 		t.Fatalf("update exited %d:\n%s", code, output)
 	}
+	sum := sha256.Sum256(candidate)
+	if want := "SHA-256 " + hex.EncodeToString(sum[:]) + ". An update checks no code signature"; !strings.Contains(output, want) {
+		t.Errorf("the update does not say that it checks no code signature and name the build's SHA-256, %q:\n%s", want, output)
+	}
 	u.aliasesAre(candidate, "candidate")
 	record := u.awaitBoard()
 	if err := boardAlive(context.Background(), record); err != nil {
@@ -207,6 +211,63 @@ func TestUpdateInstallsTheCandidateAndRestartsOnlyTheSupervisor(t *testing.T) {
 	}
 	if !u.running(cfoHost) {
 		t.Fatal("the CFO's terminal host was ended")
+	}
+}
+
+// The desktop window beside the candidate follows the update into the home,
+// in place of the window the home held. A window that cannot be put there
+// leaves the update done, since the home's window shows any build's board,
+// and the update says so.
+func TestUpdateCarriesTheDesktopWindowBesideTheCandidate(t *testing.T) {
+	for name, test := range map[string]struct {
+		// held is what the home holds where the window goes: a window, or a
+		// folder, which no file can replace.
+		held func(t *testing.T, window string)
+		want string
+		says string
+	}{
+		"a window the home holds is replaced": {func(t *testing.T, window string) {
+			if err := os.WriteFile(window, []byte("window 1"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, "window 2", "copied "},
+		"a window that cannot be replaced leaves the update done": {func(t *testing.T, window string) {
+			if err := os.Mkdir(window, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, "", "the update is done, but the desktop window"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: a candidate in a folder of its own, its window beside it.
+			u := newUpdateHome(t, "previous", "candidate")
+			release := t.TempDir()
+			u.candidate = filepath.Join(release, "cfo.exe")
+			candidate := writeBuild(t, u.candidate, "candidate")
+			if err := os.WriteFile(filepath.Join(release, "goblins-window.exe"), []byte("window 2"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			window := filepath.Join(u.root, "goblins-window.exe")
+			test.held(t, window)
+			u.serving()
+
+			// Act
+			code, output := u.run(nil)
+
+			// Assert
+			if code != updateInstalled {
+				t.Fatalf("update exited %d:\n%s", code, output)
+			}
+			u.aliasesAre(candidate, "candidate")
+			if !strings.Contains(output, test.says) {
+				t.Errorf("the update does not say %q:\n%s", test.says, output)
+			}
+			if test.want == "" {
+				return
+			}
+			if got, err := os.ReadFile(window); err != nil || string(got) != test.want {
+				t.Errorf("goblins-window.exe in the home holds %q (%v), want %q:\n%s", got, err, test.want, output)
+			}
+		})
 	}
 }
 
@@ -1567,9 +1628,21 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	if runsPreviousBuild(running, journal) {
 		t.Fatal("a candidate supervisor whose alias now holds the previous build was taken for the previous build")
 	}
+	// A process that is still starting cannot always be read: this stand-in
+	// is a copy of the test binary, which sets its environment as it starts,
+	// and a read of its directory or environment taken meanwhile fails ("Only
+	// part of a ReadProcessMemory or WriteProcessMemory request was
+	// completed"). A failed read answers "not the previous build", so the
+	// question is asked until the process has settled. The fleet asks it of
+	// a supervisor that has been serving; asked once here, at once, it
+	// failed about one run in five on a busy machine.
 	previousServe := u.start(alias, "host", "--id", "previous")
-	if !runsPreviousBuild(serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}, journal) {
-		t.Fatal("a process running the previous build was not recognised as it")
+	previous := serveProcess{pid: previousServe.Process.Pid, start: u.started[previousServe]}
+	for deadline := time.Now().Add(10 * time.Second); !runsPreviousBuild(previous, journal); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			_, err := proc.Identify(previous.pid, previous.start)
+			t.Fatalf("a process running the previous build was not recognised as it within 10s (reading it: %v)", err)
+		}
 	}
 }
 

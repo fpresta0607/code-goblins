@@ -233,6 +233,58 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-02: "it does seem like alert sent, complete delays
+// can be improved to avoid lagging notifications". A report told the running
+// supervisor nothing, so its boards showed it at their next refresh, up to
+// fifteen seconds later. Every report tells it, and it tells its boards at
+// once.
+func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) {
+	for name, args := range map[string][]string{
+		"at work": {"g1", "--working", "the lint step"},
+		"failed":  {"g1", "--failed", "the build broke"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: a supervisor that has gone quiet after starting, well
+			// before its next refresh is due.
+			dir := t.TempDir()
+			h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+			if err := os.Mkdir(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_HOME", dir)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			board, err := supervisor.Start(context.Background(), h, supervisor.Options{Example: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(board.Close)
+			started := time.Now()
+			before := board.Revision()
+			for quiet := time.Now(); time.Since(quiet) < 2*time.Second; time.Sleep(50 * time.Millisecond) {
+				if now := board.Revision(); now != before {
+					before, quiet = now, time.Now()
+				}
+			}
+			if since := time.Since(started); since > 8*time.Second {
+				t.Skipf("the supervisor took %s to go quiet, too near its refresh to tell a report from it", since.Round(time.Second))
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			if exit := runNotify(args, &stdout, &stderr); exit != 0 {
+				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
+			}
+
+			// Assert
+			for deadline := time.Now().Add(3 * time.Second); board.Revision() == before; time.Sleep(20 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the supervisor told its boards nothing within three seconds of the report")
+				}
+			}
+		})
+	}
+}
+
 // A choice is the answer itself, because the Overlord picks from a plain list
 // of answers: a choice that is only a letter or number is refused before
 // anything is recorded, and answers written as phrases are not.
@@ -329,7 +381,7 @@ func TestNotifyImagesAreCheckedBeforeAnythingIsRecorded(t *testing.T) {
 	}
 }
 
-// Working, and waiting on another task, CI or a deploy, are status for the
+// Working, and waiting on another task, CI, a deploy or memory, are status for the
 // board and wake nobody; waiting on the Overlord wakes the CFO like a
 // question, and a wait needs a valid target and a reason.
 func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
@@ -360,6 +412,8 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 	}{
 		{[]string{"g1", "--working", "fixing the lint step"}, "working: fixing the lint step"},
 		{[]string{"g1", "--waiting-on", "ci", "PR 45 checks"}, "waiting on ci: PR 45 checks"},
+		// memory_ready names a goblin by this very line.
+		{[]string{"g1", "--waiting-on", "memory", "the build needs 4 GB"}, "waiting on memory: the build needs 4 GB"},
 		{[]string{"g1", "--waiting-on", "board-ui", "its API contract"}, "waiting on board-ui: its API contract"},
 	} {
 		var stdout, stderr bytes.Buffer

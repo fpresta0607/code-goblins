@@ -137,6 +137,88 @@ This repository's committed automatic-fix overrides remain authoritative for a n
 After the shared idle apply, migrate each idle legacy task explicitly before starting its next run.
 Newly spawned tasks freeze policy v2 directly.
 
+## Verification levels
+
+`cfo gate test` is this repository's test step (`commands.test` in `.no-mistakes.yaml`), and it plans before it runs.
+
+```powershell
+cfo gate test                 # the level the change requires
+cfo gate test --level fast    # while working: static checks and the quick changed packages
+cfo gate test --level full    # every package
+cfo gate test --plan          # print the plan and run nothing
+```
+
+| Level | `go vet` | `go test` |
+| --- | --- | --- |
+| `fast` | the changed packages and their direct importers | the changed packages the policy does not list as slow |
+| `affected` | the changed packages and their direct importers | the same packages |
+| `full` | every package | every package |
+
+A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed or the policy cannot be read.
+With no `--level` the step runs the required level, which is what the gate runs.
+A level asked for runs instead: a broader one is always allowed, and a narrower one exits 0 when its checks pass while its last line and its report say which level the change still requires.
+The plan prints why each package is in it (`changed`, or `imports <package>`) and every test run the level left to a broader one, with why.
+CI runs every package whatever the local level was.
+
+The policy is `config/verify.json`:
+
+```json
+{
+  "version": 1,
+  "slow_packages": [".", "cmd/cfo", "internal/supervisor"]
+}
+```
+
+`slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their tests to `affected`.
+The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
+A change to the file therefore takes effect once it is on the default branch.
+A build ignores a field it does not know, so the build a gate has installed keeps reading a policy that a later build extended.
+A file that does not parse, or a version the build does not know, makes the change require `full`.
+A repository with no policy file has no slow packages.
+
+Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
+`CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when its tests passed but ran past their budget, or `not_run` when an earlier command failed.
+The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
+A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
+A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
+
+### Taking turns
+
+The tests of a run at the `affected` or `full` level wait for the run's turn on the machine: one run tests at a time, every goblin's and every gate's alike, in the order they asked.
+`go vet` takes no turn, and neither does anything at the `fast` level.
+The number is one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+`CFO_VERIFY_SLOTS` sets another number for the machine.
+Set it for the user, so that every terminal and the gate read the same one: a run counts only the turns its own setting names.
+A value that is not a number above 0 is reported and read as one.
+
+A run also waits while the memory a new process can have is under the fleet's 4 GB floor, and after an hour of that it goes on and says that it did.
+
+While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
+
+```text
+cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget; 1 run is ahead of this one in line
+```
+
+A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
+
+```text
+turn: code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget
+waiting:
+1. code-goblins at 89abcdef, affected level, in C:\work\other (pid 5150), for 3m0s
+```
+
+The wait is neither a pass nor a failure.
+It is part of the run's duration and of no check's own time: the verdict line and the report's `queue_seconds` say how long it was, and the checks alone decide the exit code.
+
+A turn has a budget: 90 minutes at the `affected` level, twice `go test`'s package timeout, and 3 hours at `full`.
+Tests that ran past their budget do not pass, even with every test passing: the check is recorded `over_budget` and the run fails.
+A run still holding its turn past its budget loses it to the next run in line, so a run that hangs cannot stop the line, and the run that takes the turn says whose it took, in its output and in its report's `queue_note`.
+Losing its turn does not stop a run, so until it ends two runs test at once.
+A run whose process is gone gives its turn up at once.
+A run that cannot take turns at all, because the store cannot be written, says so and runs its tests.
+
 ## Reading speed evidence
 
 `cfo doctor` separates validation invocation timing by harness, recorded model, role, step and outcome.

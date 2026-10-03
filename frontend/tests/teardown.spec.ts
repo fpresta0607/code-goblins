@@ -37,6 +37,6 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
       await expect(details.getByRole("region", { name: "Task lifecycle" })).toHaveCount(0);
       await expect(details.getByRole("button", { name: "Pause restarted teardown fixture", exact: true })).toBeEnabled();
     }
-    await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
   }
 });

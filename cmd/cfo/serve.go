@@ -15,10 +15,12 @@ import (
 	"strings"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -26,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -55,6 +58,10 @@ func loopbackAddress(address string) bool {
 }
 
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: %v\n", err)
+		return 1
+	}
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
 	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
@@ -149,6 +156,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		Dictation:        dictationEngine(h, stderr),
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
@@ -161,11 +169,16 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		PollPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Poll,
 		FirstRun:         firstRun,
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
+		// The CI wakes only read GitHub, as PullRequestState does, so an
+		// example home keeps them.
+		CI:       execx.OSRunner{},
+		Progress: execx.OSRunner{},
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
+		Quota:              runtime.quota,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -198,13 +211,37 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 }
 
 // firstRunOn is what the first-run page reads and changes on this machine for
-// the CFO home h. setMachine records the projects folder as this machine's
-// setting; an example board, such as a test fixture, never calls it and
-// records the folder for itself alone.
+// the CFO home h: the home its CFO starts in, and the agent goblins
+// remembered for it, which the page shows as chosen and remembers in turn.
+// setMachine records the projects folder as this machine's setting; an
+// example board, such as a test fixture, never calls it and records the
+// folder for itself alone.
 func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root string) error) *supervisor.FirstRun {
 	return &supervisor.FirstRun{
-		Home:         userHome,
-		LookPath:     exec.LookPath,
+		Home:     userHome,
+		LookPath: exec.LookPath,
+		CFOHome:  h.Root,
+		SavedAgent: func() string {
+			// Only a choice the quick start wrote is one: a home with none
+			// has no answer yet, and a file that names no agent is no answer.
+			if _, err := os.Stat(cfoHarnessPath(h.State)); err != nil {
+				return ""
+			}
+			agent, err := cfoHarness(h.State)
+			if err != nil {
+				return ""
+			}
+			return agent
+		},
+		SaveAgent: func(agent string) error {
+			if agent == "" {
+				if err := os.Remove(cfoHarnessPath(h.State)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				return nil
+			}
+			return fsx.AtomicWriteFile(cfoHarnessPath(h.State), []byte(agent+"\n"))
+		},
 		ProjectsRoot: install.MachineProjectsRoot,
 		SetProjectsRoot: func(root string) error {
 			if !example {
@@ -217,7 +254,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
 		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(project string) error { return startNativeCFO(h, project, "claude") },
+		StartCFO: func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
 	}
 }
 
@@ -234,4 +271,21 @@ func spawnFromBoard(ctx context.Context, args []string) (string, error) {
 		err = fmt.Errorf("cfo spawn exited %d", result.ExitCode)
 	}
 	return output, err
+}
+
+// dictationEngine is the speech engine the board dictates through: the model
+// this build pins, or the one the home's own config/voice.json names, kept
+// under the home's caches. Settings that cannot be read leave the board
+// without dictation, and cfo doctor says why.
+func dictationEngine(h home.Home, stderr io.Writer) supervisor.Dictation {
+	speech, err := voice.For(h.Root, codegoblins.Voice)
+	if err != nil {
+		fmt.Fprintln(stderr, "dictation: "+err.Error())
+		return nil
+	}
+	speech.Memory = func() (uint64, uint64, error) {
+		memory, err := supervisor.MachineMemory()
+		return memory.Available, memory.CommitAvailable, err
+	}
+	return speech
 }
