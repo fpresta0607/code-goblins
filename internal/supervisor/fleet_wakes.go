@@ -64,17 +64,21 @@ const (
 // fleetWakes is what the fleet wakes remember between readings, in
 // state/fleet-wakes.json, so a restart neither repeats a wake nor loses one.
 type fleetWakes struct {
-	Schema string `json:"schema"`
+	Schema    string                  `json:"schema"`
+	Progress  map[string]WorkProgress `json:"progress,omitempty"`
+	Durations []CIDuration            `json:"durations,omitempty"`
 	// MemoryAbove counts readings in a row with memory and commit both at or
 	// above the next-start mark. MemorySpent says memory_ready woke since a
 	// reading last fell under the floor.
-	MemoryAbove int  `json:"memory_above,omitempty"`
-	MemorySpent bool `json:"memory_spent,omitempty"`
+	MemoryAbove  int       `json:"memory_above,omitempty"`
+	MemorySpent  bool      `json:"memory_spent,omitempty"`
+	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
 	// Checks holds each goblin pull request's finished checks the CFO was
 	// woken for, so each completion wakes once.
-	Checks  map[string]reportedChecks   `json:"checks,omitempty"`
-	Health  map[string]reportedPRHealth `json:"health,omitempty"`
-	BackOff map[string]time.Time        `json:"backoff,omitempty"`
+	Checks          map[string]reportedChecks   `json:"checks,omitempty"`
+	Health          map[string]reportedPRHealth `json:"health,omitempty"`
+	BackOff         map[string]time.Time        `json:"backoff,omitempty"`
+	AllowanceFloors map[string]allowanceFloor   `json:"allowance_floors,omitempty"`
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
@@ -95,8 +99,9 @@ type fleetWakes struct {
 // reportedChecks is a pull request's checks as last reported: its head and
 // each check's conclusion, and when a live goblin last owned it open.
 type reportedChecks struct {
-	Signature string    `json:"signature"`
-	At        time.Time `json:"at"`
+	Signature  string    `json:"signature"`
+	At         time.Time `json:"at"`
+	ReportedAt time.Time `json:"reported_at,omitzero"`
 }
 
 // unreadableRepo is the failure a repository's last poll met, and whether
@@ -174,15 +179,15 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil {
 		return nil
 	}
 	readingStarted := time.Now()
 	currentTime := func() time.Time { return now.Add(time.Since(readingStarted)) }
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
-	err := errors.Join(readErr, s.checkMemory(&w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, writeFleetWakes(stateDir, w))
+	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkProgress(ctx, &w, now), writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
 		repos := make([]string, 0, len(w.Unreadable))
@@ -212,7 +217,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // report is a wait on memory. It wakes once per crossing: not again until a
 // reading falls under the floor and crosses back, and never twice within
 // memoryWakeGap.
-func (s *Service) checkMemory(w *fleetWakes, now time.Time) error {
+func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {
 		return nil
@@ -223,6 +228,10 @@ func (s *Service) checkMemory(w *fleetWakes, now time.Time) error {
 		w.MemoryAbove = 0
 		return nil
 	}
+	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
+		w.MemoryAbove = 0
+	}
+	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
 	if low < memoryFloor {
 		w.MemorySpent = false
@@ -232,6 +241,9 @@ func (s *Service) checkMemory(w *fleetWakes, now time.Time) error {
 		return nil
 	}
 	w.MemoryAbove++
+	if err := s.schedule(ctx, now, memory, w); err != nil {
+		return err
+	}
 	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
 		return nil
 	}
@@ -259,7 +271,7 @@ func memoryWork(h home.Home) (queued, waiting []string) {
 			}
 		}
 	}
-	for _, task := range queuedBriefs(h) {
+	for _, task := range queuedBriefs(h, diskBriefs) {
 		if !slices.Contains(candidates, task.ID) {
 			candidates = append(candidates, task.ID)
 		}
@@ -270,6 +282,10 @@ func memoryWork(h home.Home) (queued, waiting []string) {
 		}
 	}
 	for _, meta := range liveTasks(h.State) {
+		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {
+			waiting = append(waiting, meta.ID)
+			continue
+		}
 		lines, _ := state.TailStatus(h.State, meta.ID, 200)
 		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
 			waiting = append(waiting, meta.ID)
@@ -356,7 +372,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	}
 	w.CIPolled = now
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
-	var errs error
+	errs := s.pollAwaitedRuns(ctx, w, now)
 	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
 		if currentTime().Before(w.BackOff[repo]) {
 			continue
@@ -448,6 +464,12 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 			continue
 		}
 		goblin := ciGoblin{id: meta.ID, repo: filepath.Clean(meta.Project)}
+		if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Pause != nil && (record.Pause.Reason == "ci" || record.Pause.Reason == "deploy") {
+			wait, _, _ := strings.Cut(record.Pause.Until, "@")
+			if target, isPR := strings.CutPrefix(wait, "pr:"); isPR {
+				goblin.pullRequests = append(goblin.pullRequests, target)
+			}
+		}
 		if meta.Worktree != "" {
 			goblin.branch, _ = runOutput(ctx, runner, meta.Worktree, "git", "branch", "--show-current")
 		}
@@ -670,7 +692,12 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	sort.Strings(parts)
 	signature := pr.HeadRefOid + "|" + strings.Join(parts, "|")
 	key := "ci:" + pr.URL
-	if w.Checks[pr.URL].Signature == signature || !w.due(key, ciWakeGap, now) {
+	if completed := w.Checks[pr.URL]; completed.Signature == signature {
+		completed.ReportedAt = now
+		w.Checks[pr.URL] = completed
+		return nil
+	}
+	if !w.due(key, ciWakeGap, now) {
 		return nil
 	}
 	head := pr.HeadRefOid
@@ -690,19 +717,31 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	if w.Checks == nil {
 		w.Checks = map[string]reportedChecks{}
 	}
-	w.Checks[pr.URL] = reportedChecks{Signature: signature, At: now}
+	w.Checks[pr.URL] = reportedChecks{Signature: signature, At: now, ReportedAt: now}
+	for _, check := range pr.Checks {
+		started, _ := time.Parse(time.RFC3339, check.StartedAt)
+		finished, _ := time.Parse(time.RFC3339, check.CompletedAt)
+		kind := "ci"
+		if strings.Contains(strings.ToLower(check.name()), "deploy") {
+			kind = "deploy"
+		}
+		recordCIDuration(w, pr.URL, kind, check.name(), started, finished)
+	}
 	w.woke(key, now)
 	return nil
 }
 
 // ghRun is one workflow run as gh run list reports it.
 type ghRun struct {
-	ID         int64  `json:"databaseId"`
-	Workflow   string `json:"workflowName"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	HeadSHA    string `json:"headSha"`
-	URL        string `json:"url"`
+	ID         int64     `json:"databaseId"`
+	Workflow   string    `json:"workflowName"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	HeadSHA    string    `json:"headSha"`
+	URL        string    `json:"url"`
+	Attempt    int       `json:"attempt"`
+	StartedAt  time.Time `json:"startedAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // red reports whether a finished run failed. A cancelled run was superseded
@@ -743,7 +782,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 	if err != nil {
 		return err, nil
 	}
-	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,headSha,url")
+	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,headSha,url,startedAt,updatedAt")
 	if err != nil {
 		return fmt.Errorf("ci wakes: list the push runs of %s's %s: %w", repo, branch, err), nil
 	}
@@ -777,6 +816,11 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		if w.RedRuns == nil {
 			w.RedRuns = map[string][]int64{}
 		}
+		kind := "ci"
+		if strings.Contains(strings.ToLower(run.Workflow), "deploy") {
+			kind = "deploy"
+		}
+		recordCIDuration(w, run.URL, kind, run.Workflow, run.StartedAt, run.UpdatedAt)
 		reported := append(w.RedRuns[repo], run.ID)
 		w.RedRuns[repo] = reported[max(0, len(reported)-20):]
 		w.woke(key, now)
