@@ -469,7 +469,7 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 		}
 		return snapshot.Tasks[index].Lifecycle
 	}
-	if _, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"}); err != nil {
+	if _, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
 	if !lifecycleCard(meta.ID).ValidationRestarts {
@@ -521,7 +521,7 @@ func TestValidationRestartIsPromisedOnlyWhenResumeCanFollow(t *testing.T) {
 					},
 					Notify: func(state.Lifecycle) error { return nil },
 				}}
-				record, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause"})
+				record, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
 				if err == nil || record.Phase != "failed" || record.GateRun != "run-1" || len(record.Problems) == 0 {
 					t.Fatalf("failed pause lost its gate custody or diagnostic: %+v %v", record, err)
 				}

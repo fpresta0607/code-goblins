@@ -326,3 +326,40 @@ func TestReportedProductionDefectJumpsClearedPausesAndQueue(t *testing.T) {
 	}
 	t.Fatal("board report did not explain the ordering exception")
 }
+
+func TestFailedAutomaticStartDoesNotHoldTheSlotOrRetryEveryReading(t *testing.T) {
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	now := time.Now().UTC()
+	pausedGoblin(t, h, "paused-task", "dependency", "date:2000-01-01T00:00:00Z", now.Add(-time.Hour))
+	queueBriefedTask(t, h, "- **next-task** - Ship it\n- **urgent-task** - Repair production (priority: production-defect)", plainBrief)
+	writeFile(t, filepath.Join(h.Data, "urgent-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "urgent-task"))
+	handler.Service.Options.Dispatch.Spawn = func(ctx context.Context, args []string) (string, error) {
+		output, err := spawner.spawn(ctx, args)
+		if args[0] == "spawn" {
+			return "refused: the project overlaps a running goblin", errors.New("exit status 1")
+		}
+		return output, err
+	}
+
+	for reading := 0; reading < 2; reading++ {
+		if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(reading)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		awaitDispatch(t, handler.Service, spawner, reading+1)
+	}
+
+	calls := spawner.recorded()
+	if len(calls) != 2 || calls[0][0] != "spawn" || calls[0][1] != "urgent-task" || calls[1][0] != "resume" || calls[1][1] != "paused-task" {
+		t.Fatalf("dispatches=%v, want one failed defect start then the cleared pause resumed", calls)
+	}
+	failures := 0
+	for _, report := range fleetWakeRecords(t, h, "notify") {
+		if strings.HasPrefix(report.Detail, "start failed: ") {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("start failure reported %d times, want once", failures)
+	}
+}

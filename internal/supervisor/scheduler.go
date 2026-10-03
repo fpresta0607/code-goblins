@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -19,6 +20,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 	}
 	s.starts.Lock()
 	isChanging := s.starting != "" || len(s.changing) > 0
+	failed := maps.Clone(s.startErrors)
 	s.starts.Unlock()
 	if isChanging {
 		return nil
@@ -31,7 +33,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, memory Memory, wa
 		return nil
 	}
 	queued, _ := memoryWork(s.Store.Home)
+	// A queued task whose last start failed waits for the Overlord's Start,
+	// so it neither holds the slot nor reports its failure every reading.
 	queued = slices.DeleteFunc(queued, func(id string) bool {
+		if _, isFailed := failed[id]; isFailed {
+			return true
+		}
 		plan, err := planStart(s.Store.Home, id)
 		if err != nil {
 			return true
