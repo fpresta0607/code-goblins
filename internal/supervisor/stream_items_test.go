@@ -49,7 +49,7 @@ func TestTheStreamSendsTheCommandCentersItemsAheadOfASnapshotStillBeingBuilt(t *
 	handler := NewHTTP(s, "", nil)
 	begun, finish := make(chan struct{}, 8), make(chan struct{})
 	first := true
-	handler.snapshot = func() (Snapshot, error) {
+	s.buildSnapshot = func() (Snapshot, error) {
 		snapshot, err := s.Snapshot()
 		if first {
 			first = false
