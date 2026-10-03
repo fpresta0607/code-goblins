@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -14,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 // runDoctor prints the tool checks, then a per-harness spawn sanity verdict
@@ -65,6 +67,7 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 
 	reportRouting(stdout)
 	reportProjectsRoot(stdout, runtime)
+	reportDictation(stdout)
 	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
 
@@ -72,6 +75,22 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 		return 1
 	}
 	return 0
+}
+
+// reportDictation prints the speech model dictation runs on, its version and
+// whether it is there yet. It never counts against the health verdict: the
+// first dictation fetches what is missing.
+func reportDictation(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	speech, err := voice.For(h.Root, codegoblins.Voice)
+	if err != nil {
+		fmt.Fprintf(stdout, "dictation: settings unreadable (%v)\n", err)
+		return
+	}
+	fmt.Fprintln(stdout, "dictation: "+speech.Summary())
 }
 
 // reportProjectsRoot prints where a bare `--project <name>` is looked up, or

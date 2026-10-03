@@ -212,13 +212,21 @@ func (s Service) removeNativeHooks(report *reporter) error {
 const windowShortcutName = "Code Goblins Window.lnk"
 
 // removeStartMenuShortcut removes the Start-menu shortcuts an install made,
-// when there are any: Code Goblins, and the one the desktop window once had.
+// when there are any: Code Goblins, and, where the home holds the desktop
+// window, the one the window had while installed on its own. A home with no
+// window leaves that shortcut, since the earlier copy is then the only window.
 func (s Service) removeStartMenuShortcut(report *reporter) error {
 	if s.StartMenuShortcut == "" {
 		return nil
 	}
 	window := filepath.Join(filepath.Dir(s.StartMenuShortcut), windowShortcutName)
-	for _, shortcut := range []string{s.StartMenuShortcut, window} {
+	shortcuts := []string{s.StartMenuShortcut}
+	if _, err := os.Stat(filepath.Join(s.Root, windowName)); err == nil {
+		shortcuts = append(shortcuts, window)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("install: inspect the desktop window in %s: %w", s.Root, err)
+	}
+	for _, shortcut := range shortcuts {
 		err := os.Remove(shortcut)
 		if errors.Is(err, fs.ErrNotExist) {
 			// Only an earlier install made the window's own shortcut.
