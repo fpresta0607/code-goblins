@@ -6,8 +6,43 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
+
+func TestQueuedTasksReuseOneParsedBacklogWithoutReadingTheFileAgain(t *testing.T) {
+	// Arrange
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	path := filepath.Join(h.Data, "backlog.md")
+	text := "## Queued\r\n- **first** - First task (repo: project)\r\n  My detail.\r\n\r\n- **second** - Second task\r\n## Done\r\n- **finished** - Already delivered\r\n"
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	opened := fsx.Opens()
+
+	// Act
+	first, firstErr := backlog.ReadQueuedTask(h, "first")
+	second, secondErr := backlog.ReadQueuedTask(h, "second")
+	_, finishedErr := backlog.ReadQueuedTask(h, "finished")
+
+	// Assert
+	if firstErr != nil || secondErr != nil || finishedErr != ErrNotQueued {
+		t.Fatalf("cached queue reading failed: %v, %v, %v", firstErr, secondErr, finishedErr)
+	}
+	if first.Detail != "My detail." || first.Row.Repo != "project" || second.Row.Title != "Second task" || first.Revision == "" {
+		t.Fatalf("cached tasks lost their contents: %+v %+v", first, second)
+	}
+	if fsx.Opens() != opened {
+		t.Error("a queued task reopened the backlog")
+	}
+}
 
 func TestQueuedTaskIncludesOnlyItsOwnDetailsAndRevision(t *testing.T) {
 	data := t.TempDir()
