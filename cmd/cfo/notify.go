@@ -164,6 +164,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if verb == "working" || strings.HasPrefix(verb, "waiting on ") && verb != "waiting on overlord" {
+		supervisor.Reported(h.State)
 		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 		return 0
 	}
@@ -190,6 +191,8 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	} else if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
+	// The board shows the report now, not at its next refresh.
+	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.

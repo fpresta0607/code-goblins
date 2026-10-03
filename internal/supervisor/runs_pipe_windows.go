@@ -39,12 +39,11 @@ const (
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
 	// runReadTimeout bounds how long a client takes to send its request,
-	// afkSwitchTimeout the one request that waits on another program, the
-	// switch of AFK mode, which reads the allowance, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
-	runReadTimeout   = 10 * time.Second
-	afkSwitchTimeout = 20 * time.Second
-	runReplyTimeout  = 30 * time.Second
+	// runRequestTimeout the work that waits on the loop or the allowance,
+	// and runReplyTimeout how long cfo run-request waits for the answer.
+	runReadTimeout    = 10 * time.Second
+	runRequestTimeout = 20 * time.Second
+	runReplyTimeout   = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -163,26 +162,67 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	case json.Unmarshal(line, &req) != nil:
 		reply.Error = "the run request is not valid JSON"
 	default:
-		s.runRequests.Lock()
-		switch req.Kind {
-		case "":
-			err = s.acceptRunRequest(int(pid), connected, req)
-		case "afk-on", "afk-off":
-			switching, cancel := context.WithTimeout(ctx, afkSwitchTimeout)
-			err = s.switchAFK(switching, int(pid), connected, req.Kind == "afk-on")
-			cancel()
-		default:
-			err = s.acceptCFOItem(int(pid), connected, req)
-		}
-		s.runRequests.Unlock()
-		if err != nil {
-			reply.Error = err.Error()
+		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
+		if req.Kind == "reported" {
+			// A look takes no item, so it waits behind nobody's request.
+			err = s.lookNow(ctx)
 		} else {
+			s.runRequests.Lock()
+			switch req.Kind {
+			case "":
+				err = s.acceptRunRequest(int(pid), connected, req)
+			case "afk-on", "afk-off":
+				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+			default:
+				err = s.acceptCFOItem(int(pid), connected, req)
+			}
+			s.runRequests.Unlock()
+		}
+		cancel()
+		switch {
+		case err != nil:
+			reply.Error = err.Error()
+		case req.Kind != "reported":
 			s.publish(nil)
 		}
 	}
 	data, _ := json.Marshal(reply)
 	_, _ = pipe.Write(append(data, '\n'))
+}
+
+// lookNow has the supervisor's loop run a cycle now, which reads what a
+// goblin just reported and tells every board, and returns once it has.
+// Anyone who can open the pipe may ask: a look changes nothing.
+func (s *Service) lookNow(ctx context.Context) error {
+	looked := make(chan struct{})
+	select {
+	case s.looks <- looked:
+	case <-ctx.Done():
+		return errors.New("the supervisor's loop did not take the report in time")
+	}
+	select {
+	case <-looked:
+		return nil
+	case <-ctx.Done():
+		return errors.New("the supervisor's loop did not finish looking in time")
+	}
+}
+
+// Reported tells the supervisor of this home, if one runs, that a goblin
+// just reported, so the board shows the report at once instead of at its
+// next refresh. It waits for nothing: with no supervisor, or one that is
+// busy, the report shows at the next refresh as before.
+func Reported(stateDir string) {
+	pipe, err := os.OpenFile(runPipeName(stateDir), os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+	defer pipe.Close()
+	var server uint32
+	if ok, _, _ := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 || !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
+		return
+	}
+	_, _ = pipe.Write([]byte(`{"kind":"reported"}` + "\n"))
 }
 
 // sendPipeRequest hands one request to the supervisor and returns the reason

@@ -217,7 +217,17 @@ func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testin
 	if err != nil || again.CFOIdentity != identity || len(store.Snapshot().Actions) != 1 {
 		t.Fatal("retry retargeted the primary", err)
 	}
-	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+	_, replacement, err := readPrimary(h.State)
+	if err != nil || replacement == identity {
+		t.Fatal("the replacement did not change the primary identity", err)
+	}
+	if err := store.ProcessOne(context.Background(), func(ctx context.Context, action Action) (Evaluation, error) {
+		if action.CFOIdentity != replacement {
+			t.Fatal("the queued review did not follow the live replacement")
+		}
+		terminal.runs(t, 4)
+		return service.execute(ctx, action)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if store.Snapshot().Actions[0].Status != "failed" || len(terminal.lines(t)) != 0 {
