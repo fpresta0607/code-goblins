@@ -490,11 +490,13 @@ While it is on:
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
   The CFO's bar says since when AFK is on and who turned it on, how much the CFO decided and how much is held, and **Held for you** under it lists each thing with what its goblin did meanwhile; the button on a row opens it in the Command Center.
+  The list starts closed and opens only on your click.
   The desktop app is quiet too: its window claims what it would notify from the supervisor first, which hands out nothing in AFK mode.
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
 Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you and what became of it, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
 The button beside the toggle opens the last report again.
+Each time you open it, held items show their current disposition first.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
 `cfo afk off` prints the same report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 If the switch itself ever cannot be read, a press on the board's toggle or `cfo afk off` puts it back to off.
