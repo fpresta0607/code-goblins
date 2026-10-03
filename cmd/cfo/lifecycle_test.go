@@ -24,7 +24,7 @@ func TestLifecycleCommandsUseTheSameServiceAndSurfaceFailures(t *testing.T) {
 				return state.Lifecycle{}, errors.New("fixture refusal")
 			}}
 			var output, failure bytes.Buffer
-			code := runWithRuntime([]string{command, "task", "--operation", "request-1"}, &output, &failure, runtime)
+			code := runWithRuntime([]string{command, "task", "--operation", "request-1", "--reason", "overlord"}, &output, &failure, runtime)
 			action := command
 			if command == "kill" {
 				action = "stop"
