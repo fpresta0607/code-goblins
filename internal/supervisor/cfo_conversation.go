@@ -104,6 +104,10 @@ func CFOConversationLeftNotice(stateDir string) string {
 	if err != nil {
 		return ""
 	}
+	return cfoConversationLeftNotice(data)
+}
+
+func cfoConversationLeftNotice(data []byte) string {
 	var left CFOConversationLeft
 	if err := json.Unmarshal(data, &left); err != nil || !sessionID.MatchString(left.Session) {
 		return ""
