@@ -19,6 +19,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -33,24 +34,25 @@ var ErrDeferred = errors.New("event awaits retryable evidence")
 var ErrRejected = errors.New("invalid native event")
 
 type Session struct {
-	ID           string          `json:"id"`
-	NativeID     string          `json:"native_id"`
-	Harness      string          `json:"harness"`
-	Role         string          `json:"role"`
-	TaskID       string          `json:"task_id,omitempty"`
-	Generation   string          `json:"generation,omitempty"`
-	Parent       string          `json:"parent,omitempty"`
-	ReportedRoot string          `json:"reported_root,omitempty"`
-	Relation     string          `json:"relation,omitempty"`
-	Model        string          `json:"model,omitempty"`
-	AgentType    string          `json:"agent_type,omitempty"`
-	Phase        string          `json:"phase"`
-	TurnID       string          `json:"turn_id,omitempty"`
-	LastEventID  string          `json:"last_event_id"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
-	HostID       string          `json:"host_id,omitempty"`  // the native terminal the session runs in
-	Runtime      RuntimeEvidence `json:"runtime"`
+	ID              string                  `json:"id"`
+	NativeID        string                  `json:"native_id"`
+	Harness         string                  `json:"harness"`
+	Role            string                  `json:"role"`
+	TaskID          string                  `json:"task_id,omitempty"`
+	Generation      string                  `json:"generation,omitempty"`
+	Parent          string                  `json:"parent,omitempty"`
+	ReportedRoot    string                  `json:"reported_root,omitempty"`
+	Relation        string                  `json:"relation,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	AgentType       string                  `json:"agent_type,omitempty"`
+	Phase           string                  `json:"phase"`
+	TurnID          string                  `json:"turn_id,omitempty"`
+	LastEventID     string                  `json:"last_event_id"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+	PromptAt        time.Time               `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
+	PromptRecipient nativehook.CFORecipient `json:"prompt_recipient,omitzero"`
+	HostID          string                  `json:"host_id,omitempty"` // the native terminal the session runs in
+	Runtime         RuntimeEvidence         `json:"runtime"`
 }
 
 type Evaluation struct {
@@ -326,7 +328,25 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return errors.New("session is already ended")
 		}
 	} else if e.Kind != "started" {
-		return fmt.Errorf("%w: session has no start evidence", ErrDeferred)
+		// Hooks enabled after launch have no SessionStart. Only a binding
+		// authenticated by the actual hook caller can use live custody as
+		// independent start evidence; unbound events are never retrofitted.
+		if e.Role != "cfo" || e.TaskID != "" || e.Generation != "" || e.ParentSessionID != "" || e.ParentHarness != "" || e.RootSessionID != "" || e.Relation != "" || !e.Recipient.Valid() || !fsx.SamePath(e.CWD, s.Home.Root) {
+			return fmt.Errorf("%w: session has no start evidence", ErrDeferred)
+		}
+		registration, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
+		if err != nil {
+			return fmt.Errorf("%w: native CFO start registration is unavailable", ErrDeferred)
+		}
+		defer registration.Close()
+		recipient, err := NativeCFORecipient(s.Home.State)
+		if err != nil || !e.Recipient.Matches(recipient) {
+			return fmt.Errorf("%w: native CFO start recipient cannot be verified", ErrDeferred)
+		}
+		holder, err := lock.Read(s.Home.State)
+		if err != nil || !holder.VerifiedAlive() || holder.PID != recipient.ProgramPID || !holder.Start.Equal(recipient.ProgramStart) {
+			return fmt.Errorf("%w: native CFO start custody cannot be verified", ErrDeferred)
+		}
 	}
 	parent := prior.Parent
 	if e.ParentSessionID != "" {
@@ -412,9 +432,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	}
 	if known && prior.Generation == e.Generation {
 		node.PromptAt = prior.PromptAt
+		node.PromptRecipient = prior.PromptRecipient
 	}
 	if e.Prompt {
 		node.PromptAt = e.OccurredAt
+		node.PromptRecipient = e.Recipient
 	}
 	s.db.Sessions[key] = node
 	if e.Role == "goblin" {

@@ -165,6 +165,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
 				event, err := nativehook.Normalize(strings.NewReader(string(input)), nativehook.Context{Harness: "claude", HostID: os.Getenv(host.IDVariable)})
 				if err == nil {
+					event.Recipient, err = NativeCFORecipient(args[2])
+				}
+				if err == nil {
 					err = nativehook.Spool(args[2], event)
 				}
 				if err != nil {

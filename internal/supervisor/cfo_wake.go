@@ -222,8 +222,28 @@ func idleAtEmptyComposer(screens harness.Screens, screen []string) bool {
 // for a native goblin: taken once the harness's own prompt hook reports it or
 // its screen shows it working.
 func (c *CFOConnection) deliverNative(ctx context.Context, terminal state.TaskMeta, text string) error {
-	sender := spawn.Service{StateDir: c.State, PromptSince: func(hostID, _ string, since time.Time) (bool, error) {
-		return NativeHostPromptSince(c.State, hostID, since)
+	recipient, err := NativeCFORecipient(c.State)
+	if err != nil {
+		return err
+	}
+	if recipient.HostID != terminal.ID || recipient.Harness != terminal.Harness {
+		return fmt.Errorf("%w: the native CFO wake recipient changed; nothing was sent", ErrRejected)
+	}
+	readScreen := c.ReadScreen
+	if readScreen == nil {
+		readScreen = host.ReadScreen
+	}
+	sender := spawn.Service{StateDir: c.State, ReadScreen: func(record host.Record) ([]string, error) {
+		current, err := NativeCFORecipient(c.State)
+		if err != nil || !recipient.Matches(current) || record.HostPID != recipient.HostPID || record.ChildPID != recipient.ProgramPID || !record.ChildStart.Equal(recipient.ProgramStart) {
+			return nil, fmt.Errorf("%w: the native CFO wake recipient changed", ErrRejected)
+		}
+		return readScreen(record)
+	}, PromptSince: func(hostID, _ string, since time.Time) (bool, error) {
+		if hostID != recipient.HostID {
+			return false, nil
+		}
+		return NativeHostPromptSince(c.State, recipient, since)
 	}}
 	return sender.SendNative(ctx, terminal, text)
 }

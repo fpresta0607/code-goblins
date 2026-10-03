@@ -5,20 +5,22 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // Awaiting is a delivery typed into a native terminal and submitted that its
-// harness has not yet reported taking: the CFO's terminal by its host, or a
+// harness has not yet reported taking: the CFO's exact native recipient, or a
 // goblin's by its task and spawn generation. A harness inside a turn, or one
 // slow to start its next, takes the text later, and its prompt hook says so
 // only then, so until then the delivery is sent, not failed.
 type Awaiting struct {
-	Host       string    `json:"host,omitempty"`
-	Task       string    `json:"task,omitempty"`
-	Generation string    `json:"generation,omitempty"`
-	Harness    string    `json:"harness,omitempty"`
-	Since      time.Time `json:"since"`
+	Host       string                  `json:"host,omitempty"`
+	Task       string                  `json:"task,omitempty"`
+	Generation string                  `json:"generation,omitempty"`
+	Harness    string                  `json:"harness,omitempty"`
+	Since      time.Time               `json:"since"`
+	Recipient  nativehook.CFORecipient `json:"recipient,omitzero"`
 	// QuietSince is the last time the terminal's screen showed a turn under
 	// way, or Since when it has shown none.
 	QuietSince time.Time `json:"quiet_since"`
@@ -63,7 +65,9 @@ func (a Awaiting) recipient() string {
 // a prompt at or after it was submitted. The caller holds the store lock.
 func (s *Store) tookPrompt(a Awaiting) bool {
 	for _, session := range s.db.Sessions {
-		ours := a.Host != "" && session.HostID == a.Host
+		ours := a.Host != "" && a.Recipient.HostID == a.Host && a.Recipient.Harness == a.Harness &&
+			session.Role == "cfo" && session.Harness == a.Harness && session.NativeID == a.Recipient.SessionID &&
+			a.Recipient.Matches(session.PromptRecipient)
 		if a.Task != "" {
 			ours = session.TaskID == a.Task && session.Generation == a.Generation
 		}
@@ -117,7 +121,10 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case !looked:
 			continue
 		case seen.Gone:
-			a.Status, a.Awaiting = "uncertain", nil
+			a.Status = "uncertain"
+			if waiting.Task != "" || !waiting.Recipient.Valid() {
+				a.Awaiting = nil
+			}
 			a.Advice = "The terminal of " + who + " closed before it took your answer. Give " + who + " your answer once it is running again."
 			a.Message = a.Advice
 		case seen.Working:
@@ -177,9 +184,17 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 			return terminalLook{Gone: true}
 		}
 		id = meta.ID
+	} else if a.Recipient.Valid() {
+		recipient, err := NativeCFORecipient(s.Store.Home.State)
+		if err != nil || !a.Recipient.Matches(recipient) {
+			return terminalLook{Gone: true}
+		}
 	}
 	record, err := host.ReadRecord(s.Store.Home.State, id)
 	if err != nil || !host.Running(record) {
+		return terminalLook{Gone: true}
+	}
+	if a.Task == "" && a.Recipient.Valid() && (record.HostPID != a.Recipient.HostPID || record.ChildPID != a.Recipient.ProgramPID || !record.ChildStart.Equal(a.Recipient.ProgramStart)) {
 		return terminalLook{Gone: true}
 	}
 	screens, readable := harness.NativeScreens(harness.Kind(a.Harness))
