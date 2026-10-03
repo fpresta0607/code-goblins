@@ -95,6 +95,8 @@ jobs:
             except: ./cmd/cfo ./internal/spawn ./internal/supervisor
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -139,27 +141,54 @@ jobs:
         # 20.
         shell: pwsh
         run: |
+          Remove-Item env:CODEX_THREAD_ID, env:CFO_HOME, env:CFO_STATE_OVERRIDE, env:NO_MISTAKES_GATE -ErrorAction SilentlyContinue
+          $proofDir = Join-Path $env:RUNNER_TEMP 'cfo-go-evidence'
+          New-Item -ItemType Directory -Path $proofDir -Force | Out-Null
+          $eventsPath = Join-Path $proofDir 'events.jsonl'
+          $toolchainPath = Join-Path $proofDir 'toolchain.json'
+          $packagesPath = Join-Path $proofDir 'packages.json'
+          go env -json CGO_ENABLED GOAMD64 GOARCH GOARM64 GOEXPERIMENT GOFLAGS GOOS GOVERSION GOWORK | Set-Content -LiteralPath $toolchainPath -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $allPackages = @(go list ./...)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ConvertTo-Json -InputObject $allPackages | Set-Content -LiteralPath $packagesPath -Encoding UTF8
           if ($env:PACKAGES) {
             $packages = @(go list $env:PACKAGES.Split(' '))
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             $others = @(go list $env:EXCEPT.Split(' '))
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $packages = @(go list ./... | Where-Object { $others -notcontains $_ })
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $packages = @($allPackages | Where-Object { $others -notcontains $_ })
           }
           if ($packages.Count -eq 0) { throw 'This job found no package to test.' }
           $only = @()
           if ($env:RUN) { $only += '-run', $env:RUN }
           if ($env:SKIP) { $only += '-skip', $env:SKIP }
-          go test $packages $only -count=1 -timeout 20m
+          go test $packages $only -json -count=1 -timeout 20m | Tee-Object -FilePath $eventsPath | Out-Null
+          $testExit = $LASTEXITCODE
+          if ($testExit -ne 0) {
+            Get-Content -LiteralPath $eventsPath
+            exit $testExit
+          }
+          Write-Host "Go tests passed in $($packages.Count) package(s)."
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            & ./.github/go-evidence.ps1 -Events $eventsPath -Output (Join-Path $proofDir 'manifest.json') -Toolchain $toolchainPath -AllPackages $packagesPath -Packages $packages -Shard $env:SHARD -Head $env:HEAD_SHA -RunTests $env:RUN -SkipTests $env:SKIP
+          }
         env:
           PACKAGES: ${{ matrix.packages }}
           EXCEPT: ${{ matrix.except }}
           RUN: ${{ matrix.run }}
           SKIP: ${{ matrix.skip }}
-          CFO_HOME: ${{ runner.temp }}\cfo-go-tests
-          CFO_STATE_OVERRIDE: ${{ runner.temp }}\cfo-go-tests\state
+          SHARD: ${{ matrix.shard }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Keep reusable Go evidence
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cfo-go-evidence-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/cfo-go-evidence/manifest.json
+          if-no-files-found: error
+          retention-days: 14
       - if: matrix.shard == 'rest'
         run: go build ./cmd/cfo
 
