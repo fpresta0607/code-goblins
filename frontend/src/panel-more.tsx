@@ -13,7 +13,7 @@ export function PanelMore({ controls }: { controls: PanelControl[] }) {
   const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
-    box.current?.querySelector<HTMLElement>("[role^=menuitem]")?.focus();
+    box.current?.querySelector<HTMLElement>("[role^=menuitem]:not(:disabled)")?.focus();
     const away = (event: PointerEvent) => { if (event.target instanceof Node && !box.current?.contains(event.target)) setOpen(false); };
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
@@ -32,7 +32,7 @@ export function PanelMore({ controls }: { controls: PanelControl[] }) {
       button.current?.focus();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      const items = [...box.current!.querySelectorAll<HTMLElement>("[role^=menuitem]")];
+      const items = [...box.current!.querySelectorAll<HTMLElement>("[role^=menuitem]:not(:disabled)")];
       const at = items.indexOf(document.activeElement as HTMLElement);
       items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
     }
@@ -40,7 +40,7 @@ export function PanelMore({ controls }: { controls: PanelControl[] }) {
   return <div ref={box} className="panel-more" onKeyDown={onKeyDown}>
     <button ref={button} className="icon-button" aria-label="More" aria-haspopup="menu" aria-expanded={open} {...(open ? {} : { "data-tip": "More" })} data-tip-align="end" onClick={() => setOpen(!open)}><Icon name="more" /></button>
     {open && <div className="panel-more-menu" role="menu" aria-label="More">
-      {controls.map((control) => <button key={control.id} className="labelled-button" role="menuitem" onClick={() => { setOpen(false); button.current?.focus(); control.onPress(); }}><Icon name={control.icon} /><span>{control.name}</span></button>)}
+      {controls.map((control) => <button key={control.id} className="labelled-button" role="menuitem" disabled={control.isDisabled} onClick={() => { setOpen(false); button.current?.focus(); control.onPress(); }}><Icon name={control.icon} /><span>{control.name}</span></button>)}
     </div>}
   </div>;
 }

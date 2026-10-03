@@ -382,8 +382,8 @@ xterm draws with its WebGL renderer, and with its DOM renderer where WebGL is un
 The font starts at 20 px and steps between 12 and 28 px.
 Ctrl+Plus and Ctrl+Minus step it and Ctrl+0 restores it, while the keyboard is in the terminal or anywhere on its panel, since choosing a goblin leaves the keyboard on the panel.
 The wheel with Ctrl held over the terminal steps it once a notch, and a pinch, which a browser reports as small turns of that wheel, adds up to steps; neither scrolls the terminal or zooms the page.
-The panel's header, above a terminal, has **Smaller text**, **Larger text** and between them the size itself, which restores it.
-The size is one for every terminal on the page, which all draw at it at once, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
+The panel's top row has **Smaller text** and **Larger text**, each in **More** when the row has no room for it; the keys still work there and Ctrl+0 restores the default size.
+The size is one for every terminal on the page, which all draw at it at once, saved in the browser, and a new font size refits the columns and rows and resizes the pseudo console when that grid changes.
 The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
 Output is written through xterm's own write queue and never re-renders the page.
 A chunk as large as one host read, 32 KiB, is part of a larger redraw, so the view opens a synchronized update (DECSET 2026) before it and ends it when the redraw's short tail arrives or the stream has been quiet for 8 ms, and xterm paints the redraw as one frame; a smaller chunk, such as an echoed key, is written as it is.
