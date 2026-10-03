@@ -91,6 +91,7 @@ type Service struct {
 	mu                   sync.Mutex
 	lastError            string
 	isNativeInboxFailing bool
+	nativeInboxRepair    error
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
@@ -378,7 +379,11 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		return
 	}
 	wasNativeInboxFailing := s.isNativeInboxFailing
-	s.isNativeInboxFailing = ingestErr != nil
+	s.isNativeInboxFailing = ingestErr != nil && !errors.Is(ingestErr, errNativeInboxRecreated)
+	s.mu.Lock()
+	ingestErr = errors.Join(ingestErr, s.nativeInboxRepair)
+	s.nativeInboxRepair = nil
+	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
 	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())

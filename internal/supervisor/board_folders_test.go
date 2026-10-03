@@ -339,3 +339,102 @@ func TestTicketsKeepMovingWhileTheNativeInboxIsUnreadable(t *testing.T) {
 		t.Fatalf("applied = %+v, want task-1's ticket written while the inbox is unreadable", applied)
 	}
 }
+
+func readBoard(t *testing.T, handler *HTTP) Snapshot {
+	t.Helper()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/snapshot", nil))
+	var snapshot Snapshot
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+		t.Fatalf("board update=%d %s", response.Code, response.Body)
+	}
+	return snapshot
+}
+
+func repairInboxFromTheTicketLoop(t *testing.T, service *Service, github *fakeTicketWriter) {
+	t.Helper()
+	if err := os.Remove(nativehook.SpoolDir(service.Store.Home.State)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if info, err := os.Stat(nativehook.SpoolDir(service.Store.Home.State)); err != nil || !info.IsDir() {
+		t.Fatalf("ticket loop did not recreate the inbox: %v", err)
+	}
+}
+
+func TestBoardNamesAnInboxRepairTheTicketLoopMade(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true}}
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work")))}
+	handler := NewHTTP(service, "board.local", nil)
+
+	// Act
+	repairInboxFromTheTicketLoop(t, service, github)
+	service.cycle(context.Background(), false)
+	afterRepairCycle := readBoard(t, handler)
+	service.cycle(context.Background(), false)
+	afterOrdinaryCycle := readBoard(t, handler)
+
+	// Assert
+	for _, snapshot := range []Snapshot{afterRepairCycle, afterOrdinaryCycle} {
+		if count := strings.Count(snapshot.Error, "native-inbox was missing and has been recreated"); count != 1 {
+			t.Fatalf("repair named %d times: %q", count, snapshot.Error)
+		}
+	}
+}
+
+func TestNextOrdinaryCycleKeepsTheInboxRepairNotice(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+	handler := NewHTTP(service, "board.local", nil)
+	if err := os.Remove(nativehook.SpoolDir(home.State)); err != nil {
+		t.Fatal(err)
+	}
+	service.cycle(context.Background(), false)
+
+	// Act
+	service.cycle(context.Background(), false)
+	snapshot := readBoard(t, handler)
+
+	// Assert
+	if count := strings.Count(snapshot.Error, "native-inbox was missing and has been recreated"); count != 1 {
+		t.Fatalf("repair notice after an ordinary cycle shown %d times: %q", count, snapshot.Error)
+	}
+}
+
+func TestInboxRepairNoticeKeepsAnUnrelatedBoardError(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true}}
+	service := &Service{Store: store, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work"))), Options: Options{Reconcile: func(context.Context) error { return errors.New("unrelated board problem") }}}
+	handler := NewHTTP(service, "board.local", nil)
+
+	// Act
+	repairInboxFromTheTicketLoop(t, service, github)
+	service.cycle(context.Background(), true)
+	snapshot := readBoard(t, handler)
+
+	// Assert
+	if !strings.Contains(snapshot.Error, "unrelated board problem") || !strings.Contains(snapshot.Error, "native-inbox was missing and has been recreated") {
+		t.Fatalf("board error = %q, want the unrelated problem and the repair", snapshot.Error)
+	}
+}
