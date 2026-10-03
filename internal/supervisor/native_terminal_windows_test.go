@@ -80,15 +80,26 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// hooked raises a native prompt hook for every line taken, as a harness
 	// with native hooks does, naming the terminal it runs in.
 	hooked := false
+	drawComposer := func(text string, isWorking bool) {
+		fmt.Print("\x1b[2J\x1b[H")
+		if isWorking {
+			fmt.Println("✽ Pondering… (esc to interrupt)")
+		}
+		fmt.Println(strings.Repeat("─", 80))
+		fmt.Println("❯ " + text)
+		fmt.Println(strings.Repeat("─", 80))
+		fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+	}
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		line := lines.Text()
 		switch {
 		case line == "harness":
 			harness = true
-			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+			drawComposer("", false)
 		case line == "hooked":
 			hooked = true
+			drawComposer("", false)
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(context.Background(), args[2], nil, strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())
@@ -126,6 +137,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("registered " + described)
+			drawComposer("", false)
 		case strings.HasPrefix(line, "orphaned "), strings.HasPrefix(line, "orphaned-in-herdr "):
 			// Git Bash runs an MSYS program such as timeout by replacing its own
 			// Windows process, so whatever timeout starts has a parent that
@@ -159,7 +171,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		default:
 			record(line)
 			if harness {
-				fmt.Println("✽ Pondering… (esc to interrupt)")
+				text := line
+				if line == "busy" {
+					text = ""
+				}
+				drawComposer(text, true)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})

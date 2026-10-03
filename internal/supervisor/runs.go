@@ -579,7 +579,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	delivery := s.tellCFO(ctx, text)
-	if r.By == "cfo" && errors.Is(delivery, ErrRejected) {
+	if r.By == "cfo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	if delivery != nil {
@@ -598,6 +598,9 @@ func (s *Service) retellRuns(ctx context.Context) error {
 			continue
 		}
 		delivery := s.tellCFO(ctx, r.Untold)
+		if errors.Is(delivery, ErrDeferred) {
+			continue
+		}
 		if errors.Is(delivery, ErrRejected) {
 			return errors.Join(errs, delivery)
 		}

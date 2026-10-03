@@ -132,7 +132,9 @@ export function sendState(draft: SentDraft, actions: Action[]): SendState | unde
   return {
     failed: outcome ? deliveryMark(outcome).trouble : !!draft.error,
     confirmed: outcome?.status === "succeeded",
-    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared") : "Sent",
+    heading: cleared ? string(sent.text) || (sent.kind === "question_clear" ? "Dismissed" : "Cleared")
+      : outcome?.status === "queued" ? "Queued"
+      : draft.sending && !outcome || outcome?.status === "running" && !outcome.awaiting ? "Sending" : "Sent",
     cleared,
   };
 }

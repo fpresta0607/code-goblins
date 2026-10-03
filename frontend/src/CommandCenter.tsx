@@ -311,7 +311,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={item.key} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={item.key} heading={sending.heading}
-                label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />
+                label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
               : item.kind === "question"
               ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
