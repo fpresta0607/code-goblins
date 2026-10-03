@@ -112,10 +112,11 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		return 0
 	}
 
+	task, taskErr := gateTask(plan.Root, runtime)
 	report := verify.Report{
 		Version:       verify.ReportVersion,
 		Project:       path.Base(plan.Module),
-		Task:          taskID(os.Getenv),
+		Task:          task,
 		Root:          plan.Root,
 		Commit:        plan.Commit,
 		Uncommitted:   plan.Uncommitted,
@@ -148,6 +149,9 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
 	}
 	printGatePlan(stdout, plan)
+	if taskErr != nil {
+		fmt.Fprintf(stderr, "cfo gate test: task attribution unavailable: %v\n", taskErr)
+	}
 
 	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
 	if report.Task != "" {
