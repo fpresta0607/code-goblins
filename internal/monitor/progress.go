@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -60,6 +61,12 @@ type HostProgress struct {
 	// Home is the user's home directory, where every harness keeps its
 	// transcripts. Empty skips the transcript.
 	Home string
+
+	mu sync.Mutex
+	// rolloutCwds holds the directory each Codex rollout's opening
+	// session_meta names, by path, for the rollouts that still exist. A
+	// rollout never rewrites its first entry, so each is read once.
+	rolloutCwds map[string]string
 }
 
 // harnessLaunch is how long after a harness starts the processes it starts
@@ -71,10 +78,10 @@ const harnessLaunch = 2 * time.Minute
 // harness of a native task is the program its terminal runs; otherwise it is
 // whatever Herdr reports in the pane's foreground, and a pane back at its
 // shell has no harness and so no processes of its own.
-func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
+func (h *HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
 	if meta.Backend == "native" && strings.EqualFold(sample.Harness, "codex") && sample.Session == "" {
-		progress.TranscriptAt = nativeCodexTranscriptAt(ctx, h.Home, meta.Worktree)
+		progress.TranscriptAt = h.nativeCodexTranscriptAt(ctx, meta.Worktree)
 	}
 	harnessPID, err := h.harnessPID(ctx, meta, sample)
 	if err != nil || harnessPID == 0 {
@@ -90,7 +97,7 @@ func (h HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, 
 
 // harnessPID returns the process id of the task's harness, and 0 for a pane
 // back at its shell.
-func (h HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
+func (h *HostProgress) harnessPID(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (int, error) {
 	if meta.Backend == "native" {
 		record, err := host.ReadRecord(h.StateDir, meta.ID)
 		if err != nil {
@@ -241,35 +248,81 @@ func transcriptAt(home, harness, session string) time.Time {
 // Native Codex screens carry no session ID. The rollout's own metadata binds
 // it to the task's worktree; directory timestamps cannot establish progress
 // while Codex keeps the writer open.
-func nativeCodexTranscriptAt(ctx context.Context, home, worktree string) time.Time {
+func (h *HostProgress) nativeCodexTranscriptAt(ctx context.Context, worktree string) time.Time {
 	var latest time.Time
-	if home == "" || !filepath.IsAbs(worktree) {
+	if h.Home == "" || !filepath.IsAbs(worktree) {
+		return latest
+	}
+	worktree, err := fsx.Canonical(worktree)
+	if err != nil {
 		return latest
 	}
 	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
-	matches, _ := filepath.Glob(filepath.Join(home, pattern))
+	matches, _ := filepath.Glob(filepath.Join(h.Home, pattern))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cwds := make(map[string]string, len(matches))
+	for _, match := range matches {
+		if cwd, ok := h.rolloutCwds[match]; ok {
+			cwds[match] = cwd
+		}
+	}
+	h.rolloutCwds = cwds
+	owned := map[string]bool{}
 	for _, match := range matches {
 		if ctx.Err() != nil {
 			break
+		}
+		cwd, ok := cwds[match]
+		if !ok {
+			if cwd, ok = rolloutCwd(match); !ok {
+				continue
+			}
+			cwds[match] = cwd
+		}
+		isOwned, seen := owned[cwd]
+		if !seen {
+			resolved, err := fsx.Canonical(cwd)
+			isOwned = filepath.IsAbs(cwd) && err == nil && strings.EqualFold(resolved, worktree)
+			owned[cwd] = isOwned
+		}
+		if !isOwned {
+			continue
 		}
 		file, err := fsx.Open(match)
 		if err != nil {
 			continue
 		}
-		var entry struct {
-			Type    string `json:"type"`
-			Payload struct {
-				Cwd string `json:"cwd"`
-			} `json:"payload"`
-		}
-		if json.NewDecoder(io.LimitReader(file, transcriptEntryReach)).Decode(&entry) == nil && entry.Type == "session_meta" && filepath.IsAbs(entry.Payload.Cwd) && fsx.SamePath(entry.Payload.Cwd, worktree) {
-			if written := transcriptFileAt(file); written.After(latest) {
-				latest = written
-			}
+		if written := transcriptFileAt(file); written.After(latest) {
+			latest = written
 		}
 		file.Close()
 	}
 	return latest
+}
+
+// rolloutCwd reads the directory a rollout's opening session_meta names,
+// empty when its first entry is anything else. ok is false while that entry
+// cannot be read whole.
+func rolloutCwd(path string) (string, bool) {
+	file, err := fsx.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	var entry struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Cwd string `json:"cwd"`
+		} `json:"payload"`
+	}
+	if json.NewDecoder(io.LimitReader(file, transcriptEntryReach)).Decode(&entry) != nil {
+		return "", false
+	}
+	if entry.Type != "session_meta" {
+		return "", true
+	}
+	return entry.Payload.Cwd, true
 }
 
 // transcriptEntryReach bounds how much of a transcript's end is read for its
