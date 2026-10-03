@@ -45,6 +45,7 @@ func TestWeeklyReadingNeverReplacesSuppliedUnknownRefreshTime(t *testing.T) {
 	}{
 		{"absent", "", "available", now},
 		{"fresh", `,"refreshedAt":"2026-10-03T13:06:00Z"`, "available", now.Add(-time.Minute)},
+		{"null", `,"refreshedAt":null`, "unavailable", time.Time{}},
 		{"malformed", `,"refreshedAt":"not-a-date"`, "unavailable", time.Time{}},
 		{"zero", `,"refreshedAt":"0001-01-01T00:00:00Z"`, "unavailable", time.Time{}},
 		{"empty", `,"refreshedAt":""`, "unavailable", time.Time{}},
@@ -79,6 +80,21 @@ func TestWeeklyReadingNeverReplacesSuppliedUnknownRefreshTime(t *testing.T) {
 			}
 			if headroom := report.Headroom("codex", ""); headroom != (Headroom{Provider: "codex", Scope: "all_models", Known: true, PercentRemaining: 75, Runway: "through_reset", ResetsAt: reset}) {
 				t.Errorf("refresh metadata changed routing evidence: %+v", headroom)
+			}
+		})
+	}
+}
+
+func TestReadKeepsRefreshMetadataTypeErrors(t *testing.T) {
+	for _, test := range []struct{ value, kind string }{
+		{"25", "number"}, {"true", "bool"}, {"{}", "object"}, {"[]", "array"},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			data := fmt.Sprintf(`{"generatedAt":"2026-09-17T12:30:00Z","providers":[{"provider":"codex","state":{"refreshedAt":%s}}]}`, test.value)
+			report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: []byte(data)}}, snapshotTime)
+			want := fmt.Sprintf("quota-axi: unparseable snapshot: json: cannot unmarshal %s into Go struct field .providers.state.refreshedAt of type string", test.kind)
+			if skipped != want || report.Headroom("codex", "").Known {
+				t.Fatalf("metadata type failure = %q, %+v; want %q with no routing evidence", skipped, report, want)
 			}
 		})
 	}

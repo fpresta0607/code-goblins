@@ -189,9 +189,9 @@ type payload struct {
 			Unit      string          `json:"unit"`
 		} `json:"credits"`
 		State struct {
-			Stale       bool    `json:"stale"`
-			Status      string  `json:"status"`
-			RefreshedAt *string `json:"refreshedAt"`
+			Stale       bool             `json:"stale"`
+			Status      string           `json:"status"`
+			RefreshedAt refreshTimestamp `json:"refreshedAt"`
 		} `json:"state"`
 		QuotaSemantics struct {
 			Status                string `json:"status"`
@@ -210,6 +210,16 @@ type payload struct {
 	} `json:"providers"`
 }
 
+type refreshTimestamp struct {
+	value     string
+	isPresent bool
+}
+
+func (timestamp *refreshTimestamp) UnmarshalJSON(data []byte) error {
+	*timestamp = refreshTimestamp{isPresent: true}
+	return json.Unmarshal(data, &timestamp.value)
+}
+
 // Parse interprets quota-axi --json. It fails on unparseable input, on a
 // snapshot with no generation time, and on one older than MaxAge, so all
 // three read as "no evidence" to the caller.
@@ -226,8 +236,8 @@ func Parse(data []byte, now time.Time) (Report, error) {
 	report := Report{GeneratedAt: generated, Providers: map[string]Provider{}}
 	for _, p := range in.Providers {
 		refreshed := generated
-		if p.State.RefreshedAt != nil {
-			refreshed, _ = time.Parse(time.RFC3339Nano, *p.State.RefreshedAt)
+		if p.State.RefreshedAt.isPresent {
+			refreshed, _ = time.Parse(time.RFC3339Nano, p.State.RefreshedAt.value)
 		}
 		provider := Provider{Name: p.Provider, Source: p.Source, Status: p.State.Status, RefreshedAt: refreshed, Stale: p.State.Stale || isStale, Known: p.QuotaSemantics.Status == "known", Scopes: map[string]Scope{}, Resets: map[string]time.Time{}}
 		for _, w := range p.Windows {

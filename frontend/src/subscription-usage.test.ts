@@ -62,8 +62,8 @@ test("a non-subscription quota source cannot supply a weekly percentage", () => 
   }
 });
 
-test("malformed and zero reading times stay unknown without losing a known reset", () => {
-  for (const readAt of ["not-a-date", "0001-01-01T00:00:00Z"]) {
+test("explicitly unknown reading times stay unknown without losing a known reset", () => {
+  for (const readAt of [null, "not-a-date", "0001-01-01T00:00:00Z"]) {
     const state = subscriptionState(reading({ percent_remaining: 75, read_at: readAt }), NOW);
     assert.equal(state.remaining, null);
     assert.equal(state.text, "?");
