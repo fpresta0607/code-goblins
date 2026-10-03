@@ -241,6 +241,32 @@ func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
 	}
 }
 
+func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CFO_HOME", root)
+
+	var stdout, stderr bytes.Buffer
+	run([]string{"doctor"}, &stdout, &stderr)
+	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + filepath.Join(root, "caches", "voice")
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+
+	// A home with settings of its own is read from them, and settings that
+	// pin nothing are named as unreadable rather than passed over.
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "voice.json"), []byte(`{"engine":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	run([]string{"doctor"}, &stdout, &stderr)
+	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), "parakeet") {
+		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
+	}
+}
+
 // cfo doctor says which harness this home starts the CFO as and what a CFO in
 // it gets, from the same table the quick start and the first-run page read:
 // a Codex or pi CFO names each thing it goes without, and Claude Code none.
