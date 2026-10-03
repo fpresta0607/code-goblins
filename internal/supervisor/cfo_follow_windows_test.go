@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -66,12 +67,26 @@ func cfoBoard(t *testing.T) (*Service, string, string) {
 	return h.Service, stateDir, closedCFO(t, stateDir)
 }
 
-// deliver runs the supervisor's cycle and its delivery worker once, as the
-// board does after a change.
+// deliver keeps the board's reconciliation ticks while an untyped reply is
+// queued for a reopened CFO whose composer has not settled yet.
 func deliver(t *testing.T, s *Service) {
 	t.Helper()
-	s.cycle(context.Background(), false)
-	s.process(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for {
+		s.cycle(ctx, false)
+		s.process(ctx)
+		d := s.Store.Snapshot()
+		isPending := slices.ContainsFunc(d.Actions, func(a Action) bool { return a.Status == "queued" }) || slices.ContainsFunc(d.Runs, func(r Run) bool { return r.Untold != "" })
+		if !isPending || !s.Store.cfoLive() {
+			return
+		}
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatalf("the reopened CFO still has an untyped reply queued: %+v", d.Actions)
+		}
+	}
 }
 
 // The Overlord answered the CFO's question while the CFO was closed. The
@@ -120,6 +135,14 @@ func TestTheCFOsOpenQuestionFollowsItAcrossARestart(t *testing.T) {
 	// Act
 	deliver(t, s)
 	open := s.Store.Snapshot().Questions[0]
+	reads := 0
+	s.Options.CFO.ReadScreen = func(record host.Record) ([]string, error) {
+		reads++
+		if reads == 1 {
+			return []string{strings.Repeat("─", 80), "❯ hooked", strings.Repeat("─", 80), "⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil
+		}
+		return host.ReadScreen(record)
+	}
 	_, err := s.Store.Queue(Action{ID: "answer-cfo-question-2", Kind: "cfo_answer", QuestionID: question.ID, Generation: open.Identity, Text: "Ship it", AnswerKind: "option"})
 	deliver(t, s)
 
@@ -133,6 +156,12 @@ func TestTheCFOsOpenQuestionFollowsItAcrossARestart(t *testing.T) {
 	want := "Overlord: User answer to CFO question cfo-question-2. Question: Ship it now? Answer: Ship it"
 	if lines := cfo.waitForLines(t, 2); !slices.Contains(lines, want) {
 		t.Errorf("the reopened CFO received %q, want %q", lines, want)
+	}
+	if answered := s.Store.Snapshot().Questions[0]; answered.Identity != open.Identity || answered.Status != "succeeded" || answered.AnsweredBy != "overlord" || answered.AnsweredOption != "Ship it" {
+		t.Errorf("the reopened question's delivery/history = %+v, want the same recipient and the Overlord's accepted choice", answered)
+	}
+	if lines := cfo.waitForLines(t, 2); strings.Count(strings.Join(lines, "\n"), want) != 1 {
+		t.Errorf("the reopened CFO received %q, want the answer once", lines)
 	}
 }
 
