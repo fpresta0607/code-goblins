@@ -142,8 +142,14 @@ func TestSnapshotShowsUsageOnlyWhileTheFixtureGoblinIsLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &Service{Store: store}
+	claudeRemaining, codexRemaining := 0.0, 75.0
+	now := time.Now().UTC()
+	service.subscriptionReadings = map[string]quota.WeeklyReading{
+		"claude": {Status: "available", PercentRemaining: &claudeRemaining, ReadAt: now, ResetsAt: now.Add(time.Hour), Source: "oauth"},
+		"codex":  {Status: "available", PercentRemaining: &codexRemaining, ReadAt: now, ResetsAt: now.Add(time.Hour), Source: "oauth"},
+	}
 	view, err := service.Snapshot()
-	if err != nil || len(view.Subscriptions) != 1 || view.Subscriptions[0].Provider != "codex" || view.Subscriptions[0].Status != "unavailable" {
+	if err != nil || len(view.Subscriptions) != 1 || view.Subscriptions[0].Provider != "codex" || view.Subscriptions[0].PercentRemaining == nil || *view.Subscriptions[0].PercentRemaining != 75 {
 		t.Fatalf("live fixture usage = %+v, %v", view.Subscriptions, err)
 	}
 

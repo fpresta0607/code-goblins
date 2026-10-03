@@ -1,6 +1,8 @@
 import { expect, holdStream, test, type Page } from "./site";
 
 const NOW = "2026-10-03T13:07:00Z";
+const RESET = "Oct 9, 2026, 5:27 PM CDT";
+test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 const memory = { total: 32 * 2 ** 30, available: 7.3 * 2 ** 30, commit_limit: 48 * 2 ** 30, commit_available: 20 * 2 ** 30, floor: 4 * 2 ** 30, next: 5 * 2 ** 30 };
 const usage = (provider: string, percent: number | null, status = "available") => ({ provider, status, percent_remaining: percent, read_at: NOW, resets_at: "2026-10-09T22:27:42Z", source: "oauth" });
 
@@ -43,7 +45,8 @@ for (const width of [1440, 390, 320]) {
       }
       await openai.hover();
       await expect(page.getByRole("tooltip")).toContainText("5% reserve");
-      await expect(page.getByRole("tooltip")).toContainText("2026-10-09T22:27:42");
+      await expect(page.getByRole("tooltip")).toContainText(RESET);
+      await expect(page.getByRole("tooltip")).not.toContainText(/quota-axi|OAuth/);
       const tip = (await page.getByRole("tooltip").boundingBox())!;
       expect(tip.x).toBeGreaterThanOrEqual(0);
       expect(tip.x + tip.width).toBeLessThanOrEqual(width);
@@ -101,10 +104,21 @@ test.describe("touch details", () => {
     const box = (await dial.boundingBox())!;
     const touch = await page.context().newCDPSession(page);
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
-    await expect(page.getByRole("tooltip")).toContainText("2026-10-09T22:27:42");
+    await expect(page.getByRole("tooltip")).toContainText(RESET);
     await expect(page.getByRole("tooltip")).toContainText("just now");
     await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(page.getByRole("tooltip")).not.toBeVisible();
     await touch.detach();
+  });
+});
+
+test.describe("localized reset time", () => {
+  test.use({ locale: "de-DE", timezoneId: "Europe/Berlin" });
+
+  test("the reset uses the viewer's locale and timezone across a date boundary", async ({ page }) => {
+    const column = await open(page, [usage("codex", 76)]);
+    await column.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("10. Okt. 2026, 00:27 MESZ");
+    await expect(page.getByRole("tooltip")).not.toContainText(/quota-axi|OAuth/);
   });
 });

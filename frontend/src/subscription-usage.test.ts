@@ -42,8 +42,10 @@ test("cached readings age and expired windows turn unknown even before another s
   }
   const state = subscriptionState(reading(), NOW);
   assert.match(state.details, /1 min ago/);
-  assert.match(state.details, /2026-10-09T22:27:42/);
+  const reset = new Date("2026-10-09T22:27:42Z").toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  assert.ok(state.details.includes(reset));
   assert.match(state.details, /5% reserve/);
+  assert.doesNotMatch(state.details, /quota-axi|OAuth/);
 });
 
 test("the snapshot exposes only the supported provider and safe usage fields", () => {

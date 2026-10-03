@@ -17,8 +17,7 @@ export function subscriptionState(usage: SubscriptionUsage, now: number) {
   const label = remaining === null ? `${provider} weekly remaining unavailable` : `${provider} ${text} weekly remaining`;
   const state = remaining !== null ? (isReserve ? "5% reserve reached" : "5% reserve") : ({ auth_required: "Subscription sign-in required", stale: "Reading stale", unavailable: "Reading unavailable", available: "Reading unavailable" })[status];
   const age = !Number.isFinite(readAt) || readAt <= 0 || readAt > now + 60_000 ? "Reading time unknown" : `Reading ${now - readAt < 60_000 ? "just now" : `${Math.floor((now - readAt) / 60_000)} min ago`}`;
-  const reset = Number.isFinite(resetsAt) && resetsAt > 0 ? `Resets ${new Date(resetsAt).toISOString()}` : "Reset time unknown";
-  const source = usage.source === "oauth" ? "quota-axi OAuth" : "quota-axi";
-  const details = `${label}. ${reset}. ${age}. ${state}${remaining === null ? ". 5% reserve" : ""}. ${source}.`;
+  const reset = Number.isFinite(resetsAt) && resetsAt > 0 ? `Resets ${new Date(resetsAt).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}` : "Reset time unknown";
+  const details = `${label}. ${reset}. ${age}. ${state}${remaining === null ? ". 5% reserve" : ""}.`;
   return { remaining, text, isReserve, label, details };
 }
