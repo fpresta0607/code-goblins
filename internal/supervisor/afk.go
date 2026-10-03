@@ -486,11 +486,11 @@ func (s *Service) heldOf(d Database, entries, decisions []afk.Entry) []afk.Held 
 		if entry.Kind != afk.KindHeld || answered[entry.Item] {
 			continue
 		}
-		waiting, now := heldNow(d, entry.Item)
+		waiting, now := heldNow(d, entry.Item, time.Time{})
 		one := afk.Held{Item: entry.Item, Task: entry.Task, What: entry.What, At: entry.At, Waiting: waiting, Now: now}
 		if entry.Task != "" {
 			// A status line is stamped to the second.
-			lines, _ := state.TailStatus(s.Store.Home.State, entry.Task, 50)
+			lines, _ := s.statusTail(entry.Task)
 			if at, said := latestReport(lines, time.Time{}); !at.Before(entry.At.Truncate(time.Second)) {
 				one.Meanwhile = bounded(said, 500)
 			}
@@ -516,12 +516,8 @@ type AFKView struct {
 	// became of it.
 	Decided int        `json:"decided"`
 	Held    []afk.Held `json:"held"`
-	// Report names the last stretch that ended with its report kept, and
-	// Ended says when it ended.
-	Report string     `json:"report,omitempty"`
-	Ended  *time.Time `json:"ended,omitempty"`
-	// Problem says why the switch cannot be read.
-	Problem string `json:"problem,omitempty"`
+	// Report names the last stretch that ended with its report kept.
+	Report string `json:"report,omitempty"`
 }
 
 // afkView reads AFK mode for a snapshot of d. A log that cannot be read leaves
@@ -532,10 +528,13 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 	switched, err := kept(&s.reads, "afk", []string{filepath.Join(stateDir, "afk.json")}, func() (afk.State, error) { return afk.Read(stateDir) })
 	switch {
 	case err != nil:
-		view.State, view.Problem = "unreadable", bounded(err.Error(), 1000)
+		view.State = "unreadable"
 	case switched.On:
 		view.State, view.Since, view.From, view.Asked = "on", &switched.Since, switched.From, switched.Asked
-		entries, _, err := s.afkLog.Entries(stateDir, switched.Session)
+		entries, err := kept(&s.reads, "afk-log "+switched.Session, []string{filepath.Join(stateDir, "afk.audit")}, func() ([]afk.Entry, error) {
+			entries, _, err := afk.Entries(stateDir, switched.Session)
+			return entries, err
+		})
 		if err != nil {
 			return view, fmt.Errorf("AFK mode's log could not be read, so the board cannot say what was decided or held: %w", err)
 		}
@@ -544,7 +543,7 @@ func (s *Service) afkView(d Database) (AFKView, error) {
 	case switched.Session != "" && !switched.Ended.IsZero():
 		// A stretch never ends without its report kept, so the stretch the
 		// switch last ended is the one whose report there is.
-		view.Report, view.Ended = switched.Session, &switched.Ended
+		view.Report = switched.Session
 	}
 	return view, nil
 }
@@ -562,15 +561,16 @@ func ReadAFKReport(h home.Home) (afk.Report, bool, error) {
 	if err != nil {
 		return afk.Report{}, false, fmt.Errorf("what became of each item held for him cannot be read: %w", err)
 	}
-	report.Held = heldAsNow(board.Snapshot(), report.Held)
+	report.Held = heldAsNow(board.Snapshot(), report.Held, report.Ended)
 	return report, true, nil
 }
 
 // heldAsNow is each item a report held for the Overlord, as it stands in d.
-func heldAsNow(d Database, held []afk.Held) []afk.Held {
+// ended is when the report's stretch ended.
+func heldAsNow(d Database, held []afk.Held, ended time.Time) []afk.Held {
 	current := make([]afk.Held, len(held))
 	for i, one := range held {
-		one.Waiting, one.Now = heldNow(d, one.Item)
+		one.Waiting, one.Now = heldNow(d, one.Item, ended)
 		current[i] = one
 	}
 	return current
@@ -578,8 +578,10 @@ func heldAsNow(d Database, held []afk.Held) []afk.Held {
 
 // heldNow is what became of a held item: whether it still waits on the
 // Overlord, and in what words. It is asked only about an item the log holds
-// no answer decision for.
-func heldNow(d Database, item string) (waiting bool, now string) {
+// no answer decision for. ended is when the stretch that held it ended, and
+// zero while that stretch is on: an answer the CFO gave after it is one under
+// the standing rules, where no decision is logged.
+func heldNow(d Database, item string, ended time.Time) (waiting bool, now string) {
 	kind, id, _ := strings.Cut(item, ":")
 	closed := func(how, reason string) (bool, string) {
 		if reason != "" {
@@ -596,6 +598,8 @@ func heldNow(d Database, item string) (waiting bool, now string) {
 		switch q := d.Questions[i]; {
 		case q.Status == "pending":
 			return true, "still waiting on you"
+		case q.AnsweredBy == "cfo" && !ended.IsZero() && q.AnsweredAt != nil && q.AnsweredAt.After(ended):
+			return closed("answered by the CFO after AFK mode ended", "")
 		case q.AnsweredBy == "cfo":
 			return closed("closed as answered by the CFO, and no decision was logged for it", "")
 		case q.AnsweredBy == "overlord":

@@ -146,9 +146,6 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
-	// afkLog reads the stretch that is on out of AFK mode's log for each
-	// snapshot, and the file only when it has changed.
-	afkLog afk.Reader
 	// inspectCaller reads the ancestry and environment of the process a
 	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)

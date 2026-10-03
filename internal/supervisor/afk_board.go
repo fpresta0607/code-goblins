@@ -144,7 +144,7 @@ func (h *HTTP) afkReport(w http.ResponseWriter, _ *http.Request) {
 		Found: true, Session: report.Session, Since: report.Since, Ended: report.Ended, Lasted: report.Lasted(), From: report.From, EndedFrom: report.EndedFrom, Asked: report.Asked, EndedAsked: report.EndedAsked,
 		Sections: report.Sections(),
 		Finished: append([]afk.Finish{}, report.Finished...),
-		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held),
+		Held:     heldAsNow(h.Service.Store.Snapshot(), report.Held, report.Ended),
 		Spent:    append([]string{}, afk.Spent(report.Before, report.After)...),
 		Notes:    append([]string{}, report.Notes...),
 	})

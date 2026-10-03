@@ -1003,10 +1003,10 @@ The adversary is the same one, at the board: an agent that follows its contract 
 An agent that drives the Overlord's own running browser is his browser to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
-Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on and carries the reason as `problem`.
+Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
 While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it and its goblin's latest report since.
-While it is off it carries `report` and `ended`, the last stretch that ended, whose report is kept.
-The log's file is read for a snapshot only when it has changed since the last one, and a log that cannot be read is said as the snapshot's error.
+While it is off it carries `report`, the last stretch that ended, whose report is kept.
+The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
 `GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent in the same words, with every list present.
 The page and the text list what is held for him first, then what the CFO decided.
 
@@ -1034,6 +1034,7 @@ His `cfo afk on` is refused until the switch reads again, since it would guess a
 The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
 A held question the log holds an answer decision for is a decision, so the report and `cfo afk status` list it there and not as held.
 Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report as held, not waiting, and says no decision was logged for it.
+A held question the CFO answered after the stretch ended, under the standing rules where nothing is logged, reads `answered by the CFO after AFK mode ended` when the report is read again; an answer with no time recorded, or one at or before the end, keeps the word that no decision was logged.
 What could not be read, a log line or an allowance, is named in the report rather than left out.
 
 ## Nonblocking presentation notices

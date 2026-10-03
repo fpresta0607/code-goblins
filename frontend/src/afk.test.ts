@@ -5,7 +5,7 @@ import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 
 const NOW = Date.parse("2026-10-02T12:31:00Z");
 const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", ...changes });
-const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], report: "", ended: "", problem: "", ...changes });
+const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], report: "", ...changes });
 // AFK mode as the CFO turned it on at his ask.
 const ASKED = "I'm stepping away, turn AFK on";
 const BY_THE_CFO = { from: "the CFO at his ask (claude pid 4242)", asked: ASKED };
@@ -14,7 +14,7 @@ const snapshot = (value: Record<string, unknown> = {}) => parseSnapshot({ health
 test("a supervisor from before AFK mode reached the board reads as off, and one that sends it is read whole", () => {
   assert.deepEqual(snapshot().afk, AFK_OFF);
   assert.deepEqual(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", decided: 2, held: [{ item: "run:restart-db", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded" }] } }).afk,
-    { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", asked: "", decided: 2, held: [{ item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "" }], report: "", ended: "", problem: "" });
+    { state: "on", since: "2026-10-02T02:10:00Z", from: "his own terminal (powershell.exe pid 4242)", asked: "", decided: 2, held: [{ item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "" }], report: "" });
   assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CFO } }).afk.asked, ASKED);
 });
 
@@ -30,7 +30,7 @@ test("the bar says since when AFK mode is on and who turned it on, how much the 
     ["on by the CFO at his ask, without his words, which the offer and the report quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CFO at your ask. 1 decided, 0 held for you."],
     ["on from his terminal, counting only what still waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided, 2 held for you."],
     ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided, 0 held for you."],
-    ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "", problem: "unexpected EOF" }), ""],
+    ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "" }), ""],
   ];
   for (const [name, value, want] of cases) assert.equal(afkLine(value, NOW, "UTC", "en-US"), want, name);
 });
@@ -90,7 +90,7 @@ test("who made a switch is said to the Overlord: his own board or terminal witho
 });
 
 test("the report is shown when AFK mode turns off with a report kept, and at no other change", () => {
-  const off = afk({ state: "off", since: "", report: "afk-20261002T021000.000Z", ended: "2026-10-02T12:31:00Z" });
+  const off = afk({ state: "off", since: "", report: "afk-20261002T021000.000Z" });
   assert.equal(turnedOff(afk(), off), true);
   assert.equal(turnedOff(AFK_OFF, off), false, "the first snapshot a page sees");
   assert.equal(turnedOff(off, off), false);

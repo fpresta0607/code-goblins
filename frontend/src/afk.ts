@@ -67,7 +67,7 @@ export const stillWaiting = (held: AfkHeld[]): AfkHeld[] => held.filter((one) =>
 export const stillHeld = (afk: Afk): AfkHeld[] => stillWaiting(afk.held);
 
 // AFK_OFF is the switch as a board with no snapshot yet knows it: off.
-export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "", ended: "", problem: "" };
+export const AFK_OFF: Afk = { state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "" };
 
 // yours is where the Overlord made the switch, in the words he reads. The
 // supervisor words it for the CFO, as his own terminal or board with the

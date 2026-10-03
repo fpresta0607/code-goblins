@@ -8,7 +8,7 @@ const task = (id: string, changes: Partial<Task> = {}) => ({ id, generation: "g1
 const question = (id: string, text: string, changes: Partial<Question> = {}) => ({ id, text, status: "pending", task: "", created_at: "2026-09-25T10:00:00Z", ...changes }) as Question;
 const review = (id: string, title: string, changes: Partial<Review> = {}) => ({ id, title, state: "open", task: "goblin-a", created_at: "2026-09-25T11:00:00Z", ...changes }) as Review;
 const run = (id: string, title: string, changes: Partial<Run> = {}) => ({ id, title, state: "ready", created_at: "2026-09-25T12:00:00Z", ...changes }) as Run;
-const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "", ended: "", problem: "", ...changes });
+const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "off", since: "", from: "", asked: "", decided: 0, held: [], report: "", ...changes });
 const snapshot = (changes: Partial<Snapshot> = {}) => ({ tasks: [], attention: [], questions: [], reviews: [], runs: [], afk: afk(), ...changes }) as unknown as Snapshot;
 
 test("with nothing waiting on the Overlord the CFO says all is quiet and how many goblins it supervises", () => {
@@ -54,5 +54,5 @@ test("while AFK mode is on the bar says so and counts nothing as waiting, whatev
   const away = cfoSummary(snapshot({ ...waits, afk: on }), now);
   assert.deepEqual(away, { waiting: 0, line: afkLine(on, now) });
   assert.match(away.line, /^AFK since .+, from your board\. 3 decided, 1 held for you\.$/);
-  assert.deepEqual(cfoSummary(snapshot({ ...waits, afk: afk({ state: "unreadable", problem: "unexpected EOF" }) }), now), { waiting: 1, line: "The CFO supervises 1 goblin." });
+  assert.deepEqual(cfoSummary(snapshot({ ...waits, afk: afk({ state: "unreadable" }) }), now), { waiting: 1, line: "The CFO supervises 1 goblin." });
 });

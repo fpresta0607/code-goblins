@@ -20,9 +20,9 @@ const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, ins
 // AFK mode on since a moment ago unless ago says how long, so a test that is
 // not about the offer never meets it.
 const on = (fields: Record<string, unknown> = {}, ago = 0) => ({ state: "on", since: new Date(Date.now() - ago).toISOString(), from: BOARD, decided: 0, held: [], ...fields });
-const KEPT = { state: "off", report: "afk-20261002T034000.000Z", ended: "2026-10-02T12:05:00Z" };
+const KEPT = { state: "off", report: "afk-20261002T034000.000Z" };
 const REPORT = {
-  found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: KEPT.ended, lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
+  found: true, session: KEPT.report, since: "2026-10-02T03:40:00Z", ended: "2026-10-02T12:05:00Z", lasted: "8h25m", from: BOARD, ended_from: "his own terminal (powershell.exe pid 5151)",
   sections: [
     { title: "Merged", entries: [{ at: "2026-10-02T04:31:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/412", link: "https://github.com/northwind/northwind-api/pull/412", evidence: "head 3f9c2ab; 5 checks completed green", outcome: "merged" }] },
     { title: "Merge words with no merge recorded", entries: [{ at: "2026-10-02T10:58:00Z", kind: "merge", what: "https://github.com/northwind/northwind-api/pull/417", link: "https://github.com/northwind/northwind-api/pull/417", evidence: "head 77aa01c; 5 checks completed green", outcome: "" }] },
@@ -350,7 +350,7 @@ test("the report lists what is held first, then how much of each thing the CFO d
 });
 
 test("a switch that cannot be read is shown off, says how to reset it, and still lets what waits on him lead", async ({ page }) => {
-  const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable", problem: "unexpected end of JSON input" } }));
+  const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable" } }));
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");

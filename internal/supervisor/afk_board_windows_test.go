@@ -301,7 +301,7 @@ func TestTheBoardsSwitchTurnsAFKModeOnAndOffAndTheBoardIsShownIt(t *testing.T) {
 	if err != nil || switched.On || switched.EndedFrom != "his own board (goblins-window.exe pid 4242)" || len(switched.Allowance) != 1 {
 		t.Errorf("the switch = %+v, %v, want off from his own board with the allowance read when it turned on", switched, err)
 	}
-	if off.AFK.State != "off" || off.AFK.Report != switched.Session || off.AFK.Ended == nil || !off.AFK.Ended.Equal(switched.Ended) {
+	if off.AFK.State != "off" || off.AFK.Report != switched.Session {
 		t.Errorf("the snapshot after = %+v, want off with the report of stretch %s named", off.AFK, switched.Session)
 	}
 	pending, err := wake.Pending(h.State)
@@ -417,7 +417,7 @@ func TestTheBoardsOffResetsASwitchThatCannotBeReadAndItsOnDoesNot(t *testing.T) 
 	offCode, offBody := askTheBoard(t, s, "POST", "/api/afk", `{"on":false}`, nil)
 
 	// Assert
-	if unreadable.AFK.State != "unreadable" || !strings.Contains(unreadable.AFK.Problem, "cannot be read") || len(unreadable.AFK.Held) != 0 {
+	if unreadable.AFK.State != "unreadable" || len(unreadable.AFK.Held) != 0 {
 		t.Errorf("the snapshot = %+v, want the switch shown as one that cannot be read", unreadable.AFK)
 	}
 	if onCode != http.StatusConflict || !strings.Contains(onBody, "cannot be read") || stillUnreadable == nil {
@@ -615,6 +615,79 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 	kept, _, err := afk.ReadReport(h.State)
 	if err != nil || len(kept.Held) != 3 || slices.ContainsFunc(kept.Held, func(one afk.Held) bool { return !one.Waiting }) {
 		t.Errorf("the report kept = %+v, %v, want each item as it stood when AFK mode turned off", kept.Held, err)
+	}
+}
+
+// The CFO answers a held question after AFK mode turned off under the standing
+// rules, where no decision can be logged. The report read later says so only
+// of an answer recorded after the stretch ended: one inside the stretch, at
+// its end or with no time recorded keeps the word that no decision was logged
+// for it, on the board's page and to cfo afk report alike.
+func TestTheReportReadLaterSaysWhichHeldQuestionsTheCFOAnsweredAfterAFKModeEnded(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := boardService(store)
+	ended := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	at := func(after time.Duration) *time.Time {
+		answered := ended.Add(after)
+		return &answered
+	}
+	const unlogged = "closed as answered by the CFO, and no decision was logged for it"
+	cases := []struct {
+		id, status, by string
+		answered       *time.Time
+		waiting        bool
+		now            string
+	}{
+		{"answered-before-the-end", "succeeded", "cfo", at(-time.Minute), false, unlogged},
+		{"answered-at-the-end", "succeeded", "cfo", at(0), false, unlogged},
+		{"answered-after-the-end", "succeeded", "cfo", at(time.Minute), false, "answered by the CFO after AFK mode ended"},
+		{"answered-with-no-time", "succeeded", "cfo", nil, false, unlogged},
+		{"never-answered", "pending", "", nil, true, "still waiting on you"},
+	}
+	kept := afk.Report{Session: "afk-1", Since: ended.Add(-time.Hour), Ended: ended}
+	for _, c := range cases {
+		if err := store.acceptQuestion(Question{ID: c.id, Identity: strings.Repeat("c", 64), Text: "Apply it?", CreatedAt: ended.Add(-30 * time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+		kept.Held = append(kept.Held, afk.Held{Item: "question:" + c.id, What: "Apply it?", At: ended.Add(-20 * time.Minute), Waiting: true, Now: "still waiting on you"})
+	}
+	store.mu.Lock()
+	for _, c := range cases {
+		i := slices.IndexFunc(store.db.Questions, func(q Question) bool { return q.ID == c.id })
+		store.db.Questions[i].Status, store.db.Questions[i].AnsweredBy, store.db.Questions[i].AnsweredAt = c.status, c.by, c.answered
+	}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := afk.SaveReport(h.State, kept); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, body := askTheBoard(t, s, "GET", "/api/afk/report", "", nil)
+	report, found, err := ReadAFKReport(h)
+
+	// Assert
+	var page struct {
+		Held []afk.Held `json:"held"`
+	}
+	if err := json.Unmarshal([]byte(body), &page); code != 200 || err != nil {
+		t.Fatalf("GET /api/afk/report = %d %s (%v)", code, body, err)
+	}
+	if err != nil || !found || len(report.Held) != len(cases) || len(page.Held) != len(cases) {
+		t.Fatalf("ReadAFKReport = %+v, %v, %v beside the page's %+v, want each held question in both", report.Held, found, err, page.Held)
+	}
+	for i, c := range cases {
+		t.Run(c.id, func(t *testing.T) {
+			for reader, held := range map[string]afk.Held{"the board's page": page.Held[i], "cfo afk report": report.Held[i]} {
+				if held.Item != "question:"+c.id || held.Waiting != c.waiting || held.Now != c.now {
+					t.Errorf("%s reads %+v, want waiting %v and %q", reader, held, c.waiting, c.now)
+				}
+			}
+		})
 	}
 }
 
