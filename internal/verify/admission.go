@@ -60,6 +60,7 @@ type Turn struct {
 	// when anything was: a holder past its budget, or memory under the floor.
 	Note    string
 	release func()
+	say     func(now string)
 }
 
 // Release gives the turn's slot back.
@@ -69,10 +70,22 @@ func (t Turn) Release() {
 	}
 }
 
-// card is what a run says of itself beside its lock file.
+// Say records what the run is doing now beside its turn, for whoever reads
+// the line: a gate shows a step's output only once the step has ended. A run
+// whose turn was taken from it no longer speaks for the slot and says
+// nothing.
+func (t Turn) Say(now string) {
+	if t.say != nil {
+		t.say(now)
+	}
+}
+
+// card is what a run says of itself beside its lock file. Now is what a run
+// that holds a turn says it is doing.
 type card struct {
 	Who           string  `json:"who"`
 	BudgetSeconds float64 `json:"budget_seconds,omitempty"`
+	Now           string  `json:"now,omitempty"`
 }
 
 // arrivals keeps the places of runs that join the line from one process
@@ -129,12 +142,17 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			if short != "" {
 				why = join(why, short)
 			} else {
-				release, took, err := a.take()
+				slot, took, err := a.take()
 				if err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				if release != nil {
-					return Turn{Waited: time.Since(start), Note: join(note, took), release: release}, nil
+				if slot != "" {
+					return Turn{
+						Waited:  time.Since(start),
+						Note:    join(note, took),
+						release: func() { a.remove(a.Dir, slot) },
+						say:     func(now string) { a.say(slot, now) },
+					}, nil
 				}
 			}
 		}
@@ -245,8 +263,9 @@ func (a Admission) heldBy() string {
 }
 
 // take takes a free slot, or the slot of a run past its budget, which took
-// then says. With every slot held within its budget it takes none.
-func (a Admission) take() (release func(), took string, err error) {
+// then says, and returns the slot's name. With every slot held within its
+// budget it takes none.
+func (a Admission) take() (slot, took string, err error) {
 	for slot := 1; slot <= a.Slots; slot++ {
 		name := fmt.Sprintf("slot-%d", slot)
 		_, err = lock.AcquireExclusiveNamed(a.Dir, name)
@@ -268,12 +287,28 @@ func (a Admission) take() (release func(), took string, err error) {
 			}
 		}
 		if err != nil {
-			return nil, "", err
+			return "", "", err
 		}
 		a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds()})
-		return func() { a.remove(a.Dir, name) }, took, nil
+		return name, took, nil
 	}
-	return nil, "", nil
+	return "", "", nil
+}
+
+// say rewrites the card of the slot this run holds with what the run is doing
+// now. The card is replaced whole, so a run reading it never finds it half
+// written and takes its holder for one that named no budget.
+func (a Admission) say(slot, now string) {
+	if _, err := lock.AcquireExclusiveNamed(a.Dir, "takeover"); err != nil {
+		return
+	}
+	defer lock.ReleaseExclusiveNamed(a.Dir, "takeover")
+	if !lock.HeldByNamed(a.Dir, slot, os.Getpid()) {
+		return
+	}
+	if data, err := json.Marshal(card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), Now: now}); err == nil {
+		fsx.AtomicWriteFile(filepath.Join(a.Dir, slot+".run"), data)
+	}
 }
 
 // evict frees a slot whose holder is past its budget. One waiting run does
@@ -339,8 +374,9 @@ type Standing struct {
 	// Since is when it took its turn or joined the line.
 	Since time.Time
 	// Budget is how long its turn may last, for a run that holds one and
-	// said so.
+	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
+	Now    string
 }
 
 // Line reads who holds the turns kept in dir, slot by slot, and who waits, in
@@ -364,7 +400,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 			}
 			if record, err := lock.ReadNamed(dir, name); err == nil && record.Alive() {
 				says := readCard(filepath.Join(dir, name))
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second))})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now})
 			}
 		}
 		return runs, nil

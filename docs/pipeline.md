@@ -180,6 +180,19 @@ Every run that is not `--plan` leaves a report, and beside it a log of what its 
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
 The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when its tests passed but ran past their budget, or `not_run` when an earlier command failed.
+For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
+
+The tests run as `go test -json`, and the step prints what `go test` prints without `-v`: a compile error as it arrives, each package's summary line as the package ends, and for a package that did not pass what it printed itself and what its failed and unfinished tests printed.
+A run in which a package did not pass ends its tests' output by saying which packages, and which tests in them:
+
+```text
+cfo gate test: go test did not pass in 2 of 7 package(s):
+- example.com/m/internal/spawn: TestSwitchWaits did not finish
+- example.com/m/cmd/cfo: TestUpdate, TestUpdate/rollback failed
+```
+
+The log holds every line the tests wrote, as `go test -v` prints them, so a passing test's lines and every test's own time are read there.
+If the test output or log cannot be written, the test check fails even when `go test` exits zero.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
@@ -188,7 +201,7 @@ A run that cannot write its report says so and keeps its verdict: the checks dec
 
 The tests of a run at the `affected` or `full` level wait for the run's turn on the machine: one run tests at a time, every goblin's and every gate's alike, in the order they asked.
 `go vet` takes no turn, and neither does anything at the `fast` level.
-The number is one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+One run at a time keeps heavy test steps from competing for the same machine's resources.
 `CFO_VERIFY_SLOTS` sets another number for the machine.
 Set it for the user, so that every terminal and the gate read the same one: a run counts only the turns its own setting names.
 A value that is not a number above 0 is reported and read as one.
@@ -202,9 +215,11 @@ cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-gobl
 ```
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
+Under a run that holds a turn it prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 
 ```text
 turn: code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget
+  now: go test: 3 package(s) done; running example.com/m/internal/spawn TestSwitchWaits for 40s; last output: ok  	example.com/m/internal/lock	21.2s
 waiting:
 1. code-goblins at 89abcdef, affected level, in C:\work\other (pid 5150), for 3m0s
 ```

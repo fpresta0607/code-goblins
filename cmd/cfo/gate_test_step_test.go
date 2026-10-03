@@ -202,7 +202,7 @@ func TestGateTestRecordsWhatItRanInAReport(t *testing.T) {
 	}
 	wantCommands := [][]string{
 		{"go", "vet", "example.com/m/a", "example.com/m/b"},
-		{"go", "test", "-count=1", "-p", "2", "-timeout", "45m", "example.com/m/a", "example.com/m/b"},
+		{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m", "example.com/m/a", "example.com/m/b"},
 	}
 	if len(report.Checks) != len(wantCommands) {
 		t.Fatalf("the report holds %d check(s), want %d: %+v", len(report.Checks), len(wantCommands), report.Checks)
@@ -260,7 +260,7 @@ func TestGateTestPlanPrintsThePlanAndRunsNothing(t *testing.T) {
 		"- example.com/m/c (changed)",
 		"policy: built-in defaults",
 		"would run: go vet example.com/m/c",
-		"would run: go test -count=1 -p 2 -timeout 45m example.com/m/c",
+		"would run: go test -json -count=1 -p 2 -timeout 45m example.com/m/c",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
@@ -290,11 +290,318 @@ func TestGateTestPlansEveryPackageAtTheFullLevel(t *testing.T) {
 		"cfo gate test: level full, asked for; the change requires affected: the default for a change",
 		"cfo gate test: every package is tested",
 		"would run: go vet ./...",
-		"would run: go test -count=1 -p 2 -timeout 45m ./...",
+		"would run: go test -json -count=1 -p 2 -timeout 45m ./...",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
 		}
+	}
+}
+
+// A run records what became of each package's tests, prints what go test
+// prints without -v, and keeps every line the tests wrote in its log, where
+// each test's own time can be read.
+func TestGateTestRecordsEachPackagesResultAndKeepsTheFullOutputInItsLog(t *testing.T) {
+	// Arrange: the change reaches a, which has no tests, and b, whose test
+	// passes.
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	report, _ := lastReport(t)
+	if len(report.Checks) != 2 {
+		t.Fatalf("the report holds %d check(s), want go vet and go test: %+v", len(report.Checks), report.Checks)
+	}
+	packages := report.Checks[1].Packages
+	if len(packages) != 2 || packages[0].Package != "example.com/m/a" || packages[0].Status != "no_tests" ||
+		packages[1].Package != "example.com/m/b" || packages[1].Status != "passed" || packages[1].Tests != 1 || packages[1].Seconds <= 0 {
+		t.Errorf("the tests' packages are %+v; want a with no tests and b passed with its one test and its time", packages)
+	}
+	if len(report.Checks[0].Packages) != 0 {
+		t.Errorf("go vet is recorded with packages %+v; want none, it runs no tests", report.Checks[0].Packages)
+	}
+	if !strings.Contains(stdout.String(), "ok  \texample.com/m/b") || strings.Contains(stdout.String(), "=== RUN") || strings.Contains(stdout.String(), `"Action"`) {
+		t.Errorf("stdout %q; want b's summary line, and neither a passing test's lines nor an event", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "go test did not pass in ") {
+		t.Errorf("stdout %q reports a failure; want no failure summary for a successful run with a package that has no tests", stdout.String())
+	}
+	log, err := os.ReadFile(report.Log)
+	if err != nil || !strings.Contains(string(log), "=== RUN   TestB\n") || !strings.Contains(string(log), "--- PASS: TestB") {
+		t.Errorf("the log %s holds %q (%v); want every line the tests wrote", report.Log, log, err)
+	}
+}
+
+// A failed run ends by naming each package that did not pass and the tests in
+// it that failed, after the tests' own output, so the finding is read in one
+// place.
+func TestGateTestNamesTheFailedTestsOfEachPackageThatDidNotPass(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"c/c.go": "package c\n\n// changed\n"})
+	t.Chdir(dir)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTest(&stdout, &stderr)
+
+	// Assert
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"--- FAIL: TestC",
+		"c is never chosen",
+		"cfo gate test: go test did not pass in 1 of 1 package(s):\n- example.com/m/c: TestC failed\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+	report, _ := lastReport(t)
+	if packages := report.Checks[1].Packages; len(packages) != 1 || packages[0].Status != "failed" || !slices.Equal(packages[0].Failed, []string{"TestC"}) {
+		t.Errorf("the tests' packages are %+v; want c failed in TestC", packages)
+	}
+}
+
+// A package whose tests were still running when go test ended, as when the
+// run was stopped, is recorded as unfinished with the test it was in, and the
+// run says so: it is never left looking like a package that passed or was
+// not there.
+func TestGateTestRecordsAPackageWhoseTestsNeverEndedAsUnfinished(t *testing.T) {
+	// Arrange: go test ends, failing, while b's TestHangs still runs.
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	runtime := standIn()
+	runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+		if command[1] != "test" {
+			return 0, nil
+		}
+		io.WriteString(stdout, `{"Action":"start","Package":"example.com/m/b"}`+"\n"+
+			`{"Action":"run","Package":"example.com/m/b","Test":"TestHangs"}`+"\n"+
+			`{"Action":"output","Package":"example.com/m/b","Test":"TestHangs","Output":"    b_test.go:9: about to hang\n"}`+"\n")
+		return 1, errors.New("exit status 1")
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(runtime, &stdout, &stderr)
+
+	// Assert
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"    b_test.go:9: about to hang\n",
+		"cfo gate test: go test did not pass in 1 of 1 package(s):\n- example.com/m/b: TestHangs did not finish\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+	report, _ := lastReport(t)
+	if packages := report.Checks[1].Packages; report.Status != "failed" || len(packages) != 1 || packages[0].Status != "unfinished" || !slices.Equal(packages[0].Unfinished, []string{"TestHangs"}) {
+		t.Errorf("the report says %s with packages %+v; want failed, with b unfinished in TestHangs", report.Status, packages)
+	}
+}
+
+type gateOutputWriter func([]byte) (int, error)
+
+func (write gateOutputWriter) Write(p []byte) (int, error) { return write(p) }
+
+func TestGateTestDoesNotPassWhenItsTestOutputCannotBeWritten(t *testing.T) {
+	for name, stream := range map[string]string{
+		"immediate output": "ordinary test output\n",
+		"last summary": `{"Action":"output","Package":"example.com/m/a","Output":"ok example.com/m/a\n"}` + "\n" +
+			`{"Action":"pass","Package":"example.com/m/a","Elapsed":1}`,
+		"unfinished package": `{"Action":"start","Package":"example.com/m/a"}` + "\n" +
+			`{"Action":"run","Package":"example.com/m/a","Test":"TestWaits"}` + "\n" +
+			`{"Action":"output","Package":"example.com/m/a","Test":"TestWaits","Output":"waiting\n"}` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			failure := errors.New("test output unavailable")
+			isFailing := false
+			stdout := gateOutputWriter(func(p []byte) (int, error) {
+				if isFailing {
+					return 0, failure
+				}
+				return len(p), nil
+			})
+			runtime := standIn()
+			runtime.gateRun = func(command []string, _ string, _ []string, output, _ io.Writer) (int, error) {
+				if command[1] == "test" {
+					isFailing = true
+					io.WriteString(output, stream)
+				}
+				return 0, nil
+			}
+
+			// Act
+			var stderr bytes.Buffer
+			exit := gateTestWith(runtime, stdout, &stderr)
+
+			// Assert
+			if exit != 1 || !strings.Contains(stderr.String(), failure.Error()) {
+				t.Errorf("exit=%d stderr=%q, want 1 and the output failure", exit, stderr.String())
+			}
+			report, _ := lastReport(t)
+			if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "passed" || report.Checks[1].Status != "failed" || report.Checks[1].ExitCode != 0 {
+				t.Errorf("report status=%s checks=%+v, want failed test output despite process exit 0", report.Status, report.Checks)
+			}
+		})
+	}
+}
+
+func TestGateTestKeepsProcessAndOutputFailures(t *testing.T) {
+	for _, isSameFailure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("same_failure=%t", isSameFailure), func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			outputFailure := errors.New("test output unavailable")
+			processFailure := errors.New("test process failed")
+			isFailing := false
+			stdout := gateOutputWriter(func(p []byte) (int, error) {
+				if isFailing {
+					return 0, outputFailure
+				}
+				return len(p), nil
+			})
+			runtime := standIn()
+			runtime.gateRun = func(command []string, _ string, _ []string, output, _ io.Writer) (int, error) {
+				if command[1] != "test" {
+					return 0, nil
+				}
+				isFailing = true
+				_, err := io.WriteString(output, "last test output\n")
+				if isSameFailure {
+					return 1, err
+				}
+				return 1, processFailure
+			}
+
+			// Act
+			var stderr bytes.Buffer
+			exit := gateTestWith(runtime, stdout, &stderr)
+
+			// Assert
+			if exit != 1 || strings.Count(stderr.String(), outputFailure.Error()) != 1 {
+				t.Errorf("exit=%d stderr=%q, want 1 with the output failure once", exit, stderr.String())
+			}
+			if !isSameFailure && !strings.Contains(stderr.String(), processFailure.Error()) {
+				t.Errorf("stderr=%q, want the distinct process failure kept too", stderr.String())
+			}
+			report, _ := lastReport(t)
+			if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[1].Status != "failed" || report.Checks[1].ExitCode != 1 {
+				t.Errorf("report status=%s checks=%+v, want the failed process exit kept", report.Status, report.Checks)
+			}
+		})
+	}
+}
+
+// What each kind of package that did not pass is said to have done: a test
+// failed, a test never finished, as one that hangs, or the package did not
+// compile. Names past five are counted.
+func TestNotPassedSaysWhatBecameOfAPackage(t *testing.T) {
+	for name, test := range map[string]struct {
+		result gatetest.PackageResult
+		want   string
+	}{
+		"tests failed":       {gatetest.PackageResult{ImportPath: "m/a", Status: "failed", Failed: []string{"TestA", "TestB"}}, "m/a: TestA, TestB failed"},
+		"a test hangs":       {gatetest.PackageResult{ImportPath: "m/a", Status: "failed", Unfinished: []string{"TestHangs"}}, "m/a: TestHangs did not finish"},
+		"both":               {gatetest.PackageResult{ImportPath: "m/a", Status: "failed", Failed: []string{"TestA"}, Unfinished: []string{"TestB"}}, "m/a: TestA failed; TestB did not finish"},
+		"did not compile":    {gatetest.PackageResult{ImportPath: "m/a", Status: "build_failed"}, "m/a: did not compile"},
+		"stopped":            {gatetest.PackageResult{ImportPath: "m/a", Status: "unfinished"}, "m/a: did not finish"},
+		"failed, no test":    {gatetest.PackageResult{ImportPath: "m/a", Status: "failed"}, "m/a: failed outside any test"},
+		"more than it names": {gatetest.PackageResult{ImportPath: "m/a", Status: "failed", Failed: []string{"T1", "T2", "T3", "T4", "T5", "T6", "T7"}}, "m/a: T1, T2, T3, T4, T5 and 2 more failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := notPassed(test.result); got != test.want {
+				t.Errorf("notPassed = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// While its tests run, a run says beside its turn how far they are: how many
+// packages are done, which test is running, and the last line of output. A
+// gate shows a step's output only once the step has ended, so this is where
+// its progress is read.
+func TestGateTestSaysHowFarItsTestsAreWhileItHoldsItsTurn(t *testing.T) {
+	// Arrange: go test has finished a and is inside b's TestSlow, and stays
+	// there until the test lets it go.
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	release := make(chan struct{})
+	runtime := standIn()
+	runtime.gateProgress = 10 * time.Millisecond
+	runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+		if command[1] == "test" {
+			io.WriteString(stdout, `{"Action":"start","Package":"example.com/m/a"}`+"\n"+
+				`{"Action":"output","Package":"example.com/m/a","Output":"ok  \texample.com/m/a\t0.1s\n"}`+"\n"+
+				`{"Action":"pass","Package":"example.com/m/a","Elapsed":0.1}`+"\n"+
+				`{"Action":"start","Package":"example.com/m/b"}`+"\n"+
+				`{"Action":"run","Package":"example.com/m/b","Test":"TestSlow"}`+"\n")
+			<-release
+			io.WriteString(stdout, `{"Action":"pass","Package":"example.com/m/b","Test":"TestSlow","Elapsed":1}`+"\n"+
+				`{"Action":"output","Package":"example.com/m/b","Output":"ok  \texample.com/m/b\t1.0s\n"}`+"\n"+
+				`{"Action":"pass","Package":"example.com/m/b","Elapsed":1}`+"\n")
+		}
+		return 0, nil
+	}
+	var stdout, stderr lockedBuffer
+	done := make(chan int, 1)
+
+	// Act
+	go func() { done <- gateTestWith(runtime, &stdout, &stderr) }()
+	slots := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots")
+	var now string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if holding, _, err := verify.Line(slots); err == nil && len(holding) == 1 && strings.Contains(holding[0].Now, "TestSlow") {
+			now = holding[0].Now
+			break
+		}
+	}
+	close(release)
+	exit := <-done
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"go test: 1 package(s) done", "running example.com/m/b TestSlow for ", "last output: ok  \texample.com/m/a\t0.1s"} {
+		if !strings.Contains(now, want) {
+			t.Errorf("the run said %q beside its turn; want it to hold %q", now, want)
+		}
+	}
+	if report, _ := lastReport(t); len(report.Checks) != 2 || len(report.Checks[1].Packages) != 2 || report.Checks[1].Packages[1].Status != "passed" {
+		t.Errorf("the report's checks are %+v; want both packages recorded as passed once the tests ended", report.Checks)
+	}
+}
+
+// cfo gate turns shows what the run that holds the turn says it is doing.
+func TestGateTurnsShowsWhatTheHolderSaysItIsDoing(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	turn := holdTheTurn(t)
+	turn.Say("go test: 2 package(s) done; running example.com/m/b TestSlow for 40s")
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTurns(plenty, &stdout, &stderr)
+
+	// Assert
+	if want := "\n  now: go test: 2 package(s) done; running example.com/m/b TestSlow for 40s\n"; exit != 0 || !strings.Contains(stdout.String(), want) {
+		t.Errorf("exit=%d stdout=%q stderr=%q; want the holder's line followed by %q", exit, stdout.String(), stderr.String(), want)
 	}
 }
 
