@@ -213,6 +213,12 @@ test("the board keeps the CFO registration state the supervisor reports", () => 
   assert.equal(parseSnapshot({healthy:true}).registration, "");
 });
 
+test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
+  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
+  assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
+  assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
+});
+
 test("completed history and fleet statuses read the way the fleet reports them", () => {
   const [live, finished, merged, queued] = parseSnapshot({healthy:true, tasks:[
     {id:"work", phase:"idle", verified:false, activity:"working: gate test step", pr:"https://github.com/o/code-goblins/pull/29"},
