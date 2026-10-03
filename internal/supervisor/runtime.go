@@ -17,7 +17,7 @@ type RuntimeEvidence struct {
 }
 
 func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Time) RuntimeEvidence {
-	if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+	if record, err := s.lifecycle(meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 		return RuntimeEvidence{State: record.Phase, Reason: record.Reason, At: record.Updated}
 	}
 	// The monitor reads a native task from its own terminal, never Herdr.
@@ -26,7 +26,7 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 		source = "Native terminal"
 	}
 	evidence := RuntimeEvidence{State: "unknown", Reason: "Current " + source + " liveness evidence is unavailable"}
-	observation, err := monitor.ReadObservation(s.Store.Home.State, meta.ID)
+	observation, err := s.observation(meta.ID)
 	if err != nil || observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() || observation.LastObserved.Before(node.UpdatedAt) || (node.Generation != "" && node.Generation != meta.SpawnGen) {
 		return evidence
 	}
