@@ -39,6 +39,10 @@ func recoverNativeInbox(stateDir string, err error) error {
 }
 
 func (s *Service) boardSnapshot() (Snapshot, error) {
+	return s.SnapshotSince(s.Revision())
+}
+
+func (s *Service) buildBoardSnapshot() (Snapshot, error) {
 	snapshot, err := s.Snapshot()
 	if !isNativeInboxReadFailure(s.Store.Home.State, err) {
 		return snapshot, err

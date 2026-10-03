@@ -51,6 +51,7 @@ func TestBoardKeepsUpdatingWhenNativeInboxDisappearsOrIsUnreadable(t *testing.T)
 					t.Fatal(err)
 				}
 			}
+			service.notify()
 			snapshot := read()
 			if !strings.Contains(snapshot.Error, "native-inbox") || snapshot.Instance != service.Instance {
 				t.Fatalf("folder problem or serve identity missing: %+v", snapshot)
@@ -79,6 +80,7 @@ func TestBoardKeepsUpdatingWhenNativeInboxDisappearsOrIsUnreadable(t *testing.T)
 			if err := os.Rename(directory+".held", directory); err != nil {
 				t.Fatal(err)
 			}
+			service.notify()
 			if snapshot := read(); snapshot.Error != "" {
 				t.Fatalf("folder stayed broken after recovery: %s", snapshot.Error)
 			}
@@ -215,6 +217,30 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 	recovered := read()
 	if recovered.Error != "" || recovered.Revision <= problem.Revision || recovered.Instance != initial.Instance {
 		t.Fatalf("stream did not recover in place: %+v", recovered)
+	}
+}
+
+func TestBoardsAndTicketsShareAnUnreadableInboxSnapshot(t *testing.T) {
+	store, home := testStore(t)
+	service := &Service{Store: store}
+	blockNativeInbox(t, home.State)
+	builds := 0
+	service.buildSnapshot = func() (Snapshot, error) {
+		builds++
+		return service.buildBoardSnapshot()
+	}
+	handler := NewHTTP(service, "board.local", nil)
+
+	for range 3 {
+		if snapshot := readBoard(t, handler); !strings.Contains(snapshot.Error, "native-inbox cannot be read") {
+			t.Fatalf("board omitted the folder warning: %q", snapshot.Error)
+		}
+	}
+	if snapshot, err := service.boardSnapshot(); err != nil || !strings.Contains(snapshot.Error, "native-inbox cannot be read") {
+		t.Fatalf("ticket snapshot lost the folder warning: %+v %v", snapshot, err)
+	}
+	if builds != 1 {
+		t.Fatalf("boards and tickets built %d snapshots for one revision, want one", builds)
 	}
 }
 

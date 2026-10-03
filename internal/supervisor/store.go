@@ -134,8 +134,10 @@ type Database struct {
 }
 
 type Store struct {
-	Home        home.Home
-	mu          sync.Mutex
+	Home home.Home
+	mu   sync.Mutex
+	// readers protects the committed view without waiting for file writes.
+	readers     sync.RWMutex
 	db          Database
 	committed   Database
 	changed     chan struct{}
@@ -220,7 +222,10 @@ func (s *Store) save() error {
 		return fmt.Errorf("%w: %v", ErrStorage, err)
 	}
 	s.failingSince.Store(0)
-	s.committed = cloneDatabase(s.db)
+	committed := cloneDatabase(s.db)
+	s.readers.Lock()
+	s.committed = committed
+	s.readers.Unlock()
 	select {
 	case s.changed <- struct{}{}:
 	default:
@@ -229,9 +234,9 @@ func (s *Store) save() error {
 }
 
 func (s *Store) Snapshot() Database {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return cloneDatabase(s.db)
+	s.readers.RLock()
+	defer s.readers.RUnlock()
+	return cloneDatabase(s.committed)
 }
 
 func cloneDatabase(d Database) Database {

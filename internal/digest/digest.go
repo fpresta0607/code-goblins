@@ -316,6 +316,9 @@ func fleetLine(stateDir, id string) string {
 	if runes := []rune(status); len(runes) > fleetStatusWidth {
 		status = string(runes[:fleetStatusWidth]) + "..."
 	}
+	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && record.Phase == "paused" && record.Pause != nil {
+		status = record.Pause.Description()
+	}
 	return fmt.Sprintf("%s  %s/%s  %s  %s\n", id, meta["harness"], meta["model"], meta["kind"], status)
 }
 
@@ -594,6 +597,11 @@ func writeMetaEntry(stateDir, id string, statusTail int, ew *werr) bool {
 		}
 	}
 	isPrinted := err == nil
+	if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
+		if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil {
+			ew.printf("  paused: %s\n", record.Pause.Description())
+		}
+	}
 
 	tail, err := state.TailStatus(stateDir, id, statusTail)
 	if err != nil {
