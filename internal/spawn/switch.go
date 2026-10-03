@@ -57,8 +57,8 @@ type SwitchResult struct {
 // down: the worktree, the branch, and the task id all survive, so committed
 // work and an open PR are untouched by construction.
 //
-// A same-harness switch resumes through the harness's own session continuation
-// when it has one. A cross-harness switch cannot, so it writes a handoff note
+// A same-harness switch resumes its recorded session when one is supplied.
+// Otherwise it writes a handoff note
 // into the task's temporary directory and instructs the new harness to read it
 // before anything else.
 func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchResult, err error) {
@@ -299,7 +299,7 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // same empty-terminal recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects and Codex's MCP servers included.
 func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
-	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
+	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
 	}
@@ -332,13 +332,9 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 
 	if resumed {
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
-		control := adapter.Control()
-		resumeArgs := control.ResumeArgs
-		if request.IsResume {
-			resumeArgs = []string{"--resume", request.ResumeSession}
-			if target.Harness == harness.Codex {
-				resumeArgs = []string{"resume", request.ResumeSession}
-			}
+		resumeArgs := []string{"--resume", request.ResumeSession}
+		if target.Harness == harness.Codex {
+			resumeArgs = []string{"resume", request.ResumeSession}
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
