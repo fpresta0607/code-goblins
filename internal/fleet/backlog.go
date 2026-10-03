@@ -24,7 +24,7 @@ var (
 	levelTwoHeading    = regexp.MustCompile(`^##[ \t]+(.+)$`)
 	metadataPatterns   = func() map[string]*regexp.Regexp {
 		patterns := map[string]*regexp.Regexp{}
-		for _, key := range []string{"repo", "kind", "hold-kind", "harness", "model", "effort", "mode"} {
+		for _, key := range []string{"repo", "kind", "priority", "hold-kind", "harness", "model", "effort", "mode"} {
 			patterns[key] = regexp.MustCompile(`(?i)(?:\(|,)\s*` + key + `\s*:\s*([^,)]*)`)
 		}
 		return patterns

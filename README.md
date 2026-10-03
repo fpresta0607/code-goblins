@@ -319,6 +319,8 @@ The live cap is also checked for Start, spawn and Resume: `config/fleet.json` se
 At 3 percent allowance remaining, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the provider resets.
 The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
+Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
+An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
 If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.

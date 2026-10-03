@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -19,7 +20,7 @@ func savePausedAnswer(stateDir, task, identity, text string) (isSaved bool, err 
 		return false, err
 	}
 	if goblinIdentity(meta) != identity {
-		return false, errors.New("the question belongs to an earlier task session")
+		return false, fmt.Errorf("%w: the question belongs to an earlier task session; nothing was sent", ErrRejected)
 	}
 	record, err := state.ReadLifecycle(stateDir, task)
 	if errors.Is(err, os.ErrNotExist) {

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	PROGRESS_THRESHOLD   = 20 * time.Minute
-	progressProbeTimeout = 10 * time.Second
+	PROGRESS_THRESHOLD    = 20 * time.Minute
+	PROGRESS_PASS_TIMEOUT = 10 * time.Second
 )
 
 type WorkProgress struct {
@@ -34,13 +34,25 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	if s.Options.Progress == nil {
 		return nil
 	}
+	probe, cancel := context.WithTimeout(ctx, PROGRESS_PASS_TIMEOUT)
+	defer cancel()
 	if watched.Progress == nil {
 		watched.Progress = map[string]WorkProgress{}
 	}
 	var problems error
 	database := s.Store.Snapshot()
+	type observation struct {
+		meta               state.TaskMeta
+		prior              WorkProgress
+		isNew              bool
+		head, pushed, gate string
+		err                error
+	}
+	tasks := liveTasks(s.Store.Home.State)
+	observations := make(chan observation, len(tasks))
+	pending := map[string]bool{}
 	seen := map[string]bool{}
-	for _, meta := range liveTasks(s.Store.Home.State) {
+	for _, meta := range tasks {
 		seen[meta.ID] = true
 		prior := watched.Progress[meta.ID]
 		isNew := prior.Generation != meta.SpawnGen || prior.At.IsZero()
@@ -56,11 +68,34 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 			watched.Progress[meta.ID] = prior
 			continue
 		}
-		head, pushed, gate, err := s.observeWork(ctx, meta, database.Tasks[meta.ID].GateStep)
-		if err != nil {
-			problems = errors.Join(problems, err)
+		pending[meta.ID] = true
+		go func() {
+			head, pushed, gate, err := s.observeWork(probe, meta, database.Tasks[meta.ID].GateStep)
+			observations <- observation{meta: meta, prior: prior, isNew: isNew, head: head, pushed: pushed, gate: gate, err: err}
+		}()
+	}
+	for id := range watched.Progress {
+		if !seen[id] {
+			delete(watched.Progress, id)
+		}
+	}
+	for len(pending) > 0 {
+		var observed observation
+		select {
+		case observed = <-observations:
+			delete(pending, observed.meta.ID)
+		case <-probe.Done():
+			for id := range pending {
+				problems = errors.Join(problems, fmt.Errorf("progress for %s: %w", id, probe.Err()))
+			}
+			return problems
+		}
+		if observed.err != nil {
+			problems = errors.Join(problems, observed.err)
 			continue
 		}
+		meta, prior, isNew := observed.meta, observed.prior, observed.isNew
+		head, pushed, gate := observed.head, observed.pushed, observed.gate
 		lines, err := state.TailStatus(s.Store.Home.State, meta.ID, 200)
 		if err != nil {
 			problems = errors.Join(problems, err)
@@ -103,22 +138,15 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 		}
 		watched.Progress[meta.ID] = prior
 	}
-	for id := range watched.Progress {
-		if !seen[id] {
-			delete(watched.Progress, id)
-		}
-	}
 	return problems
 }
 
 func (s *Service) observeWork(ctx context.Context, meta state.TaskMeta, gate string) (string, string, string, error) {
-	probe, cancel := context.WithTimeout(ctx, progressProbeTimeout)
-	defer cancel()
-	head, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "rev-parse", "HEAD")
+	head, err := runOutput(ctx, s.Options.Progress, meta.Worktree, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return "", "", "", fmt.Errorf("progress for %s: %w", meta.ID, err)
 	}
-	refs, err := runOutput(probe, s.Options.Progress, meta.Worktree, "git", "for-each-ref", "--format=%(HEAD)%09%(refname)%09%(objectname)", "refs/heads", "refs/remotes")
+	refs, err := runOutput(ctx, s.Options.Progress, meta.Worktree, "git", "for-each-ref", "--format=%(HEAD)%09%(refname)%09%(objectname)", "refs/heads", "refs/remotes")
 	if err != nil {
 		return "", "", "", fmt.Errorf("push progress for %s: %w", meta.ID, err)
 	}
@@ -136,7 +164,7 @@ func (s *Service) observeWork(ctx context.Context, meta state.TaskMeta, gate str
 		}
 	}
 	if meta.Mode == "no-mistakes" && branch != "" && s.Options.Gate != nil {
-		progress, err := s.Options.Gate.Progress(probe, meta.Project, branch)
+		progress, err := s.Options.Gate.Progress(ctx, meta.Project, branch)
 		if err != nil && !errors.Is(err, pipeline.ErrNoProgress) {
 			return "", "", "", fmt.Errorf("gate progress for %s: %w", meta.ID, err)
 		}

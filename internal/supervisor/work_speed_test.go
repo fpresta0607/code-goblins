@@ -2,7 +2,9 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,11 +36,11 @@ func (git *progressGit) Run(_ context.Context, request execx.Request) (execx.Res
 
 type stalledGit struct {
 	progressGit
-	stalled string
+	stalledDirectories []string
 }
 
 func (git *stalledGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	if request.Dir == git.stalled {
+	if slices.Contains(git.stalledDirectories, request.Dir) {
 		<-ctx.Done()
 		return execx.Result{}, ctx.Err()
 	}
@@ -53,7 +55,7 @@ func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
 	liveGoblin(t, h, "a-stalled-task", h.Root)
 	liveGoblin(t, h, "b-later-task", h.Root)
 	head := strings.Repeat("a", 40)
-	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalled: filepath.Join(h.Root, ".worktrees", "gb-a-stalled-task")}
+	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: []string{filepath.Join(h.Root, ".worktrees", "gb-a-stalled-task")}}
 
 	err := service.checkFleet(t.Context(), time.Now().UTC())
 
@@ -66,6 +68,36 @@ func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
 	}
 	if got := watched.Progress["b-later-task"].Head; got != head {
 		t.Fatalf("later goblin head=%q, want it measured past the stalled worktree", got)
+	}
+}
+
+func TestProgressPassUsesOneDeadlineForAllStalledGoblins(t *testing.T) {
+	service, h := fleetService(t)
+	var stalledDirectories []string
+	for _, id := range []string{"a-stalled", "b-stalled", "c-stalled"} {
+		liveGoblin(t, h, id, h.Root)
+		stalledDirectories = append(stalledDirectories, filepath.Join(h.Root, ".worktrees", "gb-"+id))
+	}
+	liveGoblin(t, h, "d-healthy", h.Root)
+	head := strings.Repeat("a", 40)
+	service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: stalledDirectories}
+	started := time.Now()
+
+	err := service.checkFleet(t.Context(), started.UTC())
+	elapsed := time.Since(started)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("progress errors=%v, want the stalled probes' deadline", err)
+	}
+	if elapsed > PROGRESS_PASS_TIMEOUT+5*time.Second {
+		t.Fatalf("progress pass took %s for three stalled goblins, exceeding its single %s budget", elapsed, PROGRESS_PASS_TIMEOUT)
+	}
+	watched, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := watched.Progress["d-healthy"].Head; got != head {
+		t.Fatalf("healthy goblin head=%q, want progress recorded within the same pass", got)
 	}
 }
 
@@ -98,6 +130,9 @@ func TestProgressWatchReportsOnceAndResetsOnRealProgress(t *testing.T) {
 				git.pushed = strings.Repeat("b", 40)
 			case "gate":
 				service.Store.db.Tasks["slow-task"] = Evaluation{Generation: "s1", GateStep: "test", At: now.Add(22 * time.Minute)}
+				if err := service.Store.save(); err != nil {
+					t.Fatal(err)
+				}
 			case "report":
 				writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Add(22*time.Minute).Format(time.RFC3339)+" working: Recovery is tested\n")
 			}

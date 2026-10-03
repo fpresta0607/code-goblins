@@ -68,6 +68,53 @@ func TestAllowanceFloorRequestsPauseWithTheResetCondition(t *testing.T) {
 	}
 }
 
+func TestFailedAllowancePauseIsHeldOnlyForItsGenerationAndReset(t *testing.T) {
+	for _, test := range []struct {
+		name, failedGeneration, action, task string
+		resetOffset                          time.Duration
+	}{
+		{"same failed attempt", "generation-1", "resume", "ready-task", 0},
+		{"previous generation", "generation-0", "pause", "failed-floor", 0},
+		{"previous reset", "generation-1", "pause", "failed-floor", -time.Minute},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			now := time.Now().UTC().Truncate(time.Second)
+			reset := now.Add(time.Hour)
+			meta := state.TaskMeta{ID: "failed-floor", Backend: "native", Harness: "claude", SpawnGen: "generation-1"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(host.Record{ID: meta.ID, HostPID: os.Getpid(), Started: now.Add(time.Second), Pipe: "fixture", Token: "fixture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(h.State, "hosts", meta.ID+".json"), string(data))
+			condition, err := state.NewPauseCondition("allowance", reset.Add(test.resetOffset).Format(time.RFC3339), now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: test.failedGeneration, Operation: "failed-pause", Action: "pause", Phase: "failed", Pause: &condition}); err != nil {
+				t.Fatal(err)
+			}
+			pausedGoblin(t, h, "ready-task", "dependency", "date:"+now.Add(-time.Minute).Format(time.RFC3339), now.Add(-time.Hour))
+			handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
+				return quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Scopes: map[string]quota.Scope{"all_models": {Known: true, PercentRemaining: 2, ResetsAt: reset}}}}}, ""
+			}
+
+			if err := handler.Service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+
+			calls := awaitDispatch(t, handler.Service, spawner, 1)
+			if calls[0][0] != test.action || calls[0][1] != test.task {
+				t.Fatalf("dispatches=%v, want %s for %s", calls, test.action, test.task)
+			}
+		})
+	}
+}
+
 func awaitDispatch(t *testing.T, service *Service, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

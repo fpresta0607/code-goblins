@@ -89,6 +89,11 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 		if record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 			continue
 		}
+		if record.Generation == meta.SpawnGen && record.Action == "pause" && record.Phase == "failed" {
+			if record.Pause != nil && record.Pause.Reason == "allowance" && record.Pause.Until == reset.UTC().Format(time.RFC3339) {
+				continue
+			}
+		}
 		s.starts.Lock()
 		if s.starting == meta.ID || s.changing[meta.ID] != "" {
 			s.starts.Unlock()
