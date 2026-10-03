@@ -26,7 +26,8 @@ import (
 // board; one Enter at a time it makes the agent the CFO runs on ready; it
 // starts the CFO in the Code Goblins home when none runs; and it ends on one
 // screen: Enter shows the CFO's terminal here, and the board's link or B
-// opens the board. It asks for no project, since the CFO works across every
+// opens the board, B in the desktop window where one sits beside this binary.
+// It asks for no project, since the CFO works across every
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
 // with --harness. native starts a new CFO in a native terminal rather than in
@@ -95,6 +96,15 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 		return 1
 	}
 	if choice == 1 {
+		// The board opens in the desktop window where one sits beside this
+		// binary, and in the browser otherwise.
+		err := runtime.openWindow(board, h.State, false)
+		if err == nil {
+			return 0
+		}
+		if !errors.Is(err, errNoWindow) {
+			fmt.Fprintf(stderr, "goblins: the desktop window did not start (%v), so the board opens in the browser\n", err)
+		}
 		if err := runtime.openURL(board); err != nil {
 			fmt.Fprintf(stderr, "goblins: open the board at %s yourself (%v)\n", board, err)
 			return 1
@@ -169,8 +179,10 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if why != "" {
 		said = append(said, why)
 	}
-	// A CFO that ran in its own terminal comes back in it.
-	native = native || ranNatively
+	// A CFO that ran in its own terminal comes back in it, and a harness the
+	// supervisor wakes by typing is woken only in a native terminal, so its
+	// CFO starts in one.
+	native = native || ranNatively || supervisor.CFOWakeFor(agent) == supervisor.CFOWakeTyped
 	if len(resume) > 0 {
 		conversation := resume[len(resume)-1]
 		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
@@ -181,7 +193,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		if runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 			notes := runtime.settleCFO(ctx, h.State, agent)
 			list.Done("CFO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCFOTerminal))
-			for _, note := range append(wakePath(agent, true), notes...) {
+			for _, note := range append(wakePath(agent), notes...) {
 				list.Note(note)
 			}
 			return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
@@ -196,7 +208,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		// Its startup dialogs are answered before the line says it started.
 		notes := runtime.settleCFO(ctx, h.State, agent)
 		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
-		for _, note := range append(append(said, wakePath(agent, true)...), notes...) {
+		for _, note := range append(append(said, wakePath(agent)...), notes...) {
 			list.Note(note)
 		}
 		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
@@ -210,7 +222,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		return cfoSession{herdr: herdrSession()}, false, nil
 	}
 	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
-	for _, note := range append(wakePath(agent, false), unreached(agent, nil)...) {
+	for _, note := range unreached(agent, nil) {
 		list.Note(note)
 	}
 	return cfoSession{herdr: herdrSession()}, true, nil
@@ -243,13 +255,15 @@ func quickstartDetector() onboarding.Detector {
 func setupAgent(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, stdout, stderr io.Writer) (string, error) {
 	list.Working("Agent", "checking the agents on this machine")
 	return rememberAgent(ctx, stateDir, chosen, rerun, onboarding.Flow{
-		Detect:  quickstartDetector().Detect,
-		Ask:     func(step onboarding.Step) (int, error) { return onboarding.AskConsole(stdout, step) },
-		Done:    list.Done,
-		Undo:    list.Clear,
-		Marks:   onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Agents,
-		Install: func(id string) error { return installAgent(ctx, id, stdout, stderr) },
-		Login:   func(id string) error { return signInAgent(id, stdout, stderr) },
+		Detect:      quickstartDetector().Detect,
+		Ask:         func(step onboarding.Step) (int, error) { return onboarding.AskConsole(stdout, step) },
+		Done:        list.Done,
+		Undo:        list.Clear,
+		Marks:       onboarding.MarksFor(onboarding.DrawsUnicode(os.Getenv)).Agents,
+		Recommended: recommendedCFOAgent(),
+		Notes:       cfoAgentNotes(),
+		Install:     func(id string) error { return installAgent(ctx, id, stdout, stderr) },
+		Login:       func(id string) error { return signInAgent(id, stdout, stderr) },
 	})
 }
 

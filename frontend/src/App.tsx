@@ -13,6 +13,7 @@ import { Icon } from "./Icon";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
+import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
 import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
@@ -156,8 +157,9 @@ export function App() {
     setSwitchFocus((prior) => prior + 1);
   };
   if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
-  // A CFO starting in its terminal waits there for Claude Code's sign-in, so
-  // the board opens that terminal by itself, once.
+  // A CFO starting in its terminal has not registered yet and may be asking
+  // something there, such as Claude Code's sign-in, so the board opens that
+  // terminal by itself, once.
   if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
   // A task the Overlord started opens on its terminal once its session is up;
   // a start that failed shows why on its card instead.
@@ -215,14 +217,23 @@ export function App() {
       await request("/api/terminal/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: shownKey });
     } catch (e: unknown) { setWindowError({ shown: shownKey, text: message(e) }); }
   };
-  const closeButton = <>
-    {shownWindow && <button className="icon-button" aria-label="Open in Windows Terminal" data-tip="Open in terminal" data-tip-align="end" onClick={() => void openWindow()}><Icon name="external" /></button>}
-    {shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>}
-    {!compact && <button className="icon-button" aria-label={maximized ? "Restore the panel" : "Maximize the panel"} data-tip={maximized ? "Restore" : "Maximize"} data-tip-align="end" onClick={() => { const choice = String(!maximized); setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice })); store(MAXIMIZED_KEYS[maximizeView], choice); }}><Icon name={maximized ? "restore" : "maximize"} /></button>}
-    {backShown
+  // The panel's top row (see PanelRow): its controls in the order they are
+  // drawn, its corner button, and why Open in terminal was refused.
+  const toggleMaximized = () => {
+    const choice = String(!maximized);
+    setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice }));
+    store(MAXIMIZED_KEYS[maximizeView], choice);
+  };
+  const controls: PanelControl[] = [];
+  if (shownWindow) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
+  const row = {
+    controls,
+    corner: backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
-      : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>}
-  </>;
+      : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>,
+    notice: shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>,
+  };
   return <div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
@@ -266,11 +277,11 @@ export function App() {
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>
         {snapshot && cardStart && paneOpen && (!showsPanel
-          ? <><div className="panel-top"><div className="panel-top-side" /><div /><div className="panel-top-side end">{closeButton}</div></div>
+          ? <><PanelRow {...row} />
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} trailing={closeButton} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
           <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}

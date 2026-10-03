@@ -143,8 +143,10 @@ export interface Snapshot {
   // cfo_runs says a CFO is registered and running or starting; without one
   // the board shows its first-run page.
   cfo_runs: boolean;
-  // cfo_starting says the CFO runs in its terminal but has not registered,
-  // which it does only after Claude Code's sign-in there.
+  // cfo_starting says the CFO runs in its terminal but has not registered
+  // yet: Claude Code registers through its SessionStart hook after its
+  // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
+  // register.
   cfo_starting: boolean;
   inbox: number;
   tasks: Task[];
@@ -260,11 +262,15 @@ export interface Setup {
   agents: SetupAgent[];
   cfo_runs: boolean;
 }
-// SetupAgent is one agent the first-run page shows, and why Start cannot
-// pick it when it cannot.
+// SetupAgent is one agent the first-run page shows: whether it is the
+// recommended one and the few words on what a CFO in it gets, both from the
+// supervisor's table of what is proved, and why Start cannot pick it when it
+// cannot.
 export interface SetupAgent {
   id: string;
   name: string;
+  recommended: boolean;
+  note: string;
   installed: boolean;
   signed_in: boolean;
   reason: string;
@@ -537,7 +543,7 @@ export function parseSetup(value: unknown): Setup {
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);
-      return { id: string(agent.id), name: string(agent.name), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
     }),
     cfo_runs: boolean(v.cfo_runs),
   };

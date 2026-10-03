@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
@@ -27,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -56,6 +58,10 @@ func loopbackAddress(address string) bool {
 }
 
 func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if err := serveScheduling(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: %v\n", err)
+		return 1
+	}
 	// Serve does not care where it was started. Started from a Herdr pane,
 	// such as the CFO's own, it would hand that pane's variables to every
 	// terminal and herdr client it runs (HERDR_ENV, HERDR_PANE_ID,
@@ -150,6 +156,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		Dictation:        dictationEngine(h, stderr),
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
@@ -164,7 +171,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, CommitHolders: supervisor.CommitHolders, Spawn: spawnFromBoard},
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
-		CI:               execx.OSRunner{},
+		CI: execx.OSRunner{},
 		// A credential request's card saves through the store cfo auth store
 		// writes, and its refresh is cfo auth store's own.
 		Credentials:        auth.OpenStore,
@@ -262,4 +269,21 @@ func spawnFromBoard(ctx context.Context, args []string) (string, error) {
 		err = fmt.Errorf("cfo spawn exited %d", result.ExitCode)
 	}
 	return output, err
+}
+
+// dictationEngine is the speech engine the board dictates through: the model
+// this build pins, or the one the home's own config/voice.json names, kept
+// under the home's caches. Settings that cannot be read leave the board
+// without dictation, and cfo doctor says why.
+func dictationEngine(h home.Home, stderr io.Writer) supervisor.Dictation {
+	speech, err := voice.For(h.Root, codegoblins.Voice)
+	if err != nil {
+		fmt.Fprintln(stderr, "dictation: "+err.Error())
+		return nil
+	}
+	speech.Memory = func() (uint64, uint64, error) {
+		memory, err := supervisor.MachineMemory()
+		return memory.Available, memory.CommitAvailable, err
+	}
+	return speech
 }

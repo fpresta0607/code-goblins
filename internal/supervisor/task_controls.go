@@ -61,11 +61,42 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.starts.Lock()
-	defer s.starts.Unlock()
 	if s.starting == input.Task || s.changing[input.Task] != "" {
+		s.starts.Unlock()
 		apiError(w, 409, "This task is already changing")
 		return
 	}
+	if input.Action == "resume" {
+		if s.starting != "" {
+			s.starts.Unlock()
+			apiError(w, 409, "Another task is starting; resume once it is up")
+			return
+		}
+		for _, action := range s.changing {
+			if action == "resume" {
+				s.starts.Unlock()
+				apiError(w, 409, "Another task is resuming; try again once it is up")
+				return
+			}
+		}
+	}
+	if s.changing == nil {
+		s.changing = map[string]string{}
+	}
+	if s.changeErrors == nil {
+		s.changeErrors = map[string]taskChangeError{}
+	}
+	s.changing[input.Task] = input.Action
+	s.starts.Unlock()
+	isDispatched := false
+	defer func() {
+		if !isDispatched {
+			s.starts.Lock()
+			delete(s.changing, input.Task)
+			s.starts.Unlock()
+			s.notify()
+		}
+	}()
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
 	if errors.Is(err, os.ErrNotExist) && input.Action == "stop" {
 		queued, readErr := fleet.ReadQueuedTask(s.Store.Home, input.Task)
@@ -83,16 +114,6 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Action == "resume" {
-		if s.starting != "" {
-			apiError(w, 409, "Another task is starting; resume once it is up")
-			return
-		}
-		for _, action := range s.changing {
-			if action == "resume" {
-				apiError(w, 409, "Another task is resuming; try again once it is up")
-				return
-			}
-		}
 		isInterruptedResume := prior.Action == "resume" && (prior.Phase == "resuming" || prior.Phase == "failed") && meta.ResumeOperation == prior.Operation
 		if priorErr != nil || prior.Generation != meta.SpawnGen && !isInterruptedResume || prior.Phase != "paused" && !(prior.Action == "resume" && (prior.Phase == "failed" || prior.Phase == "resuming")) {
 			apiError(w, 409, "Only a paused task can resume")
@@ -112,12 +133,6 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if s.changing == nil {
-		s.changing = map[string]string{}
-		s.changeErrors = map[string]taskChangeError{}
-	}
-	s.changing[input.Task] = input.Action
-	delete(s.changeErrors, input.Task)
 	command := input.Action
 	if command == "stop" {
 		command = "kill"
@@ -127,18 +142,25 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	if requestGeneration == "" {
 		requestGeneration = "queued"
 	}
+	s.starts.Lock()
+	delete(s.changeErrors, input.Task)
+	s.starts.Unlock()
+	isDispatched = true
 	go func() {
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
-		s.starts.Lock()
-		delete(s.changing, input.Task)
+		var failure taskChangeError
 		if err != nil {
-			failure := taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}
+			failure = taskChangeError{Message: spawnFailure(output, err), Generation: input.Generation, Operation: prior.Operation, Updated: prior.Updated}
 			if record, readErr := state.ReadLifecycle(s.Store.Home.State, input.Task); readErr == nil && record.Operation == input.Operation && record.RequestGeneration == requestGeneration {
 				failure.Generation, failure.Operation, failure.Updated = record.Generation, record.Operation, record.Updated
 				if failure.Generation == "queued" {
 					failure.Generation = ""
 				}
 			}
+		}
+		s.starts.Lock()
+		delete(s.changing, input.Task)
+		if err != nil {
 			s.changeErrors[input.Task] = failure
 		}
 		s.starts.Unlock()
@@ -179,11 +201,21 @@ func (h *HTTP) adjustTask(w http.ResponseWriter, r *http.Request) {
 	}
 	s := h.Service
 	s.starts.Lock()
-	defer s.starts.Unlock()
 	if s.starting == input.Task || s.changing[input.Task] != "" {
+		s.starts.Unlock()
 		apiError(w, 409, "This task is starting or stopping")
 		return
 	}
+	if s.changing == nil {
+		s.changing = map[string]string{}
+	}
+	s.changing[input.Task] = input.Action
+	s.starts.Unlock()
+	defer func() {
+		s.starts.Lock()
+		delete(s.changing, input.Task)
+		s.starts.Unlock()
+	}()
 	name := ".queued-" + input.Task + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, name); err != nil {
 		apiError(w, 409, "This task is being changed; try again")

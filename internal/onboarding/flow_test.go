@@ -79,6 +79,10 @@ func (m *machine) flow() Flow {
 		Done:  func(name, answer string) { m.lines = append(m.lines, name+": "+answer) },
 		Undo:  func() { m.lines = append(m.lines, "undo") },
 		Marks: MarksFor(true).Agents,
+		// What the table of what is proved says of each agent, as a caller
+		// hands it in.
+		Recommended: "claude",
+		Notes:       map[string]string{"claude": "the best experience", "codex": "woken by a typed line", "pi": "woken by a typed line"},
 		Install: func(id string) error {
 			m.actions = append(m.actions, "install "+id)
 			m.states[id] = SignedOut
@@ -188,8 +192,8 @@ func TestTheChoiceIsOneRowOfTabsThatSaysHowReadyEachAgentIs(t *testing.T) {
 	}
 	want := []string{
 		"Ready · the best experience",
-		"Sign-in needed · goblin reports do not wake it yet · current",
-		"Not installed · goblin reports do not wake it yet",
+		"Sign-in needed · woken by a typed line · current",
+		"Not installed · woken by a typed line",
 	}
 	if !slices.Equal(shown.notes, want) {
 		t.Errorf("the tabs' notes are %q, want %q", shown.notes, want)

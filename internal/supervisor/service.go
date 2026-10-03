@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,9 @@ type Options struct {
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
+	// Dictation is the speech engine the board dictates through on this
+	// machine; without it the board has no dictation of its own.
+	Dictation Dictation
 	// Dispatch is what a queued task's Start reads and runs; without it the
 	// board starts no goblin.
 	Dispatch *Dispatch
@@ -908,8 +912,8 @@ type Snapshot struct {
 	// terminal; without one the board shows its first-run page.
 	CFORuns bool `json:"cfo_runs"`
 	// CFOStarting says native terminal cfo is up for a CFO not registered
-	// yet; the board opens that terminal for its sign-in, and no registration
-	// problem is shown while it lasts.
+	// yet; the board opens that terminal for whatever it asks there, and no
+	// registration problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
@@ -1088,9 +1092,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.starts.Lock()
+	starting := s.starting
+	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
+	s.starts.Unlock()
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
-		task.Starting = task.ID == s.starting
+		task.Starting = task.ID == starting
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
 				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
@@ -1105,7 +1112,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
 			task.Brief = briefErr == nil
-			task.StartError = s.startErrors[task.ID]
+			task.StartError = startErrors[task.ID]
 		}
 		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
@@ -1126,14 +1133,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				task.Archived = true
 			}
 		}
-		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
-		if action := s.changing[task.ID]; action != "" {
-			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+		if phase := map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[changing[task.ID]]; phase != "" {
+			task.Phase = phase
 		}
 	}
-	s.starts.Unlock()
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next = memoryFloor, memoryNext
