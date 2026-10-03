@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
-	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 )
 
 func gateTask(root string, runtime commandRuntime) (string, error) {
@@ -57,28 +56,18 @@ func gateWorktreeTask(stateDir, project, worktree string) (string, error) {
 	if !fsx.SamePath(filepath.Dir(worktree), filepath.Join(project, ".worktrees")) {
 		return "", errors.New("the gate's source worktree belongs to no fleet task")
 	}
-	id, hasPrefix := strings.CutPrefix(filepath.Base(worktree), "gb-")
-	if !hasPrefix {
+	if !strings.HasPrefix(filepath.Base(worktree), "gb-") {
 		return "", errors.New("the gate's source worktree names no fleet task")
 	}
-	// An extra worktree keeps its owner's ID followed by a suffix. Prefer an
-	// exact task record before trying the progressively shorter owner IDs.
-	for id != "" {
-		meta, err := state.ReadTaskMeta(stateDir, id)
-		if err == nil {
-			if !fsx.SamePath(meta.Project, project) || !fsx.SamePath(meta.Worktree, filepath.Join(project, ".worktrees", "gb-"+id)) {
-				return "", errors.New("task metadata does not match the gate's source project and worktree")
-			}
-			return meta.ID, nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-		separator := strings.LastIndexByte(id, '-')
-		if separator < 0 {
-			break
-		}
-		id = id[:separator]
+	owner, known, err := reap.WorktreeOwner(stateDir, project, worktree)
+	if err != nil {
+		return "", err
 	}
-	return "", errors.New("the gate's source worktree has no task record")
+	if !known {
+		return "", errors.New("the gate's source worktree has no readable task record or owner")
+	}
+	if !fsx.SamePath(owner.Meta.Project, project) || !fsx.SamePath(owner.Meta.Worktree, filepath.Join(project, ".worktrees", "gb-"+owner.ID)) {
+		return "", errors.New("task metadata does not match the gate's source project and worktree")
+	}
+	return owner.ID, nil
 }
