@@ -5,6 +5,7 @@ package install
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -70,10 +71,29 @@ func (s Service) removeStartAtLogin(report *reporter) error {
 	return nil
 }
 
+// suppliesWindow reports whether this install puts a desktop window of its own
+// in the home: one shipped beside the running binary, which copyWindow copies
+// in, or one built into a checkout for it. A window that is only there
+// already, a home's own beside a binary run from that home included, is kept
+// and not supplied.
+func (s Service) suppliesWindow() bool {
+	if s.BuiltWindow {
+		return true
+	}
+	if s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.Root) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
+	return err == nil
+}
+
 // adoptStartAtLogin makes Start at login start this home where it started the
-// earlier copy of the desktop window. The entry becomes the one this home's
-// window writes when goblins starts it, the window alone for the tray, so the
-// window still shows its Start at login as on.
+// earlier copy of the desktop window. For a window this install supplied, the
+// entry becomes the one that window writes when goblins starts it, the window
+// alone for the tray, so the window still shows its Start at login as on. A
+// window the home only kept may be from before a window started alone opened
+// the app, so the entry runs goblins with --window, which opens any window and
+// is the entry such a window writes.
 func (s Service) adoptStartAtLogin(report *reporter) error {
 	key, command, ok, err := s.startAtLogin()
 	if err != nil || !ok {
@@ -83,7 +103,10 @@ func (s Service) adoptStartAtLogin(report *reporter) error {
 	if !startsIn(command, s.EarlierWindow) {
 		return nil
 	}
-	adopted := `"` + filepath.Join(s.Root, windowName) + `" --background`
+	adopted := `"` + filepath.Join(s.Root, "goblins.exe") + `" --window --background`
+	if s.suppliesWindow() {
+		adopted = `"` + filepath.Join(s.Root, windowName) + `" --background`
+	}
 	if err := key.SetStringValue(startAtLoginValue, adopted); err != nil {
 		return fmt.Errorf("install: make Start at login start this home: %w", err)
 	}

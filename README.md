@@ -240,7 +240,8 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
 Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install puts it there from a release that ships it, which none does yet.
-Where the home holds it, opening it is enough: Code Goblins in the Start menu starts the window alone, with no terminal, and it finds the supervisor or starts it and shows the board, where the first-run page starts the CFO while none runs.
+Where an install put it in the home, opening it is enough: Code Goblins in the Start menu starts the window alone, with no terminal, and it finds the supervisor or starts it and shows the board, where the first-run page starts the CFO while none runs.
+A window the home only kept from before, under an install that ships none, still opens from Code Goblins, which then runs `goblins --window`.
 When the board cannot open, the window says why in a message of its own, in the words `goblins` would use in a terminal.
 `goblins --window` does the same from a terminal, and **Open the board** in the quick start opens the window in place of the browser.
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which opens the app in the tray when you sign in, with no terminal either, and **Quit the window**.

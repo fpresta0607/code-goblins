@@ -29,7 +29,8 @@ In order, it:
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
 8. Adds Code Goblins to your Start menu.
-   Where the home holds the desktop window it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
+   Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
+   Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
    In a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
 
@@ -39,6 +40,7 @@ An open desktop window likewise keeps running the previous window until you quit
 
 An install whose home holds the desktop window takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
 That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
+It starts the window alone where this install put the window in the home, and runs `goblins --window --background` where the home only kept the window it held.
 The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
 

@@ -265,11 +265,13 @@
         Write-Host "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
         Write-Host "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
-        # From the clone: run there, cfo install makes the clone the CFO home.
+        # From the clone: run there, cfo install makes the clone the CFO home,
+        # told that the window in it was built just now.
+        $deliveredWindow = $true
         $projectsRoot = Read-ProjectsRoot
         Push-Location -LiteralPath $InstallDir
         try {
-            & $dest install @projectsRoot
+            & $dest install --window-built @projectsRoot
             if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
         }
         finally {
@@ -284,6 +286,8 @@
             if (-not (Save-VerifiedRelease $download)) {
                 throw "Code Goblins was not installed: the release could not be downloaded from $releaseBase."
             }
+            # cfo install puts the window downloaded beside it in the home.
+            $deliveredWindow = Test-Path -LiteralPath (Join-Path $download "goblins-window.exe")
 
             $projectsRoot = Read-ProjectsRoot
             # From a neutral folder: run inside a checkout, cfo install would
@@ -723,15 +727,18 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # Code Goblins in the Start menu opens the app. Where the home holds the
-    # desktop window, the entry starts that program alone: it runs goblins out
-    # of sight, which finds the supervisor or starts it, and opens the board in
-    # the window, so no terminal shows; it starts no CFO, which the board's
-    # first-run page does. A home with no window, as a build from source that
-    # built none leaves, runs the quick start in a window of its own: it
-    # starts the supervisor and the CFO when they are not running and ends on
-    # a screen that offers the CFO's terminal and the board. In a terminal,
-    # goblins is the quick start either way.
+    # Code Goblins in the Start menu opens the app. Where this install put the
+    # desktop window in the home, built or downloaded just now, the entry
+    # starts that program alone: it runs goblins out of sight, which finds the
+    # supervisor or starts it, and opens the board in the window, so no
+    # terminal shows; it starts no CFO, which the board's first-run page does.
+    # A window the home only kept, as a release with none leaves the one from
+    # before, may be from before a window started alone opened the app, so the
+    # entry runs goblins --window, which opens any window, with its console
+    # minimized for as long as that takes. A home with no window runs the quick
+    # start in a window of its own: it starts the supervisor and the CFO when
+    # they are not running and ends on a screen that offers the CFO's terminal
+    # and the board. In a terminal, goblins is the quick start either way.
     $goblins = Join-Path $InstallDir "goblins.exe"
     $window = Join-Path $InstallDir "goblins-window.exe"
     $opensWindow = Test-Path -LiteralPath $window
@@ -743,8 +750,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         $shortcut.WorkingDirectory = $InstallDir
         $shortcut.Arguments = ""
         $shortcut.WindowStyle = 1
-        if ($opensWindow) {
+        if ($deliveredWindow) {
             $shortcut.TargetPath = $window
+            $shortcut.Description = "Open Code Goblins"
+        }
+        elseif ($opensWindow) {
+            $shortcut.TargetPath = $goblins
+            $shortcut.Arguments = "--window"
+            $shortcut.WindowStyle = 7
             $shortcut.Description = "Open Code Goblins"
         }
         else {
