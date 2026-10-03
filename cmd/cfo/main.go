@@ -46,7 +46,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs: in Herdr, or in a native terminal shown here with goblins --native, and a Codex or pi CFO always in a native terminal, with or without --native, since only there is it woken. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs: in Herdr, or in a native terminal shown here with goblins --native, and a Codex or pi CFO always in a native terminal, with or without --native, since only there is it woken. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background, which Windows runs at login, keeps it in the tray.
 
 commands:
   version   print the cfo version
@@ -147,6 +147,9 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
+	// openWindow shows the board in the desktop window, and returns
+	// errNoWindow when none sits beside this binary.
+	openWindow func(board, stateDir string, background bool) error
 	// nativeCFO, liveCFO, focusCFO, startCFO and attachHerdr are how the
 	// launcher finds a live registered CFO, in a native terminal or in Herdr,
 	// and brings it to the front, starts the CFO in Herdr and hands the
@@ -304,6 +307,7 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		openWindow:   openWindow,
 		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
@@ -339,6 +343,9 @@ func invokedAsGoblins() bool {
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
+	}
+	if runtime.goblins && len(args) > 0 && args[0] == "--window" && (len(args) == 1 || len(args) == 2 && args[1] == "--background") {
+		return runWindowLauncher(stdout, stderr, runtime, len(args) == 2)
 	}
 	if runtime.goblins && len(args) > 0 && args[0] == "setup" {
 		if len(args) != 1 {
