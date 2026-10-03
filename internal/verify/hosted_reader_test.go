@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -29,7 +30,8 @@ func (fixture *hostedFixtureCommands) Run(ctx context.Context, request execx.Req
 	}
 	if request.Name == "git" && slices.Contains(request.Args, "get-url") {
 		if fixture.problem == "credential in origin" {
-			return execx.Result{Stdout: []byte("https://fixture:fixture-private-value@github.com/fixture/project.git\n")}, nil
+			origin := url.URL{Scheme: "https", Host: "github.com", Path: "/fixture/project.git", User: url.UserPassword("fixture", "fixture-private-value")}
+			return execx.Result{Stdout: []byte(origin.String() + "\n")}, nil
 		}
 		return execx.Result{Stdout: []byte("https://github.com/fixture/project.git\n")}, nil
 	}
