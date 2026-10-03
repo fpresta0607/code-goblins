@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -177,7 +179,11 @@ func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 	for _, name := range []string{"wrong run", "wrong repository", "wrong worktree", "duplicate record", "missing branch", "empty branch", "relative project", "unknown task", "wrong task project", "wrong task worktree", "unreadable task", "unreadable database", "unresolved home"} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+			holder, earlier := "cg-example", []string(nil)
+			if name == "unreadable task" {
+				holder, earlier = "cg-example-child", []string{"cg-example"}
+			}
+			project, gateRoot, worktree := gateTaskFixture(t, holder, earlier...)
 			writeGateSource(t, gateRoot, project, worktree, "feature")
 			stateDir := filepath.Join(os.Getenv("CFO_HOME"), "state")
 			meta := state.TaskMeta{ID: "cg-example", Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-cg-example")}
@@ -215,14 +221,20 @@ func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if name == "unreadable task" {
-				if err := os.Mkdir(filepath.Join(stateDir, "cg-example.meta"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			} else if name != "unknown task" {
+			if name != "unknown task" {
 				if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 					t.Fatal(err)
 				}
+			}
+			if name == "unreadable task" {
+				if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: holder, Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-"+holder)}); err != nil {
+					t.Fatal(err)
+				}
+				held, err := holdExclusively(state.TaskMetaPath(stateDir, holder), time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer syscall.CloseHandle(held)
 			}
 
 			// Act
