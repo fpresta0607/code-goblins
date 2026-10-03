@@ -46,7 +46,8 @@ type Event struct {
 	Prompt bool `json:"prompt,omitempty"`
 	// HostID names the native terminal the harness runs in, so a delivery
 	// into that terminal can be proven by the harness's own prompt hook.
-	HostID string `json:"host_id,omitempty"`
+	HostID    string       `json:"host_id,omitempty"`
+	Recipient CFORecipient `json:"recipient,omitzero"`
 }
 
 type Context struct {
@@ -171,6 +172,9 @@ func (e Event) Validate() error {
 	}
 	if e.Source != "" && e.Kind != "started" {
 		return errors.New("only a started event has a source")
+	}
+	if e.Recipient != (CFORecipient{}) && (!e.Recipient.Valid() || e.Role != "cfo" || e.Recipient.HostID != e.HostID || e.Recipient.Harness != e.Harness || e.Recipient.SessionID != e.SessionID || e.Recipient.ProgramStart.After(e.OccurredAt)) {
+		return errors.New("invalid native CFO recipient binding")
 	}
 	if e.Role != "cfo" && e.Role != "goblin" && e.Role != "subagent" && e.Role != "worker" {
 		return errors.New("invalid session role")

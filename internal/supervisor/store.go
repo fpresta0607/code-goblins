@@ -33,24 +33,25 @@ var ErrDeferred = errors.New("event awaits retryable evidence")
 var ErrRejected = errors.New("invalid native event")
 
 type Session struct {
-	ID           string          `json:"id"`
-	NativeID     string          `json:"native_id"`
-	Harness      string          `json:"harness"`
-	Role         string          `json:"role"`
-	TaskID       string          `json:"task_id,omitempty"`
-	Generation   string          `json:"generation,omitempty"`
-	Parent       string          `json:"parent,omitempty"`
-	ReportedRoot string          `json:"reported_root,omitempty"`
-	Relation     string          `json:"relation,omitempty"`
-	Model        string          `json:"model,omitempty"`
-	AgentType    string          `json:"agent_type,omitempty"`
-	Phase        string          `json:"phase"`
-	TurnID       string          `json:"turn_id,omitempty"`
-	LastEventID  string          `json:"last_event_id"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	PromptAt     time.Time       `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
-	HostID       string          `json:"host_id,omitempty"`  // the native terminal the session runs in
-	Runtime      RuntimeEvidence `json:"runtime"`
+	ID              string                  `json:"id"`
+	NativeID        string                  `json:"native_id"`
+	Harness         string                  `json:"harness"`
+	Role            string                  `json:"role"`
+	TaskID          string                  `json:"task_id,omitempty"`
+	Generation      string                  `json:"generation,omitempty"`
+	Parent          string                  `json:"parent,omitempty"`
+	ReportedRoot    string                  `json:"reported_root,omitempty"`
+	Relation        string                  `json:"relation,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	AgentType       string                  `json:"agent_type,omitempty"`
+	Phase           string                  `json:"phase"`
+	TurnID          string                  `json:"turn_id,omitempty"`
+	LastEventID     string                  `json:"last_event_id"`
+	UpdatedAt       time.Time               `json:"updated_at"`
+	PromptAt        time.Time               `json:"prompt_at,omitzero"` // when this generation last took a prompt for a turn
+	PromptRecipient nativehook.CFORecipient `json:"prompt_recipient,omitzero"`
+	HostID          string                  `json:"host_id,omitempty"` // the native terminal the session runs in
+	Runtime         RuntimeEvidence         `json:"runtime"`
 }
 
 type Evaluation struct {
@@ -412,9 +413,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	}
 	if known && prior.Generation == e.Generation {
 		node.PromptAt = prior.PromptAt
+		node.PromptRecipient = prior.PromptRecipient
 	}
 	if e.Prompt {
 		node.PromptAt = e.OccurredAt
+		node.PromptRecipient = e.Recipient
 	}
 	s.db.Sessions[key] = node
 	if e.Role == "goblin" {
