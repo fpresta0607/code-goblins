@@ -47,6 +47,9 @@ func attachTestProgram() {
 			}
 			fmt.Println("spilled")
 			continue
+		case "codex-inline":
+			fmt.Print("\x1b[2J\x1b[HOpenAI Codex (fixture)\r\n\r\n\u2022 Working tree is clean.\r\n\r\n\u203a Ask Codex to do anything\r\n\r\n  gpt-6.1-sol high\r\n")
+			continue
 		default:
 			fmt.Println("got", lines.Text())
 			continue

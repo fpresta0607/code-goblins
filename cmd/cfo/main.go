@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -80,7 +81,8 @@ commands:
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
-  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path
+  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
+  cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
@@ -196,6 +198,14 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// availableMemory reads the memory a new process can have, in bytes, for
+	// the turn cfo gate test takes before its tests, gateBudget is how long
+	// the tests of a level may run, and gateRun runs one of the step's
+	// commands in dir and returns its exit code, with an error unless it
+	// passed.
+	availableMemory func() (uint64, error)
+	gateBudget      func(gatetest.Level) time.Duration
+	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -315,6 +325,12 @@ func defaultCommandRuntime() commandRuntime {
 		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
 		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		availableMemory: func() (uint64, error) {
+			memory, err := supervisor.MachineMemory()
+			return memory.Available, err
+		},
+		gateBudget: gateBudget,
+		gateRun:    runGateCommand,
 	}
 }
 
@@ -419,7 +435,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "hygiene":
 		return runHygiene(args[1:], stdout, stderr, runtime)
 	case "gate":
-		return runGate(args[1:], stdout, stderr)
+		return runGate(args[1:], stdout, stderr, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":
