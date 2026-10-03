@@ -60,6 +60,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
    An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
 5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native`, and always for a Codex or pi CFO, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
    In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
+   It dismisses Codex's optional Daybreak security setup offer with Escape and waits for it to disappear; account security setup stays your decision.
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
    For a dialog it has not answered, in Herdr or after those questions, it says what to choose: Yes at Claude Code's trust dialog, whose first choice, No, exits, and Continue without trusting at Codex's hook review.
