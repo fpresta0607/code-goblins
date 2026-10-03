@@ -44,10 +44,14 @@ func (s *Service) runtimeEvidence(meta state.TaskMeta, node Session, now time.Ti
 	if observation.Health == monitor.HealthUnknown {
 		evidence.State = "unavailable"
 	}
-	// An idle terminal can have quiet owned work. The monitor stamps both
-	// fields with the scan time only when those processes show progress.
-	if observation.Health == monitor.HealthIdle && observation.EvidenceAt != nil && observation.JobSampledAt != nil && observation.EvidenceAt.Equal(observation.LastObserved) && observation.JobSampledAt.Equal(observation.LastObserved) {
+	// Short rescans retain the last CPU judgment, but a newer terminal read
+	// cannot refresh its age or bind it to a later native session.
+	if sampled := observation.JobSampledAt; observation.Health == monitor.HealthIdle && observation.HasJobProgress &&
+		sampled != nil && observation.JobSampledSince != nil && sampled.After(*observation.JobSampledSince) &&
+		!sampled.Before(node.UpdatedAt) && !observation.JobSampledSince.Before(spawnTime(meta.SpawnGen)) &&
+		now.Sub(*sampled) <= 2*time.Minute && !sampled.After(now.Add(time.Minute)) && !sampled.After(observation.LastObserved) {
 		evidence.State, evidence.Reason = string(monitor.HealthBusy), source+" has owned processes making progress"
+		evidence.At = *sampled
 	}
 	return evidence
 }

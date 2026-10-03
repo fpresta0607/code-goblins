@@ -3,7 +3,9 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -193,6 +195,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 					prior := observedAt.Add(-time.Minute)
 					observation.JobSampledAt, observation.JobSampledSince = &observedAt, &prior
 					observation.JobCPU, observation.EvidenceAt = 5*time.Second, &observedAt
+					observation.HasJobProgress = test.hasMovingJobs
 					if test.hasSleepingJobs {
 						observation.EvidenceAt = &prior
 					}
@@ -221,6 +224,230 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 			}
 			if got.Head != evaluation.Head || got.Generation != meta.SpawnGen || got.GateStep != evaluation.GateStep {
 				t.Errorf("projection changed independent evidence: %+v", got.Evaluation)
+			}
+		})
+	}
+}
+
+type queueStatusProgressProbe struct {
+	sample monitor.ProgressSample
+	err    error
+}
+
+func (p *queueStatusProgressProbe) InspectProgress(context.Context, state.TaskMeta, monitor.EndpointSample) (monitor.ProgressSample, error) {
+	return p.sample, p.err
+}
+
+func TestSnapshotKeepsJudgedOwnedProgressAcrossShortRescans(t *testing.T) {
+	for _, test := range []struct {
+		name                                      string
+		hasMovingJobs, hasBaselineTranscript      bool
+		hasTranscriptOnly                         bool
+		hasReadError, hasNoJobs, hasNewTranscript bool
+	}{
+		{name: "moving jobs then sleeping", hasMovingJobs: true},
+		{name: "sleeping jobs"},
+		{name: "unjudged baseline with transcript", hasBaselineTranscript: true},
+		{name: "transcript without CPU progress", hasTranscriptOnly: true},
+		{name: "read error after positive CPU", hasMovingJobs: true, hasReadError: true},
+		{name: "jobs end after positive CPU", hasMovingJobs: true, hasNoJobs: true},
+		{name: "short rescan with newer transcript", hasMovingJobs: true, hasNewTranscript: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Mode, meta.Backend = "direct-PR", "native"
+			meta.HerdrSession, meta.HerdrPaneID, meta.HerdrWorkspaceID, meta.HerdrTabID = "", "", "", ""
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC().Add(-11*time.Minute - 21*time.Second)
+			if err := os.Chtimes(filepath.Join(h.State, meta.ID+".meta"), now, now); err != nil {
+				t.Fatal(err)
+			}
+			store.db.TaskSessions[meta.ID] = "codex/current"
+			store.db.Sessions["codex/current"] = Session{ID: "codex/current", TaskID: meta.ID, Role: "goblin", Generation: meta.SpawnGen, Phase: "settled", UpdatedAt: now}
+			store.db.Tasks[meta.ID] = Evaluation{Generation: meta.SpawnGen, Phase: "review", Reason: "Manual independent evaluation", At: now}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, state.StatusPath(h.State, meta.ID), now.Format(time.RFC3339)+" working: running package checks\n")
+			probe := &runtimeProbe{sample: monitor.EndpointSample{Verdict: monitor.ProbePresent, Agent: herdr.AgentAlive, Status: herdr.AgentUnknown, TabLabel: "gb-" + meta.ID, CountersUnavailable: true, Capture: []byte("quiet native terminal")}}
+			progress := &queueStatusProgressProbe{sample: monitor.ProgressSample{Jobs: []string{"go.exe (pid 51)"}, JobCPU: time.Second}}
+			watcher := monitor.Service{StateDir: h.State, Probe: probe, Progress: progress, Now: func() time.Time { return now }}
+			service := &Service{Store: store}
+			now = now.Add(10*time.Minute + time.Second)
+			idleSince := now.Add(-10 * time.Minute)
+			info, err := os.Stat(state.StatusPath(h.State, meta.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation := monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, LastSeen: idleSince, LastProgress: idleSince, IdleSince: &idleSince, Health: monitor.HealthIdle, Reason: monitor.None, Digest: "prior-screen", StatusStamp: fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())}
+			if err := monitor.WriteObservation(h.State, observation); err != nil {
+				t.Fatal(err)
+			}
+			var sampledAt time.Time
+			for index, checkpoint := range []struct {
+				name  string
+				step  time.Duration
+				phase string
+			}{
+				{"baseline", 0, "idle"},
+				{"judged sample", time.Minute, "idle"},
+				{"short rescan", 10 * time.Second, "idle"},
+				{"later judged no progress", 50 * time.Second, "idle"},
+				{"short rescan after no progress", 10 * time.Second, "idle"},
+			} {
+				now = now.Add(checkpoint.step)
+				if index == 0 && test.hasBaselineTranscript || index == 1 && test.hasTranscriptOnly {
+					progress.sample.TranscriptAt = now
+				}
+				if test.hasMovingJobs && index == 1 {
+					progress.sample.JobCPU += 4 * time.Second
+				}
+				if index == 2 {
+					if test.hasReadError {
+						progress.err = errors.New("CPU evidence unavailable")
+					}
+					if test.hasNoJobs {
+						progress.sample.Jobs = nil
+					}
+					if test.hasNewTranscript {
+						progress.sample.TranscriptAt = now
+					}
+				}
+				if test.hasMovingJobs && (index == 1 || index == 2 && !test.hasReadError && !test.hasNoJobs) {
+					checkpoint.phase = "working"
+				}
+				if index >= 2 && (test.hasReadError || test.hasNoJobs) {
+					checkpoint.phase = "working"
+				}
+				result, err := watcher.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(result.Observations) != 1 || result.Observations[0].Health != monitor.HealthIdle && !(index >= 2 && (test.hasNoJobs || test.hasReadError)) {
+					t.Fatalf("%s monitor observation=%+v", checkpoint.name, result.Observations)
+				}
+				observation := result.Observations[0]
+				if index >= 2 && (test.hasReadError || test.hasNoJobs) && observation.HasJobProgress {
+					t.Error("unavailable or ended jobs retained positive CPU judgment")
+				}
+				if test.hasNoJobs && index >= 2 {
+					if observation.JobSampledAt != nil || observation.JobSampledSince != nil || observation.HasJobProgress {
+						t.Fatalf("ended jobs retained CPU progress: %+v", observation)
+					}
+				} else if observation.JobSampledAt == nil || observation.JobSampledSince == nil {
+					t.Fatalf("%s lacks CPU sample provenance: %+v", checkpoint.name, observation)
+				} else if index == 2 || index == 4 {
+					if !observation.JobSampledAt.Equal(sampledAt) || !observation.LastObserved.Equal(now) {
+						t.Fatalf("short rescan changed the judged sample: %+v", observation)
+					}
+				} else {
+					sampledAt = *observation.JobSampledAt
+				}
+				view, err := service.Snapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(view.Tasks) != 1 || view.Tasks[0].Phase != checkpoint.phase || view.Tasks[0].Verified {
+					t.Errorf("%s snapshot=%+v, want phase=%s without verified delivery", checkpoint.name, view.Tasks, checkpoint.phase)
+				}
+				if index >= 2 && (test.hasReadError || test.hasNoJobs) && view.Tasks[0].Runtime.working() {
+					t.Errorf("unavailable or ended jobs became current runtime progress: %+v", view.Tasks[0].Runtime)
+				}
+			}
+		})
+	}
+}
+
+func TestRuntimeOwnedProgressRequiresCurrentCPUSample(t *testing.T) {
+	for _, test := range []struct {
+		name                                                          string
+		sampledAgo                                                    time.Duration
+		isBaseline, isMissingSample                                   bool
+		isMissingSince, isReversedSince                               bool
+		isPriorNode                                                   bool
+		isForeignEndpoint, isForeignGeneration, isUnreadable          bool
+		isPriorGenerationBaseline, isCurrentGeneration, hasNoJudgment bool
+		wantState                                                     string
+	}{
+		{name: "current CPU sample", wantState: "busy"},
+		{name: "short rescan keeps positive sample", sampledAgo: 10 * time.Second, wantState: "busy"},
+		{name: "CPU stale behind fresh observation", sampledAgo: 2*time.Minute + time.Nanosecond, wantState: "idle"},
+		{name: "CPU at existing stale limit", sampledAgo: 2 * time.Minute, wantState: "busy"},
+		{name: "future CPU beyond existing limit", sampledAgo: -time.Minute - time.Nanosecond, wantState: "idle"},
+		{name: "CPU newer than terminal observation", sampledAgo: -time.Second, wantState: "idle"},
+		{name: "baseline has no judged interval", isBaseline: true, wantState: "idle"},
+		{name: "missing CPU sample", isMissingSample: true, wantState: "idle"},
+		{name: "missing CPU baseline", isMissingSince: true, wantState: "idle"},
+		{name: "reversed CPU interval", isReversedSince: true, wantState: "idle"},
+		{name: "CPU predates current native event", sampledAgo: 10 * time.Second, isPriorNode: true, wantState: "idle"},
+		{name: "foreign endpoint", isForeignEndpoint: true, wantState: "unknown"},
+		{name: "foreign generation", isForeignGeneration: true, wantState: "unknown"},
+		{name: "CPU baseline from prior generation", isPriorGenerationBaseline: true, wantState: "idle"},
+		{name: "CPU interval within current generation", isCurrentGeneration: true, wantState: "busy"},
+		{name: "legacy shared timestamp has no CPU verdict", hasNoJudgment: true, wantState: "idle"},
+		{name: "unreadable persisted CPU", isUnreadable: true, wantState: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			at := now.Add(-test.sampledAgo)
+			since := at.Add(-time.Minute)
+			observation := monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, LastSeen: now, LastProgress: now, Health: monitor.HealthIdle, Reason: monitor.None, Digest: "quiet-pane", EvidenceAt: &now, JobCPU: 5 * time.Second, JobSampledAt: &at, JobSampledSince: &since, HasJobProgress: true}
+			node := Session{Generation: meta.SpawnGen, UpdatedAt: now.Add(-10 * time.Minute)}
+			if test.isPriorGenerationBaseline || test.isCurrentGeneration {
+				born := now.Add(-30 * time.Second)
+				if test.isCurrentGeneration {
+					born = now.Add(-2 * time.Minute)
+				}
+				meta.SpawnGen = fmt.Sprintf("s%d", born.UnixNano())
+				node.Generation, node.UpdatedAt = meta.SpawnGen, born
+			}
+			if test.hasNoJudgment {
+				observation.HasJobProgress = false
+			}
+			if test.isBaseline {
+				since = at
+			}
+			if test.isReversedSince {
+				since = at.Add(time.Second)
+			}
+			if test.isMissingSample {
+				observation.JobSampledAt = nil
+			}
+			if test.isMissingSince {
+				observation.JobSampledSince = nil
+			}
+			if test.isPriorNode {
+				node.UpdatedAt = now.Add(-time.Second)
+			}
+			if test.isForeignEndpoint {
+				observation.Endpoint = "foreign:terminal"
+			}
+			if test.isForeignGeneration {
+				node.Generation = "previous-generation"
+			}
+			if err := monitor.WriteObservation(h.State, observation); err != nil {
+				t.Fatal(err)
+			}
+			if test.isUnreadable {
+				writeFile(t, monitor.ObservationPath(h.State, meta.ID), `{"has_job_progress":true,"job_sampled_at":"unreadable"}`)
+			}
+			got := (&Service{Store: store}).runtimeEvidence(meta, node, now)
+			if got.State != test.wantState {
+				t.Errorf("runtime=%+v, want %s", got, test.wantState)
+			}
+			if got.State == "busy" && !got.At.Equal(at) {
+				t.Errorf("terminal rescan refreshed CPU evidence time: %+v, want %s", got, at)
 			}
 		})
 	}
