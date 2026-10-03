@@ -399,9 +399,17 @@ On a window too narrow for two columns (40rem or less) the board and the panel s
 The record is written as the board first shows, so nothing arranged later is undone, and a browser that kept a layout before the record existed counts as having had its first open.
 The panel of anything but the CFO (a queued, running, paused or completed task, or a session on Orchestration) has Back in its corner where the CFO's own panel has Close: a button with a back arrow and its name, which returns the panel to the CFO's panel on the view that panel last showed, Task or Terminal (Task on the Board and Terminal on Orchestration when it has shown neither), keeps a maximized panel maximized, and hands the keyboard back to the card or node the panel was opened from, or to the panel when that is hidden behind it.
 Escape outside a terminal does what the corner button does: back from a task's panel, close on the CFO's.
+The panel's top row is one line at every width the panel can take, 360 px at its narrowest: the Task and Terminal switch, when the panel has both views, then its controls (Open in terminal and Maximize or Restore today), then the corner button, Close or Back.
+Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
+The switch and the corner button always show; a control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else; a choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
+The switch gives up its words, Task and Terminal, only when the row cannot hold them even with every control in More, and then shows its two icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
+The row is `PanelRow` in `frontend/src/panel-row.tsx`, used by every panel, and what fits is `rowFit` in `frontend/src/panel-fit.ts`.
+A control is a `PanelControl` (an id, a name for its tip and its menu item, an accessible name, an icon, an importance and what a press does); its importance is written beside the others in `PANEL_IMPORTANCE`, the highest staying in the row longest, and `App.tsx` builds the list.
+Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
 
 Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
 It is drawn like the board's goblin alerts: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
+That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
 Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed and nothing else needs to run.
 At each press the board opens the microphone once and hands that track to the speech recognizer, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing else reads, keeps or sends the audio, and nothing runs while the bubble is idle.
 It listens in the browser's language, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
@@ -412,6 +420,18 @@ Edge and Chrome recognise speech in their vendors' online services, so the audio
 Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
+
+The supervisor carries a speech engine of its own for dictation that never leaves this machine; the board's page does not use it yet and still dictates as above.
+`config/voice.json` is its one setting: the engine and the model, each a download pinned by its address and SHA-256, the files of it that are kept, and how the engine is started on the model.
+The build carries that setting, so an install of a newer build brings a newer pin; a home that keeps a `config/voice.json` of its own uses that one, and one that cannot be read leaves the supervisor without dictation rather than falling back.
+The pin today is NVIDIA's Parakeet TDT 110M (CC BY 4.0) run by sherpa-onnx 1.13.8 (Apache 2.0) on ONNX Runtime (MIT), both from the sherpa-onnx project's releases, about 126 MB to download.
+`POST /api/dictation` takes a WAV sound of at most 8 MB and answers its words, and refuses any other body as a bad request before reading it, only from the board's own page on this PC, at 127.0.0.1 and through no proxy, so a board shared over a tailnet dictates nothing.
+The first dictation downloads what is missing into `caches/voice/` under the home and answers that it is being downloaded, with how far it is; `GET /api/dictation` says which model listens and whether it is ready, missing or being fetched.
+A download is kept only when it matches its SHA-256, holds every file named, and no program or library in it is linked against a Windows networking library; otherwise nothing of it is kept and the answer says why.
+Offline, the answer names the address to download and the file to save it as in `caches/voice/`, where it is held to the same checksum.
+The engine is started for one dictation and exits, with the sound in a file in the user's temporary folder that is removed when it does, one dictation at a time.
+It needs 1 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's 4 GB floor on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
+`cfo doctor` names the model, its version, the engine and whether they are fetched.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
 With synchronized redraws and the 20 px font, measured with the DOM renderer in headless Edge, the native view took p50 28 ms and p95 41 ms with none missed.
@@ -560,10 +580,21 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 
 ### The desktop window
 
-A desktop window for the board, `goblins-window.exe`, is built in `cmd/goblins-window` of [code-goblins-native](https://github.com/fpresta0607/code-goblins-native), a private repository that publishes it as a release; the README's [The desktop app](../README.md#the-desktop-app) says where to get it.
-It shows the board in Microsoft's WebView2 and needs only what this repository's supervisor already provides: the board's address in `state\board.json`, the board's page, and `/api/snapshot`, which it reads every 3 seconds to notify what newly waits on the Overlord.
-It writes nothing into the CFO home, so it runs beside this repository's `cfo.exe` unchanged; `goblins` here does not start it, so it is started from its own Start-menu entry.
-It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, opens the board's new-tab links in the default browser, and raises the board's alerts as Windows notifications.
+A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
+`go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
+`goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window already running takes the start as its second instance and comes to the front.
+`goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
+`.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, which none does yet, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
+It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
+It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
+It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
+It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's own alert is the signal, and nothing is claimed.
+What its own look finds it claims under the key the board's page uses, `alert:` and the item's key, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
+Each notification carries the goblin from `goblins-window.png`, which every start writes beside the program and names as `IconUri` under `HKCU\Software\Classes\AppUserModelId\Code Goblins`.
+A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
+A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
+**Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
+For a window that `goblins` started, the value runs that `goblins.exe --window --background`, so the supervisor starts before the window; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
 The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
 
 ### Interface rules
@@ -943,8 +974,7 @@ While AFK mode is on, `POST /api/announce` records every key it is asked about a
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
 What a page asked about then stays recorded, so it is not announced once he is back either.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
-[The desktop window](#the-desktop-window) is not silenced yet: while it runs, AFK mode does not silence the window's own Windows notifications until the window ships a fix.
-Its own reading of `/api/snapshot` raises a Windows notification for each thing that newly waits on the Overlord without passing through this endpoint; the fix is for the window to claim what it notifies here before it notifies, as the page does.
+[The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
