@@ -207,6 +207,9 @@ func markdownText(value string) string {
 
 func currentText(task TaskRow) string {
 	text := dash(string(task.Current.State)) + " / " + dash(string(task.Current.Source))
+	if task.Pause != nil {
+		text += "; " + task.Pause.Description()
+	}
 	if len(task.Teardown) > 0 {
 		text += "; finishing Windows teardown: " + strings.Join(task.Teardown, ", ")
 	}
