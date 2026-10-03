@@ -223,12 +223,10 @@ func runGateCommand(command []string, dir string, env []string, stdout, stderr i
 // takeGateTurn waits for the run's turn among the machine's test runs, every
 // goblin's and every gate's: one at a time, or as many as CFO_VERIFY_SLOTS
 // says, in the order they asked, and none while the memory a new process can
-// have is under the fleet's floor. Of the gate test steps that ran alone 11
-// percent had a failing test, and of those that ran beside three or more
-// others 71 percent, where every 45 minute package timeout but three
-// happened. It prints what the run waits for as it starts to wait, whenever
-// its place in line changes and once a minute: which run holds the turn, for
-// how long and under what budget, and where this run stands in line. who
+// have is under the fleet's floor. It prints what the run waits for as it
+// starts to wait, whenever its place in line changes and once a minute:
+// which run holds the turn, for how long and under what budget, and where
+// this run stands in line. who
 // names this run to the runs behind it, and budget is how long its turn may
 // last: a holder past its budget loses the turn to the next run, and a run
 // that has waited an hour for memory goes on under the floor, which the turn
