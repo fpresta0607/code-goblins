@@ -91,7 +91,7 @@ const (
 // because a platform rate limit or 5xx is a wait/backoff case that must never
 // route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := redactOperatorLines(strings.ToLower(paneTail))
+	lowered := redactQuotedLines(redactOperatorLines(strings.ToLower(paneTail)))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -230,6 +230,45 @@ func redactOperatorLines(lowered string) string {
 	return strings.Join(lines, "\n")
 }
 
+var quotedLinePrefix = regexp.MustCompile(`^(?:[+-]|[0-9]+[ \t]+[+-]|\S+\.[[:alnum:]_]+:[0-9]+:)`)
+
+// redactQuotedLines keeps source/diff excerpts, fenced quotations and Codex
+// command output from becoming the worker's own provider refusal. Actual git
+// platform failures in command output still need third-party classification.
+// Blanking preserves byte offsets into the original evidence.
+func redactQuotedLines(lowered string) string {
+	lines := strings.Split(lowered, "\n")
+	fenceEnd, toolIndent := -1, -1
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		indent := len(line) - len(trimmed)
+		if strings.HasPrefix(trimmed, "```") && index > fenceEnd {
+			for end := index + 1; end < len(lines); end++ {
+				if strings.HasPrefix(strings.TrimLeft(lines[end], " \t"), "```") {
+					fenceEnd = end
+					break
+				}
+			}
+		}
+		isQuoted := index <= fenceEnd || quotedLinePrefix.MatchString(trimmed)
+		isToolOutput := strings.HasPrefix(trimmed, "└")
+		if isToolOutput {
+			toolIndent = indent + 2
+		} else if trimmed == "" || indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0 {
+			toolIndent = -1
+		}
+		if isToolOutput || toolIndent >= 0 {
+			if _, isThirdParty := thirdPartyFault(line); !isThirdParty {
+				isQuoted = true
+			}
+		}
+		if isQuoted {
+			lines[index] = strings.Repeat(" ", len(line))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // lineStartMatches returns the indexes where needle begins a line, after any
 // leading whitespace and the harness glyphs a pane prints output under (the
 // ones redactOperatorLines knows), as in Claude Code's " ⎿ gh: ...".
@@ -242,7 +281,7 @@ func lineStartMatches(haystack, needle string) []int {
 		}
 		index += start
 		lineStart := strings.LastIndexByte(haystack[:index], '\n') + 1
-		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│") == "" {
+		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│└") == "" {
 			indexes = append(indexes, index)
 		}
 		start = index + len(needle)
