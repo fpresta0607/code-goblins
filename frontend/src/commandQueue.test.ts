@@ -308,8 +308,8 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
   const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
-    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
-    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
+    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sending", cleared: false }],
+    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, confirmed: false, heading: "Queued", cleared: false }],
     ["delivered", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
     ["the request refused", [{ submission: answer, sending: false, error: "that review is not open" }, []], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
     ["edited after a refusal", [{ submission: answer, sending: false, error: "" }, []], undefined],
@@ -321,6 +321,20 @@ test("a send shows as done at once, confirmed once delivered, and failed only wh
     ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
+});
+
+test("a CFO reply is queued until transport confirms it was submitted", () => {
+  // Arrange
+  const submission = { id: "answer", payload: JSON.stringify({ kind: "cfo_answer", text: "Reply received" }) };
+  const draft = { submission, sending: false, error: "" };
+  const queued = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "queued", message: "The CFO is typing. Your answer will wait." }] }).actions;
+  const submitting = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "running" }] }).actions;
+  const submitted = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "running", awaiting: { host: "cfo", since: "2026-10-03T06:20:00Z" } }] }).actions;
+
+  // Act and assert
+  assert.equal(sendState(draft, queued)?.heading, "Queued");
+  assert.equal(sendState(draft, submitting)?.heading, "Sending");
+  assert.equal(sendState(draft, submitted)?.heading, "Sent");
 });
 
 test("every open item is one the board has announced, a question its page's card carries too, and nothing closed", () => {
