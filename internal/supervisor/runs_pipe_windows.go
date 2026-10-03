@@ -183,9 +183,10 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	// DisconnectNamedPipe discards unread bytes. The one-request client closes
-	// after reading its reply; wait for that close outside the request locks.
-	// Bound both a write blocked by a silent reader and the wait for its close.
+	// A written reply stays in the pipe for its client to read after this
+	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
+	// larger than the pipe's buffer waits in Write for its reader, so the write
+	// is bounded against a client that never reads.
 	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
 	defer cancel()
 	closed := make(chan struct{})
@@ -198,10 +199,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			<-closed
 		}
 	}()
-	if _, err := pipe.Write(append(data, '\n')); err != nil {
-		return
-	}
-	_, _ = io.Copy(io.Discard, pipe)
+	_, _ = pipe.Write(append(data, '\n'))
 }
 
 // lookNow has the supervisor's loop run a cycle now, which reads what a

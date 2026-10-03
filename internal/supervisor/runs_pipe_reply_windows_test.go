@@ -25,24 +25,22 @@ func replyPipe(t *testing.T, s *Service, ctx context.Context) (*os.File, <-chan 
 	if syscall.Handle(handle) == syscall.InvalidHandle {
 		t.Fatal(callErr)
 	}
+	client, err := os.OpenFile(runPipeName(s.Store.Home.State), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
+	if err != nil {
+		_ = syscall.CloseHandle(syscall.Handle(handle))
+		t.Fatal(err)
+	}
+	if ok, _, callErr := procConnectNamedPipe.Call(handle, 0); ok == 0 && !errors.Is(callErr, errorPipeConnected) {
+		_ = client.Close()
+		_ = syscall.CloseHandle(syscall.Handle(handle))
+		t.Fatalf("connect reply pipe: %v", callErr)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ok, _, callErr := procConnectNamedPipe.Call(handle, 0)
-		if ok == 0 && !errors.Is(callErr, errorPipeConnected) {
-			t.Errorf("connect reply pipe: %v", callErr)
-			_ = syscall.CloseHandle(syscall.Handle(handle))
-			return
-		}
 		s.handleRunClient(ctx, syscall.Handle(handle), time.Now())
 	}()
-	client, err := os.OpenFile(runPipeName(s.Store.Home.State), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
-	if err != nil {
-		cancel()
-		_ = syscall.CloseHandle(syscall.Handle(handle))
-		t.Fatal(err)
-	}
 	t.Cleanup(func() {
 		_ = client.Close()
 		cancel()
@@ -143,7 +141,7 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 			case "reported":
 				go func() { close(<-s.looks) }()
 			}
-			client, _ := replyPipe(t, s, context.Background())
+			client, released := replyPipe(t, s, context.Background())
 			data, err := json.Marshal(req)
 			if err != nil {
 				t.Fatal(err)
@@ -159,7 +157,11 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 			if _, err := client.Write(data); err != nil {
 				t.Fatal(err)
 			}
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-released:
+			case <-time.After(runRequestTimeout):
+				t.Fatal("the handler held its pipe for a reply its client had yet to read")
+			}
 			line, readErr := bufio.NewReader(client).ReadBytes('\n')
 
 			// Assert
@@ -179,18 +181,21 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	s := &Service{Store: store}
+	_, _, _, cfo := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: cfo}}
 	asGoblinsTerminal(s)
 	silent, released := replyPipe(t, s, context.Background())
-	started := time.Now()
 	if _, err := silent.Write([]byte(`{"kind":"afk-off"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
-	select {
-	case <-released:
-		t.Fatal("the silent client's unread refusal was discarded before its deadline")
-	default:
+	overBuffer, err := json.Marshal(runPipeRequest{Kind: strings.Repeat("x", 256<<10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unread, held := replyPipe(t, s, context.Background())
+	started := time.Now()
+	if _, err := unread.Write(append(overBuffer, '\n')); err != nil {
+		t.Fatal(err)
 	}
 
 	// Act
@@ -215,11 +220,23 @@ func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *t
 	}
 	select {
 	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the silent client's unread refusal kept its handler")
+	}
+	refusal, err := bufio.NewReader(silent).ReadBytes('\n')
+	var reply struct {
+		Error string `json:"error"`
+	}
+	if decodeErr := json.Unmarshal(refusal, &reply); err != nil || decodeErr != nil || !strings.Contains(reply.Error, "a goblin's terminal") {
+		t.Fatalf("refusal read after the handler closed = %q, read=%v, decode=%v; want the whole goblin refusal", refusal, err, decodeErr)
+	}
+	select {
+	case <-held:
 		if elapsed := time.Since(started); elapsed < runReplyTimeout {
-			t.Fatalf("silent client released in %s, want its reply kept until the deadline", elapsed)
+			t.Fatalf("the reply larger than the buffer released in %s, want its write waiting for a reader until the deadline", elapsed)
 		}
 	case <-time.After(runReplyTimeout + 5*time.Second):
-		t.Fatal("the silent client's reply handler outlived its deadline")
+		t.Fatal("a reply write its client never read outlived its deadline")
 	}
 }
 
@@ -244,11 +261,22 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 			if _, err := client.Write(append(data, '\n')); err != nil {
 				t.Fatal(err)
 			}
-			time.Sleep(200 * time.Millisecond)
-			select {
-			case <-released:
-				t.Fatal("the handler released a reply its client has not read")
-			default:
+			reader := bufio.NewReader(client)
+			if isLarge {
+				if _, err := reader.ReadByte(); err != nil {
+					t.Fatalf("the reply larger than the buffer never started: %v", err)
+				}
+				select {
+				case <-released:
+					t.Fatal("the handler finished a reply larger than the buffer before its client read it")
+				default:
+				}
+			} else {
+				select {
+				case <-released:
+				case <-time.After(2 * time.Second):
+					t.Fatal("an unread reply that fits the buffer kept its handler")
+				}
 			}
 
 			// Act
@@ -260,7 +288,49 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 			case <-time.After(2 * time.Second):
 				t.Fatal("shutdown left the reply handler waiting on its client")
 			}
+			if isLarge {
+				return
+			}
+			line, readErr := reader.ReadBytes('\n')
+			var reply struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(line, &reply); readErr != nil || err != nil || !strings.Contains(reply.Error, "takes no") {
+				t.Fatalf("reply read after shutdown = %q, read=%v, decode=%v; want the whole refusal", line, readErr, err)
+			}
 		})
+	}
+}
+
+func TestPipeReplyLargerThanItsBufferReachesItsClientWhole(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	client, released := replyPipe(t, s, context.Background())
+	kind := strings.Repeat("x", 256<<10)
+	data, err := json.Marshal(runPipeRequest{Kind: kind})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if _, err := client.Write(append(data, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	line, readErr := bufio.NewReader(client).ReadBytes('\n')
+
+	// Assert
+	var reply struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(line, &reply); readErr != nil || err != nil || !strings.Contains(reply.Error, kind) {
+		t.Fatalf("reply larger than the buffer = %d bytes, read=%v, decode=%v; want whole JSON naming the kind", len(line), readErr, err)
+	}
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the handler did not release its pipe once the whole reply was read")
 	}
 }
 
