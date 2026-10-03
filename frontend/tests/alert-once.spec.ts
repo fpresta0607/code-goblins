@@ -81,10 +81,14 @@ test("news he dismissed stays dismissed through a supervisor restart and a reloa
   await toasts(page).getByRole("button", { name: /^Dismiss/ }).click();
   await expect(page.locator(".toasts")).toHaveCount(0);
   // The supervisor restarts, the goblin flickers back to work, and the same
-  // news comes back in the next snapshot. Its next pull request after it
-  // proves the board took every snapshot in: news that came back would show
-  // above it.
+  // news comes back in the next snapshot. Changing its PR while it stays
+  // done is no new finish either.
   for (const name of ["restarting", "working", "finished", "shipped"] as const) await step(page, name);
+  await expect(page.locator(".toasts")).toHaveCount(0);
+  // A new working-to-done report announces its next PR; replayed news would
+  // show above it.
+  await step(page, "working");
+  await step(page, "shipped");
   await expect(toasts(page).last()).toContainText("cg-board-theme finished: code-goblins #241 is ready.");
   await expect(toasts(page)).toHaveCount(1);
   // A reload sees the same news arrive again and shows none of it.
