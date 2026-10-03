@@ -110,7 +110,16 @@ func fakeHarness() {
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
 		for {
-			key, err := readKey(reader)
+			var key string
+			var err error
+			if strings.HasPrefix(mode, "daybreak") {
+				// This offer takes a bare Escape, with no arrow sequence.
+				var character rune
+				character, _, err = reader.ReadRune()
+				key = string(character)
+			} else {
+				key, err = readKey(reader)
+			}
 			if err != nil {
 				close(keys)
 				return
@@ -230,6 +239,35 @@ func fakeHarness() {
 // codexStartup shows codex's own startup screens, as captured on this
 // machine, and reports whether they ended at its composer.
 func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
+	if strings.HasPrefix(mode, "daybreak") {
+		var draft strings.Builder
+		offer := func() {
+			text := draft.String()
+			if text == "" {
+				text = "Ask Codex to do anything"
+			}
+			draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "› 1. Set up security", "", "Press a number to choose · esc to dismiss · type to continue", "", "› "+text, "100% context left")
+		}
+		offer()
+		for key := range keys {
+			switch key {
+			case "\x1b":
+				record(codexEvent{Event: "security dismissal attempted", Text: key})
+				if mode == "daybreak-stuck" {
+					continue
+				}
+				record(codexEvent{Event: "security dismissed", Text: key})
+				return true
+			case "\r":
+				record(codexEvent{Event: "security enrollment", Text: key})
+			default:
+				draft.WriteString(key)
+				record(codexEvent{Event: "typed into security offer", Text: key})
+				offer()
+			}
+		}
+		return false
+	}
 	// Nothing may be typed before a screen asks for a key.
 	pause := time.Second
 	if mode == "halfdrawn" {
@@ -532,6 +570,52 @@ func ended(pid int) bool {
 	defer windows.CloseHandle(handle)
 	event, _ := windows.WaitForSingleObject(handle, 10000)
 	return event == windows.WAIT_OBJECT_0
+}
+
+func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	_, err := f.service.Spawn(ctx, f.request)
+
+	if err != nil {
+		t.Errorf("native spawn: %v", err)
+	}
+	events := f.events(t)
+	if dismissals := named(events, "security dismissed"); len(dismissals) != 1 || dismissals[0].Text != "\x1b" {
+		t.Errorf("dismissals %v, want exactly one Escape", dismissals)
+	}
+	for _, event := range []string{"security enrollment", "typed into security offer"} {
+		if got := named(events, event); len(got) != 0 {
+			t.Errorf("unexpected %s: %d keys", event, len(got))
+		}
+	}
+	if submissions := named(events, "submitted"); len(submissions) != 1 {
+		t.Errorf("submissions %v, want exactly one instruction", submissions)
+	}
+}
+
+func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T) {
+	previous := nativeKeyEffect
+	nativeKeyEffect = 3 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	f := newNativeFixture(t, harness.Codex, "daybreak-stuck")
+
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "still shows the optional Daybreak security setup offer after Escape") {
+		t.Errorf("native spawn: %v, want an unconfirmed dismissal error", err)
+	}
+	events := f.events(t)
+	if attempts := named(events, "security dismissal attempted"); len(attempts) != 1 || attempts[0].Text != "\x1b" {
+		t.Errorf("dismissal attempts %v, want exactly one Escape", attempts)
+	}
+	for _, event := range []string{"security dismissed", "security enrollment", "typed into security offer", "submitted"} {
+		if got := named(events, event); len(got) != 0 {
+			t.Errorf("unexpected %s: %d events", event, len(got))
+		}
+	}
 }
 
 // A native spawn answers codex's update prompt with Skip and its trust prompt

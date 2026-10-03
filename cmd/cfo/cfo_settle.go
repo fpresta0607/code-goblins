@@ -78,7 +78,11 @@ func settleCFO(name string, screens harness.Screens, terminal cfoScreen) []strin
 			if err := terminal.answer(dialog, screen); err != nil {
 				return append(notes, fmt.Sprintf("The CFO's terminal shows %s, which could not be answered (%v): answer it there.", dialog.Name, err))
 			}
-			notes = append(notes, fmt.Sprintf("Answered %s in the CFO's terminal: %s.", dialog.Name, dialog.Accept))
+			if dialog.EscapeHint != "" {
+				notes = append(notes, fmt.Sprintf("Dismissed %s in the CFO's terminal with Escape.", dialog.Name))
+			} else {
+				notes = append(notes, fmt.Sprintf("Answered %s in the CFO's terminal: %s.", dialog.Name, dialog.Accept))
+			}
 			answered = append(answered, dialog.Name)
 			last, since = "", time.Time{}
 			continue

@@ -66,6 +66,37 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 	}
 }
 
+func TestCodexsOptionalDaybreakOfferBlocksTheComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for name, test := range map[string]struct {
+		rows      []string
+		isOffered bool
+	}{
+		"offer":                       {[]string{"Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key.", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue"}, true},
+		"wrapped offer":               {[]string{"Set up security for", "Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to", "dismiss · type to continue"}, true},
+		"earlier title in transcript": {[]string{"Set up security for Daybreak mode"}, false},
+		"title without the optional offer footer": {[]string{"Set up security for Daybreak mode", "esc to dismiss"}, false},
+		"another security screen":                 {[]string{"Set up Advanced Account Security", "esc to dismiss"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows := append(test.rows, "› Ask Codex to do anything", "100% context left")
+			dialog, isFound := screens.Dialog(rows)
+			if isFound != test.isOffered {
+				t.Errorf("dialog found %v, want %v", isFound, test.isOffered)
+			}
+			if dialog.Chosen("1. Set up security") {
+				t.Error("security enrollment is never an automatic answer")
+			}
+			if isReady := screens.IsReady(rows); isReady == test.isOffered {
+				t.Errorf("ready %v while offered %v", isReady, test.isOffered)
+			}
+			if isEmpty := screens.ComposerEmpty(rows); isEmpty == test.isOffered {
+				t.Errorf("empty composer %v while offered %v", isEmpty, test.isOffered)
+			}
+		})
+	}
+}
+
 // Pi's project trust prompt, captured on pi 0.85.1 started without --approve,
 // focuses "Trust" first and is answered only with "Trust (this session
 // only)", which saves nothing to pi's trust store.

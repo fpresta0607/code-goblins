@@ -228,9 +228,10 @@ func AnswerDialog(ctx context.Context, record host.Record, dialog harness.Dialog
 // until the option to choose has it, and confirms that option with Enter. Each
 // key waits until its effect shows before the next is sent, so a harness slow
 // to redraw is never sent a key twice, and a dialog still drawing is read
-// again until its focus shows. A dialog no spawn may answer stops the spawn.
+// again until its focus shows. An optional offer with a known Escape hint is
+// dismissed instead. A dialog no spawn may answer stops the spawn.
 func (s Service) answerDialog(ctx context.Context, record host.Record, dialog harness.Dialog, screen []string) error {
-	if dialog.Accept == "" {
+	if dialog.Accept == "" && dialog.EscapeHint == "" {
 		return fmt.Errorf("spawn: native terminal %s shows %s, which a spawn never answers; its screen ends:\n%s", record.ID, dialog.Name, host.ScreenTail(screen, 8))
 	}
 	// Codex 0.154 drew its hook review before it read keys: a Down sent the
@@ -246,6 +247,20 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 	if !dialog.Shows(screen) {
 		return nil
 	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
+	}
+	defer client.Close()
+	if dialog.EscapeHint != "" {
+		if err := client.Input([]byte("\x1b")); err != nil {
+			return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)
+		}
+		if _, err := s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool { return !dialog.Shows(screen) }); err != nil {
+			return fmt.Errorf("spawn: native terminal %s still shows %s after Escape: %w", record.ID, dialog.Name, err)
+		}
+		return nil
+	}
 	if _, ok := dialog.Focused(screen); !ok {
 		screen, err = s.awaitScreen(ctx, record, nativeKeyEffect, func(screen []string) bool {
 			_, ok := dialog.Focused(screen)
@@ -255,11 +270,6 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 			return fmt.Errorf("spawn: native terminal %s shows %s, but not which option has the focus: %w", record.ID, dialog.Name, err)
 		}
 	}
-	client, err := host.Dial(record)
-	if err != nil {
-		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
-	}
-	defer client.Close()
 	for moves := 0; dialog.Shows(screen); moves++ {
 		focused, _ := dialog.Focused(screen)
 		if dialog.Chosen(focused) {
