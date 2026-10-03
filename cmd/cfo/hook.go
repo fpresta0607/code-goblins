@@ -848,13 +848,12 @@ func resolveSessionOwnerPID() int {
 // lines, under a contract saying the session had read every file.
 func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer) int {
 	ownerPID := resolveSessionOwnerPID()
-	terminals := registerTerminals()
 
 	switch payload.Source {
 	case "resume", "reload", "fork":
 		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
 			fmt.Fprintln(stdout, withAFKBanner(h.State, sessionStartNudgeLine))
-			registerPrimary(h, ownerPID, "claude", payload.SessionID, terminals, stdout)
+			registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
 			return 0
 		}
 	}
@@ -862,7 +861,7 @@ func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer)
 	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
-	registerPrimary(h, ownerPID, "claude", payload.SessionID, terminals, stdout)
+	registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
 	return 0
 }
 
