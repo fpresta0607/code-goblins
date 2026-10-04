@@ -24,16 +24,32 @@ func writeNativeTask(t *testing.T, stateDir, id string) state.TaskMeta {
 	return meta
 }
 
+// makeNative rewrites task id's record as a native task's, the way spawn
+// records one.
+func makeNative(t *testing.T, stateDir, id string) state.TaskMeta {
+	t.Helper()
+	meta, err := state.ReadTaskMeta(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Backend, meta.Window = "native", "native"
+	meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
+	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	return meta
+}
+
 // A native goblin asks, presents and reports from inside its own terminal:
-// its program is the proof, where a Herdr goblin's pane is. A process outside
-// that terminal cannot ask in its name.
+// its program is the proof. A process outside that terminal cannot ask in its
+// name.
 func TestANativeGoblinAsksFromItsOwnTerminalOnly(t *testing.T) {
 	stateDir := t.TempDir()
 	writeNativeTask(t, stateDir, "task-9")
 	goblin := hostTerminal(t, stateDir, "task-9")
 
 	goblin.typeLine(t, "ask task-9")
-	_, outside := goblinAsker(context.Background(), stateDir, nil, "task-9")
+	_, outside := goblinAsker(stateDir, "task-9")
 
 	if lines := goblin.waitForLines(t, 1); len(lines) != 1 || lines[0] != "asked" {
 		t.Errorf("the goblin's own terminal recorded %q, want its question proven", lines)
@@ -126,19 +142,11 @@ func TestAnAnswerForARestartedNativeGoblinIsRefused(t *testing.T) {
 }
 
 // A native goblin's send to its child names it as the receipt's sender when
-// the send runs from inside its own terminal, as a Herdr goblin's does from
-// its pane. The same send from outside that terminal names no sender.
+// the send runs from inside its own terminal. The same send from outside that
+// terminal names no sender.
 func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
 	store, h := testStore(t)
-	child, err := state.ReadTaskMeta(h.State, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	child.Backend, child.Window = "native", "native"
-	child.HerdrSession, child.HerdrWorkspaceID, child.HerdrTabID, child.HerdrPaneID = "", "", "", ""
-	if err := state.WriteTaskMeta(h.State, child); err != nil {
-		t.Fatal(err)
-	}
+	makeNative(t, h.State, "task-1")
 	parentMeta := writeNativeTask(t, h.State, "task-9")
 	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
 		t.Fatal(err)
@@ -157,7 +165,7 @@ func TestANativeGoblinsSendToItsChildNamesItAsSender(t *testing.T) {
 
 	parent.typeLine(t, "send gb-task-1")
 	lines := parent.waitForLines(t, 1)
-	outside := PrepareSendActivity(context.Background(), h, nil, "task-1")()
+	outside := PrepareSendActivity(h, "task-1")()
 
 	if len(lines) != 1 || lines[0] != "sent" {
 		t.Fatalf("the parent's terminal recorded %q, want its send received", lines)

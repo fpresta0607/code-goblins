@@ -19,7 +19,7 @@ var ErrUnresolved = errors.New("pipeline: unresolved; a CFO decision is required
 
 // terminalRunStatus is the set of native run statuses that are finished. Idle
 // asks the database for the same set; CheckStart asks it about one run.
-var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "cancelled": true}
+var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "cancelled": true, "ci_monitor_interrupted": true}
 
 type Reader struct {
 	Commands execx.Runner
@@ -70,7 +70,7 @@ func (r Reader) Idle(ctx context.Context) (func() error, error) {
 	var rows []struct {
 		Count int `json:"n"`
 	}
-	err = r.query(ctx, `SELECT COUNT(*) AS n FROM runs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled')`, &rows)
+	err = r.query(ctx, `SELECT COUNT(*) AS n FROM runs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','ci_monitor_interrupted')`, &rows)
 	if err != nil || len(rows) != 1 || rows[0].Count != 0 {
 		releaseErr := release()
 		if err == nil {
@@ -241,7 +241,7 @@ func checkEffectivePrimaryAgent(taskData, trustedData []byte, p Policy) error {
 		agent = agent.Content[0]
 	}
 	want := p.Reviewer.Harness
-	if p.Version == 2 {
+	if p.Version > 1 {
 		want = p.Primary.Harness
 	}
 	if agent.Kind != yaml.ScalarNode || agent.Value != want {

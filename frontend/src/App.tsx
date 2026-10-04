@@ -21,6 +21,7 @@ import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
 import { Alerts } from "./Alerts";
+import { AfkBoard } from "./afk-board";
 import { showsFirstRun, type FirstRunChoice } from "./firstRunStart";
 import { panelViews } from "./cards";
 import { startOutcome, type AcceptedStart } from "./start";
@@ -234,7 +235,7 @@ export function App() {
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" data-tip-align="end" onClick={close}><Icon name="close" /></button>,
     notice: shownWindow && windowError.shown === shownKey && <p className="window-error" role="alert">{windowError.text}</p>,
   };
-  return <div className="app-shell" onKeyDown={(event) => {
+  return <AfkBoard snapshot={snapshot} now={now} onCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className="app-shell" onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown) back(); else close(); }
   }}>
     <header className="topbar">
@@ -290,5 +291,5 @@ export function App() {
         </Suspense>}
       </aside>
     </div>}
-  </div>;
+  </div></AfkBoard>;
 }
