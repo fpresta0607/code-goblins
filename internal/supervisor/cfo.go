@@ -426,12 +426,12 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 	return c.sendNative(ctx, primary, text)
 }
 
-// nativeSubmitSettle lets the CFO's harness take typed text before Enter
-// submits it.
+// nativeSubmitSettle lets the CFO's harness take typed text before its submit
+// key.
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
-// Enter for the CFO's hook to report it taken before the delivery is left
+// submission for the CFO's hook to report it taken before the delivery is left
 // sent and awaiting that report; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
@@ -472,8 +472,14 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	case <-ctx.Done():
 		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal but not submitted: %w", ctx.Err())
 	}
-	if err := delivery.Write([]byte("\r")); err != nil {
-		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether Enter reached it is unknown: %w", err)
+	submit := "\r"
+	if primary.Agent == "codex" {
+		// End flushes Codex's paste burst without changing the text; otherwise
+		// Enter can join that paste instead of submitting it.
+		submit = "\x1b[F\r"
+	}
+	if err := delivery.Write([]byte(submit)); err != nil {
+		return Evaluation{}, fmt.Errorf("the message was typed into the CFO's native terminal, and whether its submit key reached it is unknown: %w", err)
 	}
 	for deadline := time.Now().Add(nativeConfirm); ; {
 		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
