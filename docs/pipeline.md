@@ -96,7 +96,8 @@ Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift is refused.
 A repository's committed `auto_fix` counts are read from the submitted branch, which can edit its own `.no-mistakes.yaml`, so each is held to the frozen policy's count as a ceiling: a repository may lower one, which only sends more to a person, and a count above the policy's, a negative count, or a key the policy does not govern (anything but review, test, lint, rebase, ci and its legacy name babysit) is refused.
-No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation, so `run` refuses before invoking native start instead of relying on an opaque launch receipt.
+No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation.
+The current `run` check validates the trusted inputs before invoking native start; it does not establish that post-fetch binding.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
