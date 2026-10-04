@@ -85,7 +85,8 @@ async function boardAsked(page: Page, item: { questions?: object[]; reviews?: ob
   await send(page, "snapshot", quiet);
   await expect(bar(page)).toContainText("All quiet");
   await send(page, "snapshot", asking(item));
-  await expect(bar(page)).toContainText(says);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
+  await expect(bar(page)).not.toContainText(says);
   await expect(toasts(page)).toContainText(says);
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
 }
@@ -102,7 +103,7 @@ const clickAndLook = (page: Page, selector: string) => page.evaluate(async (sele
   requestAnimationFrame(() => { painted = true; });
   document.querySelector<HTMLElement>(selector)!.click();
   for (let turn = 0; turn < 5; turn++) await Promise.resolve();
-  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
+  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, command: document.querySelector(".cfo-pin .cfo-command")?.getAttribute("aria-label") || "", card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
 }, selector);
 // A card that finishes shows its check for three quarters of a second, so a
 // board's done cards are recorded as they pass, each as its heading and line.
@@ -120,6 +121,7 @@ async function expectGone(page: Page, says: string) {
   await expect(badge(page)).toHaveAccessibleName("Command Center");
   await expect(bar(page)).not.toContainText(says);
   await expect(bar(page)).toContainText("All quiet");
+  await expect(bar(page).getByRole("button", { name: /^Open Command Center/ })).toHaveCount(0);
   await expect(page).toHaveTitle("Code Goblins");
 }
 
@@ -144,7 +146,7 @@ for (const way of WAYS) {
     const shown = await clickAndLook(page, way.press);
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: way.heading });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: way.heading });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual([way.kind]);
     await expectGone(page, way.says);
   });
@@ -155,18 +157,19 @@ for (const scenario of [
   { name: "a review opens when its dialogue finishes appearing during the click", review: proof, says: proof.title },
 ]) {
   test(scenario.name, async ({ page, context }, testInfo) => {
-    // Arrange: the hosted trace selected the button during the first step.
+    // Arrange: pause the toast's entrance before pressing its real action.
     await standInStream(context);
     await announcer(context);
     await actions(context);
     await boardAsked(page, { reviews: [scenario.review] }, scenario.says);
-    await page.locator(".cfo-pin .dialogue").evaluate((element) => {
+    const dialogue = toasts(page).filter({ hasText: scenario.says }).locator(".dialogue");
+    await dialogue.evaluate((element) => {
       for (const animation of element.getAnimations()) {
         animation.pause();
         animation.currentTime = 0;
       }
     });
-    const button = bar(page).getByRole("button", { name: "Open Command Center" });
+    const button = dialogue.getByRole("button", { name: "Open Command Center", exact: true });
     const bounds = await button.boundingBox();
     if (!bounds) throw new Error("The Command Center button has no visible bounds.");
     const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
@@ -174,7 +177,7 @@ for (const scenario of [
 
     // Act: the same pointer presses and releases while the entrance completes.
     await page.mouse.down();
-    await page.locator(".cfo-pin .dialogue").evaluate((element) => {
+    await dialogue.evaluate((element) => {
       for (const animation of element.getAnimations()) animation.finish();
     });
     await page.mouse.up();
@@ -205,8 +208,9 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
     await send(page, "snapshot", asking({ questions: [question] }));
-    await expect(bar(page)).toContainText(ASKS);
+    await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
     await expect(toasts(page)).toContainText(ASKS);
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
     await openCard(page, ASKS);
@@ -217,7 +221,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     const shown = await clickAndLook(page, "dialog.question-modal .send-decision");
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: "Sent" });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sent" });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
     await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
     await expectGone(page, ASKS);
@@ -246,7 +250,7 @@ test("a snapshot taken before his answer and arriving after it does not bring th
   await expect(card(page)).toBeHidden();
 });
 
-test("an ID published again after its item closed shows its count and its CFO bar line", async ({ page, context }) => {
+test("an ID published again after its item closed shows its count and its CFO bar button", async ({ page, context }) => {
   // Arrange: he answers the question and the supervisor's snapshot shows it closed.
   await standInStream(context);
   await announcer(context);
@@ -266,7 +270,8 @@ test("an ID published again after its item closed shows its count and its CFO ba
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-  await expect(bar(page)).toContainText(again);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
+  await expect(bar(page)).not.toContainText(again);
 });
 
 test("a send the board refuses puts the item back, with why", async ({ page, context }) => {
@@ -285,7 +290,7 @@ test("a send the board refuses puts the item back, with why", async ({ page, con
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-  await expect(bar(page)).toContainText(ASKS);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await expect(card(page).getByRole("alert")).toContainText("the primary CFO changed; refresh before sending");
 });
 
@@ -323,7 +328,7 @@ test("a second board drops the item he answered on the first before any snapshot
   await other.goto("/");
   await send(other, "snapshot", quiet);
   await send(other, "snapshot", asking({ questions: [question] }));
-  await expect(bar(other)).toContainText(ASKS);
+  await expect(bar(other).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCard(other, ASKS);
   await recordDoneCards(other);
   await openCard(page, ASKS);
