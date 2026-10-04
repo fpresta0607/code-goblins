@@ -57,6 +57,21 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return hookPretoolBash(stdin, stderr, guard.ClassifyCd)
 	case "turnend-guard":
 		return hookTurnendGuard(stdin, stdout, stderr)
+	case "pre-compact":
+		payload, ok := claudehook.ReadPayload(stdin)
+		if !ok || payload.SessionID == "" {
+			return 0
+		}
+		h, err := home.Resolve()
+		if err != nil || !home.IsPrimary(h) {
+			return 0
+		}
+		holder, err := lock.Read(h.State)
+		if err != nil || holder.Session != payload.SessionID || holder.PID != resolveSessionOwnerPID() || !holder.VerifiedAlive() {
+			return 0
+		}
+		_ = digest.WriteCheckpoint(h, time.Now())
+		return 0
 	case "stop-autoarm":
 		payload, ok := claudehook.ReadPayload(stdin)
 		if !ok {
@@ -858,7 +873,7 @@ func hookSessionStart(h home.Home, payload claudehook.Payload, stdout io.Writer)
 		}
 	}
 
-	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, stdout); err != nil {
+	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
 	registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
