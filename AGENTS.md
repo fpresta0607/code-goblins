@@ -374,6 +374,14 @@ While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a 
   They keep a line on the board and wake you as `pr_unread` (kind `pr`, keyed `repo:<repository>`) once per head whose own comparison failed, conflicting or not, and once for the listing limit until it clears, with the next step; recurring poll errors wake no more, they never raise `ci_unreadable`, and readable PR health and CI wakes continue.
   A comparison request that fails as a whole (refusal, timeout, server error, no comparisons returned) keeps only its board line and wakes for no head; a refusal reaches you as `ci_unreadable`.
   A 403, 429 or exhausted allowance pauses all GitHub calls in this poll for that repository across restarts until the later of its usable Retry-After and reset time, or an hour when neither is usable; other repositories continue.
+- **New teammate overlaps wake you on the same poll.** One shared repository read, at most every ten minutes with a thirty-second overall bound, checks open PRs and issues against each running goblin's committed branch changes since its default-branch merge base, including renamed and deleted paths.
+  Issue words come from the brief's Task and Acceptance criteria, never its Constraints.
+  An item must have opened strictly after the goblin's current spawn generation began; one opened during the generation remains eligible when later committed changes first make it overlap.
+  Pre-existing items stay in the ordinary ticket report and never wake merely because polling begins, the supervisor restarts or the area changes.
+  A `pr_overlap` wake of kind `pr`, keyed by the goblin, names the teammate, item link and overlap, with the choice to continue, wait or narrow the work.
+  Fresh live evidence is required even after per-PR `done`; stopped or paused goblins, bots, the signed-in viewer, branch-only work and a goblin's recorded or claimed issue in that repository produce no wake.
+  Each item wakes once per goblin generation across restarts, acknowledgement, closure and area changes.
+  Unknown item or generation times, unread authors, changing branch inputs and partial reads remain explicit board evidence, without inventing timestamps or raising `ci_unreadable`; readable overlaps continue and existing repository allowance/refusal backoff applies.
 - **Liveness is CPU delta, never log age.** Sample the active step's `agent_pid` twice about 30s apart. Frozen CPU with a static working set is the wedge signature; a quiet log with climbing CPU is a long model call. A single-digit-MB working set means the wrapper never started.
 - **Check PR state yourself.** A goblin's belief about its own PR goes stale: on 2026-08-19 a goblin reported its PR green and unmerged when it had already been squash-merged. `gh pr view` is the source of truth.
 
