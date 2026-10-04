@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -55,7 +56,22 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	}
 	// Codex Stop requires a JSON reply. This is also accepted by Claude and
 	// ignored by the Pi notification extension. It never blocks continuation.
-	fmt.Fprintln(stdout, "{}")
+	if e.Harness == "codex" && e.Kind == "started" && e.Source == "compact" && e.Role == "cfo" && e.TaskID == "" {
+		var reply struct {
+			Output struct {
+				Event   string `json:"hookEventName"`
+				Context string `json:"additionalContext"`
+			} `json:"hookSpecificOutput"`
+		}
+		reply.Output.Event = "SessionStart"
+		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s, %s and %s. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not read those files; conversational holds absent from disk cannot be recovered.", filepath.Join(*root, "AGENTS.md"), filepath.Join(*root, "data", "overlord.md"), filepath.Join(*root, "data", "memory", "MEMORY.md"))
+		if err := json.NewEncoder(stdout).Encode(reply); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	} else {
+		fmt.Fprintln(stdout, "{}")
+	}
 	// Claude registers from its own SessionStart hook, after the digest has
 	// settled custody. Codex and Pi have only this one, and a failure here
 	// shows on the board as the registration state rather than in the reply.
