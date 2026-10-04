@@ -28,8 +28,8 @@ type Admission struct {
 	// for each, naming its process, and beside it a card saying which run
 	// that is.
 	Dir string
-	// Floor is the available memory, in bytes, a run waits for, and Available
-	// reads it. An unavailable reading refuses admission.
+	// Floor may raise the shared minimum available memory, in bytes, a run
+	// waits for, and Available reads it. An unavailable reading refuses admission.
 	Floor     uint64
 	Available func() (uint64, error)
 	// Who names this run to the runs behind it, and Budget is how long its
@@ -91,7 +91,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err != nil {
 		return Turn{}, err
 	}
-	if _, err := admissionCapacity(a.Dir); err != nil {
+	if _, _, err := AdmissionLimits(a.Dir); err != nil {
 		return Turn{}, err
 	}
 	if a.Available == nil {
@@ -122,7 +122,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		if err := ctx.Err(); err != nil {
 			return Turn{Waited: time.Since(start)}, err
 		}
-		capacity, err := admissionCapacity(a.Dir)
+		capacity, floor, err := AdmissionLimits(a.Dir)
 		if err != nil {
 			return Turn{Waited: time.Since(start)}, err
 		}
@@ -134,7 +134,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		why := a.heldBy()
 		short := ""
 		if ahead == 0 {
-			short, err = a.short()
+			short, err = a.short(max(a.Floor, floor))
 			if err != nil {
 				return Turn{Waited: time.Since(start)}, err
 			}
@@ -239,15 +239,15 @@ func inFront(line, place string) (int, error) {
 }
 
 // short says how the machine is short of memory, or nothing when it is not.
-func (a Admission) short() (string, error) {
+func (a Admission) short(floor uint64) (string, error) {
 	available, err := a.Available()
 	if err != nil {
 		return "", fmt.Errorf("verify: available memory cannot be read: %w", err)
 	}
-	if available >= a.Floor {
+	if available >= floor {
 		return "", nil
 	}
-	return fmt.Sprintf("%.1f GB of memory is available and the floor is %.1f GB", Gigabytes(available), Gigabytes(a.Floor)), nil
+	return fmt.Sprintf("%.1f GB of memory is available and the floor is %.1f GB", Gigabytes(available), Gigabytes(floor)), nil
 }
 
 // Gigabytes is bytes in gigabytes, rounded down to a tenth, so memory just
@@ -296,8 +296,22 @@ func (a Admission) take(capacity int) (release func(), err error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" {
-			return nil, fmt.Errorf("verify: custody outside shared capacity one: %s", name)
+		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" && (capacity != 2 || name != "slot-2") {
+			return nil, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
+		}
+	}
+	// Inspect every configured slot before choosing a free one: uncertain
+	// custody in another slot cannot be bypassed by an earlier empty slot.
+	for slot := 1; slot <= capacity; slot++ {
+		holder, err := lock.ReadNamedStrict(a.Dir, fmt.Sprintf("slot-%d", slot))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if holder.Alive() && !holder.VerifiedAlive() {
+			return nil, nil
 		}
 	}
 	for slot := 1; slot <= capacity; slot++ {

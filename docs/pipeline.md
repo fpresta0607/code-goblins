@@ -186,15 +186,16 @@ A run that cannot write its report says so and keeps its verdict: the checks dec
 
 ### Taking turns
 
-Every `go vet` and `go test` command waits for a turn at every level: one command runs at a time, every goblin's and every gate's alike, in the order they asked.
+Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
 Each command releases its turn when execution ends and joins the common line again before its next command.
-The number is one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+The default remains one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
 Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
-The shared `capacity.json` setting accepts only `{"capacity":1}` in this delivery; absence also means one.
+The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity":2}`; absence means one.
+Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
 An unreadable or invalid setting, or any nonempty `CFO_VERIFY_SLOTS` process setting, refuses admission.
 Only test binaries can use explicitly isolated admission stores.
 
-A command also waits while either physical or commit availability is under the fleet's 4 GiB floor.
+A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
