@@ -115,8 +115,8 @@ type Service struct {
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
 	// recovery cycle. ciUnreadable is why each watched repository's CI
-	// cannot be read, as of the last fleet reading; every recovery cycle
-	// reports it for as long as the failure lasts.
+	// cannot be read, as of the last fleet reading; publish joins it into
+	// whatever it publishes for as long as the failure lasts.
 	historyErr      error
 	cfoWakeErr      error
 	fleetErr        error
@@ -232,6 +232,7 @@ func (s *Service) publish(err error) {
 		}
 	}
 	s.mu.Lock()
+	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
@@ -436,7 +437,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration()
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
