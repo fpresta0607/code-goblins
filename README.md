@@ -243,7 +243,7 @@ Its source is `cmd/goblins-window` in this repository, and it sits in the CFO ho
 Where the home holds it, Code Goblins in the Start menu and `goblins --window` find or start the supervisor and open the board in it, and **Open the board** in the quick start opens it in place of the browser.
 Closing the window hides it to its tray, whose menu has **Open the board**, **Start at login**, which starts the supervisor and the window in the tray when you sign in, and **Quit the window**.
 An install takes the place of a copy of the window that was installed on its own, in a folder of its own: [the install guide](docs/install.md#to-use-it) says what it removes and what it keeps.
-Dictation with **Ctrl+Shift+Space** does not work in the window, because WebView2 has no speech recognition: dictate in the board's browser tab.
+Dictation with **Ctrl+Shift+Space** works in the window as in a browser tab: both hand what you say to the speech model the supervisor runs on this PC.
 
 ### Board and Orchestration
 
@@ -388,7 +388,9 @@ New native hosts explicitly request interactive Windows scheduling, so typing an
 Updating the executable or restarting the board does not change hosts that are already running; apply the host update when each session can be safely resumed, preserving active work.
 Every terminal pane has a voice bubble in its bottom-right corner, in a strip of its own under the terminal.
 Hold **Ctrl+Shift+Space** to dictate into the terminal that has the keyboard: while the keys are held the bubble's bars move with your voice, and releasing them types what was heard as one line, which **Enter** sends.
-The board uses the browser's own speech recognition, so nothing else needs to be installed or running.
+What you say is recognised by a speech model the supervisor runs on this PC, so it costs nothing, needs no account and never leaves the machine; the first dictation downloads the model once, about 126 MB, and says so.
+The bubble names the model while it listens.
+A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
 Click the bubble for the pane's recent dictations, newest first, each with **Copy** and **Paste into this terminal**; they are kept in this browser only.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.

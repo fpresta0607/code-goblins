@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Dictation, dictationKey, dictationProblem, inDesktopApp, spoken, type Capture, type Recognizer } from "./dictation.ts";
+import { Dictation, dictationKey, dictationProblem, spoken, type Capture, type Recognizer } from "./dictation.ts";
 
 const key = (type: string, code: string, changes: Partial<{ key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; repeat: boolean }> = {}) =>
   ({ type, code, key: code === "Space" ? " " : code, ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false, ...changes });
@@ -58,7 +58,7 @@ class FakeRecognizer implements Recognizer {
   }
 }
 
-function dictation(recognition: (new () => Recognizer) | null = FakeRecognizer) {
+function dictation(recognition: new () => Recognizer = FakeRecognizer) {
   FakeRecognizer.made = [];
   const heard: string[] = [], listening: boolean[] = [], problems: string[] = [];
   const subject = new Dictation({ heard: (text) => heard.push(text), listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => recognition, "en-GB");
@@ -83,29 +83,6 @@ test("releasing the keys types every final phrase heard while they were held, on
   assert.deepEqual(listening, [true, false]);
   subject.stop();
   assert.deepEqual(heard, ["open the pull request"]);
-});
-
-test("a browser without speech recognition says so and never listens", () => {
-  const { subject, listening, problems } = dictation(null);
-  subject.start();
-  assert.deepEqual(listening, []);
-  assert.match(problems.at(-1) || "", /no speech recognition/);
-});
-
-test("the desktop app says dictation is not in it yet, and sends nobody to a browser or to Windows dictation", () => {
-  FakeRecognizer.made = [];
-  const listening: boolean[] = [], problems: string[] = [];
-  const subject = new Dictation({ heard: () => {}, listening: (on) => listening.push(on), problem: (note) => problems.push(note) }, () => null, "en-GB", null, () => true);
-  subject.start();
-  assert.deepEqual(listening, []);
-  assert.equal(problems.at(-1), "Dictation is not in the desktop app yet. It is being built.");
-  assert.doesNotMatch(problems.at(-1) || "", /browser|Edge|Chrome|Windows|Win\+H/i);
-});
-
-test("the desktop app is told from a browser by the page object only WebView2 has", () => {
-  assert.equal(inDesktopApp({ chrome: { webview: { postMessage: () => {} } } }), true);
-  assert.equal(inDesktopApp({ chrome: { runtime: {} } }), false, "Chrome and Edge have window.chrome, without webview");
-  assert.equal(inDesktopApp({}), false, "a browser without window.chrome");
 });
 
 test("a blocked microphone is reported and types nothing", () => {
@@ -160,11 +137,13 @@ function listened(recognition: new () => Recognizer = TrackRecognizer) {
 test("the recognizer hears the one microphone track whose level the waveform shows", async () => {
   const { subject, mic, heard, listening } = listened();
   subject.start();
-  assert.deepEqual(listening, [true], "the bubble shows listening at once");
+  assert.deepEqual(listening, [], "the bubble must not invite speech before capture is ready");
   assert.equal(subject.level(), 0, "no level before the microphone opens");
   mic.allow();
   await settle();
   const recognizer = FakeRecognizer.made[0] as TrackRecognizer;
+  assert.equal(recognizer.started, true);
+  assert.deepEqual(listening, [true], "listening begins once the recognizer takes the track");
   assert.equal(mic.opened.length, 1, "one capture, never a second");
   assert.equal(recognizer.heardFrom, mic.opened[0].track, "the recognizer listens to that same track");
   assert.equal(subject.level(), .6);
@@ -175,11 +154,68 @@ test("the recognizer hears the one microphone track whose level the waveform sho
   assert.equal(subject.level(), 0);
 });
 
+// A recognizer that says its words when told to, as the board's own does
+// while the supervisor recognises the sound.
+class SlowRecognizer extends TrackRecognizer {
+  stopped = false;
+  stop() { this.stopped = true; }
+  answer(...finals: string[]) { if (finals.length) this.hear(...finals); this.onend?.(); }
+}
+
+test("at release the microphone closes and the bubble goes idle, and the words are typed when the recognizer has them", async () => {
+  const { subject, mic, heard, listening } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  const recognizer = FakeRecognizer.made[0] as SlowRecognizer;
+  assert.equal(recognizer.stopped, true);
+  assert.deepEqual(listening, [true, false], "the bubble is idle as soon as the keys are released");
+  assert.equal(mic.opened[0].closed, true, "the microphone closes without waiting for the words");
+  assert.equal(subject.level(), 0);
+  assert.deepEqual(heard, []);
+  recognizer.answer("ship it");
+  assert.deepEqual(heard, ["ship it"]);
+  assert.deepEqual(listening, [true, false], "the words arriving change nothing the release already did");
+});
+
+test("a second dictation starts while the first is still being recognised, and both are typed", async () => {
+  const { subject, mic, heard, listening } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  subject.start();
+  assert.equal(FakeRecognizer.made.length, 2, "the next press is not lost to the words still on their way");
+  mic.allow();
+  await settle();
+  assert.equal(mic.opened.length, 2);
+  assert.equal(mic.opened[1].closed, false);
+  subject.stop();
+  const [first, second] = FakeRecognizer.made as SlowRecognizer[];
+  first.answer("open the pull request");
+  second.answer("and merge it");
+  assert.deepEqual(heard, ["open the pull request", "and merge it"]);
+  assert.deepEqual(listening, [true, false, true, false]);
+  assert.equal(mic.opened[1].closed, true);
+});
+
+test("closing the terminal drops words that are still being recognised", async () => {
+  const { subject, mic, heard } = listened(SlowRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  subject.stop();
+  subject.dispose();
+  (FakeRecognizer.made[0] as SlowRecognizer).answer("too late");
+  assert.deepEqual(heard, []);
+});
+
 test("releasing the keys before the microphone opens starts nothing and keeps nothing open", async () => {
   const { subject, mic, heard, listening } = listened();
   subject.start();
   subject.stop();
-  assert.deepEqual(listening, [true, false]);
+  assert.deepEqual(listening, [false]);
   mic.allow();
   await settle();
   assert.equal((FakeRecognizer.made[0] as TrackRecognizer).started, false);
@@ -194,7 +230,7 @@ test("a microphone the browser refuses is explained and nothing listens", async 
   subject.start();
   mic.refuse("NotAllowedError");
   await settle();
-  assert.deepEqual(listening, [true, false]);
+  assert.deepEqual(listening, [false]);
   assert.match(problems.at(-1) || "", /microphone is blocked/);
   const missing = listened();
   missing.subject.start();
@@ -226,5 +262,19 @@ test("closing the terminal while the microphone opens leaves nothing open", asyn
   mic.allow();
   await settle();
   assert.equal(mic.opened[0].closed, true);
-  assert.deepEqual(listening, [true]);
+  assert.deepEqual(listening, []);
+});
+
+test("a recognizer that fails to start never invites speech", async () => {
+  class FailedRecognizer extends TrackRecognizer {
+    start() { this.onerror?.({ error: "audio-capture" }); this.onend?.(); }
+  }
+  const { subject, mic, listening, heard, problems } = listened(FailedRecognizer);
+  subject.start();
+  mic.allow();
+  await settle();
+  assert.deepEqual(listening, [false]);
+  assert.equal(mic.opened[0].closed, true);
+  assert.deepEqual(heard, []);
+  assert.match(problems.at(-1) || "", /No microphone/);
 });
