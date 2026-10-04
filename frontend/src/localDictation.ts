@@ -41,7 +41,7 @@ export function wav({ samples, rate }: Sound): Uint8Array<ArrayBuffer> {
 // ends the recording before it returns, so the microphone can close at once,
 // then hands it to recognise and delivers the words it answers, once.
 // What recognise refuses with is passed on as the supervisor wrote it.
-export function localRecognizer(open: (track: MediaStreamTrack) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>) => Promise<string>): new () => Recognizer {
+export function localRecognizer(open: (track: MediaStreamTrack) => Recording, recognise: (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string>): new () => Recognizer {
   return class implements Recognizer {
     continuous = false;
     interimResults = false;
@@ -51,6 +51,7 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Recording, re
     onend: Recognizer["onend"] = null;
     private recording: Recording | null = null;
     private ended = false;
+    private readonly cancellation = new AbortController();
 
     private end(error?: { error: string; message?: string }): void {
       if (this.ended) return;
@@ -72,7 +73,10 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Recording, re
       const recording = this.recording;
       this.recording = null;
       if (!recording) return;
-      recording.stop().then((sound) => sound.samples.length ? recognise(wav(sound)) : "").then((text) => {
+      recording.stop().then((sound) => {
+        if (this.ended) return "";
+        return sound.samples.length ? recognise(wav(sound), this.cancellation.signal) : "";
+      }).then((text) => {
         if (this.ended) return;
         if (!text) { this.end({ error: "no-speech" }); return; }
         this.onresult?.({ resultIndex: 0, results: [[{ transcript: text }]] });
@@ -81,6 +85,7 @@ export function localRecognizer(open: (track: MediaStreamTrack) => Recording, re
     }
 
     abort(): void {
+      this.cancellation.abort();
       const recording = this.recording;
       this.recording = null;
       recording?.cancel();
