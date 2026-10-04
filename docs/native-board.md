@@ -183,6 +183,14 @@ A 403, 429 or exhausted allowance pauses every later GitHub read in that reposit
 A head whose own comparison comes back missing or invalid in an otherwise readable response, conflicting or not, wakes the CFO once, and the listing limit once until the listing falls under 100 and comes back, never twice within five minutes for one repository; the wake names the heads, the reason and the next step, and recurring poll errors raise no further wake.
 A comparison request that fails as a whole (a refusal, a timeout, a server error or a response with no comparisons) keeps only its line on the board and wakes for no head, so a head it left unread still wakes once if its own comparison later fails; a refusal reaches the CFO as `ci_unreadable`.
 It never raises `ci_unreadable`, and CI wakes and readable PR health from that repository continue.
+`pr_overlap` (wake kind `pr`), keyed by the goblin: the same poll checks new teammate PRs and issues against running goblins, sharing one repository activity read at most every ten minutes under a thirty-second overall deadline and the existing allowance/refusal backoff.
+The area is the branch's committed change from its default-branch merge base, including renamed and deleted paths, with issue words from the brief's Task and Acceptance criteria.
+An item must have opened strictly after the goblin's current spawn generation began; an item opened during the generation stays eligible if later committed changes first make it overlap.
+Pre-existing open items remain visible in the ordinary ticket report and do not wake on polling startup, restart or area changes.
+The wake names the teammate, item link, overlap and goblin, asking the CFO whether to continue, wait or narrow the work.
+Fresh live evidence is checked before and after the read, including after a per-PR done report; stopped or paused goblins, bots, the signed-in viewer, branch-only work and the goblin's own recorded or claimed issue in that repository never produce these wakes.
+Each item wakes once per goblin generation across restart, acknowledgement, closure and area changes.
+Unknown item or generation timestamps, unread authors, changing branch inputs and incomplete reads keep a board line without guessing times or raising `ci_unreadable`, while readable overlaps continue.
 What the fleet wakes remember, in `state/fleet-wakes.json`, survives a restart, so a restart neither repeats a wake nor loses one, and a failing repository's line shows again at once.
 The board lists no queued wakes of any kind: these reach the CFO as the others do, through its Stop hook or the line typed into a Codex or pi CFO's terminal.
 A Claude Code CFO's Stop hook arms only while a task is in flight, so a red main with no goblin running reaches it at its next turn end with one.
