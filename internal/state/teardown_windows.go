@@ -22,8 +22,8 @@ func pendingTeardown(processes []TeardownProcess) []TeardownProcess {
 		err = windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user)
 		isPending := err != nil || time.Unix(0, creation.Nanoseconds()).Equal(process.Started)
 		if err == nil && isPending {
-			result, err := windows.WaitForSingleObject(handle, 0)
-			isPending = err != nil || result != windows.WAIT_OBJECT_0
+			wait, waitErr := windows.WaitForSingleObject(handle, 0)
+			isPending = waitErr != nil || wait != uint32(windows.WAIT_OBJECT_0)
 		}
 		windows.CloseHandle(handle)
 		if isPending {
