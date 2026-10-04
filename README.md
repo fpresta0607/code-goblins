@@ -660,6 +660,15 @@ Missing comparisons and a listing that reaches its 100-PR limit stay visible as 
 They keep a line on the board and raise a `pr_unread` wake of kind `pr` once for each head whose own comparison failed and once for the listing limit until it clears, naming the next step; they never raise `ci_unreadable`, and readable PR health and CI wakes continue.
 A comparison request that fails as a whole, such as a refusal, timeout or server error, keeps only its board line and wakes for no head.
 
+That poll also reads new teammate PRs and issues once per repository at most every ten minutes, sharing a thirty-second read across its running goblins.
+A `pr_overlap` wake names the teammate, item link, overlapping files or issue words and goblin, so the CFO can continue, wait or narrow the work.
+An item must have opened strictly after that goblin's current spawn generation began; an item opened during the generation stays eligible when later committed branch changes first make it overlap.
+The area comes from the branch's committed changes against its default-branch merge base, including renamed and deleted paths, and issue words come from the brief's Task and Acceptance criteria.
+Pre-existing items remain in `cfo tickets`, while bots, the signed-in viewer, branch-only work and the goblin's recorded or claimed issue produce no new-item wake.
+Fresh live evidence is required even after a goblin reports one PR done.
+Each item wakes once per goblin generation across restarts, acknowledgement, item closure and area changes.
+Unknown creation times, changing branch inputs and incomplete GitHub reads stay visible as unread evidence; readable overlaps can still wake, and the same repository allowance and refusal backoff applies.
+
 To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
 A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
