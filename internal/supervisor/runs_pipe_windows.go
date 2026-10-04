@@ -39,8 +39,8 @@ const (
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
 	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the proof and work for it, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
+	// runRequestTimeout the work that waits on the loop or the allowance,
+	// and runReplyTimeout how long cfo run-request waits for the answer.
 	runReadTimeout    = 10 * time.Second
 	runRequestTimeout = 20 * time.Second
 	runReplyTimeout   = 30 * time.Second
@@ -170,11 +170,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			s.runRequests.Lock()
 			switch req.Kind {
 			case "":
-				err = s.acceptRunRequest(ctx, int(pid), connected, req)
+				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
 				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
 			default:
-				err = s.acceptCFOItem(ctx, int(pid), connected, req)
+				err = s.acceptCFOItem(int(pid), connected, req)
 			}
 			s.runRequests.Unlock()
 		}

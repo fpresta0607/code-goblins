@@ -383,7 +383,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind}
 	var err error
 	if a.Kind == "review" {
-		a, err = h.Service.Store.QueueReview(r.Context(), a, h.Service.Options.CFO)
+		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CFO)
 	} else {
 		a, err = h.Service.Store.Queue(a)
 	}

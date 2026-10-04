@@ -52,16 +52,14 @@ func TestObsoleteCFOMessageRejectionPreservesFullActionHistory(t *testing.T) {
 	}
 }
 
+// cfoRunner is a fake Herdr for the board's views of a terminal an older
+// build started there.
 type cfoRunner struct {
-	t            *testing.T
-	pid          int
-	prompts      []string
-	beforePrompt func()
-	terminal     string
-	workerTree   string
-	harness      string
-	calls        int
-	offline      bool
+	t          *testing.T
+	pid        int
+	terminal   string
+	workerTree string
+	calls      int
 	// socket is the Herdr socket a live terminal view types into, which
 	// records what it types; sizeless leaves the pane's size out of the
 	// snapshot and resized grows it.
@@ -70,9 +68,6 @@ type cfoRunner struct {
 	// focused records each workspace and tab brought to the front.
 	focused []string
 	resized atomic.Bool
-	// busy is an agent inside a long turn: working, with counters that do not
-	// move while the turn lasts, whatever it is sent.
-	busy bool
 	// holding makes each Herdr command wait for release, as a command slowed
 	// by a loaded machine, and says so on held.
 	holding atomic.Bool
@@ -89,9 +84,6 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		<-r.release
 	}
 	r.calls++
-	if r.offline {
-		return execx.Result{}, errors.New("Herdr is not running")
-	}
 	a := req.Args
 	var body string
 	switch {
@@ -115,24 +107,6 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 		body = fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.pid)
 	case len(a) >= 2 && a[0] == "pane" && a[1] == "get":
 		body = `{"result":{"pane":{"pane_id":"w1:p1"}}}`
-	case len(a) >= 2 && a[0] == "pane" && a[1] == "read":
-		// The pane's screen: an empty Codex composer, as one that took the
-		// message it was sent shows.
-		return execx.Result{Stdout: []byte("› Ask Codex to do anything\n  100% context left\n")}, nil
-	case len(a) >= 2 && a[0] == "agent" && a[1] == "get":
-		body = fmt.Sprintf(`{"result":{"agent":{"agent":"codex","agent_status":"idle","revision":%d,"state_change_seq":%d}}}`, 10+len(r.prompts), 10+len(r.prompts))
-		if r.busy {
-			body = `{"result":{"agent":{"agent":"codex","agent_status":"working","revision":10,"state_change_seq":10}}}`
-		}
-	case len(a) >= 4 && a[0] == "agent" && a[1] == "prompt":
-		if r.beforePrompt != nil {
-			r.beforePrompt()
-		}
-		if a[2] != "w1:p1" {
-			r.t.Fatalf("wrong pane: %s", a[2])
-		}
-		r.prompts = append(r.prompts, a[3])
-		body = `{"result":{}}`
 	case len(a) >= 3 && (a[0] == "workspace" || a[0] == "tab") && a[1] == "focus":
 		r.focused = append(r.focused, strings.Join(a[:3], " "))
 		body = `{"result":{}}`
@@ -143,13 +117,13 @@ func (r *cfoRunner) Run(_ context.Context, req execx.Request) (execx.Result, err
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected Herdr operation: %v", a)
 	}
-	if r.harness != "" {
-		body = strings.ReplaceAll(body, `"agent":"codex"`, `"agent":"`+r.harness+`"`)
-	}
 	return execx.Result{Stdout: []byte(body)}, nil
 }
 
-func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, *cfoRunner, *CFOConnection) {
+// herdrPrimaryFixture registers this test process as a CFO in Herdr pane
+// w1:p1 of a fake Herdr, as an older build left one, for the board's view of
+// that pane.
+func herdrPrimaryFixture(t *testing.T, store *Store) (primaryRegistration, string, *cfoRunner, *CFOConnection) {
 	t.Helper()
 	process, err := lock.Acquire(store.Home.State)
 	if err != nil {
@@ -169,16 +143,6 @@ func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, *c
 	return primary, identity, runner, &CFOConnection{State: store.Home.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: runner})}
 }
 
-// registerFixture is a home with no registration and a fake Herdr in which
-// this test process is the foreground harness of pane w1:p1.
-func registerFixture(t *testing.T) (*Store, *cfoRunner, *CFOConnection) {
-	t.Helper()
-	store, _ := testStore(t)
-	t.Setenv("HERDR_PANE_ID", "w1:p1")
-	runner := &cfoRunner{t: t, pid: os.Getpid()}
-	return store, runner, &CFOConnection{State: store.Home.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "isolated"})}
-}
-
 func registrationExists(t *testing.T, store *Store) bool {
 	t.Helper()
 	_, err := os.Stat(filepath.Join(store.Home.State, "primary.json"))
@@ -195,25 +159,24 @@ func registrationExists(t *testing.T, store *Store) bool {
 func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T) {
 	store, _, cfo := registerFixture(t)
 	hostname, _ := os.Hostname()
-	stale := primaryRegistration{Target: herdr.Target{Session: "isolated", Pane: "w0:p0"}, Workspace: "w0", Tab: "w0:t0", Agent: "claude", Terminal: "old-terminal", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}}
+	stale := primaryRegistration{Host: "cfo", Agent: "claude", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}}
 	data, _ := json.Marshal(stale)
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
 	var problem registrationProblem
-	if err := cfo.check(ctx); !errors.As(err, &problem) || !strings.Contains(err.Error(), "pid 37680, started 2026-09-15 09:00 UTC, is no longer running; run cfo register in the CFO session") {
+	if err := cfo.check(); !errors.As(err, &problem) || !strings.Contains(err.Error(), "pid 37680, started 2026-09-15 09:00 UTC, is no longer running; run cfo register in the CFO session") {
 		t.Fatalf("stale registration reads as %v, want one registration problem naming the fix", err)
 	}
 
-	described, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1")
+	described, err := Register(store.Home.State, "claude", "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "codex pid " + strconv.Itoa(os.Getpid()) + " in Herdr pane isolated:w1:p1"; described != want {
+	if want := "claude pid " + strconv.Itoa(os.Getpid()) + " in native terminal cfo"; described != want {
 		t.Errorf("described %q, want %q", described, want)
 	}
-	if err := cfo.check(ctx); err != nil {
+	if err := cfo.check(); err != nil {
 		t.Fatalf("the board cannot verify the new registration: %v", err)
 	}
 	if !lock.HeldBy(store.Home.State, os.Getpid()) {
@@ -226,8 +189,7 @@ func TestRegisterReplacesAStaleRegistrationWithOneTheBoardVerifies(t *testing.T)
 // supersede the question the user has not answered yet.
 func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	store, _, cfo := registerFixture(t)
-	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
+	if _, err := Register(store.Home.State, "claude", "session-1"); err != nil {
 		t.Fatal(err)
 	}
 	servePipe(t, store, cfo)
@@ -236,13 +198,13 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion(ctx, "question-1", "Pick a layout", []string{"Board", "Tree"}, ""); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-2"); err != nil {
+	if _, err := Register(store.Home.State, "claude", "session-2"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.ReadFile(path)
@@ -266,8 +228,7 @@ func TestRegisterKeepsTheIdentityOfTheSameProcess(t *testing.T) {
 // A recycled pid is a different process, so its registration is replaced.
 func TestRegisterReplacesARegistrationOfAnotherProcessWithTheSamePID(t *testing.T) {
 	store, _, cfo := registerFixture(t)
-	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
+	if _, err := Register(store.Home.State, "claude", ""); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(store.Home.State, "primary.json")
@@ -284,32 +245,23 @@ func TestRegisterReplacesARegistrationOfAnotherProcessWithTheSamePID(t *testing.
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
+	if _, err := Register(store.Home.State, "claude", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.check(ctx); err != nil {
+	if err := cfo.check(); err != nil {
 		t.Fatalf("the registration of a recycled pid was kept: %v", err)
 	}
 }
 
 func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 	for _, c := range []struct {
-		name, want string
-		arrange    func(*testing.T, *Store, *cfoRunner)
+		name, harness, want string
+		arrange             func(*testing.T, *Store)
 	}{
-		{"outside Herdr and native terminals", "neither a Herdr pane nor a native terminal", func(t *testing.T, _ *Store, _ *cfoRunner) {
-			t.Setenv("HERDR_PANE_ID", "")
+		{"outside a native terminal", "claude", "runs in no native terminal", func(t *testing.T, _ *Store) {
 			t.Setenv(host.IDVariable, "")
 		}},
-		// The System process is live and never the ancestor of a test, so an
-		// inherited HERDR_PANE_ID cannot register another session's pane.
-		{"a pane this process does not run under", "does not run under it", func(_ *testing.T, _ *Store, runner *cfoRunner) {
-			runner.pid = 4
-		}},
-		{"a shell in the foreground", "no harness in its foreground", func(_ *testing.T, _ *Store, runner *cfoRunner) {
-			runner.pid = 1
-		}},
-		{"another live session holding the home", "another live session holds this home", func(t *testing.T, store *Store, _ *cfoRunner) {
+		{"another live session holding the home", "claude", "another live session holds this home", func(t *testing.T, store *Store) {
 			other := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
 			if err := other.Start(); err != nil {
 				t.Fatal(err)
@@ -319,17 +271,13 @@ func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{"a different agent than the hook names", "Herdr detects codex in pane w1:p1, not pi", nil},
+		// With no harness named, the terminal's program has to be one.
+		{"a program that is no harness", "", "is not a harness the board delivers to", func(*testing.T, *Store) {}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			store, runner, cfo := registerFixture(t)
-			harness := ""
-			if c.arrange != nil {
-				c.arrange(t, store, runner)
-			} else {
-				harness = "pi"
-			}
-			_, err := Register(context.Background(), store.Home.State, cfo.Terminals, harness, "")
+			store, _, _ := registerFixture(t)
+			c.arrange(t, store)
+			_, err := Register(store.Home.State, c.harness, "")
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("Register: %v, want a refusal containing %q", err, c.want)
 			}
@@ -340,11 +288,39 @@ func TestRegisterRefusesWhatItCannotProve(t *testing.T) {
 	}
 }
 
+// A CFO an older build registered in a Herdr pane is no longer reachable:
+// the board says so with its own fix, nothing is delivered to it, and it
+// proves nobody's identity.
+func TestARegistrationInAHerdrPaneIsNotReachable(t *testing.T) {
+	store, _ := testStore(t)
+	_, identity, runner, cfo := herdrPrimaryFixture(t, store)
+
+	checked := cfo.check()
+	_, sent := cfo.Send(context.Background(), identity, "hello")
+	_, _, proven := cfo.CallerIdentity()
+
+	for name, err := range map[string]error{"check": checked, "Send": sent, "CallerIdentity": proven} {
+		if err == nil || !strings.Contains(err.Error(), "registered in a Herdr pane, which this build cannot reach; start the CFO again in a native terminal") {
+			t.Errorf("%s = %v, want the Herdr registration refused with its fix", name, err)
+		}
+	}
+	if !errors.Is(sent, ErrRejected) {
+		t.Errorf("Send = %v, want a refusal with nothing sent", sent)
+	}
+	if runner.calls != 0 {
+		t.Errorf("Herdr was asked %d times, want none", runner.calls)
+	}
+}
+
 func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
-	store, _, cfo := registerFixture(t)
+	store, _ := testStore(t)
+	// The terminal is not named cfo: one of that name that is up reads as a
+	// CFO still starting, never as an unregistered one.
+	hostTerminal(t, store.Home.State, "desk").standIn(t)
+	t.Setenv(host.IDVariable, "desk")
+	cfo := &CFOConnection{State: store.Home.State}
 	service := &Service{Store: store, Options: Options{CFO: cfo}}
-	ctx := context.Background()
-	service.checkRegistration(ctx)
+	service.checkRegistration()
 	snapshot, err := service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -352,48 +328,12 @@ func TestBoardShowsTheRegistrationAsOneStateWithItsFix(t *testing.T) {
 	if snapshot.Registration != "The CFO is not registered; run cfo register in the CFO session" {
 		t.Fatalf("unregistered board shows %q", snapshot.Registration)
 	}
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
+	if _, err := Register(store.Home.State, "claude", ""); err != nil {
 		t.Fatal(err)
 	}
-	service.checkRegistration(ctx)
+	service.checkRegistration()
 	if snapshot, _ = service.Snapshot(); snapshot.Registration != "" {
 		t.Fatalf("registered board still shows %q", snapshot.Registration)
-	}
-}
-
-// What the recovery cycle asked Herdr about a registration stands for that
-// registration: the board shows it until the CFO registers again, and then
-// shows nothing of it before the next cycle has examined the new one.
-func TestBoardShowsAProblemOnlyForTheRegistrationItWasFoundIn(t *testing.T) {
-	// Arrange
-	store, runner, cfo := registerFixture(t)
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
-	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	runner.terminal = "replacement-terminal"
-	service.checkRegistration(ctx)
-	moved, err := service.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", ""); err != nil {
-		t.Fatal(err)
-	}
-	registered, err := service.Snapshot()
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(moved.Registration, "terminal changed or is missing in Herdr pane w1:p1") {
-		t.Errorf("with the registered pane's terminal replaced: registration %q, want the problem the cycle found", moved.Registration)
-	}
-	if !registered.CFORuns || registered.Registration != "" {
-		t.Errorf("with the CFO registered again: runs %v, registration %q; want it running and no problem of the registration it replaced", registered.CFORuns, registered.Registration)
 	}
 }
 
@@ -416,9 +356,8 @@ func TestCFOTerminalReportsAStaleRegistrationAsItsOwnState(t *testing.T) {
 // resume, without rewriting the registration questions are bound to.
 func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
 	// Arrange
-	store, _, cfo := registerFixture(t)
-	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
+	store, _, _ := registerFixture(t)
+	if _, err := Register(store.Home.State, "claude", "session-1"); err != nil {
 		t.Fatal(err)
 	}
 	first, err := ReadCFOConversation(store.Home.State)
@@ -431,7 +370,7 @@ func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
 	}
 
 	// Act
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-2"); err != nil {
+	if _, err := Register(store.Home.State, "claude", "session-2"); err != nil {
 		t.Fatal(err)
 	}
 	latest, err := ReadCFOConversation(store.Home.State)
@@ -440,8 +379,8 @@ func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Session != "session-1" || latest.Session != "session-2" || latest.Harness != "codex" || latest.PID != os.Getpid() {
-		t.Errorf("conversations recorded %+v then %+v, want session-1 then session-2 of this codex process", first, latest)
+	if first.Session != "session-1" || latest.Session != "session-2" || latest.Harness != "claude" || latest.PID != os.Getpid() {
+		t.Errorf("conversations recorded %+v then %+v, want session-1 then session-2 of this claude process", first, latest)
 	}
 	if after, err := os.ReadFile(filepath.Join(store.Home.State, "primary.json")); err != nil || !bytes.Equal(before, after) {
 		t.Errorf("registering the same process again rewrote primary.json: %v", err)
@@ -452,14 +391,13 @@ func TestRegisterRecordsTheCFOsLatestConversation(t *testing.T) {
 func TestRegisterWithoutASessionKeepsTheLastConversation(t *testing.T) {
 	// Arrange
 	t.Setenv("CODEX_THREAD_ID", "")
-	store, _, cfo := registerFixture(t)
-	ctx := context.Background()
-	if _, err := Register(ctx, store.Home.State, cfo.Terminals, "", "session-1"); err != nil {
+	store, _, _ := registerFixture(t)
+	if _, err := Register(store.Home.State, "claude", "session-1"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	_, err := Register(ctx, store.Home.State, cfo.Terminals, "", "")
+	_, err := Register(store.Home.State, "claude", "")
 	conversation, readErr := ReadCFOConversation(store.Home.State)
 
 	// Assert

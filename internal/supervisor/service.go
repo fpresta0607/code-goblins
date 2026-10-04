@@ -433,13 +433,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
-	s.reconcilePresentations(ctx)
+	s.reconcilePresentations()
 	s.watchPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
-		s.checkRegistration(ctx)
+		s.checkRegistration()
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
@@ -559,14 +559,12 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 // terminal backend what Snapshot's own read of the registration cannot, so a
 // CFO that moved shows as one state on the board before anyone tries to
 // deliver to it.
-func (s *Service) checkRegistration(ctx context.Context) {
+func (s *Service) checkRegistration() {
 	if s.Options.CFO == nil {
 		return
 	}
-	check, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
 	problem := ""
-	identity, err := s.Options.CFO.examine(check)
+	identity, err := s.Options.CFO.examine()
 	if err != nil {
 		problem = err.Error()
 	}
@@ -719,11 +717,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if !found {
 			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
-		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
-		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO while it was working; it takes the answer when its current turn ends."}, nil
-		}
-		return result, err
+		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
