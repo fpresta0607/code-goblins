@@ -241,7 +241,7 @@ func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
 		notQueued bool
 	}
 	h := s.Store.Home
-	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName)}
+	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json")}
 	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
 		backlog, err := s.backlog()
 		if err != nil {
