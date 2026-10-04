@@ -310,7 +310,7 @@ func (j policyMigrationJournal) validate() error {
 		return errors.New("pipeline: invalid new policy in migration journal")
 	}
 	want, err := pipeline.MigrateSelection(j.Old, j.New.Policy)
-	if err != nil || j.Old.Policy.Version != 1 || j.New.Policy.Version != 2 || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
+	if err != nil || j.Old.Policy.Version >= j.New.Policy.Version || want != j.New || j.Old.Class != j.New.Class || j.Old.ReviewCycles != j.New.ReviewCycles || j.Audit != pipelineMigrationAudit(j.Old, j.New) {
 		return errors.New("pipeline: inconsistent policy migration journal")
 	}
 	return nil

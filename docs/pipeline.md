@@ -8,9 +8,9 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 | Spawn class | Review repair cycles | Reviewer |
 | --- | --- | --- |
-| `ordinary` (default) | 2 | Codex gpt-5.6-sol high |
-| `high-risk` | 3 | Codex gpt-5.6-sol high |
-| `mechanical` | 2 | Codex gpt-5.6-sol high |
+| `ordinary` (default) | 2 | Codex gpt-6.1-sol xhigh |
+| `high-risk` | 3 | Codex gpt-6.1-sol xhigh |
+| `mechanical` | 2 | Codex gpt-6.1-sol xhigh |
 
 Use `cfo spawn <id> ... --class high-risk` for a high-risk task.
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
@@ -18,8 +18,9 @@ Editing the source policy does not change a running task's snapshot, and `cfo sw
 Direct-PR and local-only tasks retain their existing delivery paths.
 Existing tasks without a snapshot are not silently migrated.
 
-Policy v2 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
-The global primary profile defaults to Codex gpt-5.6-sol at high effort.
+Policy v3 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
+The global primary profile defaults to Codex gpt-6.1-sol at xhigh effort.
+Frozen v1 Claude Opus/high and v2 Codex gpt-5.6-sol/high policies remain valid with their original hashes until explicitly migrated.
 Global-only `review_agents.reviewer` and `review_agents.fixer` pin every review and review-fix invocation to that same profile without fallbacks.
 No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
 Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
@@ -43,6 +44,8 @@ cfo pipeline migrate <id>
 
 `config-drift` is read-only and prints owned field names, never their values or unrelated configuration.
 `config-apply` requires a scheduled idle window: the daemon must already be stopped and every durable run must be terminal.
+Native v1.75.1 treats completed, failed, cancelled and ci_monitor_interrupted runs as terminal; pending, running, unknown and NULL statuses still block the window.
+An interrupted CI monitor is not a passed gate and requires no cancellation or database rewrite to establish that it has stopped executing.
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
 The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
@@ -55,7 +58,7 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
 The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
@@ -64,8 +67,9 @@ Spawn never rewrites shared YAML.
 The YAML parser dependency is needed to preserve unrelated configuration structurally; v3.0.1 avoids the old parser's [known panic vulnerability](https://pkg.go.dev/vuln/GO-2022-0603).
 
 Run `config-apply` before migrating any live task snapshot.
-`migrate` requires the applied v2 global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
-It accepts only the reviewed v1-to-v2 transition and preserves the task class and `review_cycles` cap exactly.
+`migrate` requires the applied target-version global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
+It accepts the reviewed v1-to-v2, v1-to-v3 and v2-to-v3 transitions and preserves the task class and `review_cycles` cap exactly.
+The same frozen policy is a no-op; downgrades and invalid snapshots are refused.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
 An interrupted command resumes that journal under the same pipeline, cleanup, metadata, and native idle locks before any pipeline command trusts the snapshot hash.
 The task-scoped metadata lock also serializes `cfo pr check` and `cfo switch`, so neither command can publish a stale whole-record update over the migrated hash.
@@ -135,7 +139,7 @@ After native has already returned clean user-owned custody, the registered ident
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
 After the shared idle apply, migrate each idle legacy task explicitly before starting its next run.
-Newly spawned tasks freeze policy v2 directly.
+Newly spawned tasks freeze policy v3 directly.
 
 ## Verification levels
 
