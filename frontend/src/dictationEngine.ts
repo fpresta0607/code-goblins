@@ -46,8 +46,8 @@ async function decode(recording: Blob): Promise<Sound> {
 
 // recogniseWith has the supervisor recognise a WAV sound, as the board whose
 // token is instance. What the supervisor refuses with is thrown as it wrote it.
-export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayBuffer>) => Promise<string> {
-  return async (sound) => string(object(await request("/api/dictation", undefined, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
+export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string> {
+  return async (sound, signal) => string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
 }
 
 function store(): Storage | null {

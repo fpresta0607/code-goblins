@@ -158,7 +158,9 @@ test("the recognizer hears the one microphone track whose level the waveform sho
 // while the supervisor recognises the sound.
 class SlowRecognizer extends TrackRecognizer {
   stopped = false;
+  abortCount = 0;
   stop() { this.stopped = true; }
+  abort() { this.abortCount++; super.abort(); }
   answer(...finals: string[]) { if (finals.length) this.hear(...finals); this.onend?.(); }
 }
 
@@ -198,6 +200,196 @@ test("a second dictation starts while the first is still being recognised, and b
   assert.deepEqual(heard, ["open the pull request", "and merge it"]);
   assert.deepEqual(listening, [true, false, true, false]);
   assert.equal(mic.opened[1].closed, true);
+});
+
+test("overlapping dictations type in capture order when replies finish in reverse", async () => {
+  for (const count of [2, 3]) {
+    const { subject, mic, heard, listening } = listened(SlowRecognizer);
+    const phrases = ["open the\npull request", "then run the tests", "then commit"].slice(0, count);
+    try {
+      for (let index = 0; index < count; index++) {
+        subject.start();
+        mic.allow();
+        await settle();
+        subject.stop();
+        assert.equal(mic.opened[index].closed, true, "release closes each microphone before any reply");
+      }
+      assert.equal(FakeRecognizer.made.length, count, "the next capture starts while earlier words are pending");
+      assert.deepEqual(listening, Array.from({ length: count }, () => [true, false]).flat());
+      const recognizers = FakeRecognizer.made as SlowRecognizer[];
+      for (let index = count - 1; index > 0; index--) {
+        recognizers[index].answer(phrases[index]);
+        assert.deepEqual(heard, [], "a later reply waits for the earlier capture");
+      }
+      recognizers[0].answer(phrases[0]);
+      const expected = phrases.map((phrase) => phrase.replace(/\s+/g, " "));
+      assert.deepEqual(heard, expected);
+      for (const recognizer of recognizers) recognizer.answer("duplicate\nreply");
+      assert.deepEqual(heard, expected, "late callbacks insert nothing twice");
+      assert.equal(heard.some((text) => /[\r\n]/.test(text)), false, "dictation never presses Enter");
+    } finally {
+      subject.dispose();
+    }
+  }
+});
+
+test("an empty or refused earlier dictation releases later words without typing a gap", () => {
+  const refusal = "Dictation needs 1 GB of free memory and 1 GB of free commit.";
+  for (const gap of ["empty", "refused", "canceled", "silence"]) {
+    const { subject, heard, problems } = dictation(SlowRecognizer);
+    try {
+      subject.start();
+      subject.stop();
+      subject.start();
+      subject.stop();
+      const [first, second] = FakeRecognizer.made;
+      assert.ok(first instanceof SlowRecognizer);
+      assert.ok(second instanceof SlowRecognizer);
+      second.answer("and\nmerge it");
+      assert.deepEqual(heard, []);
+      if (gap === "empty") first.answer();
+      else if (gap === "canceled") first.abort();
+      else first.onerror?.(gap === "refused" ? { error: "supervisor", message: refusal } : { error: "no-speech" });
+      assert.deepEqual(heard, ["and merge it"]);
+      if (gap === "refused") assert.equal(problems.at(-1), refusal);
+      else if (gap === "silence") assert.equal(problems.at(-1), "Nothing was heard.");
+      else assert.deepEqual(problems.filter(Boolean), []);
+      first.answer("late first words");
+      second.answer("duplicate later words");
+      assert.deepEqual(heard, ["and merge it"], "a gap drains later words once");
+    } finally {
+      subject.dispose();
+    }
+  }
+});
+
+test("a recognition deadline aborts the stalled dictation and releases later words once", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const { subject, heard, listening, problems } = dictation(SlowRecognizer);
+  const timeout = "Dictation did not finish within 120 seconds. Its words were not typed.";
+  try {
+    subject.start();
+    const first = FakeRecognizer.made[0];
+    assert.ok(first instanceof SlowRecognizer);
+    context.mock.timers.tick(150_000);
+    assert.equal(first.abortCount, 0, "time spent recording is outside the recognition deadline");
+    subject.stop();
+    context.mock.timers.tick(110_000);
+    subject.start();
+    subject.stop();
+    const second = FakeRecognizer.made[1];
+    assert.ok(second instanceof SlowRecognizer);
+    second.answer("then\nmerge it");
+    subject.start();
+    const current = FakeRecognizer.made[2];
+    assert.ok(current instanceof SlowRecognizer);
+    context.mock.timers.tick(9_999);
+    assert.equal(first.abortCount, 0);
+    assert.deepEqual(heard, []);
+    context.mock.timers.tick(1);
+    assert.equal(first.abortCount, 1);
+    assert.equal(second.abortCount, 0, "a finished later reply is retained while it waits");
+    assert.deepEqual(heard, ["then merge it"]);
+    assert.equal(problems.at(-1), timeout);
+    assert.equal(listening.at(-1), true, "an earlier timeout never closes the current capture");
+    first.answer("too late");
+    second.answer("duplicate");
+    assert.deepEqual(heard, ["then merge it"]);
+    current.hear("current\ncapture");
+    subject.stop();
+    current.answer();
+    assert.deepEqual(heard, ["then merge it", "current capture"]);
+
+    subject.start();
+    subject.stop();
+    const earlier = FakeRecognizer.made[3];
+    assert.ok(earlier instanceof SlowRecognizer);
+    context.mock.timers.tick(10_000);
+    subject.start();
+    subject.stop();
+    const later = FakeRecognizer.made[4];
+    assert.ok(later instanceof SlowRecognizer);
+    subject.start();
+    subject.stop();
+    const last = FakeRecognizer.made[5];
+    assert.ok(last instanceof SlowRecognizer);
+    last.answer("after both gaps");
+    context.mock.timers.tick(109_999);
+    assert.equal(earlier.abortCount, 0);
+    context.mock.timers.tick(1);
+    assert.equal(earlier.abortCount, 1);
+    assert.equal(later.abortCount, 0);
+    assert.deepEqual(heard, ["then merge it", "current capture"]);
+    context.mock.timers.tick(9_999);
+    assert.equal(later.abortCount, 0);
+    context.mock.timers.tick(1);
+    assert.equal(later.abortCount, 1, "the next deadline runs from its own release, without restarting at the queue front");
+    assert.deepEqual(heard, ["then merge it", "current capture", "after both gaps"]);
+    assert.equal(problems.filter((note) => note === timeout).length, 3);
+    earlier.answer("late earlier");
+    later.answer("late later");
+    assert.deepEqual(heard, ["then merge it", "current capture", "after both gaps"]);
+  } finally {
+    subject.dispose();
+    context.mock.timers.reset();
+  }
+});
+
+test("closing the terminal drops queued words and cancels recognition", () => {
+  const { subject, heard, problems } = dictation(SlowRecognizer);
+  subject.start();
+  subject.stop();
+  subject.start();
+  subject.stop();
+  const [first, second] = FakeRecognizer.made;
+  assert.ok(first instanceof SlowRecognizer);
+  assert.ok(second instanceof SlowRecognizer);
+  second.answer("buffered words");
+  assert.deepEqual(heard, []);
+  subject.start();
+  const current = FakeRecognizer.made[2];
+  assert.ok(current instanceof SlowRecognizer);
+  current.hear("unfinished words");
+  subject.dispose();
+  assert.equal(first.abortCount, 1);
+  assert.equal(second.abortCount, 0);
+  assert.equal(current.abortCount, 1);
+  subject.dispose();
+  first.answer("late first");
+  second.answer("late second");
+  current.answer("late current");
+  assert.deepEqual(heard, []);
+  assert.deepEqual(problems.filter(Boolean), []);
+  assert.equal(first.abortCount, 1);
+  assert.equal(current.abortCount, 1);
+});
+
+test("dictation queues belong to separate terminals", () => {
+  const firstPane = dictation(SlowRecognizer);
+  const secondPane = dictation(SlowRecognizer);
+  try {
+    firstPane.subject.start();
+    firstPane.subject.stop();
+    firstPane.subject.start();
+    firstPane.subject.stop();
+    const [first, second] = FakeRecognizer.made;
+    assert.ok(first instanceof SlowRecognizer);
+    assert.ok(second instanceof SlowRecognizer);
+    second.answer("later in the first pane");
+    secondPane.subject.start();
+    secondPane.subject.stop();
+    const other = FakeRecognizer.made[2];
+    assert.ok(other instanceof SlowRecognizer);
+    other.answer("independent pane");
+    assert.deepEqual(firstPane.heard, []);
+    assert.deepEqual(secondPane.heard, ["independent pane"]);
+    first.answer("earlier in the first pane");
+    assert.deepEqual(firstPane.heard, ["earlier in the first pane", "later in the first pane"]);
+    assert.deepEqual(secondPane.heard, ["independent pane"]);
+  } finally {
+    firstPane.subject.dispose();
+    secondPane.subject.dispose();
+  }
 });
 
 test("closing the terminal drops words that are still being recognised", async () => {
