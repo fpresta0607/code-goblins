@@ -1020,12 +1020,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
+		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		lines, _ := s.statusTail(id)
-		reportedAt, report := latestReport(lines, spawnTime(meta.SpawnGen))
+		spawned := spawnTime(meta.SpawnGen)
+		reportedAt, report := latestReport(lines, spawned)
 		decisions := out.Decisions
-		if supersedesQuestion(report) {
+		if !spawned.IsZero() || supersedesQuestion(report) {
 			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
-				return r.Key == id && !r.Time.Truncate(time.Second).After(reportedAt)
+				return r.Key == id && (r.Time.Before(spawned.Truncate(time.Second)) || supersedesQuestion(report) && !r.Time.Truncate(time.Second).After(reportedAt))
 			})
 		}
 		if !linked {
@@ -1033,12 +1035,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		} else if node.Generation != meta.SpawnGen {
 			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
-		if linked && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
+		if linked && node.Generation == meta.SpawnGen && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
-				evaluation = Evaluation{Phase: "working", Reason: "Native activity and runtime evidence agree", At: node.UpdatedAt}
+				evaluation.Phase, evaluation.Reason, evaluation.At = "working", "Native activity and runtime evidence agree", node.UpdatedAt
 			} else {
-				evaluation = Evaluation{Phase: "unavailable", Reason: runtime.Reason + "; independent task evaluation is pending", At: runtime.At}
+				evaluation.Phase, evaluation.Reason, evaluation.At = "unavailable", runtime.Reason+"; independent task evaluation is pending", runtime.At
 			}
+			evaluation.WaitingOn = ""
 		}
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
@@ -1047,13 +1050,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// or the gate holds it or its work already merged. A question it asked
 		// since replaces no such report: once answered, the goblin stands on
 		// it again.
-		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
-		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+		standingAt, standing := standingReport(lines, spawned)
+		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
-		lastReport, _ := taskSessionSummary(lines, spawnTime(meta.SpawnGen))
-		if _, detail, ok := waitingQuestion(decisions, id); ok {
+		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && (reportKind(standing) == "working" || reportKind(standing) == "done") && !runtime.At.Before(standingAt) {
+			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
+				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "idle", runtime.Reason, ""
+			} else if runtime.working() && evaluation.Phase == "review" {
+				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
+			}
+		}
+		activity, pr := statusActivity(lines, spawned)
+		lastReport, _ := taskSessionSummary(lines, spawned)
+		if verb, detail, ok := waitingQuestion(decisions, id); ok {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
 		}
 		if evaluation.PR == "" {
@@ -1103,8 +1114,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	for _, brief := range queuedBriefs(s.Store.Home, briefReader{s.reads.look, s.briefProject}) {
-		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
-		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
+		if _, err := s.queuedTask(brief.ID); errors.Is(err, fleet.ErrNotQueued) {
+			continue
+		}
+		if len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}
