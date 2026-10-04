@@ -117,7 +117,9 @@ func Detect(paneTail string) (Fault, string, bool) {
 // and indented command output. Other fault recognition stays unchanged.
 func codexCapacityRefusal(original, lowered string) (string, bool) {
 	for index, line := range strings.Split(lowered, "\n") {
-		if strings.TrimSpace(line) == "■ selected model is at capacity. please try a different model." {
+		switch strings.TrimSpace(line) {
+		case "■ selected model is at capacity. please try a different model.",
+			"■ error running remote compact task: selected model is at capacity. please try a different model.":
 			return strings.TrimSpace(strings.Split(original, "\n")[index]), true
 		}
 	}
@@ -253,6 +255,7 @@ var quotedLinePrefix = regexp.MustCompile(`^(?:[+-]|[0-9]+[ \t]+[+-]|\S+\.[[:aln
 func redactQuotedLines(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	fenceEnd, toolIndent := -1, -1
+	isToolCommandContext := false
 	for index, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
 		indent := len(line) - len(trimmed)
@@ -268,19 +271,50 @@ func redactQuotedLines(lowered string) string {
 			}
 		}
 		isQuoted := index <= fenceEnd || quotedLinePrefix.MatchString(trimmed)
+		isToolCommand := !isQuoted && (strings.HasPrefix(trimmed, "\u2022 ran ") || strings.HasPrefix(trimmed, "ran "))
 		isToolOutput := strings.HasPrefix(trimmed, "└")
-		if isToolOutput {
+		if isToolCommand {
 			toolIndent = indent + 2
+			isToolCommandContext = true
+		} else if isToolOutput {
+			toolIndent = indent + 2
+			isToolCommandContext = false
 		} else if trimmed == "" || indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0 {
 			toolIndent = -1
+			isToolCommandContext = false
 		}
 		if isToolOutput || toolIndent >= 0 {
-			if _, isThirdParty := thirdPartyFault(line); !isThirdParty {
+			if _, isThirdParty := thirdPartyFault(line); isToolCommandContext || !isThirdParty {
 				isQuoted = true
 			}
 		}
 		if isQuoted {
 			lines[index] = strings.Repeat(" ", len(line))
+			continue
+		}
+		// Only complete same-width inline code spans are blanked; unmatched runs stay evidence.
+		for start := 0; start < len(line); {
+			opening := strings.IndexByte(line[start:], '`')
+			if opening < 0 {
+				break
+			}
+			opening += start
+			width := len(line[opening:]) - len(strings.TrimLeft(line[opening:], "`"))
+			start = opening + width
+			for closing := start; closing < len(line); {
+				marker := strings.IndexByte(line[closing:], '`')
+				if marker < 0 {
+					break
+				}
+				marker += closing
+				closingWidth := len(line[marker:]) - len(strings.TrimLeft(line[marker:], "`"))
+				closing = marker + closingWidth
+				if closingWidth == width {
+					lines[index] = lines[index][:opening] + strings.Repeat(" ", closing-opening) + lines[index][closing:]
+					start = closing
+					break
+				}
+			}
 		}
 	}
 	return strings.Join(lines, "\n")
