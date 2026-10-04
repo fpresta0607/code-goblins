@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/herdr/herdrtest"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -997,12 +999,14 @@ func TestControlViewEndsWhenAGateTakesOverOnItsTick(t *testing.T) {
 
 func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		isExpired bool
-		wantError error
+		name            string
+		isExpired       bool
+		shouldLockEntry bool
+		wantError       error
 	}{
-		{"expired before Git entry", true, context.DeadlineExceeded},
-		{"cancelled after Git entry", false, context.Canceled},
+		{"expired before Git entry", true, false, context.DeadlineExceeded},
+		{"cancelled after Git entry", false, false, context.Canceled},
+		{"cancelled after locked Git entry", false, true, context.Canceled},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -1051,8 +1055,32 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 				}
 			}()
 			if !test.isExpired {
+				readEntry := os.ReadFile
+				isSharingViolationObserved := false
+				if test.shouldLockEntry {
+					readEntry = func(path string) ([]byte, error) {
+						nativePath, err := windows.UTF16PtrFromString(path)
+						if err != nil {
+							return nil, err
+						}
+						handle, err := windows.CreateFile(nativePath, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+						if err != nil {
+							return nil, &os.PathError{Op: "lock Git entry", Path: path, Err: err}
+						}
+						data, err := os.ReadFile(path)
+						if closeErr := windows.CloseHandle(handle); closeErr != nil {
+							t.Fatal(closeErr)
+						}
+						if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+							t.Fatalf("owned locked Git entry read = %v, want a sharing violation", err)
+						}
+						isSharingViolationObserved = true
+						readEntry = os.ReadFile
+						return data, err
+					}
+				}
 				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-					data, err := os.ReadFile(entry)
+					data, err := readEntry(entry)
 					if err == nil {
 						if got := strings.TrimSpace(string(data)); got != "--no-pager -c core.quotepath=false symbolic-ref --short HEAD" {
 							t.Fatalf("Git entry = %q, want the production custody branch read", got)
@@ -1060,12 +1088,15 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 						cancel()
 						break
 					}
-					if !errors.Is(err, os.ErrNotExist) {
+					if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
 						t.Fatal(err)
 					}
 					if time.Now().After(deadline) {
 						t.Fatal("the owned custody Git never recorded entry")
 					}
+				}
+				if test.shouldLockEntry && !isSharingViolationObserved {
+					t.Fatal("the owned Git entry lock was not exercised before cancellation")
 				}
 			}
 			select {
