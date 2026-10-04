@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,6 +81,55 @@ func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 				return a.project == b.project && a.harness == b.harness && slices.Equal(a.args, b.args)
 			}) {
 				t.Fatalf("reopenCFO = %v, started %+v; want %+v", err, starts, tc.want)
+			}
+		})
+	}
+}
+
+func TestReopenReportsTheConversationItActuallyCouldNotResume(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		isResumeHeld bool
+		isStartError bool
+		wantSession  string
+	}{
+		{name: "successful resume clears the old notice", isResumeHeld: true},
+		{name: "new conversation names the failed resume", wantSession: "current-session"},
+		{name: "failed fresh start preserves the old notice", isStartError: true, wantSession: "older-session"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			fixture := newSessionFixture(t)
+			if err := os.WriteFile(cfoHarnessPath(fixture.home.State), []byte("claude\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			recordConversation(t, fixture.home.State, "claude", "current-session", supervisor.NativeCFOTerminal)
+			if err := supervisor.RecordCFOConversationLeft(fixture.home.State, supervisor.CFOConversationLeft{Harness: "claude", Session: "older-session", Resume: []string{"--resume", "older-session"}}); err != nil {
+				t.Fatal(err)
+			}
+			startError := errors.New("fresh start failed")
+			start := func(_ home.Home, _, _ string, args []string) error {
+				if len(args) == 0 && testCase.isStartError {
+					return startError
+				}
+				return nil
+			}
+
+			// Act
+			err := reopenCFO(fixture.home, start, func(string, string) bool { return testCase.isResumeHeld })
+
+			// Assert
+			if testCase.isStartError != errors.Is(err, startError) || !testCase.isStartError && err != nil {
+				t.Fatalf("reopen error=%v, want fresh start error=%v", err, testCase.isStartError)
+			}
+			notice := supervisor.CFOConversationLeftNotice(fixture.home.State)
+			if testCase.wantSession == "" {
+				if notice != "" {
+					t.Fatalf("resumed its current conversation but kept notice %q", notice)
+				}
+			} else if !strings.Contains(notice, "claude --resume "+testCase.wantSession) {
+				t.Fatalf("notice=%q, want the actual retained conversation %s", notice, testCase.wantSession)
 			}
 		})
 	}

@@ -41,12 +41,27 @@ func reopenCFO(h home.Home, start func(h home.Home, project, harness string, arg
 	if err != nil {
 		return err
 	}
-	if resume, _, _ := cfoResume(h, agent); len(resume) > 0 {
-		if held, err := comeBack(h, agent, resume, start, runs); err != nil || held {
+	resume, _, _ := cfoResume(h, agent)
+	if len(resume) > 0 {
+		held, err := comeBack(h, agent, resume, start, runs)
+		if err != nil {
 			return err
 		}
+		if held {
+			supervisor.ClearCFOConversationLeft(h.State)
+			return nil
+		}
 	}
-	return start(h, h.Root, agent, nil)
+	if err := start(h, h.Root, agent, nil); err != nil {
+		return err
+	}
+	if len(resume) > 0 {
+		left := supervisor.CFOConversationLeft{Harness: agent, Session: resume[len(resume)-1], Resume: resume}
+		if err := supervisor.RecordCFOConversationLeft(h.State, left); err != nil {
+			return fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
+		}
+	}
+	return nil
 }
 
 // cfoTranscriptLimit is the size past which a CFO starts a new conversation
