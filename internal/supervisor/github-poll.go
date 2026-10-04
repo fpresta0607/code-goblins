@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ func (r githubPollRunner) Run(ctx context.Context, request execx.Request) (execx
 	if request.Name == "gh" && r.now().Before(r.state.BackOff[r.repo]) {
 		return execx.Result{}, fmt.Errorf("GitHub reads for %s wait out a refusal or exhausted allowance", r.repo)
 	}
+	hasInjectedHeaders := request.Name == "gh" && len(request.Args) > 0 && request.Args[0] == "api" && !slices.Contains(request.Args, "--include") && !slices.Contains(request.Args, "-i")
+	if hasInjectedHeaders {
+		request.Args = append(slices.Clone(request.Args), "--include")
+	}
 	result, err := r.commands.Run(ctx, request)
 	if request.Name == "gh" {
 		if until := githubBackOff(result, r.now()); !until.IsZero() {
@@ -35,6 +40,13 @@ func (r githubPollRunner) Run(ctx context.Context, request execx.Request) (execx
 			}
 			r.state.BackOff[r.repo] = until
 		}
+	}
+	if hasInjectedHeaders && err == nil {
+		_, body, headerErr := githubResponse(result.Stdout)
+		if headerErr != nil {
+			return result, fmt.Errorf("read GitHub response headers: %w", headerErr)
+		}
+		result.Stdout = body
 	}
 	return result, err
 }
