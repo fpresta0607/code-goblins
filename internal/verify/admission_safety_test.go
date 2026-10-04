@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -33,45 +34,56 @@ func TestAdmissionRejectsAnAlreadyCancelledWait(t *testing.T) {
 }
 
 func TestAdmissionKeepsALiveOverdueProcessInCustody(t *testing.T) {
-	// Arrange
-	a := admission(t)
-	holder := exec.Command(os.Args[0])
-	holder.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
-	stdin, err := holder.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := holder.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		stdin.Close()
-		if err := holder.Wait(); err != nil {
-			t.Error(err)
-		}
-	})
-	if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || strings.TrimSpace(line) != "holding" {
-		t.Fatalf("holder: %q, %v", line, err)
-	}
-	before, err := lock.ReadNamed(a.Dir, "slot-1")
-	if err != nil || !before.VerifiedAlive() {
-		t.Fatalf("holder custody was not proved: %+v, %v", before, err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
-	defer cancel()
+	for _, capacity := range []int{1, 2} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			// Arrange
+			a := admissionWithCapacity(t, capacity)
+			holder := exec.Command(os.Args[0])
+			holder.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
+			stdin, err := holder.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := holder.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := holder.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				stdin.Close()
+				if err := holder.Wait(); err != nil {
+					t.Error(err)
+				}
+			})
+			if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || strings.TrimSpace(line) != "holding" {
+				t.Fatalf("holder: %q, %v", line, err)
+			}
+			before, err := lock.ReadNamed(a.Dir, "slot-1")
+			if err != nil || !before.VerifiedAlive() {
+				t.Fatalf("holder custody was not proved: %+v, %v", before, err)
+			}
+			if capacity == 2 {
+				second, err := a.Wait(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer second.Release()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+			defer cancel()
 
-	// Act
-	turn, err := a.Wait(ctx)
-	defer turn.Release()
+			// Act
+			turn, err := a.Wait(ctx)
+			defer turn.Release()
 
-	// Assert
-	after, readErr := lock.ReadNamed(a.Dir, "slot-1")
-	if !errors.Is(err, context.DeadlineExceeded) || turn.release != nil || readErr != nil || *after != *before || !after.VerifiedAlive() {
-		t.Fatalf("a live overdue holder lost custody: turn=%+v err=%v holder=%+v read=%v", turn, err, after, readErr)
+			// Assert
+			after, readErr := lock.ReadNamed(a.Dir, "slot-1")
+			if !errors.Is(err, context.DeadlineExceeded) || turn.release != nil || readErr != nil || *after != *before || !after.VerifiedAlive() {
+				t.Fatalf("a live overdue holder lost custody: turn=%+v err=%v holder=%+v read=%v", turn, err, after, readErr)
+			}
+		})
 	}
 }
 
@@ -247,8 +259,9 @@ func TestAnOldTurnCannotReleaseTheNextTurnOfTheSameProcess(t *testing.T) {
 
 func TestAdmissionRejectsAnUnsupportedSharedCapacity(t *testing.T) {
 	for name, data := range map[string]string{
-		"zero": `{"capacity":0}`, "two": `{"capacity":2}`, "string": `{"capacity":"1"}`,
+		"zero": `{"capacity":0}`, "three": `{"capacity":3}`, "string": `{"capacity":"1"}`,
 		"missing": `{}`, "unknown": `{"capacity":1,"other":1}`, "duplicate": `{"capacity":1,"capacity":1}`, "trailing": `{"capacity":1}{}`, "broken": `{`, "null": `{"capacity":null}`,
+		"two_unknown": `{"capacity":2,"other":1}`, "two_duplicate": `{"capacity":2,"capacity":2}`, "two_trailing": `{"capacity":2}{}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -406,85 +419,96 @@ func TestAdmissionCancellationPreservesTheHolderAndOtherWaiters(t *testing.T) {
 	within(t, waiting, "the surviving waiter after release").Release()
 }
 
-func TestAdmissionKeepsCrossProcessFIFOAndCapacityOne(t *testing.T) {
-	// Arrange
-	a := admission(t)
-	holder, err := a.Wait(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer holder.Release()
-	type child struct {
-		process *exec.Cmd
-		stdin   io.WriteCloser
-		output  <-chan string
-	}
-	var children []child
-	t.Cleanup(func() {
-		for _, child := range children {
-			child.stdin.Close()
-		}
-		for _, child := range children {
-			child.process.Wait()
-		}
-	})
-	for index := range 2 {
-		process := exec.Command(os.Args[0])
-		process.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
-		stdin, err := process.StdinPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-		stdout, err := process.StdoutPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := process.Start(); err != nil {
-			t.Fatal(err)
-		}
-		output := make(chan string, 1)
-		go func() { line, _ := bufio.NewReader(stdout).ReadString('\n'); output <- strings.TrimSpace(line) }()
-		children = append(children, child{process, stdin, output})
-		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-			_, waiting, err := Line(a.Dir)
-			if err == nil && len(waiting) == index+1 {
-				break
+func TestAdmissionKeepsCrossProcessFIFOAndSharedCapacity(t *testing.T) {
+	for _, capacity := range []int{1, 2} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			// Arrange
+			a := admissionWithCapacity(t, capacity)
+			holder, err := a.Wait(context.Background())
+			if err != nil {
+				t.Fatal(err)
 			}
-			if time.Now().After(deadline) {
-				t.Fatalf("child %d did not join: %+v %v", index, waiting, err)
+			defer holder.Release()
+			if capacity == 2 {
+				second, err := a.Wait(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer second.Release()
 			}
-		}
-	}
+			type child struct {
+				process *exec.Cmd
+				stdin   io.WriteCloser
+				output  <-chan string
+			}
+			var children []child
+			t.Cleanup(func() {
+				for _, child := range children {
+					child.stdin.Close()
+				}
+				for _, child := range children {
+					child.process.Wait()
+				}
+			})
+			for index := range 2 {
+				process := exec.Command(os.Args[0])
+				process.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
+				stdin, err := process.StdinPipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				stdout, err := process.StdoutPipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := process.Start(); err != nil {
+					t.Fatal(err)
+				}
+				output := make(chan string, 1)
+				go func() { line, _ := bufio.NewReader(stdout).ReadString('\n'); output <- strings.TrimSpace(line) }()
+				children = append(children, child{process, stdin, output})
+				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+					_, waiting, err := Line(a.Dir)
+					if err == nil && len(waiting) == index+1 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("child %d did not join: %+v %v", index, waiting, err)
+					}
+				}
+			}
 
-	// Act
-	holder.Release()
+			// Act
+			holder.Release()
 
-	// Assert
-	select {
-	case line := <-children[0].output:
-		if line != "holding" {
-			t.Fatalf("first child: %s", line)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("first child did not take its turn")
+			// Assert
+			select {
+			case line := <-children[0].output:
+				if line != "holding" {
+					t.Fatalf("first child: %s", line)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("first child did not take its turn")
+			}
+			select {
+			case line := <-children[1].output:
+				t.Fatalf("second child overtook the first: %s", line)
+			case <-time.After(250 * time.Millisecond):
+			}
+			holding, waiting, err := Line(a.Dir)
+			if err != nil || len(holding) != capacity || holding[0].PID != children[0].process.Process.Pid || len(waiting) != 1 || waiting[0].PID != children[1].process.Process.Pid {
+				t.Fatalf("cross-process capacity or FIFO changed: %+v %+v %v", holding, waiting, err)
+			}
+			children[0].stdin.Close()
+			select {
+			case line := <-children[1].output:
+				if line != "holding" {
+					t.Fatalf("second child: %s", line)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("second child did not take its turn after release")
+			}
+			children[1].stdin.Close()
+		})
 	}
-	select {
-	case line := <-children[1].output:
-		t.Fatalf("second child overtook the first: %s", line)
-	case <-time.After(250 * time.Millisecond):
-	}
-	holding, waiting, err := Line(a.Dir)
-	if err != nil || len(holding) != 1 || holding[0].PID != children[0].process.Process.Pid || len(waiting) != 1 || waiting[0].PID != children[1].process.Process.Pid {
-		t.Fatalf("cross-process capacity or FIFO changed: %+v %+v %v", holding, waiting, err)
-	}
-	children[0].stdin.Close()
-	select {
-	case line := <-children[1].output:
-		if line != "holding" {
-			t.Fatalf("second child: %s", line)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("second child did not take its turn after release")
-	}
-	children[1].stdin.Close()
 }
