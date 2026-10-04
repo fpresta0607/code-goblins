@@ -601,6 +601,7 @@ cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verifie
 cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report
 cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
 cfo cleanup <id>
+cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo drain
 cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>]
