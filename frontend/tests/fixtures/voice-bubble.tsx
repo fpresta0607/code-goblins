@@ -11,11 +11,11 @@ import "../../src/styles.css";
 function Pane({ pane, label, shown }: { pane: string; label: string; shown: boolean }) {
   const voice = useVoice(pane);
   const [typed, setTyped] = useState<string[]>([]);
-  const dictation = useDictation((text) => { setTyped((prior) => [...prior, text]); voice.remember(text); });
+  const dictation = useDictation((text) => { setTyped((prior) => [...prior, text]); voice.remember(text); }, "test-instance");
   return <main style={{ display: shown ? "flex" : "none", flexDirection: "column", height: 760 }}>
     <section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
-      <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
+      <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
       {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
     </section>
     <output aria-label="Typed">{typed.join("\n")}</output>
