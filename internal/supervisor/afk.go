@@ -228,7 +228,7 @@ func (s *Service) cfoAtHisAsk(ctx context.Context, pid int, connected time.Time)
 	case s.Options.CFO == nil:
 		return refuse("this supervisor cannot verify the CFO")
 	}
-	_, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	_, release, err := s.Options.CFO.identityOf(pid, connected)
 	if err != nil {
 		return refuse("the supervisor could not prove the process that asked for it with his words is the registered CFO's (" + err.Error() + ")")
 	}

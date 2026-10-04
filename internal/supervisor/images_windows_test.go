@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http/httptest"
 	"path/filepath"
@@ -48,14 +47,14 @@ func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	meta, record, _, connection := goblinFixture(t, store)
+	meta, record, _, _ := goblinFixture(t, store)
 	data := writePNG(t, filepath.Join(long, "a.png"))
 	paths := []string{filepath.Join(short, "a.png"), filepath.Join(long, "a.png"), filepath.Join(mixed, "a.png")}
 	images, err := ReviewImages(h, meta.ID, paths)
 	if err != nil {
 		t.Fatalf("an image under the task's own worktree refused: %v", err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, record.Detail, images); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, images); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
