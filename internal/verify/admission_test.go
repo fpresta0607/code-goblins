@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 	if dir == "" {
 		os.Exit(m.Run())
 	}
-	holder := Admission{Dir: dir, Slots: 1, Who: "a run that hangs", Budget: 200 * time.Millisecond, Limit: time.Minute, Poll: 5 * time.Millisecond}
+	holder := Admission{Dir: dir, Floor: 4 * gigabyte, Available: func() (uint64, error) { return 16 * gigabyte, nil }, Who: "a run that hangs", Budget: 200 * time.Millisecond, Limit: time.Minute, Poll: 5 * time.Millisecond}
 	turn, err := holder.Wait(context.Background())
 	if err != nil {
 		fmt.Println("failed:", err)
@@ -41,11 +41,10 @@ func TestMain(m *testing.M) {
 
 // admission takes turns in a folder of the test's own, on a machine with
 // plenty of memory, under a budget no test reaches by accident.
-func admission(t *testing.T, slots int) Admission {
+func admission(t *testing.T) Admission {
 	t.Helper()
 	return Admission{
 		Dir:       t.TempDir(),
-		Slots:     slots,
 		Floor:     4 * gigabyte,
 		Available: func() (uint64, error) { return 16 * gigabyte, nil },
 		Who:       "a test's run",
@@ -152,26 +151,24 @@ func (s *said) waits(t *testing.T, taken <-chan Turn, what string) string {
 // back.
 func TestARunWaitsForAFreeSlotAndTakesTheOneGivenBack(t *testing.T) {
 	// Arrange
-	a := admission(t, 2)
+	a := admission(t)
 	first := within(t, take(t, a), "the first run")
-	second := within(t, take(t, a), "the second run")
-	defer second.Release()
 	var waiter said
 	a.Waiting = waiter.waiting
 
 	// Act
-	third := take(t, a)
-	waiter.waits(t, third, "a third run, while two runs held both slots,")
+	second := take(t, a)
+	waiter.waits(t, second, "a second run, while the first held the slot,")
 	waiting := time.Now()
 
 	// Assert
-	notYet(t, third, "a third run, while two runs held both slots,")
+	notYet(t, second, "a second run, while the first held the slot,")
 	heldBack := time.Since(waiting)
 	first.Release()
-	turn := within(t, third, "the third run, after the first gave its slot back")
+	turn := within(t, second, "the second run, after the first gave its slot back")
 	defer turn.Release()
 	if turn.Waited < heldBack || turn.Note != "" {
-		t.Errorf("the third run's turn is %+v; want a wait of at least the %s it was held back and nothing to note", turn, heldBack)
+		t.Errorf("the second run's turn is %+v; want a wait of at least the %s it was held back and nothing to note", turn, heldBack)
 	}
 }
 
@@ -180,7 +177,7 @@ func TestARunWaitsForAFreeSlotAndTakesTheOneGivenBack(t *testing.T) {
 // one of the six gets its turn as the holders leave.
 func TestRunsAskingAtOnceNeverHoldMoreTurnsThanThereAreSlots(t *testing.T) {
 	// Arrange
-	a := admission(t, 2)
+	a := admission(t)
 	// A run says it is next in line only once it has tried to take a turn and
 	// found none it could take, so the store then shows every turn there is
 	// to hold, with no wait for the clock.
@@ -233,8 +230,8 @@ func TestRunsAskingAtOnceNeverHoldMoreTurnsThanThereAreSlots(t *testing.T) {
 	runs.Wait()
 
 	// Assert
-	if err != nil || len(holding) != 2 || finished.Load() != 6 {
-		t.Errorf("%d run(s) held a turn (%v) when the next in line was turned away, and %d of 6 had one in the end; want 2 and all 6", len(holding), err, finished.Load())
+	if err != nil || len(holding) != 1 || finished.Load() != 6 {
+		t.Errorf("%d run(s) held a turn (%v) when the next in line was turned away, and %d of 6 had one in the end; want 1 and all 6", len(holding), err, finished.Load())
 	}
 }
 
@@ -242,7 +239,7 @@ func TestRunsAskingAtOnceNeverHoldMoreTurnsThanThereAreSlots(t *testing.T) {
 // longest goes next, and the one behind it is told a run is ahead of it.
 func TestRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	var early, late said
 	a.Waiting = early.waiting
@@ -269,7 +266,7 @@ func TestRunsTakeTheirTurnsInTheOrderTheyAsked(t *testing.T) {
 // shows it moving up: one run ahead of it, then next in line.
 func TestAWaitingRunSaysWhenItsPlaceInLineChanges(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	var early, late said
 	a.Waiting = early.waiting
@@ -295,7 +292,7 @@ func TestAWaitingRunSaysWhenItsPlaceInLineChanges(t *testing.T) {
 // against what budget, so whoever reads the line can see what it is behind.
 func TestAWaitingRunSaysWhoHoldsTheTurnAndForHowLong(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Who = "code-goblins at 0123abcd, affected level"
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
@@ -318,7 +315,7 @@ func TestAWaitingRunSaysWhoHoldsTheTurnAndForHowLong(t *testing.T) {
 // memory is there.
 func TestARunWaitsWhileMemoryIsUnderTheFloor(t *testing.T) {
 	// Arrange
-	a := admission(t, 2)
+	a := admission(t)
 	var available atomic.Uint64
 	available.Store(4*gigabyte - 1)
 	a.Available = func() (uint64, error) { return available.Load(), nil }
@@ -346,7 +343,7 @@ func TestARunWaitsWhileMemoryIsUnderTheFloor(t *testing.T) {
 // waits for both and says both: who holds the turn, and what memory there is.
 func TestAWaitingRunSaysBothWhoHoldsTheTurnAndThatMemoryIsShort(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Who = "the holder"
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
@@ -364,11 +361,10 @@ func TestAWaitingRunSaysBothWhoHoldsTheTurnAndThatMemoryIsShort(t *testing.T) {
 	}
 }
 
-// A run that has waited its limit for memory goes on under the floor, holds
-// its turn like any other, and says that it ran short of memory.
-func TestARunGoesOnUnderTheFloorOnceItHasWaitedItsLimit(t *testing.T) {
+// An expired floor wait refuses admission and leaves the next run its place.
+func TestARunRefusesTheFloorAfterItsWaitLimit(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Available = func() (uint64, error) { return 1 * gigabyte, nil }
 	a.Limit = 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -378,28 +374,20 @@ func TestARunGoesOnUnderTheFloorOnceItHasWaitedItsLimit(t *testing.T) {
 	turn, err := a.Wait(ctx)
 
 	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer turn.Release()
-	if want := "it runs although 1.0 GB of memory is available and the floor is 4.0 GB, after waiting "; turn.Waited < 100*time.Millisecond || !strings.HasPrefix(turn.Note, want) {
-		t.Errorf("the turn is %+v; want a wait of at least the 100ms limit and a note starting %q", turn, want)
+	if err == nil || turn.release != nil || turn.Waited < a.Limit {
+		t.Fatalf("expired floor returned %+v, %v; want no turn and the recorded wait", turn, err)
 	}
 	a.Available = func() (uint64, error) { return 16 * gigabyte, nil }
-	var waiter said
-	a.Waiting = waiter.waiting
-	second := take(t, a)
-	waiter.waits(t, second, "a second run, while the first held the only slot,")
-	notYet(t, second, "a second run, while the first held the only slot,")
+	within(t, take(t, a), "the next run, after the expired waiter left").Release()
 }
 
 // The limit is on the wait for memory, not on the time in line: a run that
 // stood behind a holder for longer than its limit, and finds memory short as
-// the turn comes free, still waits its limit for memory, and its note says
-// how long it waited for memory, not how long it stood in line.
+// the turn comes free, still waits its limit for memory before refusing it.
 func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	var available atomic.Uint64
 	available.Store(16 * gigabyte)
@@ -407,40 +395,44 @@ func TestARunThatStoodInLinePastItsLimitStillWaitsForMemory(t *testing.T) {
 	a.Limit = 500 * time.Millisecond
 	var waiter said
 	a.Waiting = waiter.waiting
-	waiting := take(t, a)
-	waiter.waits(t, waiting, "a run behind the holder")
-	// Long enough that the time in line and the wait for memory round to
-	// different seconds in the note.
-	time.Sleep(1600 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ended := make(chan struct {
+		turn Turn
+		err  error
+	}, 1)
+	go func() {
+		turn, err := a.Wait(ctx)
+		ended <- struct {
+			turn Turn
+			err  error
+		}{turn, err}
+	}()
+	if len(waiter.atLeast(t, 1)) == 0 {
+		t.Fatal("the waiter never joined the line")
+	}
+	time.Sleep(600 * time.Millisecond)
 
 	// Act
 	short := time.Now()
 	available.Store(1 * gigabyte)
 	holder.Release()
-	turn := within(t, waiting, "the run, once it had waited its limit for memory")
+	got := <-ended
 	forMemory := time.Since(short)
 
 	// Assert
-	defer turn.Release()
-	if forMemory < a.Limit {
-		t.Errorf("the run took its turn %s after memory fell short; want it to wait the %s limit for memory first", forMemory, a.Limit)
-	}
-	prefix, suffix := "it runs although 1.0 GB of memory is available and the floor is 4.0 GB, after waiting ", " for it"
-	if !strings.HasPrefix(turn.Note, prefix) || !strings.HasSuffix(turn.Note, suffix) {
-		t.Fatalf("the turn notes %q; want %q, how long, then %q", turn.Note, prefix, suffix)
-	}
-	noted, err := time.ParseDuration(strings.TrimSuffix(strings.TrimPrefix(turn.Note, prefix), suffix))
-	if longest := forMemory.Truncate(time.Second) + time.Second; err != nil || noted > longest {
-		t.Errorf("the turn notes a wait of %s for memory (%v); want no more than the %s since memory fell short, whatever the %s the run waited in all", noted, err, longest, turn.Waited)
+	defer got.turn.Release()
+	if got.err == nil || got.turn.release != nil || forMemory < a.Limit || ctx.Err() != nil || got.turn.Waited < forMemory {
+		t.Errorf("floor wait returned %+v, %v after %s; want refusal only after %s of floor waiting", got.turn, got.err, forMemory, a.Limit)
 	}
 }
 
 // The note says how the turn was taken, not what the run saw while it waited:
-// a run past its limit for memory behind a holder, which takes its turn only
+// a run short of memory behind a holder, which takes its turn only
 // once memory is back and the holder has left, has nothing to note.
 func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	var available atomic.Uint64
 	available.Store(1 * gigabyte)
@@ -449,13 +441,13 @@ func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
 		readings.Add(1)
 		return available.Load(), nil
 	}
-	a.Limit = 50 * time.Millisecond
+	a.Limit = time.Second
 	var waiter said
 	a.Waiting = waiter.waiting
 	waiting := take(t, a)
 	waiter.waits(t, waiting, "a run short of memory behind the holder")
 	time.Sleep(200 * time.Millisecond)
-	notYet(t, waiting, "a run past its limit for memory, while the holder had the turn,")
+	notYet(t, waiting, "a run short of memory, while the holder had the turn,")
 
 	// Act
 	available.Store(16 * gigabyte)
@@ -481,7 +473,7 @@ func TestARunThatTakesItsTurnWithMemoryBackNotesNoShortage(t *testing.T) {
 // waits behind a holder, it gets the error and the time it had waited.
 func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
 	var waiter said
@@ -536,7 +528,7 @@ func TestARunWhoseWaitFailsStillSaysHowLongItWaited(t *testing.T) {
 // takes the slot over once the holder's process is gone.
 func TestARunTakesTheSlotOfARunThatIsGone(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	hostname, err := os.Hostname()
 	if err != nil {
 		t.Fatal(err)
@@ -559,12 +551,10 @@ func TestARunTakesTheSlotOfARunThatIsGone(t *testing.T) {
 	}
 }
 
-// A holder that hangs cannot stop the line for ever: once it has held its
-// turn longer than its own budget, the next run takes the turn, says whose
-// it took, and keeps it when the hung holder finally lets go.
-func TestARunTakesTheTurnOfAHolderPastItsOwnBudget(t *testing.T) {
+// A live overdue owner holds its slot until its checks actually finish.
+func TestARunWaitsForAnOverdueHolderToFinish(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Who = "the next run"
 	hung := exec.Command(os.Args[0])
 	hung.Env = append(os.Environ(), "VERIFY_TEST_HOLD_DIR="+a.Dir)
@@ -579,26 +569,36 @@ func TestARunTakesTheTurnOfAHolderPastItsOwnBudget(t *testing.T) {
 	if err := hung.Start(); err != nil {
 		t.Fatal(err)
 	}
+	hasEnded := false
 	t.Cleanup(func() {
 		stdin.Close()
-		hung.Wait()
+		if !hasEnded {
+			hung.Wait()
+		}
 	})
 	if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || strings.TrimSpace(line) != "holding" {
 		t.Fatalf("the hung run said %q, %v; want holding", line, err)
 	}
 
 	// Act
-	turn := within(t, take(t, a), "the run behind a holder past its 200ms budget")
+	var waiter said
+	a.Waiting = waiter.waiting
+	waiting := take(t, a)
+	waiter.waits(t, waiting, "the run behind a live holder")
+	time.Sleep(250 * time.Millisecond)
+	notYet(t, waiting, "the run behind a holder past its 200ms budget")
+	stdin.Close()
+	err = hung.Wait()
+	hasEnded = true
+	if err != nil {
+		t.Fatalf("the holder ended with %v", err)
+	}
+	turn := within(t, waiting, "the run, after the holder finished")
 
 	// Assert
 	defer turn.Release()
-	prefix := fmt.Sprintf("it took the turn from a run that hangs (pid %d), which had held it for ", hung.Process.Pid)
-	if suffix := " against a budget of 200ms and still runs"; !strings.HasPrefix(turn.Note, prefix) || !strings.HasSuffix(turn.Note, suffix) {
-		t.Errorf("the turn notes %q; want %q, how long, then %q", turn.Note, prefix, suffix)
-	}
-	stdin.Close()
-	if err := hung.Wait(); err != nil {
-		t.Fatalf("the hung run ended with %v", err)
+	if turn.Note != "" {
+		t.Errorf("the turn notes %q; want a normal turn after the owner finished", turn.Note)
 	}
 	holding, _, err := Line(a.Dir)
 	if err != nil || len(holding) != 1 || holding[0].Who != "the next run" || holding[0].PID != os.Getpid() {
@@ -611,11 +611,11 @@ func TestARunTakesTheTurnOfAHolderPastItsOwnBudget(t *testing.T) {
 // has had the turn, and says who holds it without a budget.
 func TestAHolderWithNoBudgetOnRecordKeepsItsTurn(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Budget = 0
 	// A record from another machine cannot be checked, so its run counts as
 	// still holding the turn.
-	record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Acquired: time.Now().Add(-2 * time.Hour)})
+	record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Start: time.Now().Add(-3 * time.Hour), Acquired: time.Now().Add(-2 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,12 +636,10 @@ func TestAHolderWithNoBudgetOnRecordKeepsItsTurn(t *testing.T) {
 	}
 }
 
-// A record in the line that no run can read, left by a run that died while it
-// wrote it, does not hold the line for ever: once it has been unreadable for
-// longer than a write takes, the next run removes it and takes its turn.
-func TestAnUnreadableRecordLeftInTheLineDoesNotHoldItForEver(t *testing.T) {
+// An unreadable old record retains its place until custody is resolved.
+func TestAnUnreadableRecordInTheLineKeepsItsPlace(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
 		t.Fatal(err)
@@ -656,12 +654,15 @@ func TestAnUnreadableRecordLeftInTheLineDoesNotHoldItForEver(t *testing.T) {
 	}
 
 	// Act
-	turn := within(t, take(t, a), "the run behind a record no run can read")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	turn, err := a.Wait(ctx)
 
 	// Assert
 	defer turn.Release()
-	if _, err := os.Stat(left); !os.IsNotExist(err) {
-		t.Errorf("the unreadable record is still in the line (%v); want it removed", err)
+	kept, readErr := os.ReadFile(left)
+	if err == nil || turn.release != nil || readErr != nil || len(kept) != 0 {
+		t.Errorf("unreadable custody was lost or admitted: turn=%+v err=%v kept=%q read=%v", turn, err, kept, readErr)
 	}
 }
 
@@ -669,7 +670,7 @@ func TestAnUnreadableRecordLeftInTheLineDoesNotHoldItForEver(t *testing.T) {
 // moment, keeps its place in the line.
 func TestARecordBeingWrittenKeepsItsPlaceInTheLine(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
 		t.Fatal(err)
@@ -695,7 +696,7 @@ func TestARecordBeingWrittenKeepsItsPlaceInTheLine(t *testing.T) {
 // it do not wait for a run that will never take its turn.
 func TestACancelledRunLeavesTheLine(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -715,7 +716,7 @@ func TestACancelledRunLeavesTheLine(t *testing.T) {
 // under what budget, and who waits, in the order they asked.
 func TestLineNamesTheHolderAndTheWaitingRunsInOrder(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	a.Who = "the holder"
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
@@ -753,7 +754,7 @@ func TestLineListsWaitingRunsByTheirPlaceInLine(t *testing.T) {
 	// still waiting.
 	now := time.Now()
 	for place, written := range map[string]time.Time{"00000000000000000001-10-1": now, "00000000000000000002-11-1": now.Add(-time.Minute)} {
-		record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Acquired: written})
+		record, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Start: time.Now().Add(-3 * time.Hour), Acquired: written})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -777,7 +778,7 @@ func TestLineListsWaitingRunsByTheirPlaceInLine(t *testing.T) {
 // shows in the line, as a run that did not name itself, with no budget.
 func TestLineShowsAHolderWithoutACardAsUnnamed(t *testing.T) {
 	// Arrange
-	a := admission(t, 1)
+	a := admission(t)
 	holder := within(t, take(t, a), "the holder")
 	defer holder.Release()
 	if err := os.Remove(filepath.Join(a.Dir, "slot-1.run")); err != nil {

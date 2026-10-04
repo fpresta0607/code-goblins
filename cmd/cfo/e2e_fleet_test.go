@@ -39,7 +39,6 @@ func TestFleetEndToEnd(t *testing.T) {
 		fixture.Seed(harness)
 	}
 	fixture.AssertTaskMetadataIsIsolated()
-	fixture.SendAndPeek("claude")
 
 	// These direct monitor.Service scans prove the deterministic state-machine
 	// boundary only. They do not claim that cfo watch wires a real Herdr prober;
@@ -229,12 +228,10 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 		now:     time.Now().UTC().Truncate(time.Second),
 	}
 	fixture.runner = &fleetE2ERunner{
-		fixture:        fixture,
-		tabs:           make(map[string]fleetE2ETab),
-		busy:           make(map[string]herdr.BusyState),
-		missing:        make(map[string]bool),
-		prompts:        make(map[string][]string),
-		stateChangeSeq: make(map[string]int64),
+		fixture: fixture,
+		tabs:    make(map[string]fleetE2ETab),
+		busy:    make(map[string]herdr.BusyState),
+		missing: make(map[string]bool),
 	}
 	fixture.git = &fleetE2EGit{fixture: fixture}
 	fixture.client = &herdr.Client{
@@ -245,9 +242,6 @@ func newFleetE2EFixture(t *testing.T) *fleetE2EFixture {
 	fixture.prober = &fleetE2EProber{fixture: fixture, calls: make(map[string]int)}
 	fixture.runtime = commandRuntime{
 		resolveHome: func() (home.Home, error) { return fixture.home, nil },
-		sendText:    fixture.sendText,
-		sendKey:     fixture.sendKey,
-		peek:        fixture.peek,
 		snapshot:    fixture.snapshot,
 	}
 	// cfo drain intentionally resolves its own home. This test never runs in
@@ -341,35 +335,6 @@ func (f *fleetE2EFixture) AssertTaskMetadataIsIsolated() {
 	}
 	if info, statErr := os.Stat(f.project); statErr != nil || !info.IsDir() {
 		f.t.Fatalf("ambiguous return changed primary project: %v", statErr)
-	}
-}
-
-func (f *fleetE2EFixture) SendAndPeek(id string) {
-	f.t.Helper()
-	stdout, stderr := runFleetCommand(f.t, f.runtime, "send", "gb-"+id, "print", "the", "acceptance", "marker")
-	if stdout != "sent gb-"+id+"\n" || stderr != "" {
-		f.t.Fatalf("send stdout=%q stderr=%q", stdout, stderr)
-	}
-	// The message travels the native agent channel, so it is pinned on the
-	// prompt rather than on typed pane text. Nothing is typed into the
-	// composer any more, which is the point: a harness that collapses a paste
-	// renders nothing to read back, and a message the CFO believed was
-	// delivered would be silently lost.
-	var delivered int
-	for _, prompts := range f.runner.prompts {
-		for _, prompt := range prompts {
-			if prompt == fleet.Stamp("print the acceptance marker") {
-				delivered++
-			}
-		}
-	}
-	if delivered != 1 {
-		f.t.Fatalf("message submitted %d times, want exactly one native prompt; prompts=%v", delivered, f.runner.prompts)
-	}
-
-	stdout, stderr = runFleetCommand(f.t, f.runtime, "peek", "gb-"+id, "5")
-	if stderr != "" || !strings.Contains(stdout, "acceptance marker") {
-		f.t.Fatalf("peek stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
@@ -573,22 +538,6 @@ func (f *fleetE2EFixture) AssertVisibleTabsAndNoLifecycleDeletes() {
 	}
 }
 
-func (f *fleetE2EFixture) sendText(ctx context.Context, h home.Home, target, text string) error {
-	return fleet.Sender{
-		Resolve:  fleet.Resolver{StateDir: h.State},
-		Terminal: f.client,
-		Sleep:    noWait,
-	}.Text(ctx, target, text)
-}
-
-func (f *fleetE2EFixture) sendKey(ctx context.Context, h home.Home, target, key string) error {
-	return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: f.client}.Key(ctx, target, key)
-}
-
-func (f *fleetE2EFixture) peek(ctx context.Context, h home.Home, target string, lines int) (string, error) {
-	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: f.client}.Tail(ctx, target, lines)
-}
-
 func (f *fleetE2EFixture) snapshot(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 	return fleet.BuildSnapshot(ctx, h, fleetE2EEndpoint{fixture: f})
 }
@@ -629,15 +578,7 @@ type fleetE2ERunner struct {
 	tabs      map[string]fleetE2ETab
 	busy      map[string]herdr.BusyState
 	missing   map[string]bool
-	lastText  string
 	requests  []execx.Request
-	// prompts and stateChangeSeq model what Herdr 0.9.0 reports for a
-	// registered agent: the monotonic counters advance ONLY for a pane whose
-	// agent actually accepted a prompt. A fake that advanced them
-	// unconditionally would report every launch as delivered, including one
-	// where the instruction was never submitted.
-	prompts        map[string][]string
-	stateChangeSeq map[string]int64
 }
 
 type fleetE2ETab struct {
@@ -691,30 +632,6 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, fmt.Errorf("pane get is missing pane: %v", args)
 		}
 		return resultEnvelope(map[string]any{"pane": map[string]string{"pane_id": args[2]}}), nil
-	case matches(args, "pane", "send-text"):
-		if len(args) < 4 {
-			return execx.Result{}, fmt.Errorf("pane send-text is incomplete: %v", args)
-		}
-		r.lastText = args[3]
-		return resultEnvelope(map[string]any{}), nil
-	case matches(args, "pane", "send-keys"):
-		return resultEnvelope(map[string]any{}), nil
-	case matches(args, "pane", "read"):
-		if hasArgument(args, "--format") {
-			return result(strings.Repeat("terminal line\n", 199) + "❯\n"), nil
-		}
-		// A prompt the agent accepted shows up in the pane transcript, which
-		// is what a later peek reads. Verified against live herdr 0.9.0: the
-		// submitted text appears in full, with no placeholder.
-		if len(args) >= 3 {
-			if prompts := r.prompts[args[2]]; len(prompts) > 0 {
-				return result(prompts[len(prompts)-1] + "\n"), nil
-			}
-		}
-		if r.lastText != "" {
-			return result(r.lastText + "\n"), nil
-		}
-		return result(strings.Repeat("terminal line\n", 199) + "acceptance marker\n"), nil
 	case matches(args, "tab", "close"):
 		// A closed tab is gone, so a later task can take its label back.
 		if len(args) >= 3 {
@@ -725,27 +642,6 @@ func (r *fleetE2ERunner) Run(_ context.Context, request execx.Request) (execx.Re
 			}
 		}
 		return resultEnvelope(map[string]any{}), nil
-	case matches(args, "agent", "get"):
-		if len(args) < 3 {
-			return execx.Result{}, fmt.Errorf("agent get is missing pane: %v", args)
-		}
-		pane := args[2]
-		// The counters move only for a pane whose agent accepted a prompt.
-		if len(r.prompts[pane]) > 0 {
-			r.stateChangeSeq[pane]++
-		}
-		return resultEnvelope(map[string]any{"agent": map[string]any{
-			"agent":            "claude",
-			"agent_status":     "working",
-			"state_change_seq": r.stateChangeSeq[pane],
-			"revision":         r.stateChangeSeq[pane],
-		}}), nil
-	case matches(args, "agent", "prompt"):
-		if len(args) < 4 {
-			return execx.Result{}, fmt.Errorf("agent prompt is incomplete: %v", args)
-		}
-		r.prompts[args[2]] = append(r.prompts[args[2]], args[3])
-		return resultEnvelope(map[string]any{"agent": map[string]string{"agent_status": "working"}}), nil
 	default:
 		return execx.Result{}, fmt.Errorf("unexpected fake Herdr command: %v", args)
 	}

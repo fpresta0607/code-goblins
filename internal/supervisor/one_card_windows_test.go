@@ -42,8 +42,8 @@ func TestClearingAPagesCardDismissesTheQuestionItCarries(t *testing.T) {
 	if got := after.Questions[0]; got.Status != "cleared" || got.Message != "You cleared its page's card." {
 		t.Errorf("the question its card carried = %s %q, want it dismissed with the card", got.Status, got.Message)
 	}
-	if len(cfo.prompts) != 1 || !strings.Contains(cfo.prompts[0], "task-1's question") || !strings.Contains(cfo.prompts[0], "dismissed") {
-		t.Errorf("the CFO got %q, want one message naming task-1's question as dismissed", cfo.prompts)
+	if typed := cfo.waitForLines(t, 1); len(typed) != 1 || !strings.Contains(typed[0], "task-1's question") || !strings.Contains(typed[0], "dismissed") {
+		t.Errorf("the CFO got %q, want one message naming task-1's question as dismissed", typed)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestClearingAPagesCardClosesItsQuestionBeforeItsActionRuns(t *testing.T) {
 	// Act
 	_, queued := store.Queue(Action{ID: "clear-1", Kind: "review_clear", ReviewID: page.ID, Generation: page.Identity})
 	taken := store.Snapshot()
-	toldBefore := len(cfo.prompts)
+	toldBefore := len(cfo.lines(t))
 	ran := store.ProcessOne(context.Background(), s.execute)
 
 	// Assert
@@ -75,8 +75,8 @@ func TestClearingAPagesCardClosesItsQuestionBeforeItsActionRuns(t *testing.T) {
 	if got := taken.Questions[0]; got.Status != "cleared" || got.Message != "You cleared its page's card." {
 		t.Errorf("the question its card carried = %s %q before its action ran, want it dismissed with the card", got.Status, got.Message)
 	}
-	if toldBefore != 0 || len(cfo.prompts) != 1 || !strings.Contains(cfo.prompts[0], "task-1's question") {
-		t.Errorf("the CFO was told %d times before the action ran and got %q after it, want nothing before and one message naming task-1's question", toldBefore, cfo.prompts)
+	if typed := cfo.waitForLines(t, 1); toldBefore != 0 || len(typed) != 1 || !strings.Contains(typed[0], "task-1's question") {
+		t.Errorf("the CFO was told %d times before the action ran and got %q after it, want nothing before and one message naming task-1's question", toldBefore, typed)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestAGoblinsNewerQuestionReplacesItsOlderOne(t *testing.T) {
 	}
 
 	// Act
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, again, again.Detail, nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, again, again.Detail, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

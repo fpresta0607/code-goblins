@@ -14,13 +14,11 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -118,8 +116,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if response.Accept != "" {
 		// Taking open findings as they stand is the CFO's decision, never a
 		// goblin's about its own gate.
-		cfo := supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: commands})}
-		_, release, err := cfo.CallerIdentity(ctx)
+		cfo := supervisor.CFOConnection{State: h.State}
+		_, release, err := cfo.CallerIdentity()
 		if err != nil {
 			return fmt.Errorf("pipeline: --accept is honoured only from the registered primary CFO: %w", err)
 		}
