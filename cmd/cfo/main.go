@@ -100,6 +100,7 @@ commands:
   cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
@@ -447,6 +448,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "title":
 		return runTitle(args[1:], stdout, stderr, runtime)
+	case "backlog":
+		return runBacklog(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
 	case "pause", "resume":

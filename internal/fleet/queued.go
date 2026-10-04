@@ -111,7 +111,7 @@ func changeQueuedTask(h home.Home, id, revision, title, detail string, remove bo
 		if at := queuedTitleSuffix.FindStringIndex(match[2]); at != nil {
 			suffix = " " + strings.TrimSpace(match[2][at[0]:])
 		}
-		changed = []string{"- **" + id + "** - " + title + suffix}
+		changed = []string{"- [ ] " + id + " - " + title + suffix}
 		if detail != "" {
 			for _, line := range strings.Split(detail, "\n") {
 				changed = append(changed, "  "+line)
@@ -185,6 +185,17 @@ func ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
 // is read separately, without parsing the backlog again for each task.
 func (backlog BacklogRows) ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
 	if err := state.ValidTaskID(id); err != nil {
+		return QueuedTask{}, err
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "outcomes", id+".json")); err == nil {
+		outcome, err := state.ReadOutcome(h.State, id)
+		if err != nil {
+			return QueuedTask{}, err
+		}
+		if outcome.Phase == "done" {
+			return QueuedTask{}, ErrNotQueued
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return QueuedTask{}, err
 	}
 	if backlog.duplicates[id] {
