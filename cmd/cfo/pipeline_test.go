@@ -10,14 +10,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -31,9 +32,6 @@ type pipelineRunner struct {
 	native     []execx.Request
 	worktree   string
 	activeRuns int
-	// cfo is the pid Herdr reports in the registered CFO's pane w1:p1; zero
-	// means no Herdr call is expected.
-	cfo int
 }
 
 type pipelineStartRunner struct {
@@ -171,14 +169,6 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 	case "no-mistakes":
 		r.native = append(r.native, q)
 		return execx.Result{Stdout: []byte("native decision output\n")}, nil
-	case "herdr":
-		switch {
-		case r.cfo == 0:
-		case q.Args[0] == "api" && q.Args[1] == "snapshot":
-			return execx.Result{Stdout: []byte(`{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"t-1"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`)}, nil
-		case q.Args[0] == "pane" && q.Args[1] == "process-info":
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.cfo))}, nil
-		}
 	}
 	return execx.Result{}, errors.New("unexpected command")
 }
@@ -1185,21 +1175,30 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The registration names native terminal cfo, whose host record
+			// names the registered process as the terminal's program.
 			data, err := json.Marshal(struct {
-				Target    herdr.Target `json:"target"`
-				Workspace string       `json:"workspace"`
-				Tab       string       `json:"tab"`
-				Agent     string       `json:"agent"`
-				Terminal  string       `json:"terminal"`
-				Process   lock.Info    `json:"process"`
-			}{herdr.Target{Session: "isolated", Pane: "w1:p1"}, "w1", "w1:t1", "codex", "t-1", *registered})
+				Host    string    `json:"host"`
+				Agent   string    `json:"agent"`
+				Process lock.Info `json:"process"`
+			}{"cfo", "codex", *registered})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			runner := &pipelineRunner{worktree: wt, cfo: registered.PID, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
+			record, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-test-` + strconv.Itoa(os.Getpid()), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: registered.PID, Started: time.Now().UTC()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), record, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
 			var out bytes.Buffer
 			err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
 			lines, _ := state.TailStatus(h.State, "task", 10)

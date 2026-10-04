@@ -11,10 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // runPipe serves run requests for s's home until the test ends, holding the
@@ -57,12 +55,12 @@ func TestRunRequestFromOutsideTheCFOTreeNeverReachesTheBoard(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("the stand-in CFO's start time: %v %v", entries, err)
 	}
-	primary := primaryRegistration{Target: herdr.Target{Session: "isolated", Pane: "w1:p1"}, Workspace: "w1", Tab: "w1:t1", Agent: "codex", Terminal: "test-terminal", Process: lock.Info{PID: cfo.Process.Pid, Start: entries[0].Start}}
+	primary := primaryRegistration{Host: "cfo", Agent: "codex", Process: lock.Info{PID: cfo.Process.Pid, Start: entries[0].Start}}
 	data, _ := json.Marshal(primary)
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}})}}})
+	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}})
 	err = PublishRun(h, RunRequest{ID: "install-driver", Title: "Install the driver", Shell: "powershell", Admin: true, CommandFile: commandFile(t, "Write-Output driver\n")})
 	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
 		t.Fatalf("a run request from outside the CFO's tree = %v, want it refused", err)
@@ -152,14 +150,14 @@ func TestRunRequestFromAProcessStartedAfterItsConnectionIsRefused(t *testing.T) 
 		t.Fatalf("this process's start time: %v %v", entries, err)
 	}
 	req := runPipeRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", Command: "Write-Output hello\n"}
-	err = s.acceptRunRequest(context.Background(), os.Getpid(), entries[0].Start.Add(-time.Second), req)
+	err = s.acceptRunRequest(os.Getpid(), entries[0].Start.Add(-time.Second), req)
 	if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
 		t.Fatalf("a request connected before its process started = %v, want it refused", err)
 	}
 	if runs := store.Snapshot().Runs; len(runs) != 0 {
 		t.Fatalf("runs = %+v after a refused request, want none", runs)
 	}
-	if err := s.acceptRunRequest(context.Background(), os.Getpid(), time.Now(), req); err != nil {
+	if err := s.acceptRunRequest(os.Getpid(), time.Now(), req); err != nil {
 		t.Fatalf("the request from a process running when it connected = %v, want it taken", err)
 	}
 }
