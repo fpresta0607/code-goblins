@@ -88,8 +88,13 @@ func (p Policy) Validate() error {
 		if p.Primary != want || p.Reviewer != want || p.Fixer != want {
 			return errors.New("pipeline: primary, reviewer and fixer must be Codex gpt-5.6-sol high")
 		}
+	case 3:
+		want := Reviewer{"codex", "gpt-6.1-sol", "xhigh"}
+		if p.Primary != want || p.Reviewer != want || p.Fixer != want {
+			return errors.New("pipeline: primary, reviewer and fixer must be Codex gpt-6.1-sol xhigh")
+		}
 	default:
-		return errors.New("pipeline: policy version must be 1 or 2")
+		return errors.New("pipeline: policy version must be 1, 2 or 3")
 	}
 	if p.AutoFix != (AutoFix{Review: 0, Test: 1, Lint: 1, Rebase: 1, CI: 1}) {
 		return errors.New("pipeline: automatic review must be 0 and test/lint/rebase/ci follow-ups must be 1")
@@ -149,7 +154,7 @@ func MigrateSelection(old Selection, current Policy) (Selection, error) {
 		}
 		return old, nil
 	}
-	if old.Policy.Version != 1 || current.Version != 2 {
+	if old.Policy.Version > current.Version {
 		return Selection{}, errors.New("pipeline: unsupported task policy migration")
 	}
 	next, err := current.Select(old.Class)
@@ -195,8 +200,8 @@ func LoadSelection(path string) (Selection, error) {
 
 func (s Selection) Instruction(id, path string) string {
 	roles := "Reviewer is Claude Opus high."
-	if s.Policy.Version == 2 {
-		roles = "Global primary, reviewer and review-fixer profiles are Codex gpt-5.6-sol high; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly."
+	if s.Policy.Version > 1 {
+		roles = fmt.Sprintf("Global primary, reviewer and review-fixer profiles are Codex %s %s; a CFO gate requires the trusted repository primary to inherit that profile or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)
 	}
 	return fmt.Sprintf(" Pipeline policy: read %s. Class %s permits %d review repair cycles, then unresolved. Use cfo pipeline run %s --intent <intent> and cfo pipeline respond %s for gate decisions. Never use --yes, skip a gate, or bypass an exhausted budget with native AXI. %s Shared config changes require an explicit idle config-apply; spawn never changes it.", path, s.Class, s.ReviewCycles, id, id, roles)
 }

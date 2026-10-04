@@ -275,13 +275,16 @@ func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
 
 func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		activeRuns int
-		useCurrent bool
+		name         string
+		activeRuns   int
+		useCurrent   bool
+		isVersionTwo bool
 	}{
 		{name: "active-legacy", activeRuns: 1},
 		{name: "active-current", activeRuns: 1, useCurrent: true},
 		{name: "idle"},
+		{name: "active-v2", activeRuns: 1, isVersionTwo: true},
+		{name: "idle-v2", isVersionTwo: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -307,6 +310,16 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := legacyPipelineSelection(t, "high-risk")
+			if test.isVersionTwo {
+				previous := old.Policy
+				previous.Version = 2
+				previous.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-5.6-sol", Effort: "high"}
+				previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
+				old, err = previous.Select(old.Class)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			if test.useCurrent {
 				old, err = policy.Select("high-risk")
 				if err != nil {
@@ -362,7 +375,7 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if migrated.Policy.Version != 2 || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
+			if migrated.Policy.Version != 3 || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
 				t.Fatalf("snapshot=%+v meta=%+v", migrated, updated)
 			}
 			status, err := state.TailStatus(h.State, "task", 1)
