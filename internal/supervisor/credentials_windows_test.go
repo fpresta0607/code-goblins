@@ -8,19 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
-	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -35,12 +29,11 @@ func TestTheCFOAndAGoblinFileCredentialRequestsProvenByTheirOwnProcess(t *testin
 	_, identity, _, cfo := primaryFixture(t, store)
 	service := &Service{Store: store, Options: Options{CFO: cfo, Credentials: auth.OpenStore}}
 	runPipe(t, service)
-	meta, _, _, goblin := goblinFixture(t, store)
-	ctx := context.Background()
+	meta, _, _, _ := goblinFixture(t, store)
 
 	// Act
-	byCFO, cfoErr := FileCredentialRequest(ctx, h, cfo.Terminals, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"})
-	byGoblin, goblinErr := FileCredentialRequest(ctx, h, goblin.Terminals, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"RESEND_API_KEY"}, Why: "Send the receipt email"})
+	byCFO, cfoErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"})
+	byGoblin, goblinErr := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"RESEND_API_KEY"}, Why: "Send the receipt email"})
 	ingestErr := service.ingestCredentialRequests()
 
 	// Assert
@@ -231,22 +224,14 @@ func TestForgedCredentialRequestsNeverReachTheBoard(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	cfoProcess := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-Command", "Start-Sleep -Seconds 120")
-	cfoProcess.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
-	if err := cfoProcess.Start(); err != nil {
-		t.Fatal(err)
+	// The registered CFO is the program of native terminal cfo, which is
+	// another process than this test.
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
 	}
-	t.Cleanup(func() {
-		_ = cfoProcess.Process.Kill()
-		_ = cfoProcess.Wait()
-	})
-	entries, err := proc.Ancestry(cfoProcess.Process.Pid, 1)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("the stand-in CFO's start time: %v %v", entries, err)
-	}
-	hostname, _ := os.Hostname()
-	writeRegistration(t, h.State, lock.Info{PID: cfoProcess.Process.Pid, Start: entries[0].Start, Hostname: hostname})
-	connection := &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: cfoProcess.Process.Pid}})}
+	connection := &CFOConnection{State: h.State}
 	service := &Service{Store: store, Options: Options{CFO: connection, Credentials: auth.OpenStore}}
 	runPipe(t, service)
 	identity := forgedIdentity(t, h.State)
@@ -258,7 +243,7 @@ func TestForgedCredentialRequestsNeverReachTheBoard(t *testing.T) {
 
 	// Act
 	ingestErr := service.ingestCredentialRequests()
-	_, filedErr := FileCredentialRequest(context.Background(), h, connection.Terminals, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Asked from outside the CFO"})
+	_, filedErr := FileCredentialRequest(h, CredentialRequest{Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Asked from outside the CFO"})
 	forged := CredentialRequest{ID: "cred-3333333333333333", Identity: identity, By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Sent straight to the pipe"}
 	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "credential", Credential: &forged})
 
@@ -457,13 +442,13 @@ func TestGoblinCredentialRequestWaitsInTheInboxWhileTheBoardIsFull(t *testing.T)
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
 	service := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
-	meta, _, _, goblin := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	for i := range maxCredentialRequests {
 		if _, err := service.acceptCredentialRequest(CredentialRequest{ID: fmt.Sprintf("cred-%016x", i), Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{fmt.Sprintf("NAME_%d", i)}, Why: "Fill the board"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	filed, err := FileCredentialRequest(context.Background(), h, goblin.Terminals, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"RESEND_API_KEY"}, Why: "Send the receipt email"})
+	filed, err := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"RESEND_API_KEY"}, Why: "Send the receipt email"})
 	if err != nil {
 		t.Fatal(err)
 	}

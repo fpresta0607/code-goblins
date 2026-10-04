@@ -1,8 +1,10 @@
-import { expect, test, type Page } from "./site";
+import { expect, ORIGIN, test, type Page } from "./site";
 
-// Chromium's fake microphone (a steady beep) stands in for the Overlord's; the
-// browser's speech service is replaced by a recognizer that records the track
-// it is given and hears one phrase when released.
+// Chromium's fake microphone (a steady beep) stands in for the Overlord's. The
+// supervisor's speech model is a route that keeps each sound it is posted and
+// answers one phrase; the browser's speech service is a recognizer that records
+// the track it is given and hears another phrase when released, so a test can
+// tell which of the two typed.
 test.use({
   permissions: ["microphone", "clipboard-read", "clipboard-write"],
   launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] },
@@ -19,13 +21,35 @@ const MICROPHONE = "M12 3.5a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0v-5a3 3 0 0 0-3-3ZM5.5 
 // The board must never ask it.
 const OLD_VOICE_REPLY = { state: "running", entries: [{ text: "Show me what needs my attention.", timestamp: "2026-09-29T12:45:00", time_epoch: 1790000700 }], has_skipped: false };
 
+// A sound the page posted to the supervisor, as its WAV header and samples say.
+interface Posted { token: string; type: string; tags: string; channels: number; rate: number; bits: number; samples: number; peak: number }
+
+function posted(body: Buffer, headers: Record<string, string>): Posted {
+  let peak = 0;
+  for (let at = 44; at + 1 < body.length; at += 2) peak = Math.max(peak, Math.abs(body.readInt16LE(at)));
+  return {
+    token: headers["x-cfo-token"] || "", type: headers["content-type"] || "",
+    tags: [0, 8, 12, 36].map((at) => body.toString("latin1", at, at + 4)).join(" "),
+    channels: body.readUInt16LE(22), rate: body.readUInt32LE(24), bits: body.readUInt16LE(34), samples: (body.length - 44) / 2, peak,
+  };
+}
+
 // With app the page is as the desktop window shows it: WebView2's own page
 // object is there, and the window has taken the browser's recognizer away.
-async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false } = {}) {
-  const asked: string[] = [];
+// With browser the Overlord has turned the browser's speech recognition on,
+// and with refusal the supervisor refuses every dictation in those words.
+async function openPane(page: Page, { hint = false, dictations = [] as { text: string; at: number }[], panes = 1, app = false, browser = false, refusal = "" } = {}) {
+  const asked: string[] = [], posts: Posted[] = [];
   await page.route("**/api/voice", (route) => { asked.push(route.request().url()); return route.fulfill({ json: OLD_VOICE_REPLY }); });
-  await page.addInitScript(({ hint, dictations, app }) => {
+  await page.route("**/api/dictation", (route) => {
+    const request = route.request();
+    if (request.method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
+    posts.push(posted(request.postDataBuffer()!, request.headers()));
+    return refusal ? route.fulfill({ status: 503, json: { error: refusal } }) : route.fulfill({ json: { text: "ship the voice bubble", engine: "test-model" } });
+  });
+  await page.addInitScript(({ hint, dictations, app, browser }) => {
     if (!hint) localStorage.setItem("cfo-voice-hint-v1", "dismissed");
+    if (browser) localStorage.setItem("cfo-dictation-browser-v1", "on");
     if (dictations.length) localStorage.setItem("cfo-dictations-v1", JSON.stringify({ "task:voice": dictations }));
     const probe = { captures: [] as MediaStreamTrack[], started: [] as unknown[], frames: 0 };
     window.voiceProbe = probe;
@@ -44,16 +68,16 @@ async function openPane(page: Page, { hint = false, dictations = [] as { text: s
       onend: (() => void) | null = null;
       private live = false;
       start(track?: unknown) { probe.started.push(track); this.live = true; }
-      stop() { if (!this.live) return; this.live = false; this.onresult?.({ resultIndex: 0, results: [[{ transcript: "ship the voice bubble" }]] }); this.onend?.(); }
+      stop() { if (!this.live) return; this.live = false; this.onresult?.({ resultIndex: 0, results: [[{ transcript: "heard by the browser" }]] }); this.onend?.(); }
       abort() { this.live = false; this.onend?.(); }
     }
     if (!app) { Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: Recognition }); return; }
     const host = window as unknown as { chrome?: object };
     host.chrome = { ...host.chrome, webview: { postMessage: () => {} } };
     for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) Object.defineProperty(window, name, { configurable: true, writable: true, value: undefined });
-  }, { hint, dictations, app });
+  }, { hint, dictations, app, browser });
   await page.goto("/tests/fixtures/voice-bubble.html" + (panes === 2 ? "?panes=2" : ""));
-  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked };
+  return { bubble: page.locator(".voice-bubble"), pane: page.getByRole("region", { name: "Goblin terminal" }), asked, posts };
 }
 
 // Everything a person can read on the page: its text, tooltips and labels.
@@ -71,6 +95,15 @@ async function releaseShortcut(page: Page) {
   await page.keyboard.up("Space");
   await page.keyboard.up("Shift");
   await page.keyboard.up("Control");
+}
+
+// dictate holds the shortcut until the microphone has opened, which takes a
+// busy machine longer than a short hold, speaks for ms and lets go.
+async function dictate(page: Page, ms = 1200) {
+  await holdShortcut(page, 0);
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
+  await page.waitForTimeout(ms);
+  await releaseShortcut(page);
 }
 
 test("the bubble sits in the pane's corner and opens the pane's own recent dictations, newest first, five at most", async ({ page }) => {
@@ -95,44 +128,100 @@ test("the bubble sits in the pane's corner and opens the pane's own recent dicta
 });
 
 test("the board never names SIQspeak and never asks for it: holding the shortcut always records with its own dictation", async ({ page }) => {
-  const { bubble, asked } = await openPane(page, { hint: true });
+  const { bubble, asked, posts } = await openPane(page, { hint: true });
   await page.waitForTimeout(500);
-  await holdShortcut(page, 300);
-  await expect(bubble).toHaveClass(/recording/);
-  // The recorder starts once the microphone has opened, which takes a busy
-  // machine longer than the hold.
-  await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
-  await releaseShortcut(page);
+  await dictate(page);
   await expect(page.locator("output")).toHaveText("ship the voice bubble");
   await bubble.click();
   await expect(page.getByRole("dialog", { name: "Recent messages" }).locator(".voice-text")).toHaveText(["ship the voice bubble"]);
   expect(await readable(page)).not.toMatch(/siqspeak/i);
   expect(asked).toEqual([]);
+  // The browser has a speech recognition here, and the board did not use it.
+  expect(posts.length).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.voiceProbe!.started.length)).toBe(0);
 });
 
 test.describe("in the desktop app", () => {
   // The Overlord's window: maximized on a 2560 by 1600 screen at 150 percent.
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
-  test("the shortcut says dictation is not in the app yet, and names no browser", async ({ page }, testInfo) => {
-    const { bubble, pane } = await openPane(page, { app: true });
-    await holdShortcut(page, 100);
+  test("the shortcut dictates through the supervisor's speech model, as in a browser", async ({ page }, testInfo) => {
+    const { bubble, pane, posts } = await openPane(page, { app: true });
+    await holdShortcut(page, 0);
+    await expect(bubble).toHaveClass(/recording/);
+    await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
+    await page.waitForTimeout(1200);
+    await testInfo.attach("app-dictation-listening", { body: await pane.screenshot(), contentType: "image/png" });
     await releaseShortcut(page);
-    const note = pane.getByRole("status");
-    await expect(note).toHaveText("Dictation is not in the desktop app yet. It is being built.");
-    await expect(bubble).not.toHaveClass(/recording/);
-    expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(0);
-    // The whole note is inside the pane, on one line.
-    const box = await note.boundingBox(), frame = await pane.boundingBox();
-    expect(box && frame && box.x >= frame.x && box.x + box.width <= frame.x + frame.width).toBe(true);
-    const tops = await note.evaluate((element) => {
-      const text = document.createRange();
-      text.selectNodeContents(element);
-      return [...new Set([...text.getClientRects()].map((rect) => rect.top))];
-    });
-    expect(tops).toHaveLength(1);
-    await testInfo.attach("app-dictation-note", { body: await pane.screenshot(), contentType: "image/png" });
+    await expect(page.locator("output")).toHaveText("ship the voice bubble");
+    await expect(pane.getByRole("status")).toHaveCount(0);
+    // The supervisor was handed what the microphone heard, as the board: one
+    // channel of 16-bit sound at the model's rate, about as long as the hold,
+    // and not silence.
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ token: "test-instance", type: "audio/wav", tags: "RIFF WAVE fmt  data", channels: 1, rate: 16000, bits: 16 });
+    expect(posts[0].samples).toBeGreaterThan(16000 * .8);
+    expect(posts[0].samples).toBeLessThan(16000 * 6);
+    expect(posts[0].peak).toBeGreaterThan(300);
+    // The app has no browser recognition to offer.
+    await bubble.click();
+    const recent = page.getByRole("dialog", { name: "Recent messages" });
+    await expect(recent.locator(".voice-footer")).toContainText("Heard by test-model on this PC: what you say never leaves it.");
+    await expect(recent.getByRole("checkbox")).toHaveCount(0);
+    await testInfo.attach("app-dictation-recent", { body: await pane.screenshot(), contentType: "image/png" });
   });
+});
+
+test("dictating asks nothing outside the board's own address, and the supervisor only for the words", async ({ page }) => {
+  await openPane(page);
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.method() + " " + request.url()));
+  await dictate(page);
+  await expect(page.locator("output")).toHaveText("ship the voice bubble");
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.filter((request) => !request.split(" ")[1].startsWith(ORIGIN + "/"))).toEqual([]);
+  // Besides the words, the page asks the supervisor only which model listens,
+  // once, when the pane opens.
+  expect(requests.filter((request) => request.includes("/api/") && request !== "GET " + ORIGIN + "/api/dictation")).toEqual(["POST " + ORIGIN + "/api/dictation"]);
+});
+
+test("what the supervisor refuses with is shown as it wrote it, and nothing is typed", async ({ page }) => {
+  const refusal = "The speech model is being downloaded, once: 45 of 103 MB. Dictate again when it is there.";
+  const { pane, posts } = await openPane(page, { refusal });
+  await dictate(page);
+  await expect(pane.getByRole("status")).toHaveText(refusal);
+  expect(posts).toHaveLength(1);
+  await expect(page.locator("output")).toHaveText("");
+});
+
+test("the browser's speech recognition is used only once he turns it on, and the bubble says which is listening", async ({ page }) => {
+  const { bubble, posts } = await openPane(page);
+  await bubble.click();
+  const recent = page.getByRole("dialog", { name: "Recent messages" });
+  await expect(recent.locator(".voice-footer")).toContainText("Heard by test-model on this PC: what you say never leaves it.");
+  const choice = recent.getByRole("checkbox", { name: "Use this browser's speech recognition instead" });
+  await expect(choice).not.toBeChecked();
+  await choice.check();
+  await expect(recent.locator(".voice-footer")).toContainText("Heard by this browser's speech recognition, which sends your voice to the browser's maker.");
+  await page.keyboard.press("Escape");
+
+  await holdShortcut(page, 0);
+  await expect(bubble).toHaveAttribute("data-tip", "Listening with this browser's speech recognition · release Ctrl+Shift+Space to type");
+  await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
+  await releaseShortcut(page);
+  await expect(page.locator("output")).toHaveText("heard by the browser");
+  expect(posts).toHaveLength(0);
+
+  // The choice is kept, and turning it off brings the board's own back.
+  await page.reload();
+  await bubble.click();
+  await expect(choice).toBeChecked();
+  await choice.uncheck();
+  await page.keyboard.press("Escape");
+  await dictate(page);
+  await expect(page.locator("output")).toHaveText("ship the voice bubble");
+  expect(posts).toHaveLength(1);
 });
 
 test("an error note under the open list never covers it", async ({ page }) => {
@@ -188,10 +277,10 @@ test("the first visit explains the shortcut once", async ({ page }) => {
 });
 
 test("holding the shortcut records one capture and its bars follow the voice", async ({ page }) => {
-  const { bubble } = await openPane(page);
+  const { bubble, posts } = await openPane(page);
   await holdShortcut(page, 300);
   await expect(bubble).toHaveClass(/recording/);
-  await expect(bubble).toHaveAttribute("data-tip", "Listening · release Ctrl+Shift+Space to type");
+  await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
   const scales = new Set<number>();
   for (let sample = 0; sample < 12; sample++) {
     const heights = await bubble.locator(".voice-bars span").evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
@@ -200,14 +289,12 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   }
   expect(Math.max(...scales)).toBeGreaterThan(25);
   expect(scales.size).toBeGreaterThan(2);
-  const shared = await page.evaluate(() => {
-    const probe = window.voiceProbe!;
-    return { captures: probe.captures.length, started: probe.started.length, same: probe.started[0] === probe.captures[0] };
-  });
-  expect(shared).toEqual({ captures: 1, started: 1, same: true });
+  // One microphone is open, for the bars and the words alike.
+  expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
 
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("ship the voice bubble");
+  expect(posts).toHaveLength(1);
   await expect(bubble).not.toHaveClass(/recording/);
   expect(await page.evaluate(() => window.voiceProbe!.captures[0].readyState)).toBe("ended");
 
@@ -221,3 +308,29 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent.locator(".voice-text").first()).toHaveText("ship the voice bubble");
 });
+
+for (const stop of ["release outside the terminal", "window blur"]) {
+  test(`during microphone setup, ${stop} cancels capture before the bubble invites speech`, async ({ page }) => {
+    const { bubble, posts } = await openPane(page, { app: true });
+    await page.evaluate(() => {
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        await new Promise<void>((resolve) => window.addEventListener("allow-microphone", () => resolve(), { once: true }));
+        return capture(constraints);
+      };
+    });
+    await holdShortcut(page, 0);
+    await expect(bubble).not.toHaveClass(/recording/);
+    if (stop === "window blur") await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    else {
+      await bubble.focus();
+      await releaseShortcut(page);
+    }
+    await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));
+    await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures[0]?.readyState)).toBe("ended");
+    await expect(bubble).not.toHaveClass(/recording/);
+    await expect(page.locator("output")).toHaveText("");
+    expect(posts).toHaveLength(0);
+    await releaseShortcut(page);
+  });
+}

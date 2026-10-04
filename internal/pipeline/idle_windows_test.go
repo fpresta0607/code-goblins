@@ -55,25 +55,41 @@ func TestIdleRefusesDurableActiveAndUnknownRuns(t *testing.T) {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	r := Reader{Root: dir, Commands: execx.OSRunner{}}
-	for _, status := range []string{"running", "pending", "unknown", "completed"} {
-		if out, err := exec.Command(sqlite, path, `UPDATE runs SET status=`+sqlString(status)).CombinedOutput(); err != nil {
-			t.Fatalf("fixture: %s %v", out, err)
-		}
-		release, err := r.Idle(context.Background())
-		if status == "completed" {
-			if err != nil {
-				t.Fatal(err)
+	for _, test := range []struct {
+		status string
+		isIdle bool
+	}{
+		{"running", false},
+		{"pending", false},
+		{"unknown", false},
+		{"completed", true},
+		{"failed", true},
+		{"cancelled", true},
+		{"ci_monitor_interrupted", true},
+		{"", false},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			value := sqlString(test.status)
+			if test.status == "" {
+				value = "NULL"
 			}
-			if err := release(); err != nil {
-				t.Fatal(err)
+			if out, err := exec.Command(sqlite, path, `UPDATE runs SET status=`+value).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
 			}
-		} else {
-			if !errors.Is(err, ErrBusy) {
+			release, err := r.Idle(context.Background())
+			if test.isIdle {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := release(); err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, ErrBusy) {
 				if release != nil {
 					release()
 				}
-				t.Fatalf("%s: %v", status, err)
+				t.Fatalf("%s: %v", test.status, err)
 			}
-		}
+		})
 	}
 }

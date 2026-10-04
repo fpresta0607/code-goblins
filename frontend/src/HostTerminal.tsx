@@ -36,7 +36,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
   const [copied, setCopied] = useState(false);
   const [hasScreen, setHasScreen] = useState(false);
   const voice = useVoice(hostPane(query));
-  const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); });
+  const dictation = useDictation((text) => { current.current?.paste(text); voice.remember(text); }, instance);
   const dictate = dictation.key;
   useEffect(() => {
     shownValue.current = shown;
@@ -114,7 +114,7 @@ export function HostTerminal({ query, harness, label, instance, visible, shown, 
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" /><p>{reason}</p><button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
-    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
+    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />
     {dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }
