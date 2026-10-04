@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -212,6 +213,19 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			f.listCalls++
 		}
 		return answer(f.pulls)
+	case strings.HasPrefix(command, "gh api graphql"):
+		var pulls []ghPullRequest
+		if err := json.Unmarshal([]byte(f.pulls), &pulls); err != nil {
+			return execx.Result{}, err
+		}
+		comparisons := map[string]prComparison{}
+		for _, pull := range pulls {
+			comparison := prComparison{BehindBy: new(int)}
+			comparison.HeadTarget.Oid, comparison.BaseTarget.Oid = pull.HeadRefOid, "base"
+			comparisons[fmt.Sprintf("pr%d", pull.Number)] = comparison
+		}
+		body, err := json.Marshal(comparisons)
+		return execx.Result{Stdout: []byte(`{"data":{"repository":{"ref":` + string(body) + `}}}`)}, err
 	case strings.HasPrefix(command, "gh run list"):
 		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
 		return answer(f.runs)
