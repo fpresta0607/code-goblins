@@ -210,6 +210,9 @@ type runPipeRequest struct {
 	Credential *CredentialRequest `json:"credential,omitempty"`
 	// AFK is a decision the CFO logs under AFK mode's authority.
 	AFK *afk.Entry `json:"afk,omitempty"`
+	// Asked is the Overlord's words when the CFO asks for his AFK switch at
+	// his ask, as the CFO quotes them.
+	Asked string `json:"asked,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process

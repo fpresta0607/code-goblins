@@ -162,6 +162,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":
 		h.announceItems(w, r)
+	case r.URL.Path == "/api/afk" && r.Method == "POST":
+		h.switchAFKFromBoard(w, r)
+	case r.URL.Path == "/api/afk/report" && r.Method == "GET":
+		h.afkReport(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
