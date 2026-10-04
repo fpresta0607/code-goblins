@@ -55,10 +55,8 @@ type Report struct {
 	Start           time.Time `json:"start"`
 	DurationSeconds float64   `json:"duration_seconds"`
 	// QueueSeconds is how long the run waited for its turn on the machine
-	// before its tests: part of DurationSeconds and of no check's own time.
-	// QueueNote says what was out of the ordinary about how it took the turn,
-	// when anything was: a failure in such a run is first suspected of the
-	// machine's load.
+	// before its checks: part of DurationSeconds and of no check's own time.
+	// QueueNote records an admission failure that prevented execution.
 	QueueSeconds float64 `json:"queue_seconds,omitempty"`
 	QueueNote    string  `json:"queue_note,omitempty"`
 	// Log is the file holding everything the checks wrote.
