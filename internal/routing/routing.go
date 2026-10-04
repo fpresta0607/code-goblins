@@ -215,7 +215,7 @@ func redactOperatorLines(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	redacting := false
 	for i, line := range lines {
-		trimmed := strings.TrimLeft(line, " \t>›❯│")
+		trimmed := strings.TrimLeft(line, " \t>›❯│↳")
 		switch {
 		case strings.HasPrefix(trimmed, strings.ToLower(SteerPrefix)) || strings.HasPrefix(trimmed, strings.ToLower(OverlordPrefix)):
 			redacting = true
@@ -281,7 +281,7 @@ func lineStartMatches(haystack, needle string) []int {
 		}
 		index += start
 		lineStart := strings.LastIndexByte(haystack[:index], '\n') + 1
-		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│└") == "" {
+		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│└↳") == "" {
 			indexes = append(indexes, index)
 		}
 		start = index + len(needle)
