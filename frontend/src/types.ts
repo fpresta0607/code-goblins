@@ -138,6 +138,9 @@ export interface Snapshot {
   cfo_terminal: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The conversation the CFO could not resume when it last came back, and how
+  // to resume it by hand; empty when it came back on its own.
+  cfo_conversation_left: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -431,6 +434,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
