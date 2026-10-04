@@ -276,7 +276,8 @@ Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
 Start, spawn and Resume share the memory/commit floor and the live cap from `config/fleet.json`'s `max_live_goblins`, default 8, reduced by the free resources while reserving 4 GB.
-The allowance floor is 3 percent remaining; the scheduler asks for a handoff and records an allowance pause with its reset, the seam AFK mode shares.
+The allowance floor is 5 percent remaining in a measured weekly window; the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
+Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board snapshot includes pause conditions, capacity, time since real progress and recent CI/deploy durations; the visual presentation follows its mockup review.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
@@ -454,7 +455,7 @@ You are woken when it turns off: write that report into your terminal with `cfo 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
 Only he resets the switch, with `cfo afk off` from a terminal of his own, which puts it back to off with no report of the stretch it may have held; `state/afk.audit` keeps what was logged.
 
-The supervisor's single scheduler owns allowance pauses at 3 percent remaining and their automatic resume at reset, shared with AFK mode through lifecycle pause reasons.
+The supervisor's single scheduler owns allowance pauses at 5 percent weekly remaining and their automatic resume at reset, shared with AFK mode through lifecycle pause reasons.
 Not built yet: the toggle on the board's CFO banner, the Held for you list and the report page on the board, and automatic pauses at the memory floor.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command or the pipe; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
