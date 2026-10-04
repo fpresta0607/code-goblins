@@ -529,6 +529,9 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 // reports it taken.
 func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	stateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stateDir, NATIVE_EXIT_PHASES_FILE), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "harness")

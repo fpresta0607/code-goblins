@@ -3,6 +3,7 @@ package supervisor
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -892,10 +894,84 @@ func TestControlViewEndsWhenAGateTakesOverOnItsTick(t *testing.T) {
 		t.Fatal(err)
 	}
 	taken := &atomic.Bool{}
-	h.Service.Options.Gate = gateTakesOver{taken: taken}
+	gitProgram, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitFile, err := os.Open(gitProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitHash := sha256.New()
+	_, hashErr := io.Copy(gitHash, gitFile)
+	if err := errors.Join(hashErr, gitFile.Close()); err != nil {
+		t.Fatal(err)
+	}
+	worktree := taskWorktree(t, h)
+	head, err := os.ReadFile(filepath.Join(worktree, ".git", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := strings.TrimPrefix(strings.TrimSpace(string(head)), "ref: ")
+	commit, err := os.ReadFile(filepath.Join(worktree, ".git", filepath.FromSlash(ref)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace := filepath.Join(t.TempDir(), "custody-git-trace.jsonl")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+	t.Setenv("GIT_TRACE2_ENV_VARS", "")
+	t.Setenv("GIT_TRACE2_CONFIG_PARAMS", "")
+	var custodyChecks atomic.Int32
+	h.Service.Options.Gate = gateTakesOver{taken: taken, observe: func(ctx context.Context) {
+		deadline, hasDeadline := ctx.Deadline()
+		t.Logf("custody phase gate check=%d at=%s has_deadline=%t remaining=%s context_error=%v", custodyChecks.Add(1), time.Now().UTC().Format(time.RFC3339Nano), hasDeadline, time.Until(deadline), ctx.Err())
+	}}
+	t.Logf("custody phase fixture worktree=%q head=%q commit=%q git=%q sha256=%x caller_bound=8s git_bound=10s wait_delay=2s", worktree, strings.TrimSpace(string(head)), strings.TrimSpace(string(commit)), gitProgram, gitHash.Sum(nil))
+	t.Cleanup(func() {
+		t.Logf("custody phase final gate_checks=%d controller_opened=%t writes=%v", custodyChecks.Load(), native.control, native.writes)
+		file, err := os.Open(trace)
+		if err != nil {
+			t.Error("custody Git phase trace unavailable:", err)
+			return
+		}
+		defer file.Close()
+		scanner := bufio.NewScanner(io.LimitReader(file, 65537))
+		bytes := 0
+		for scanner.Scan() {
+			bytes += len(scanner.Bytes()) + 1
+			if bytes > 65536 {
+				t.Error("custody Git phase trace exceeds 65536 bytes")
+				break
+			}
+			var phase struct {
+				Event string `json:"event"`
+				Time  string `json:"time"`
+				Code  *int   `json:"code"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &phase); err != nil {
+				t.Error("custody Git phase trace unreadable:", err)
+				break
+			}
+			if phase.Event == "start" || phase.Event == "exit" || phase.Event == "atexit" {
+				code := "absent"
+				if phase.Code != nil {
+					code = fmt.Sprint(*phase.Code)
+				}
+				t.Logf("custody Git phase event=%s at=%s code=%s", phase.Event, phase.Time, code)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			t.Error("custody Git phase trace unreadable:", err)
+		}
+	})
 	h.terminalTick = 10 * time.Millisecond
 	native.frames <- fullFrame(1)
+	requestStarted := time.Now()
+	t.Logf("custody phase request begins at=%s", requestStarted.UTC().Format(time.RFC3339Nano))
 	response := terminalPost(t, server, "/api/terminal/stream", strings.TrimSuffix(body, "}")+fmt.Sprintf(`,"control":true,"identity":%q,"cols":100,"rows":30}`, b.Identity))
+	t.Logf("custody phase response headers elapsed=%s status=%d", time.Since(requestStarted), response.StatusCode)
 	defer response.Body.Close()
 	scanner := bufio.NewScanner(response.Body)
 	readyLease(t, scanner)
@@ -916,6 +992,104 @@ func TestControlViewEndsWhenAGateTakesOverOnItsTick(t *testing.T) {
 	}
 	if want := []herdr.TerminalCommand{{Type: "terminal.resize", Cols: 132, Rows: 43}}; !reflect.DeepEqual(native.writes, want) {
 		t.Fatalf("the ended view sent the pane %v, want its layout size", native.writes)
+	}
+}
+
+func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isExpired bool
+		wantError error
+	}{
+		{"expired before Git entry", true, context.DeadlineExceeded},
+		{"cancelled after Git entry", false, context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			native := newTestTerminal()
+			h, server, _, runner := terminalHTTPFixture(t, native)
+			body := goblinView(t, h, runner)
+			var custodyChecks atomic.Int32
+			h.Service.Options.Gate = gateTakesOver{taken: &atomic.Bool{}, observe: func(context.Context) { custodyChecks.Add(1) }}
+			program, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			fakeGit := filepath.Join(bin, "git.exe")
+			copyExecutable(t, program, fakeGit)
+			entry := filepath.Join(bin, "custody-git-entered.txt")
+			t.Setenv(CUSTODY_GIT_PHASE_VARIABLE, entry)
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, fakeGit) {
+				t.Fatalf("git resolves to %q, %v; want the owned stand-in", found, err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			if test.isExpired {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			}
+			defer cancel()
+			request := httptest.NewRequest("POST", server.URL+"/api/terminal/stream", strings.NewReader(strings.TrimSuffix(body, "}")+`,"control":true,"identity":"synthetic","cols":100,"rows":30}`)).WithContext(ctx)
+			request.Header.Set("Origin", server.URL)
+			request.Header.Set("X-CFO-Token", "instance")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			ended := make(chan struct{})
+
+			// Act
+			go func() {
+				defer close(ended)
+				h.ServeHTTP(response, request)
+			}()
+			defer func() {
+				cancel()
+				select {
+				case <-ended:
+				case <-time.After(12 * time.Second):
+					t.Error("the owned cancelled custody request did not end during cleanup")
+				}
+			}()
+			if !test.isExpired {
+				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+					data, err := os.ReadFile(entry)
+					if err == nil {
+						if got := strings.TrimSpace(string(data)); got != "--no-pager -c core.quotepath=false symbolic-ref --short HEAD" {
+							t.Fatalf("Git entry = %q, want the production custody branch read", got)
+						}
+						cancel()
+						break
+					}
+					if !errors.Is(err, os.ErrNotExist) {
+						t.Fatal(err)
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the owned custody Git never recorded entry")
+					}
+				}
+			}
+			select {
+			case <-ended:
+			case <-time.After(12 * time.Second):
+				t.Fatal("the cancelled custody request did not return")
+			}
+
+			// Assert
+			if response.Code != 409 || !strings.Contains(response.Body.String(), "Git symbolic-ref did not finish: "+test.wantError.Error()) {
+				t.Fatalf("custody response = %d %s, want the explicit cancellation", response.Code, response.Body.String())
+			}
+			if test.isExpired {
+				if _, err := os.Stat(entry); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("Git entered after the caller deadline: %v", err)
+				}
+			}
+			h.mu.Lock()
+			leases := len(h.terminals)
+			h.mu.Unlock()
+			if custodyChecks.Load() != 0 || leases != 0 || len(h.terminalSlots) != 0 || native.control || len(native.writes) != 0 || len(typedInto(runner.socket, "p1")) != 0 {
+				t.Fatalf("cancelled custody reached gate=%d leases=%d slots=%d controller=%t writes=%v", custodyChecks.Load(), leases, len(h.terminalSlots), native.control, native.writes)
+			}
+		})
 	}
 }
 
@@ -1175,13 +1349,19 @@ func TestLivePaneViewNoticesAGateTakingOverOnItsTick(t *testing.T) {
 
 // gateTakesOver has no run for the branch until taken is set, and then owns
 // the task, as a gate a goblin starts while the Overlord watches its pane.
-type gateTakesOver struct{ taken *atomic.Bool }
+type gateTakesOver struct {
+	taken   *atomic.Bool
+	observe func(context.Context)
+}
 
 func (g gateTakesOver) Progress(context.Context, string, string) (pipeline.Progress, error) {
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
 
-func (g gateTakesOver) CanSteer(context.Context, string, string, string) error {
+func (g gateTakesOver) CanSteer(ctx context.Context, _, _, _ string) error {
+	if g.observe != nil {
+		g.observe(ctx)
+	}
 	if g.taken.Load() {
 		return errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
 	}
