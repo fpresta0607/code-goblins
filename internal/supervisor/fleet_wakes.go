@@ -87,7 +87,10 @@ type fleetWakes struct {
 	Unreadable map[string]unreadableRepo `json:"unreadable,omitempty"`
 	// PRUnread holds, by repository, why the health of its listed pull
 	// requests was not all read on its last poll.
-	PRUnread map[string]unreadPRs `json:"pr_unread,omitempty"`
+	PRUnread       map[string]unreadPRs     `json:"pr_unread,omitempty"`
+	OverlapPolled  map[string]time.Time     `json:"overlap_polled,omitempty"`
+	OverlapUnread  map[string]string        `json:"overlap_unread,omitempty"`
+	OverlapNotices map[string]overlapNotice `json:"overlap_notices,omitempty"`
 	// Repos holds each repository watched and when a live goblin was last
 	// seen working in it.
 	Repos    map[string]time.Time `json:"repos,omitempty"`
@@ -200,6 +203,9 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 		}
 		for _, repo := range slices.Sorted(maps.Keys(w.PRUnread)) {
 			unreadable = errors.Join(unreadable, errors.New(w.PRUnread[repo].Failure))
+		}
+		for _, repo := range slices.Sorted(maps.Keys(w.OverlapUnread)) {
+			unreadable = errors.Join(unreadable, errors.New(w.OverlapUnread[repo]))
 		}
 	}
 	s.mu.Lock()
@@ -352,6 +358,7 @@ func raiseFleetWake(stateDir, kind, key, detail string) error {
 type ciGoblin struct {
 	id, repo, branch string
 	pullRequests     []string
+	meta             state.TaskMeta
 }
 
 // pollCI asks GitHub, every ciPollEvery, about the open pull requests of the
@@ -391,6 +398,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		if origin.ExitCode != 0 {
 			delete(w.Unreadable, repo)
 			delete(w.PRUnread, repo)
+			delete(w.OverlapUnread, repo)
 			continue
 		}
 		var mine []ciGoblin
@@ -402,10 +410,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now)
+		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
-		errs = errors.Join(errs, pullsErr, mainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
+		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
 	}
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
@@ -463,7 +472,7 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 		if meta.Project == "" {
 			continue
 		}
-		goblin := ciGoblin{id: meta.ID, repo: filepath.Clean(meta.Project)}
+		goblin := ciGoblin{id: meta.ID, repo: filepath.Clean(meta.Project), meta: meta}
 		if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Pause != nil && (record.Pause.Reason == "ci" || record.Pause.Reason == "deploy") {
 			wait, _, _ := strings.Cut(record.Pause.Until, "@")
 			if target, isPR := strings.CutPrefix(wait, "pr:"); isPR {
@@ -523,6 +532,8 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 			delete(w.RedRuns, repo)
 			delete(w.Unreadable, repo)
 			delete(w.PRUnread, repo)
+			delete(w.OverlapPolled, repo)
+			delete(w.OverlapUnread, repo)
 			delete(w.BackOff, repo)
 			continue
 		}
