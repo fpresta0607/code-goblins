@@ -438,18 +438,20 @@ Until 2 October 2026 the row gave the controls half of what the switch left, so 
 Every terminal pane, native or Herdr, shows a voice bubble in its bottom-right corner, in a strip of its own under the terminal, so it never covers the terminal's text.
 It is drawn like the board's goblin alerts: a microphone in a stepped pixel frame, outlined in Bone while idle and in Moss while it records, and its first-visit hint and recent messages open in the same leather dialogue frame.
 That frame is at most 400 px wide and never wider than its terminal less 28 px, so in a panel dragged narrow it is whole; until 2 October 2026 it was sized by the window, and a narrow panel cut off its left side.
-Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it with the browser's own speech recognition, so nothing is installed and nothing else needs to run.
-At each press the board opens the microphone once and hands that track to the speech recognizer, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing else reads, keeps or sends the audio, and nothing runs while the bubble is idle.
-It listens in the browser's language, and releasing any of the three keys types the phrases it recognised as one line through the terminal's paste, so nothing is sent until Enter.
+Holding Ctrl+Shift+Space in a terminal, native or Herdr, dictates into it through the speech model the supervisor runs on this PC, in a browser tab and in the desktop window alike.
+At each press the board opens the microphone once and records that track with the browser's own recorder, and while the keys are held the bubble's bars are recent samples of that same capture's level; nothing runs while the bubble is idle.
+Releasing any of the three keys decodes the recording to one channel at 16 kHz, posts it as a WAV to `POST /api/dictation` on the board's own address, and types the words the supervisor answers as one line through the terminal's paste, so nothing is sent until Enter; the page asks nothing else of anyone while it dictates.
+The microphone closes and the bubble goes idle at the release, without waiting for the words, and the next dictation can start while the words of the last are still on their way; the words of each are typed when recognition finishes.
 A native terminal's paste follows the program's own bracketed paste mode, and the Herdr view, whose screen is redrawn from frames, always sends a bracketed paste, as its clipboard paste does.
 Releasing the keys anywhere on the page, the window losing focus or the page being hidden also stops listening, so the microphone never stays open once the terminal loses the keys.
-A browser without speech recognition, a blocked or missing microphone, a lost network or silence is explained in a note for six seconds.
-Edge and Chrome recognise speech in their vendors' online services, so the audio leaves the machine while the keys are held.
+A blocked or missing microphone or silence is explained in a note for six seconds, and so is whatever the supervisor refuses a dictation with, in the supervisor's own words: the model still being downloaded and how far it is, a machine with no memory to spare, a board reached from another machine.
+While it listens the bubble's tip names the model, and the foot of its list says what heard the recent dictations.
+A browser with a speech recognition of its own offers **Use this browser's speech recognition instead** there, off until it is ticked and kept in that browser: Edge and Chrome recognise speech in their vendors' online services, so with it the audio leaves the machine while the keys are held, and the tip and the list say that this is what listens. The desktop window has no such recognition and offers no choice.
 Clicking the bubble lists the pane's five most recent dictations, newest first, for that pane's goblin or the CFO, kept in this browser only, ten each for the twenty used last, so a relaunched goblin keeps its own; the board reads no other dictation app.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
-The supervisor carries a speech engine of its own for dictation that never leaves this machine; the board's page does not use it yet and still dictates as above.
+The supervisor's speech engine is what makes that dictation free and local.
 `config/voice.json` is its one setting: the engine and the model, each a download pinned by its address and SHA-256, the files of it that are kept, and how the engine is started on the model.
 The build carries that setting, so an install of a newer build brings a newer pin; a home that keeps a `config/voice.json` of its own uses that one, and one that cannot be read leaves the supervisor without dictation rather than falling back.
 The pin today is NVIDIA's Parakeet TDT 110M (CC BY 4.0) run by sherpa-onnx 1.13.8 (Apache 2.0) on ONNX Runtime (MIT), both from the sherpa-onnx project's releases, about 126 MB to download.
@@ -626,7 +628,7 @@ A picture that went missing while the window ran is put back before the next not
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
 For a window that `goblins` started, the value runs that `goblins.exe --window --background`, so the supervisor starts before the window; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
-The board's dictation does not work in it yet, because WebView2 has no speech recognition: there the board says that dictation is not in the desktop app yet and is being built, and names no browser to switch to.
+The board's dictation works in it as in a browser tab, because the page records with the browser engine's own recorder and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
 
 ### Interface rules
 
