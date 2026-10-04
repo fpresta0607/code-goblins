@@ -77,3 +77,38 @@ func TestScanReportsNativeCodexCapacityOnceAndRecovers(t *testing.T) {
 		})
 	}
 }
+
+func TestScanKeepsNestedQuotedCapacityOutOfProviderEpisodes(t *testing.T) {
+	for _, fence := range []struct {
+		name, opening, inner, closing string
+	}{
+		{"backtick", "````text", "```nested", "````"},
+		{"tilde", "~~~~text", "~~~nested", "~~~~"},
+	} {
+		t.Run(fence.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+			meta := nativeMeta("quoted-capacity", "codex")
+			writeTask(t, stateDir, meta)
+			recordNativeHost(t, stateDir, meta.ID)
+			banner := "■ Selected model is at capacity. Please try a different model."
+			screen := []string{fence.opening, fence.inner, banner, fence.closing, "• Working (8s • esc to interrupt)", "› ", "75% context left"}
+			service := testService(stateDir, NativeProber{StateDir: stateDir, ReadScreen: screenOf(screen...)}, &now)
+			quoted, err := service.Scan(context.Background())
+			if err != nil || len(quoted.Observations) != 1 || quoted.Observations[0].Health != HealthBusy || quoted.Event != nil {
+				t.Fatalf("quoted capacity scan = %+v err=%v, want busy without a fault wake", quoted, err)
+			}
+			persisted, err := ReadObservation(stateDir, meta.ID)
+			if err != nil || persisted.Health != HealthBusy || persisted.PendingEvent != nil {
+				t.Fatalf("persisted quoted capacity = %+v err=%v, want busy without a pending fault", persisted, err)
+			}
+			screen = append(screen, banner)
+			service.Probe = NativeProber{StateDir: stateDir, ReadScreen: screenOf(screen...)}
+			now = now.Add(time.Second)
+			actual, err := service.Scan(context.Background())
+			if err != nil || actual.Event == nil || actual.Event.Fault != routing.Provider || !strings.Contains(actual.Event.Detail, banner) || actual.Observations[0].Health != HealthErroring {
+				t.Fatalf("actual capacity after quote = %+v err=%v, want Provider with genuine evidence", actual, err)
+			}
+		})
+	}
+}
