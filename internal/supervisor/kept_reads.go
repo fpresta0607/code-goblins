@@ -210,9 +210,9 @@ func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	return kept(&s.reads, "meta", []string{state.TaskMetaPath(directory, id)}, func() (state.TaskMeta, error) { return state.ReadTaskMeta(directory, id) })
 }
 
+// Lifecycle includes live teardown identities, so file signatures cannot cache it.
 func (s *Service) lifecycle(id string) (state.Lifecycle, error) {
-	directory := s.Store.Home.State
-	return kept(&s.reads, "lifecycle", []string{state.LifecyclePath(directory, id)}, func() (state.Lifecycle, error) { return state.ReadLifecycle(directory, id) })
+	return state.ReadLifecycle(s.Store.Home.State, id)
 }
 
 func (s *Service) observation(id string) (monitor.Observation, error) {
