@@ -196,12 +196,13 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool) error
 	logAFK    func(h home.Home, entry afk.Entry) error
-	// availableMemory reads the memory a new process can have, in bytes, for
-	// the turn cfo gate test takes before its tests, gateBudget is how long
+	// availableMemory reads physical and commit availability for the turn
+	// cfo gate test takes before its checks, gateBudget is how long
 	// the tests of a level may run, and gateRun runs one of the step's
 	// commands in dir and returns its exit code, with an error unless it
 	// passed.
-	availableMemory func() (uint64, error)
+	availableMemory func() (supervisor.Memory, error)
+	gateWaitLimit   time.Duration
 	gateBudget      func(gatetest.Level) time.Duration
 	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 }
@@ -325,12 +326,10 @@ func defaultCommandRuntime() commandRuntime {
 		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
 		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		availableMemory: func() (uint64, error) {
-			memory, err := supervisor.MachineMemory()
-			return memory.Available, err
-		},
-		gateBudget: gateBudget,
-		gateRun:    runGateCommand,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
 	}
 }
 
