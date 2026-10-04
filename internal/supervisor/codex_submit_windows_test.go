@@ -3,7 +3,6 @@ package supervisor
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -68,7 +67,7 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	if _, err := Register(context.Background(), stateDir, nil, "codex", session); err != nil {
+	if _, err := Register(stateDir, "codex", session); err != nil {
 		record("error", err.Error())
 		os.Exit(2)
 	}
