@@ -18,8 +18,12 @@ func Notice(state State) []string {
 	if !state.On {
 		return nil
 	}
+	turned := "the Supreme Overlord turned it on " + at(state.Since) + " from " + state.From + ", and he is away until he turns it off."
+	if state.Asked != "" {
+		turned = "it was turned on " + at(state.Since) + " " + SwitchedBy(state.From, state.Asked) + ", and the Supreme Overlord is away until it is turned off."
+	}
 	return []string{
-		"AFK MODE IS ON: the Supreme Overlord turned it on " + at(state.Since) + " from " + state.From + ", and he is away until he turns it off.",
+		"AFK MODE IS ON: " + turned,
 		"No Command Center prompt opens for him while it is on: what waits on him is held for him, and cfo afk status lists it.",
 		"Under it you decide these yourself, without waiting, and each is logged with its evidence:",
 		"- The merge word for a goblin pull request that is gated or locally verified with the output read, green in CI on current main (its head holds main's tip, which is what makes its merge ref's first parent origin/main) and mergeable, recovery, security, money-path and production-deploy pull requests included. cfo pr merge <url> --verified \"<what verified it>\" checks it, logs it and merges it.",

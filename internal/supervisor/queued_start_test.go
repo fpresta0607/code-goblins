@@ -5,9 +5,62 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
+
+func TestCompletedOutcomeLeavesTheBoardQueueAndRefusesStart(t *testing.T) {
+	for _, row := range []string{"- **next-task** - Delivered", "- [ ] next-task - Delivered"} {
+		t.Run(row, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, row+" (repo: code-goblins)", plainBrief)
+			if ids := snapshotIDs(t, handler, queued); len(ids) != 1 {
+				t.Fatalf("new work missing before completion: %v", ids)
+			}
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "next-task", Generation: "old", Title: "Delivered", Phase: "done", Evidence: "reported pull request", At: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			if err := handler.Service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			ids := snapshotIDs(t, handler, queued)
+			response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+
+			// Assert
+			if len(ids) != 0 {
+				t.Errorf("completed task still renders runnable: %v", ids)
+			}
+			if response.Code != 409 || !strings.Contains(response.Body.String(), "not queued") {
+				t.Errorf("completed start=%d %s", response.Code, response.Body)
+			}
+			if response.Code == 202 {
+				waitStarted(t, handler, "next-task")
+			}
+			if len(spawner.recorded()) != 0 {
+				t.Error("completed task was dispatched")
+			}
+			view, err := handler.Service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, task := range view.Tasks {
+				if task.ID == "finished:next-task" && task.Archived && task.Phase == "done" {
+					found = true
+				}
+			}
+			if !found {
+				t.Error("completed history disappeared")
+			}
+		})
+	}
+}
 
 func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 	spawner := &spawnRecorder{}

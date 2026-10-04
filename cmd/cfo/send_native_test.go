@@ -12,14 +12,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// cfo send reaches a native task through its own terminal, by its id or as
+// cfo send reaches a task through its own native terminal, by its id or as
 // gb-<id>: a key goes straight into the terminal, and text goes through the
-// native delivery, which names the task whose terminal it cannot find. It used
-// to refuse every native task as not a Herdr task, and it asks Herdr nothing.
+// native delivery, which names the task whose terminal it cannot find.
 func TestSendReachesANativeTaskThroughItsTerminal(t *testing.T) {
-	// No herdr on the path: a Herdr request fails here rather than reach a
-	// live server.
-	t.Setenv("PATH", t.TempDir())
 	stateDir := t.TempDir()
 	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
 	for _, id := range []string{"t1", "t2"} {
@@ -42,7 +38,7 @@ func TestSendReachesANativeTaskThroughItsTerminal(t *testing.T) {
 	}
 	runtime := defaultCommandRuntime()
 
-	keyErr := runtime.sendKey(context.Background(), h, "gb-t1", "Enter")
+	keyErr := runtime.sendKey(h, "gb-t1", "Enter")
 	textErr := runtime.sendText(context.Background(), h, "t2", "run the tests")
 
 	if keyErr != nil {
@@ -50,12 +46,41 @@ func TestSendReachesANativeTaskThroughItsTerminal(t *testing.T) {
 	}
 	screen := ""
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) && !strings.Contains(screen, "got hello"); time.Sleep(50 * time.Millisecond) {
-		screen, _ = peekTerminal(context.Background(), h, "t1", 0)
+		screen, _ = peekTerminal(h, "t1", 0)
 	}
 	if !strings.Contains(screen, "got hello") {
 		t.Errorf("t1's screen = %q, want the typed line entered", screen)
 	}
 	if textErr == nil || !strings.Contains(textErr.Error(), "native task t2 has no running terminal") {
 		t.Errorf("send t2 = %v, want the native delivery to name t2's missing terminal", textErr)
+	}
+}
+
+// cfo send reaches a goblin only in a native terminal: a task an older build
+// recorded in Herdr, a Herdr pane address and an unknown name are each
+// refused by name, for text and for a key.
+func TestSendRefusesWhatIsNotANativeTask(t *testing.T) {
+	stateDir := t.TempDir()
+	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "t1", Worktree: t.TempDir(), Harness: "claude", Kind: "ship", Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-t1", HerdrPaneID: "pane-t1"}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := defaultCommandRuntime()
+
+	for target, want := range map[string]string{
+		"t1":            "task t1 was recorded in Herdr by an older build",
+		"gb-t1":         "task t1 was recorded in Herdr by an older build",
+		"fleet:pane-t1": `unknown task "fleet:pane-t1"`,
+		"nobody":        `unknown task "nobody"`,
+	} {
+		textErr := runtime.sendText(context.Background(), h, target, "run the tests")
+		keyErr := runtime.sendKey(h, target, "Enter")
+
+		if textErr == nil || !strings.Contains(textErr.Error(), want) {
+			t.Errorf("send %s = %v, want %q", target, textErr, want)
+		}
+		if keyErr == nil || !strings.Contains(keyErr.Error(), want) {
+			t.Errorf("send %s --key Enter = %v, want %q", target, keyErr, want)
+		}
 	}
 }

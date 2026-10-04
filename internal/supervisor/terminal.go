@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -45,6 +46,47 @@ type terminalBinding struct {
 	Agent string
 }
 
+// verifyHerdrPane reports why the Herdr pane an older build registered the
+// CFO in cannot be shown, or nil while its agent, terminal and foreground
+// process are the registered ones. It serves this view alone: the board
+// delivers nothing to a CFO in Herdr and takes no proof from one.
+func (c *CFOConnection) verifyHerdrPane(ctx context.Context, primary primaryRegistration) error {
+	if !primary.Process.VerifiedAlive() {
+		return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
+	}
+	client := c.Terminals(primary.Target.Session)
+	snapshot, err := client.Snapshot(ctx)
+	if err != nil {
+		return errors.New("Herdr cannot verify the registered CFO")
+	}
+	found := false
+	for _, agent := range snapshot.Agents {
+		if agent.PaneID == primary.Target.Pane && agent.TabID == primary.Tab && agent.WorkspaceID == primary.Workspace && agent.Agent == primary.Agent {
+			found = true
+		}
+	}
+	if !found {
+		return registrationProblem("The registered CFO agent changed or is missing in Herdr pane " + primary.Target.Pane)
+	}
+	found = false
+	for _, pane := range snapshot.Panes {
+		if pane.ID == primary.Target.Pane && pane.TabID == primary.Tab && pane.WorkspaceID == primary.Workspace && pane.TerminalID == primary.Terminal {
+			found = true
+		}
+	}
+	if !found {
+		return registrationProblem("The registered CFO terminal changed or is missing in Herdr pane " + primary.Target.Pane)
+	}
+	process, err := client.PaneProcessInfo(ctx, primary.Target)
+	if err != nil {
+		return errors.New("Herdr cannot verify the registered CFO")
+	}
+	if process.ForegroundProcessGroupID != primary.Process.PID || process.ForegroundProcessGroupID == process.ShellPID {
+		return registrationProblem("The registered CFO process no longer owns its pane " + primary.Target.Pane)
+	}
+	return nil
+}
+
 func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelection, write bool) (terminalBinding, error) {
 	var b terminalBinding
 	c := s.Options.CFO
@@ -65,7 +107,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 		if p.Host != "" {
 			return b, unavailableTerminal("The CFO runs in a native terminal, which this view cannot show yet.")
 		}
-		if err := c.verify(ctx, p); err != nil {
+		if err := c.verifyHerdrPane(ctx, p); err != nil {
 			return b, err
 		}
 		b.Target, b.Workspace, b.Tab, b.Terminal, b.Process, b.Identity, b.Agent = p.Target, p.Workspace, p.Tab, p.Terminal, p.Process, identity, p.Agent

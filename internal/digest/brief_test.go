@@ -116,7 +116,7 @@ func holdsWhole(t *testing.T, text, path string) bool {
 func composeBrief(t *testing.T, h home.Home) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := ComposeBrief(h, os.Getpid(), "s1", &out); err != nil {
+	if err := ComposeBrief(h, os.Getpid(), "s1", false, &out); err != nil {
 		t.Fatalf("ComposeBrief: %v", err)
 	}
 	return out.String()
