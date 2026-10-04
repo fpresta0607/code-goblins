@@ -69,6 +69,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 A CFO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
 Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CFO running they start nothing.
 `goblins setup` shows the choice of agent again, and `goblins --harness codex|claude|pi` names it instead of asking.
+`goblins resume` restarts a running CFO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
 A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.

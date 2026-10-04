@@ -56,6 +56,7 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal; cfo resume <id> resumes a paused task
   update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
@@ -168,6 +169,9 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
+	// restartCFO restarts the CFO running in native terminal cfo on its
+	// conversation and returns the conversation and whether it was resumed.
+	restartCFO func(h home.Home) (supervisor.CFOConversation, bool, error)
 	// settleCFO answers the known startup dialogs of a CFO just started in
 	// native terminal cfo and returns what to tell the Overlord about them.
 	settleCFO func(ctx context.Context, stateDir, harness string) []string
@@ -327,6 +331,7 @@ func defaultCommandRuntime() commandRuntime {
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
+		restartCFO:         restartCFO,
 		setupAgent:         setupAgent,
 		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
@@ -359,7 +364,14 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "usage: goblins setup")
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, true, false, "")
+		return runQuickstart(stdout, stderr, runtime, true, false, false, "")
+	}
+	if len(args) > 0 && args[0] == "resume" && (runtime.goblins || len(args) == 1) {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: goblins resume")
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, false, false, true, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
@@ -377,7 +389,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, false, *native, *harness)
+		return runQuickstart(stdout, stderr, runtime, false, *native, false, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)

@@ -460,9 +460,15 @@ type cfoState struct {
 	// identity is the fingerprint of the registration this read found, and
 	// empty when it found none it could read.
 	identity string
+	// closed says the home's CFO registered and its process has since ended,
+	// with no terminal up for a new one: he closed it, it crashed, or the
+	// machine restarted. That is no problem to report, since nothing about
+	// the registration is wrong: the board says the CFO is closed and offers
+	// to reopen it, as goblins brings it back.
+	closed bool
 	// problem says why the board cannot reach the CFO this read found, with
-	// the fix. It is empty while the board can, and while the CFO is starting
-	// and has not registered yet.
+	// the fix. It is empty while the board can, while the CFO is starting and
+	// has not registered yet, and while the CFO is closed.
 	problem string
 }
 
@@ -481,7 +487,7 @@ func readCFOState(stateDir string) cfoState {
 		return cfoState{starting: true, terminal: NativeCFOTerminal}
 	}
 	if err == nil {
-		err = processGone(primary)
+		return cfoState{closed: true, identity: identity}
 	}
 	return cfoState{identity: identity, problem: err.Error()}
 }

@@ -172,6 +172,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.setup(w, r)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
 		h.startCFO(w, r)
+	case r.URL.Path == "/api/cfo/reopen" && r.Method == "POST":
+		h.reopenCFO(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
 		h.questionImage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/reviews/") && r.Method == "GET":

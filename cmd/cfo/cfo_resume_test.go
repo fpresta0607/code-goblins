@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -31,6 +32,57 @@ func noResumeWait(t *testing.T) {
 	wait := cfoResumeWait
 	cfoResumeWait = func(time.Duration) {}
 	t.Cleanup(func() { cfoResumeWait = wait })
+}
+
+// The board's Reopen brings a closed CFO back as goblins does: as the agent
+// the home remembers, in native terminal cfo, on the conversation it last
+// registered with where its harness resumes one, on a new one when the
+// resumed terminal does not hold, and on a new one when there is none.
+func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
+	type start struct {
+		project, harness string
+		args             []string
+	}
+	for _, tc := range []struct {
+		name, remembered, conversation string
+		holds                          bool
+		want                           []start
+	}{
+		{"on its conversation", "claude", "a1b2c3d4-session", true, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}}}},
+		{"on a new one when the resumed terminal does not hold", "claude", "a1b2c3d4-session", false, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}}, {"", "claude", nil}}},
+		{"on a new one when it registered no conversation", "claude", "", true, []start{{"", "claude", nil}}},
+		{"as the remembered agent, which a conversation of another harness does not resume", "codex", "a1b2c3d4-session", true, []start{{"", "codex", nil}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			if err := os.WriteFile(cfoHarnessPath(f.home.State), []byte(tc.remembered+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.conversation != "" {
+				recordConversation(t, f.home.State, "claude", tc.conversation, supervisor.NativeCFOTerminal)
+			}
+			var starts []start
+			started := func(_ home.Home, project, harness string, args []string) error {
+				starts = append(starts, start{project, harness, args})
+				return nil
+			}
+
+			// Act
+			err := reopenCFO(f.home, started, func(string, string) bool { return tc.holds })
+
+			// Assert
+			for i := range tc.want {
+				tc.want[i].project = f.home.Root
+			}
+			if err != nil || !slices.EqualFunc(starts, tc.want, func(a, b start) bool {
+				return a.project == b.project && a.harness == b.harness && slices.Equal(a.args, b.args)
+			}) {
+				t.Fatalf("reopenCFO = %v, started %+v; want %+v", err, starts, tc.want)
+			}
+		})
+	}
 }
 
 // The CFO was closed, however it ended. goblins brings it back on the same
@@ -76,6 +128,43 @@ func TestACFOWhoseConversationCannotBeResumedStartsANewOne(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Its conversation gone-session could not be resumed, so the CFO starts a new one.") || !strings.Contains(stdout, "CFO        started as Claude Code in "+f.home.Root+", in native terminal cfo") {
 		t.Errorf("stdout = %q, want the failed resume and the new start said", stdout)
+	}
+}
+
+// The board names the conversation a closed CFO could not resume, as it
+// does for a CFO restarted by goblins resume, and forgets an earlier one once
+// the CFO comes back on its conversation.
+func TestTheBoardNamesTheConversationAClosedCFOCouldNotResume(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		isResumeEnds bool
+		want         string
+	}{
+		{"a conversation that could not be resumed", true, "The CFO's conversation a1b2c3d4-session could not be resumed"},
+		{"a conversation resumed", false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			f.resumeEnds = c.isResumeEnds
+			if err := supervisor.RecordCFOConversationLeft(f.home.State, supervisor.CFOConversationLeft{Harness: "claude", Session: "older-session", Resume: []string{"--resume", "older-session"}}); err != nil {
+				t.Fatal(err)
+			}
+			recordConversation(t, f.home.State, "claude", "a1b2c3d4-session", supervisor.NativeCFOTerminal)
+
+			// Act
+			exit, _, stderr := f.launch()
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the CFO back", exit, stderr)
+			}
+			notice := supervisor.CFOConversationLeftNotice(f.home.State)
+			if (c.want == "" && notice != "") || !strings.Contains(notice, c.want) {
+				t.Errorf("the board says %q, want %q", notice, c.want)
+			}
+		})
 	}
 }
 

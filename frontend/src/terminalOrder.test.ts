@@ -22,7 +22,8 @@ const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean;
 
 test("a slot with no terminal shows an empty state that belongs to no backend", () => {
   const cases: [string, DeckView, string][] = [
-    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_runs: false }), "No CFO is running."],
+    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
+    ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed. Reopen it from the board."],
     ["a queued task", idleView(task("queued", { generation: "" })), "This task has not started yet."],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
@@ -32,9 +33,9 @@ test("a slot with no terminal shows an empty state that belongs to no backend", 
 });
 
 test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
-  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_runs: true }), { kind: "herdr" });
+  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_runs: true, cfo_closed: false }), { kind: "herdr" });
   assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
-  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true }), { kind: "host", query: "cfo=cfo" });
+  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true, cfo_closed: false }), { kind: "host", query: "cfo=cfo" });
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
 });
 
