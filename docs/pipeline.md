@@ -184,21 +184,24 @@ A repository with no policy file has no slow packages.
 Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
-The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when its tests passed but ran past their budget, or `not_run` when an earlier command failed.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
 The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
 A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
 A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
 
 ### Taking turns
 
-The tests of a run at the `affected` or `full` level wait for the run's turn on the machine: one run tests at a time, every goblin's and every gate's alike, in the order they asked.
-`go vet` takes no turn, and neither does anything at the `fast` level.
-The number is one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
-`CFO_VERIFY_SLOTS` sets another number for the machine.
-Set it for the user, so that every terminal and the gate read the same one: a run counts only the turns its own setting names.
-A value that is not a number above 0 is reported and read as one.
+Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
+Each command releases its turn when execution ends and joins the common line again before its next command.
+The default remains one because of what the gate's own logs showed: of the test steps that ran alone 11 percent had a failing test, and of those that ran beside three or more others 71 percent, with all but three of the 45 minute package timeouts among them.
+Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
+The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity":2}`; absence means one.
+Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
+An unreadable or invalid setting, or any nonempty `CFO_VERIFY_SLOTS` process setting, refuses admission.
+Only test binaries can use explicitly isolated admission stores.
 
-A run also waits while the memory a new process can have is under the fleet's 4 GB floor, and after an hour of that it goes on and says that it did.
+A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
+An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 
 While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
 
@@ -214,15 +217,16 @@ waiting:
 1. code-goblins at 89abcdef, affected level, in C:\work\other (pid 5150), for 3m0s
 ```
 
-The wait is neither a pass nor a failure.
-It is part of the run's duration and of no check's own time: the verdict line and the report's `queue_seconds` say how long it was, and the checks alone decide the exit code.
+Waiting is not execution or a passed check.
+It is part of the run's duration and of no check's own time: the verdict line and the report's `queue_seconds` sum the waits before its commands.
+Failed admission fails the run, records its reason in `queue_note`, and preserves unstarted required checks as `not_run` with no start or execution duration.
 
-A turn has a budget: 90 minutes at the `affected` level, twice `go test`'s package timeout, and 3 hours at `full`.
-Tests that ran past their budget do not pass, even with every test passing: the check is recorded `over_budget` and the run fails.
-A run still holding its turn past its budget loses it to the next run in line, so a run that hangs cannot stop the line, and the run that takes the turn says whose it took, in its output and in its report's `queue_note`.
-Losing its turn does not stop a run, so until it ends two runs test at once.
-A run whose process is gone gives its turn up at once.
-A run that cannot take turns at all, because the store cannot be written, says so and runs its tests.
+A turn has a budget: 90 minutes at `fast` and `affected`, twice `go test`'s package timeout, and 3 hours at `full`.
+Checks that ran past their budget do not pass: the check is recorded `over_budget` and the run fails.
+A live or unverifiable process retains custody past its budget until its execution ends or its recorded PID and birth time prove it is gone.
+Unreadable or incomplete custody records retain their place regardless of age; the line command reports the uncertainty instead of reporting an empty line.
+A cancelled waiter removes only its own exact record, and a release cannot remove a later lease from the same process.
+A store failure prevents commands from starting.
 
 ## Reading speed evidence
 

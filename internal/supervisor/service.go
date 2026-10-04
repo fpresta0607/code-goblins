@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -115,8 +116,8 @@ type Service struct {
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
 	// recovery cycle. ciUnreadable is why each watched repository's CI
-	// cannot be read, as of the last fleet reading; every recovery cycle
-	// reports it for as long as the failure lasts.
+	// cannot be read, as of the last fleet reading; publish joins it into
+	// whatever it publishes for as long as the failure lasts.
 	historyErr      error
 	cfoWakeErr      error
 	fleetErr        error
@@ -151,11 +152,14 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
-	// inspectCaller reads the ancestry and environment of the process a pipe
-	// request came from; nil reads the process itself.
+	// inspectCaller reads the ancestry and environment of the process a
+	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
-	done          chan struct{}
-	work          chan struct{}
+	// peerOf names the process at the other end of a connection to the board;
+	// nil asks Windows.
+	peerOf func(peer, board netip.AddrPort) (int, error)
+	done   chan struct{}
+	work   chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
@@ -232,6 +236,7 @@ func (s *Service) publish(err error) {
 		}
 	}
 	s.mu.Lock()
+	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
@@ -436,7 +441,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		}
 		s.checkRegistration(ctx)
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
@@ -937,6 +942,9 @@ type Snapshot struct {
 	// board that cannot start goblins or cannot read it.
 	Memory      *Memory      `json:"memory,omitempty"`
 	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	// AFK is AFK mode, the Overlord's switch for running the fleet while he
+	// is away, as the board shows it.
+	AFK AFKView `json:"afk"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -982,6 +990,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.setItems(boardItems(d))
 	out.Activity = d.Activity
+	// A log of AFK mode that could not be read is said where the board says
+	// the supervisor's other troubles, unless one is already there.
+	var afkErr error
+	if out.AFK, afkErr = s.afkView(d); afkErr != nil && out.Error == "" {
+		out.Error = bounded(afkErr.Error(), 1000)
+	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
@@ -1110,6 +1124,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
+			if _, err := s.queuedTask(row.ID); errors.Is(err, fleet.ErrNotQueued) {
+				continue
+			} else if err != nil {
+				return out, err
+			}
 			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}

@@ -172,7 +172,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			case "":
 				err = s.acceptRunRequest(ctx, int(pid), connected, req)
 			case "afk-on", "afk-off":
-				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
 			default:
 				err = s.acceptCFOItem(ctx, int(pid), connected, req)
 			}
@@ -187,7 +187,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	_, _ = pipe.Write(append(data, '\n'))
+	// DisconnectNamedPipe discards an unread reply. Flush it before disconnecting,
+	// with the same I/O bound so a client that never reads holds no pipe forever.
+	timer.Reset(runReadTimeout)
+	if _, err := pipe.Write(append(data, '\n')); err == nil {
+		_ = pipe.Sync()
+	}
+	if !timer.Stop() {
+		<-expired
+	}
 }
 
 // lookNow has the supervisor's loop run a cycle now, which reads what a

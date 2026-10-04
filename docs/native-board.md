@@ -147,6 +147,9 @@ A workspace no wider than 1410 px cannot hold the three columns beside a panel, 
 The rule is `.workspace.with-pane.kanban` in `frontend/src/styles.css`, which `App.tsx` switches on with the `kanban` class while the Board view shows the kanban; a width set by dragging the divider is remembered and wins, and so does an open Changes section.
 Until 2 October 2026 the panel took half at every width, which left the board 835 px on that window, one column under either layout.
 Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` with no live task record, status log or archive entry.
+An existing delivered outcome keeps a stale Queued row out of Tasks and refuses Start, while its completed history remains available.
+After verifying delivery and returning the worktree with cleanup, the CFO runs `cfo backlog done <id>` to move its legacy bold or checkbox Queued row to canonical checked form under Done, retaining its entire continuation, delivery evidence and archived source.
+The command refuses live metadata, missing or unreadable delivery evidence, duplicate source rows and parked work, and repeating a completed closeout changes nothing.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first.
 In progress never pages: every goblin's card is in the column at once, in priority order, and the board scrolls when they run past the screen, with the Paused group after the last of them.
 Tasks, the Paused group and Completed show a list of up to ten cards whole, with no pager, and the board scrolls when they run past the screen.
@@ -159,7 +162,8 @@ A keyboard move past the page's edge carries the page with the card, keeping its
 A card or list that fails to render shows a warning in its place, This card could not be shown or This list could not be shown, with an icon-only Retry, while the rest of the board stays usable.
 Tasks lists the backlog's Queued rows in file order, then briefs without a row; In progress lists the goblins in the attention order kept in `state/attention.json`, then any goblin not placed yet, and `cfo fleet-view` lists its goblins in that order too.
 Dragging a card, or Alt+Up and Alt+Down on a focused one, sends the whole list's new order to `POST /api/order` with the board's token, which the Host, Origin and token checks guard like every other change.
-A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, the row of a task with a live task record (which In progress lists) and every other section stay where they are, and a brief without a row gets one, `- **<id>** - <id> (repo: <project>)`, at the place it was dropped.
+A Tasks order rewrites only the order of the rows in `data/backlog.md`'s Queued section, each row moving with its indented detail lines while notes, parked rows, rows with live metadata or a delivered outcome and every other section stay where they are, and a brief without a row gets one, `- [ ] <id> - <id> (repo: <project>)`, at the place it was dropped.
+Task edits also emit unchecked checkbox rows, which both CFO and tasks-axi read, while CFO continues reading existing bold rows.
 An order that is not exactly the queue the file holds, because a row was added, removed or renamed after the board showed it, is refused with 409 and changes nothing; an In progress order naming a goblin with no live task record is refused the same way.
 The board shows the dropped order until a snapshot from the revision the save answered with arrives, and a refused order goes back with the reason under its column.
 The snapshot's `memory` is the machine's available physical memory, the standby list included, and its available commit (RAM plus page file, which every process's private memory is charged against and which a new process needs even while physical memory looks free), both read with `GlobalMemoryStatusEx`, beside the fleet's 4 GB floor and the 5 GB mark at which the CFO starts the next queued task; the meter at the head of Tasks shows it as a number and a bar spanning twice the 5 GB mark, or the machine's memory if that is less, marked at the floor and at the mark, whose fill turns amber under the mark and red under the floor, and the first queued task that is not blocked is marked Next up.
@@ -167,7 +171,8 @@ It also carries the kernel's paged and nonpaged pool sizes, read with `GetPerfor
 The meter shows whichever of free memory and free commit is the tighter, memory on a tie, labelled "Commit free (memory plus page file)" when it is commit and followed by one line naming those apps; Start's tooltip, the Next chip and Resume's tooltip follow the tighter one too, and one amber line warns when the paged pool passes 4 GB, since a driver is then leaking memory and a reboot frees it.
 `serve` also wakes the CFO about the machine and the forge, through the same wake queue as every other wake, so `cfo drain` shows them and each says what to do next in one line.
 `memory_ready` (wake kind `memory`): `serve` reads the memory meter once a minute, and once available memory and commit both read at or above the 5 GB mark on two readings in a row, while a queued task could start or a live goblin's latest report is `waiting on memory`, it wakes the CFO once, naming the next startable task in queue order and the goblins to release; it wakes again only after a reading falls under the 4 GB floor and crosses back, and never twice within fifteen minutes.
-`ci_finished` (wake kind `ci`): every two minutes `serve` asks GitHub through the authenticated `gh`, two calls for each watched repository, which are the repositories live goblins work in, kept for six hours after the last one leaves, and this home when it is a checkout.
+`ci_finished` (wake kind `ci`): every two minutes `serve` asks GitHub through the authenticated `gh` about each watched repository, which are the repositories live goblins work in, kept for six hours after the last one leaves, and this home when it is a checkout.
+Each poll makes one PR list, one batched GraphQL comparison when the repository has open PRs, and one main-run list per watched repository, plus one run read for each red run it reports; it lists every open PR, even in a repository with no live goblin.
 When every check on a live goblin's open pull request has concluded (the one it recorded, reported `done`, or opened from its worktree's branch), it wakes the CFO once, keyed by the goblin, with the result and the names of the failing checks; a rerun that finishes with a new result wakes again.
 When the newest push run of a workflow on a repository's default branch finishes red, it wakes the CFO once for that run, keyed `main:<repository>`, naming the workflow, the failing jobs and the run id; a cancelled run is not red.
 One pull request wakes at most once every five minutes, and one workflow on one repository's default branch wakes at most once every five minutes, so a push that turns two workflows red raises two wakes, each naming its own workflow and run.
@@ -176,6 +181,20 @@ A repository that has an `origin` and still cannot be read (its `origin` is not 
 Once the same failure has been met on two polls in a row it wakes the CFO once as `ci_unreadable` (wake kind `ci`), keyed `repo:<repository>`, with the error and the next step: sign `gh` in with `gh auth login`, point `origin` at GitHub, or set `origin`'s default branch with `git remote set-head origin -a`.
 It does not wake again while the failure stays the same; a different failure met on two polls in a row wakes again, and so does one that cleared and came back, never twice within five minutes for one repository, and a failure clearing raises no wake.
 The failure is compared by its exact text, so one whose text differs on every poll keeps its line on the board and does not wake, and one whose text changes, as when a goblin starts in a repository `gh` cannot read, wakes once more.
+A 403, 429 or exhausted allowance pauses every later GitHub read in that repository, across restarts, until its retry or reset time, or an hour when GitHub gives no usable time; the reads it holds fail with the same text every time, so a refusal that never clears still wakes once as `ci_unreadable` on its second retry.
+`pr_health` (wake kind `pr`): a PR that conflicts with its base or falls behind the default branch wakes the CFO once per condition and head, naming the owning goblin and the safe update, or a teammate's author and link.
+`pr_unread` (wake kind `pr`), keyed `repo:<repository>`: an open PR head whose comparison was not read, and a listing that stops at its limit of 100 open PRs, keep one line in the supervisor's error on the board, during a backoff too, until a poll reads them all.
+A head whose own comparison comes back missing or invalid in an otherwise readable response, conflicting or not, wakes the CFO once, and the listing limit once until the listing falls under 100 and comes back, never twice within five minutes for one repository; the wake names the heads, the reason and the next step, and recurring poll errors raise no further wake.
+A comparison request that fails as a whole (a refusal, a timeout, a server error or a response with no comparisons) keeps only its line on the board and wakes for no head, so a head it left unread still wakes once if its own comparison later fails; a refusal reaches the CFO as `ci_unreadable`.
+It never raises `ci_unreadable`, and CI wakes and readable PR health from that repository continue.
+`pr_overlap` (wake kind `pr`), keyed by the goblin: the same poll checks new teammate PRs and issues against running goblins, sharing one repository activity read at most every ten minutes under a thirty-second overall deadline and the existing allowance/refusal backoff.
+The area is the branch's committed change from its default-branch merge base, including renamed and deleted paths, with issue words from the brief's Task and Acceptance criteria.
+An item must have opened strictly after the goblin's current spawn generation began; an item opened during the generation stays eligible if later committed changes first make it overlap.
+Pre-existing open items remain visible in the ordinary ticket report and do not wake on polling startup, restart or area changes.
+The wake names the teammate, item link, overlap and goblin, asking the CFO whether to continue, wait or narrow the work.
+Fresh live evidence is checked before and after the read, including after a per-PR done report; stopped or paused goblins, bots, the signed-in viewer, branch-only work and the goblin's own recorded or claimed issue in that repository never produce these wakes.
+Each item wakes once per goblin generation across restart, acknowledgement, closure and area changes.
+Unknown item or generation timestamps, unread authors, changing branch inputs and incomplete reads keep a board line without guessing times or raising `ci_unreadable`, while readable overlaps continue.
 What the fleet wakes remember, in `state/fleet-wakes.json`, survives a restart, so a restart neither repeats a wake nor loses one, and a failing repository's line shows again at once.
 The board lists no queued wakes of any kind: these reach the CFO as the others do, through its Stop hook or the line typed into a Codex or pi CFO's terminal.
 A Claude Code CFO's Stop hook arms only while a task is in flight, so a red main with no goblin running reaches it at its next turn end with one.
@@ -228,12 +247,25 @@ A goblin waiting on another goblin names it once, in its card's status line, and
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
-The CFO is pinned above the Board's columns, and its bar is the one place on the board that says Waiting on you: it names the first item the Command Center holds for the Overlord, by a question's lead sentence or a review's or command's title, and how many more wait, and otherwise says All quiet and how many goblins the CFO supervises.
-At rest the bar is a plain card like the columns under it, with no lantern and no Open Command Center: the CFO's portrait, its harness mark, its line, and one icon button for its terminal.
-While something waits on the Overlord, or no CFO runs, the bar is the CFO's dialogue box, drawn like the alerts below with the CFO's name on a tab: Open Command Center, filled lantern, opens the Command Center on the first item waiting.
-In both, its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
+The CFO is pinned above the Board's columns in a plain bar, a card like the columns under it: the CFO's portrait, its harness mark, a line that says how many goblins the CFO supervises, and one icon button for its terminal.
+With nothing waiting on the Overlord the line opens with All quiet, and the bar has no Open Command Center.
+While something in the Command Center waits on him the bar says none of what it is: Open Command Center appears on it beside the terminal icon, glows in the amber of waiting and carries how many items wait, and it opens the Command Center on the first of them.
+The glow breathes, and holds still for a reader who asked for reduced motion.
+While no CFO runs the bar says so and offers Start the CFO instead.
+Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
 The mark of the harness the registered CFO runs, the snapshot's `cfo_harness`, sits beside its portrait, and its tip adds the model of the CFO's newest session in that harness.
+While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, how many decisions the CFO logged and how many items are held.
+Held for you, a disclosure under the bar's line, lists each held item that still waits on him as the Command Center's inbox draws one: whose it is, what it asks, what became of it and its goblin's latest report since, and a button that opens that item in the Command Center.
+It never opens by itself, and shows Nothing is held for you when it is empty.
+A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
+The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
+When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what was held with what became of it as it stands now, which he reads first, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
+An answer is named by its goblin, since the log keeps a question's id.
 Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
+The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
+Turning it on asks first, in a question whose Cancel has the focus, and turning it off asks nothing; a refusal is shown under the header in the supervisor's words, and a switch that cannot be read shows off and says that a press on the toggle resets it.
+The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
+While AFK mode is off and a report is kept, an icon button beside the toggle opens that report again.
 The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
 The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
 The Task view opens with one action row under the header, the task's own controls as labelled buttons: Remove for a queued task, whose Start is on its card alone, and Pause or Resume, and Stop, for a task that has started.
@@ -497,7 +529,7 @@ It asks for no project: Start starts the agent as the CFO in native terminal `cf
 The projects folder, where goblins find a project by its name, is optional: the field opens on the recorded `CFO_PROJECTS_ROOT`, Look lists the git checkouts directly in a folder, and Start records a folder he looked at as the machine's projects root, as `cfo install --projects-root` does.
 Start starts any of them this machine has, since the fleet wakes all three: an agent that is not installed says so and holds Start back until another is picked, and so does a Claude Code the terminal cannot start itself (anything but `claude.exe`).
 Start is refused, with the reason, while a CFO runs or is starting, for an agent it cannot start, and for a folder he looked at that is not a full path, cannot be read or holds no checkout; with no folder looked at it starts all the same. An example board (`cfo serve --example`) records the folder for itself alone, never as the machine's setting.
-After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of Open Command Center and its terminal icon, which leads back to the first-run page.
+After Start the board shows at once with the CFO's terminal open. A quiet link, Open the board without a CFO, shows the board while none runs, so goblins at work stay in view, and the CFO bar then offers Start the CFO in place of its terminal icon, which leads back to the first-run page.
 Keys pass through raw, the terminal follows the console's size, taken back with the next key after another viewer resized it, and Ctrl-] leaves it running, whether the console sends that key as a byte or as a Windows key event.
 A host refuses to start for a terminal that already runs, so a second start never takes over the first one's record.
 `cfo peek` of a native terminal reads its screen from its console, exactly as the terminal's program would read it, rather than rendering the terminal's output: the rows written, without trailing blanks.
@@ -793,7 +825,7 @@ The same words from the same goblin within five minutes are one event, so a wait
 A wait or a question folded this way is remembered under its own id too, so it does not alert when a later snapshot brings it back.
 A goblin's news is its generation, its state and the news itself, its pull request or what it reported, so its next pull request alerts at once, and the same news, or a wait filed again, more than five minutes later alerts again.
 The browser remembers the last 100 alerts it showed.
-Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action; it has no name tab, since its line already says who speaks.
+Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action.
 A goblin speaks by its title, as its card does, falling back to its id, cut to 60 characters in the line so what happened still shows; a goblin's wait says what it waits for once, without the Waiting on you: that heads its Command Center card.
 What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
 A goblin's finished or failed news offers Open, outlined, on that goblin.
@@ -954,8 +986,8 @@ The supervisor is the only writer of AFK mode's three files in `state/`:
 
 | File | What it holds |
 | --- | --- |
-| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. |
-| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch. |
+| `afk.json` | The switch: whether it is on, the stretch it names (`session`), since when and from where, the allowance read then, and after it turned off, when and from where. A switch the CFO made at his ask names the CFO there and keeps his words (`asked`, `ended_asked`). |
+| `afk.audit` | One JSON line for each switch, each decision the CFO logged with its evidence, and each item held for him. Every line carries its stretch, and a switch the CFO made at his ask carries his words as its evidence. |
 | `afk-report.json` | The report of the last stretch that ended. |
 
 `cfo afk on` and `cfo afk off` send `afk-on` or `afk-off` over the supervisor's pipe, the one a run item travels over, and need `cfo serve` running.
@@ -964,9 +996,38 @@ It refuses, in this order, a process whose environment carries `CFO_ROLE=goblin`
 A process it cannot read, or one that started after the request, is refused too, never taken for his; a terminal run as administrator is one it cannot read, and the refusal says so.
 So is a process whose ancestry reaches neither the Windows desktop (`explorer`) nor Windows Terminal (`WindowsTerminal`): its parents were cut off, as Git Bash's `env` leaves a command with those variables removed too, and as Git Bash leaves the Overlord's own command, so the refusal tells him to run it in PowerShell or cmd.
 What it accepts is recorded with the shell the command was typed in, such as `his own terminal (powershell.exe pid 4242)`.
+
+A request that carries `asked`, the words `cfo afk on --asked` or `cfo afk off --asked` passes, is the registered CFO making the switch at the Overlord's ask, and takes another proof.
+The supervisor refuses a process whose environment carries `CFO_ROLE=goblin` or `NO_MISTAKES_GATE`, then proves the process runs under the registered primary CFO, the proof a question takes, and refuses one it cannot prove.
+The words are kept on one line, and words that are blank or longer than 500 characters are refused.
+What it accepts is recorded as `the CFO at his ask (claude pid 4242)`, with his words as `asked` in `afk.json`, as the evidence of the switch's line in `afk.audit`, in the notice in the CFO's wake queue and in the report.
+It does not reset a switch that cannot be read, which stays the Overlord's.
+This proof says who asks and nothing of whose words those are: the CFO quotes them, and the supervisor cannot tell an ask of his from one the CFO misread or was handed by a goblin, a page or a tool's output.
+`AGENTS.md` holds that part, and the record shows him what it was switched for.
+His own switch, from the board or a terminal of his own, turns it either way whoever made the last one.
+
 Turning it on reads the allowance from `quota-axi`, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
 The adversary this proof names is an agent that follows its contract and tries the command, the pipe or a wrapper around either.
 A process of the same Windows user that writes `state/afk.json` itself is the boundary the board's other items already have.
+
+The board's own switch, `POST /api/afk` with `{"on": true}` or `{"on": false}`, is under the same proof, made of the program that shows the board.
+The endpoint first refuses a body it cannot read, then a request that is not the board's own page on this PC: one whose peer is not this machine, or one a proxy handled, as a board shared through Tailscale serve is.
+It then asks Windows which process owns the other end of the connection (`GetExtendedTcpTable`), which for a browser is the browser's own network process, and reads that process as it reads a pipe's caller: its environment and its ancestry, with the same refusals in the same order.
+The desktop window started from the Start menu passes, as does a browser he starts from the desktop or from a terminal of his own.
+A browser an agent started does not: one a test runner started under `node`, one opened from a goblin's or the CFO's terminal, or one whose harness left its variable in its environment.
+A browser whose opener has since exited has parents that stop short of the desktop, so it is refused with the way out: the desktop window, a browser started from the desktop, or `cfo afk on` in PowerShell or cmd.
+What it accepts is recorded with the program he started, such as `his own board (goblins-window.exe pid 4242)`, and the switch is then made as the command's is.
+Off while it is already off answers as off, and a switch that cannot be read answers on with 409 and off by resetting it.
+The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
+An agent that drives the Overlord's own running browser is his browser to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
+
+Every snapshot carries `afk`, which is what the board shows of the switch.
+Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
+While it is on it carries `since` and `from`, `asked` (his words, for a switch the CFO made at his ask), `decided` (how many decisions the log holds for the stretch) and `held`: each item the log holds for him in the stretch, with whether it still waits on him, what became of it and its goblin's latest report since.
+While it is off it carries `report`, the last stretch that ended, whose report is kept.
+The log's file and each held goblin's status log are read for a snapshot only when they have changed since the last one, and a log that cannot be read is said as the snapshot's error.
+`GET /api/afk/report` is that report as the board's page reads it: `{"found": false}` while no stretch has ended, and otherwise who turned it on and off (`from` and `ended_from`, with his words in `asked` and `ended_asked` for a switch the CFO made), its decisions under the headings `cfo afk report` prints, what each goblin finished, what was held with what became of each item as it stands now, how long it lasted and what was spent in the same words, with every list present.
+The page and the text list what is held for him first, then what the CFO decided.
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
 A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
@@ -976,9 +1037,11 @@ Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh
 While AFK mode is on, `POST /api/announce` records every key it is asked about and claims none, so the board shows no alert, sends no Windows notification and never opens the Command Center by itself.
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
 What a page asked about then stays recorded, so it is not announced once he is back either.
+The page holds the same line by itself: while its snapshot says AFK mode is on, a claim it could not ask for hands its alerts and its Command Center nothing, where with AFK mode off it falls back on what the browser remembers.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
 [The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question, an open review item or wait, a run item nobody ran, and an open credential request.
+A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
 An answer recorded as the Overlord's (`cfo answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
 A switch that cannot be read is never taken for on or off.
@@ -990,6 +1053,7 @@ His `cfo afk on` is refused until the switch reads again, since it would guess a
 The report is built from the stretch's lines of the log, the `done: PR <url>` lines every status log and archived status log holds from that stretch, each held item with what became of it on the board and its goblin's latest report since, and the allowance read when it turned on beside the one read when it turned off.
 A held question the log holds an answer decision for is a decision, so the report and `cfo afk status` list it there and not as held.
 Only the log says so: a held question the board closed as the CFO's with no decision logged stays in the report as held, not waiting, and says no decision was logged for it.
+A held question the CFO answered after the stretch ended, under the standing rules where nothing is logged, reads `answered by the CFO after AFK mode ended` when the report is read again; an answer with no time recorded, or one at or before the end, keeps the word that no decision was logged.
 What could not be read, a log line or an allowance, is named in the report rather than left out.
 
 ## Nonblocking presentation notices
