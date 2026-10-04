@@ -303,20 +303,18 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	if err != nil {
 		return startPlan{}, err
 	}
-	listed := func(row fleet.BacklogRow) bool { return row.Structured && row.ID == id }
-	var row fleet.BacklogRow
-	if at := slices.IndexFunc(backlog.Queued, listed); at >= 0 {
-		row = backlog.Queued[at]
+	queued, err := backlog.ReadQueuedTask(h, id)
+	if errors.Is(err, fleet.ErrNotQueued) {
+		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
+	if err != nil {
+		return startPlan{}, err
+	}
+	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")
 	_, briefErr := os.Stat(brief)
-	switch {
-	case slices.ContainsFunc(backlog.Parked, listed) || !row.Structured && briefErr != nil:
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
-	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
+	if briefErr != nil && !errors.Is(briefErr, os.ErrNotExist) {
 		return startPlan{}, briefErr
-	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h, diskBriefs), func(task Task) bool { return task.ID == id }):
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
 	if len(row.BlockedByIDs) > 0 {
 		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
@@ -339,10 +337,6 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
 	}
 	if errors.Is(briefErr, os.ErrNotExist) {
-		queued, err := fleet.ReadQueuedTask(h, id)
-		if err != nil {
-			return startPlan{}, err
-		}
 		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
 		plan.missingBrief = &queued
 	}
