@@ -15,10 +15,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-const afkUsage = `usage: cfo afk on | off | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
+const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
 
-  on      turn AFK mode on: the Supreme Overlord's switch, refused in a goblin's or the CFO's terminal
-  off     turn it off and print the report of the stretch; his switch too
+  on      turn AFK mode on: the Supreme Overlord's switch, made from a terminal of his own; the registered CFO makes it only at his ask, with --asked and his words quoted exactly, and a goblin never
+  off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
   log     the registered CFO logs a decision it made under the authority, with its evidence; kind is one of ` + "merge, deploy, migration, install, answer, other"
@@ -31,11 +31,19 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		fmt.Fprintln(stderr, afkUsage)
 		return 2
 	}
-	if len(args) == 0 || args[0] != "log" && len(args) != 1 {
+	if len(args) == 0 || !slices.Contains([]string{"on", "off", "status", "report", "log"}, args[0]) {
 		return usage()
 	}
-	if !slices.Contains([]string{"on", "off", "status", "report", "log"}, args[0]) {
+	if (args[0] == "status" || args[0] == "report") && len(args) != 1 {
 		return usage()
+	}
+	// Only a switch takes words, and only the CFO's: his own takes none.
+	asked := ""
+	if args[0] == "on" || args[0] == "off" {
+		var ok bool
+		if asked, ok = hisAsk(args[0], args[1:], stderr); !ok {
+			return 2
+		}
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -52,7 +60,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		if err != nil {
 			return fail(err)
 		}
-		if err := runtime.afkSwitch()(h, true); err != nil {
+		if err := runtime.afkSwitch()(h, true, asked); err != nil {
 			return fail(err)
 		}
 		switched, err := afk.Read(h.State)
@@ -63,7 +71,13 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		if before.On {
 			is = "was already"
 		}
-		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on from %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), switched.From)
+		fmt.Fprintf(stdout, "AFK mode %s on since %s, turned on %s.\n", is, switched.Since.UTC().Format("2006-01-02 15:04 UTC"), afk.SwitchedBy(switched.From, switched.Asked))
+		if asked != "" {
+			// The CFO reads this, having made the switch at his ask.
+			fmt.Fprintln(stdout, "Say in your reply to him that AFK mode is on. You decide what its authority covers and log each decision; what stays his is held for him without a prompt.")
+			fmt.Fprintln(stdout, "His own switch, on the board or in a terminal of his own, turns it off at any time. cfo afk status shows what was decided and held.")
+			return 0
+		}
 		fmt.Fprintln(stdout, "The CFO decides what its authority covers and logs each decision; what stays yours is held for you without a prompt.")
 		fmt.Fprintln(stdout, "cfo afk status shows both. cfo afk off turns it off and prints the report.")
 		return 0
@@ -71,7 +85,7 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 		// His off resets a switch that cannot be read, and then no stretch
 		// ended that a report could be of.
 		_, unread := afk.Read(h.State)
-		if err := runtime.afkSwitch()(h, false); err != nil {
+		if err := runtime.afkSwitch()(h, false, asked); err != nil {
 			return fail(err)
 		}
 		if unread != nil {
@@ -87,18 +101,52 @@ func runAFK(args []string, stdout, stderr io.Writer, runtime commandRuntime) int
 	return afkStatus(h, stdout, stderr)
 }
 
+// hisAsk reads the words a switch carries: none when the Overlord makes it
+// himself, and --asked with his words when the registered CFO makes it at his
+// ask. It reports whether the arguments were ones the switch takes.
+func hisAsk(name string, args []string, stderr io.Writer) (string, bool) {
+	fs := flag.NewFlagSet("afk "+name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	asked := fs.String("asked", "", "the Overlord's own words asking for the switch, quoted exactly; the registered CFO passes them when it makes the switch at his ask")
+	if err := fs.Parse(args); err != nil {
+		return "", false
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(stderr, "cfo afk %s: unexpected argument %q; quote his words after --asked\n", name, fs.Arg(0))
+		return "", false
+	}
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "asked" })
+	if !given {
+		return "", true
+	}
+	words, err := afk.HisWords(*asked)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo afk %s: --asked takes the Overlord's own words asking for it: %v\n", name, err)
+		return "", false
+	}
+	return words, true
+}
+
 // afkSwitch is how the command asks for the switch: over the supervisor's
-// pipe, unless the runtime names another way.
-func (r commandRuntime) afkSwitch() func(home.Home, bool) error {
+// pipe, unless the runtime names another way. asked is empty for the
+// Overlord's own switch, and his words for one the CFO makes at his ask.
+func (r commandRuntime) afkSwitch() func(h home.Home, on bool, asked string) error {
 	if r.switchAFK != nil {
 		return r.switchAFK
 	}
-	return supervisor.SwitchAFK
+	return func(h home.Home, on bool, asked string) error {
+		if asked == "" {
+			return supervisor.SwitchAFK(h, on)
+		}
+		return supervisor.SwitchAFKAtHisAsk(h, on, asked)
+	}
 }
 
-// printAFKReport prints the report of the last stretch that ended.
+// printAFKReport prints the report of the last stretch that ended, with each
+// item it held as it stands now.
 func printAFKReport(h home.Home, stdout, stderr io.Writer) int {
-	report, found, err := afk.ReadReport(h.State)
+	report, found, err := supervisor.ReadAFKReport(h)
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo afk: "+err.Error())
 		return 1

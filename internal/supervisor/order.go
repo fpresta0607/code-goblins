@@ -85,8 +85,17 @@ func (s *Service) orderQueued(order []string) error {
 	}
 	live := map[string]bool{}
 	for _, row := range backlog.Queued {
-		if _, err := state.ReadTaskMeta(h.State, row.ID); row.Structured && err == nil {
+		if !row.Structured {
+			continue
+		}
+		if _, err := state.ReadTaskMeta(h.State, row.ID); err == nil {
 			live[row.ID] = true
+			continue
+		}
+		if _, err := backlog.ReadQueuedTask(h, row.ID); errors.Is(err, fleet.ErrNotQueued) {
+			live[row.ID] = true
+		} else if err != nil {
+			return err
 		}
 	}
 	added := map[string]string{}
@@ -95,7 +104,7 @@ func (s *Service) orderQueued(order []string) error {
 		if !slices.Contains(order, brief.ID) || slices.ContainsFunc(backlog.Queued, listed) || slices.ContainsFunc(backlog.Parked, listed) {
 			continue
 		}
-		row := "- **" + brief.ID + "** - " + brief.ID
+		row := "- [ ] " + brief.ID + " - " + brief.ID
 		if brief.Project != "" {
 			row += " (repo: " + brief.Project + ")"
 		}
