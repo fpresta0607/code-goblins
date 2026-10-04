@@ -60,6 +60,13 @@ func TestACompactingClaudeCFOIsHandedItsWholeDigest(t *testing.T) {
 	}
 	p.say("scratch home %s", p.home.Root)
 	p.setUpProject(t)
+	settings, err := json.Marshal(map[string]any{"hooks": map[string]any{
+		"PreCompact": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": p.binary, "args": []string{"hook", "pre-compact"}}}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProofFile(t, filepath.Join(p.project, ".claude", "settings.local.json"), string(settings))
 	p.env = p.environment()
 
 	cfo := p.startCFO(t)
@@ -78,12 +85,17 @@ func TestACompactingClaudeCFOIsHandedItsWholeDigest(t *testing.T) {
 	session := p.lockSession(t)
 	p.say("session %s", session)
 	p.expectWholeDigest(t, session, "SessionStart:startup")
+	checkpoint := filepath.Join(p.home.State, digest.CheckpointFile)
+	if _, err := os.Stat(checkpoint); !os.IsNotExist(err) {
+		t.Fatalf("a checkpoint exists before compaction: %v", err)
+	}
 
 	client, err := host.Dial(cfo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
+	compactAt := time.Now()
 	if err := client.Input([]byte("/compact")); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +104,18 @@ func TestACompactingClaudeCFOIsHandedItsWholeDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.say("typed /compact")
-	p.expectWholeDigest(t, session, "SessionStart:compact")
+	hook := p.expectWholeDigest(t, session, "SessionStart:compact")
+	info, err := os.Stat(checkpoint)
+	if err != nil {
+		t.Fatalf("PreCompact did not write the checkpoint: %v", err)
+	}
+	if hook.Recorded.IsZero() || info.ModTime().Before(compactAt) || info.ModTime().After(hook.Recorded) {
+		t.Fatalf("checkpoint written %s, /compact typed %s, SessionStart:compact recorded %s", info.ModTime(), compactAt, hook.Recorded)
+	}
+	if !strings.Contains(hook.Content, checkpoint+" holds the checkpoint written before compaction") {
+		t.Fatalf("the delivered compact digest does not name the fresh checkpoint:\n%s", hook.Content)
+	}
+	p.say("checkpoint written %s, before SessionStart:compact recorded %s; the delivered digest names it", info.ModTime().UTC().Format(time.RFC3339Nano), hook.Recorded.UTC().Format(time.RFC3339Nano))
 }
 
 // lockSession is the session the home's lock names, as the CFO's SessionStart
@@ -114,9 +137,10 @@ func (p *wakeProof) lockSession(t *testing.T) string {
 // sessionStartHook is one SessionStart hook as Claude Code's transcript keeps
 // it: what the hook printed, and what the session was given.
 type sessionStartHook struct {
-	Name    string `json:"hookName"`
-	Stdout  string `json:"stdout"`
-	Content string `json:"content"`
+	Name     string    `json:"hookName"`
+	Stdout   string    `json:"stdout"`
+	Content  string    `json:"content"`
+	Recorded time.Time `json:"-"`
 }
 
 // sessionStartHooks reads every SessionStart hook named name from the
@@ -151,6 +175,7 @@ func sessionStartHooks(env []string, session, name string) ([]sessionStartHook, 
 		for {
 			var record struct {
 				Attachment json.RawMessage `json:"attachment"`
+				Timestamp  time.Time       `json:"timestamp"`
 			}
 			// The end of the file, or a record still being written, ends
 			// the read: the next look reads it whole.
@@ -161,6 +186,7 @@ func sessionStartHooks(env []string, session, name string) ([]sessionStartHook, 
 			// are not hooks.
 			var hook sessionStartHook
 			if json.Unmarshal(record.Attachment, &hook) == nil && hook.Name == name {
+				hook.Recorded = record.Timestamp
 				hooks = append(hooks, hook)
 			}
 		}
@@ -174,7 +200,7 @@ func sessionStartHooks(env []string, session, name string) ([]sessionStartHook, 
 // within what Claude Code hands over whole, that claims no file it did not
 // print, and that names a long digest which exists and holds the context the
 // brief leaves out.
-func (p *wakeProof) expectWholeDigest(t *testing.T, session, name string) {
+func (p *wakeProof) expectWholeDigest(t *testing.T, session, name string) sessionStartHook {
 	var hook sessionStartHook
 	p.await(t, "the "+name+" hook in the CFO's transcript", 6*time.Minute, func() bool {
 		hooks, err := sessionStartHooks(p.env, session, name)
@@ -212,4 +238,5 @@ func (p *wakeProof) expectWholeDigest(t *testing.T, session, name string) {
 	if data, err := os.ReadFile(long); err != nil || !strings.Contains(string(data), "a standing line of overlord.md") {
 		t.Errorf("%s: the long digest does not hold data\\overlord.md (%v)", name, err)
 	}
+	return hook
 }
