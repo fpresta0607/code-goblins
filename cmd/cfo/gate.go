@@ -280,6 +280,11 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	_, floor, err := verify.AdmissionLimits(store)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	holding, waiting, err := verify.Line(store)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -314,8 +319,8 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintf(stderr, "available memory cannot be read: %v\n", err)
 		return 2
 	}
-	if min(memory.Available, memory.CommitAvailable) < supervisor.MemoryFloor {
-		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(memory.Available), verify.Gigabytes(memory.CommitAvailable), verify.Gigabytes(supervisor.MemoryFloor))
+	if min(memory.Available, memory.CommitAvailable) < floor {
+		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(memory.Available), verify.Gigabytes(memory.CommitAvailable), verify.Gigabytes(floor))
 	}
 	return 0
 }

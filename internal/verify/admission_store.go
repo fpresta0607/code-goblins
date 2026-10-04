@@ -55,35 +55,35 @@ func admissionDir(named string, isTest bool) (string, error) {
 	return canonical, nil
 }
 
-// admissionCapacity has one shared setting. Its absence retains capacity one;
-// this delivery rejects any increase pending measured concurrency evidence.
-func admissionCapacity(dir string) (int, error) {
+// AdmissionLimits reads the shared capacity and its minimum memory floor
+// together. Absence retains capacity one and a 4 GiB floor.
+func AdmissionLimits(dir string) (int, uint64, error) {
 	data, err := fsx.ReadFile(filepath.Join(dir, "capacity.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return 1, nil
+		return 1, 4 << 30, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	opening, err := decoder.Token()
 	if err != nil || opening != json.Delim('{') {
-		return 0, errors.New("verify: capacity.json must contain only capacity: 1")
+		return 0, 0, errors.New("verify: capacity.json must contain only capacity: 1 or 2")
 	}
 	key, err := decoder.Token()
 	if err != nil || key != "capacity" {
-		return 0, errors.New("verify: capacity.json must contain only capacity: 1")
+		return 0, 0, errors.New("verify: capacity.json must contain only capacity: 1 or 2")
 	}
 	var capacity int
 	if err := decoder.Decode(&capacity); err != nil {
-		return 0, fmt.Errorf("verify: invalid shared capacity: %w", err)
+		return 0, 0, fmt.Errorf("verify: invalid shared capacity: %w", err)
 	}
 	closing, err := decoder.Token()
-	if err != nil || closing != json.Delim('}') || capacity != 1 {
-		return 0, errors.New("verify: capacity.json must contain only capacity: 1")
+	if err != nil || closing != json.Delim('}') || (capacity != 1 && capacity != 2) {
+		return 0, 0, errors.New("verify: capacity.json must contain only capacity: 1 or 2")
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return 0, errors.New("verify: capacity.json has trailing data")
+		return 0, 0, errors.New("verify: capacity.json has trailing data")
 	}
-	return capacity, nil
+	return capacity, uint64(capacity) * (4 << 30), nil
 }
