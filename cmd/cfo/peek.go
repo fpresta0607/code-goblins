@@ -1,35 +1,33 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
-// peekTerminal is the tail of target's terminal: a native terminal's screen as
-// its console holds it, or else the Herdr pane's tail.
-func peekTerminal(ctx context.Context, h home.Home, target string, lines int) (string, error) {
+// peekTerminal is the tail of target's native terminal: its screen as its
+// console holds it. target names a task, by its id or as gb-<id>, or any
+// other native terminal of this home, such as the CFO's.
+func peekTerminal(h home.Home, target string, lines int) (string, error) {
 	id := target
 	if meta, native := fleet.NativeTask(h.State, target); native {
 		id = meta.ID
 	}
-	if record, err := host.ReadRecord(h.State, id); err == nil {
-		rows, err := host.ReadScreen(record)
-		if err != nil {
-			return "", err
-		}
-		return host.ScreenTail(rows, lines), nil
+	record, err := host.ReadRecord(h.State, id)
+	if err != nil {
+		return "", fmt.Errorf("cfo peek: %s has no native terminal running: %w", target, err)
 	}
-	client := &herdr.Client{Commands: execx.OSRunner{}}
-	return fleet.Peeker{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Tail(ctx, target, lines)
+	rows, err := host.ReadScreen(record)
+	if err != nil {
+		return "", err
+	}
+	return host.ScreenTail(rows, lines), nil
 }
 
 func runPeek(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
@@ -63,7 +61,7 @@ func runPeek(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	output, err := runtime.peek(context.Background(), h, args[0], lines)
+	output, err := runtime.peek(h, args[0], lines)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

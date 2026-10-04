@@ -25,7 +25,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -214,21 +213,21 @@ func validCredentialLink(link string) error {
 // through the inbox the supervisor reads; anyone else must be the registered
 // CFO, whom the supervisor proves over its pipe. It returns the request as
 // filed, with its ID.
-func FileCredentialRequest(ctx context.Context, h home.Home, terminals terminal.Opener, r CredentialRequest) (CredentialRequest, error) {
+func FileCredentialRequest(h home.Home, r CredentialRequest) (CredentialRequest, error) {
 	var random [8]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return r, err
 	}
 	r.ID = "cred-" + hex.EncodeToString(random[:])
 	if r.Task != "" {
-		if meta, goblinErr := goblinAsker(ctx, h.State, terminals, r.Task); goblinErr == nil {
+		if meta, goblinErr := goblinAsker(h.State, r.Task); goblinErr == nil {
 			r.Identity, r.By = goblinIdentity(meta), "goblin"
 			return r, spoolCredentialRequest(h.State, r)
 		} else if !RunsUnderRegisteredCFO(h.State) {
 			return r, fmt.Errorf("only the goblin of %s, from its own terminal, or the registered CFO can ask for credentials for it: %w", r.Task, goblinErr)
 		}
 	}
-	identity, release, err := (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
+	identity, release, err := (&CFOConnection{State: h.State}).CallerIdentity()
 	if err != nil {
 		return r, fmt.Errorf("only the registered CFO, or a goblin naming its own task with --task, can ask for credentials: %w", err)
 	}

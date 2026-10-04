@@ -9,7 +9,7 @@ export function ConnectionRow({ entry, isBusy, onFix }: { entry: ConnectionEntry
   return <li className="connection-row">
     <ConnectorMark mark={connectorMark(entry.name, entry.kind === "credential" ? "credential" : "mcp")} label={entry.name} />
     <div className="connection-copy">
-      <strong>{entry.name}</strong>
+      <strong data-tip={entry.name}>{entry.name}</strong>
       <span className={"connection-verdict " + (isConnected ? "is-connected" : isProvided ? "is-provided" : "needs-attention")}><Icon name={isConnected ? "check" : isProvided ? "key" : "warning"} />{connectionStatus(entry.status)}</span>
       {entry.detail && <p>{entry.detail}</p>}
       <time dateTime={entry.checkedAt}>{checkedTime(entry.checkedAt)}</time>

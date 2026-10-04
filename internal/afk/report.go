@@ -29,11 +29,16 @@ const sameWindow = 10 * time.Minute
 // CFO decided under the authority with the evidence of each, what each goblin
 // finished, what is held for the Overlord and why, and what was spent.
 type Report struct {
-	Session   string    `json:"session"`
-	Since     time.Time `json:"since"`
-	Ended     time.Time `json:"ended"`
-	From      string    `json:"from"`
-	EndedFrom string    `json:"ended_from"`
+	Session string    `json:"session"`
+	Since   time.Time `json:"since"`
+	Ended   time.Time `json:"ended"`
+	// From and EndedFrom say who turned it on and off, and Asked and
+	// EndedAsked hold the Overlord's words for a switch the CFO made at his
+	// ask, as the switch kept them.
+	From       string `json:"from"`
+	Asked      string `json:"asked,omitempty"`
+	EndedFrom  string `json:"ended_from"`
+	EndedAsked string `json:"ended_asked,omitempty"`
 	// Decisions are the stretch's decisions in the order they were made.
 	Decisions []Entry  `json:"decisions"`
 	Finished  []Finish `json:"finished"`
@@ -62,8 +67,9 @@ type Held struct {
 	Task string    `json:"task,omitempty"`
 	What string    `json:"what"`
 	At   time.Time `json:"at"`
-	// Waiting says it still waits on him, and Now what became of it by the
-	// time AFK mode turned off.
+	// Waiting says it still waits on him, and Now what became of it: by the
+	// time AFK mode turned off as the report is kept, and as it stands now
+	// when the report is read.
 	Waiting bool   `json:"waiting"`
 	Now     string `json:"now"`
 	// Meanwhile is what was done while it waited: its goblin's latest report.
@@ -94,6 +100,45 @@ func Decisions(entries []Entry) []Entry {
 		decisions = append(decisions, entry)
 	}
 	return decisions
+}
+
+// Section is one heading of the report with the decisions under it.
+type Section struct {
+	Title   string  `json:"title"`
+	Entries []Entry `json:"entries"`
+}
+
+// Sections sorts the report's decisions under its headings, in the order the
+// report lists them. A heading the report always shows is there with nothing
+// under it; the others are there only when they hold something. The CFO's
+// text and the board's page are both written from these.
+func (r Report) Sections() []Section {
+	var sections []Section
+	decided := func(title string, keep func(Entry) bool, always bool) {
+		entries := []Entry{}
+		for _, entry := range r.Decisions {
+			if keep(entry) {
+				entries = append(entries, entry)
+			}
+		}
+		if len(entries) > 0 || always {
+			sections = append(sections, Section{Title: title, Entries: entries})
+		}
+	}
+	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
+	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
+	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
+	decided("Deployed", kind(KindDeploy), true)
+	decided("Migrations applied", kind(KindMigration), true)
+	decided("Installed", kind(KindInstall), true)
+	decided("Answered for goblins", kind(KindAnswer), true)
+	decided("Other decisions", kind(KindOther), false)
+	return sections
+}
+
+// Lasted says how long the stretch lasted, to the minute.
+func (r Report) Lasted() string {
+	return span(r.Ended.Sub(r.Since))
 }
 
 // number writes a reading without the digits a float adds: 40, or 47.5.
@@ -164,26 +209,34 @@ func span(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
-// Render writes the report as the text the CFO puts in its terminal.
+// Render writes the report as the text the CFO puts in its terminal: who
+// turned it on and off, what is held for the Overlord, which he reads first,
+// then what the CFO decided, what each goblin finished and what was spent.
 func Render(w io.Writer, r Report) error {
 	var out []string
 	say := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
 	say("AFK MODE REPORT")
-	say("AFK mode was on from %s to %s (%s): turned on from %s, off from %s.", at(r.Since), at(r.Ended), span(r.Ended.Sub(r.Since)), r.From, r.EndedFrom)
+	say("AFK mode was on from %s to %s (%s): turned on %s, off %s.", at(r.Since), at(r.Ended), r.Lasted(), SwitchedBy(r.From, r.Asked), SwitchedBy(r.EndedFrom, r.EndedAsked))
 
-	decided := func(heading string, keep func(Entry) bool, always bool) {
-		var entries []Entry
-		for _, entry := range r.Decisions {
-			if keep(entry) {
-				entries = append(entries, entry)
-			}
+	say("")
+	say("Held for you (%d), each as it stands now", len(r.Held))
+	for _, held := range r.Held {
+		whose := "the CFO's"
+		if held.Task != "" {
+			whose = held.Task + "'s"
 		}
-		if len(entries) == 0 && !always {
-			return
+		say("- %s, %s: %s", held.Item, whose, held.What)
+		line := "  Now: " + held.Now + "."
+		if held.Meanwhile != "" {
+			line += " Meanwhile: " + held.Meanwhile + "."
 		}
+		say("%s", line)
+	}
+
+	for _, section := range r.Sections() {
 		say("")
-		say("%s (%d)", heading, len(entries))
-		for _, entry := range entries {
+		say("%s (%d)", section.Title, len(section.Entries))
+		for _, entry := range section.Entries {
 			line := "- "
 			if entry.Task != "" {
 				line += entry.Task + ": "
@@ -202,34 +255,11 @@ func Render(w io.Writer, r Report) error {
 			say("  Evidence: %s", entry.Evidence)
 		}
 	}
-	kind := func(kind string) func(Entry) bool { return func(entry Entry) bool { return entry.Kind == kind } }
-	decided("Merged", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome == OutcomeMerged }, true)
-	decided("Merge words with no merge recorded", func(entry Entry) bool { return entry.Kind == KindMerge && entry.Outcome != OutcomeMerged }, false)
-	decided("Deployed", kind(KindDeploy), true)
-	decided("Migrations applied", kind(KindMigration), true)
-	decided("Installed", kind(KindInstall), true)
-	decided("Answered for goblins", kind(KindAnswer), true)
-	decided("Other decisions", kind(KindOther), false)
 
 	say("")
 	say("Goblins finished (%d)", len(r.Finished))
 	for _, finish := range r.Finished {
 		say("- %s: %s (%s)", finish.Task, finish.PR, finish.At.UTC().Format("15:04 UTC"))
-	}
-
-	say("")
-	say("Held for you (%d)", len(r.Held))
-	for _, held := range r.Held {
-		whose := "the CFO's"
-		if held.Task != "" {
-			whose = held.Task + "'s"
-		}
-		say("- %s, %s: %s", held.Item, whose, held.What)
-		line := "  Now: " + held.Now + "."
-		if held.Meanwhile != "" {
-			line += " Meanwhile: " + held.Meanwhile + "."
-		}
-		say("%s", line)
 	}
 
 	say("")

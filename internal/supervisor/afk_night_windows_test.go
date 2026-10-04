@@ -33,7 +33,7 @@ func TestANightUnderAFKMode(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	meta, record, goblinPane, cfo := goblinFixture(t, store)
+	meta, record, goblin, cfo := goblinFixture(t, store)
 	s := &Service{Store: store, Instance: "test-instance", Options: Options{CFO: cfo, Allowance: func(context.Context) ([]afk.Allowance, string) {
 		return []afk.Allowance{{Provider: "claude", Window: "week", PercentUsed: 40}}, ""
 	}}}
@@ -73,14 +73,14 @@ func TestANightUnderAFKMode(t *testing.T) {
 
 	// A migration that drops a table is the Overlord's alone: the CFO leaves
 	// it for him, and nothing answers it in his name.
-	if err := cfo.PublishQuestion(ctx, "drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
+	if err := cfo.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.holdForOverlord(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	announcedAway = append(announcedAway, askToAnnounce(t, s, `{"keys":["alert:question:drop-legacy-invoices","open:question:drop-legacy-invoices"]}`)...)
-	_, decidedForHim := cfo.RecordAnswer(ctx, "drop-legacy-invoices", "Apply it", "", "chat")
+	_, decidedForHim := cfo.RecordAnswer("drop-legacy-invoices", "Apply it", "", "chat")
 
 	// The Overlord is back.
 	if err := SwitchAFK(h, false); err != nil {
@@ -92,8 +92,8 @@ func TestANightUnderAFKMode(t *testing.T) {
 	if len(announcedAway) != 0 || len(announcedBack) != 0 {
 		t.Errorf("the board was handed %q while he was away and %q once he was back, want nothing: it asked about both while he was away, and both were held", announcedAway, announcedBack)
 	}
-	if chosen != "SQLite" || len(goblinPane.prompts) != 1 || !strings.Contains(goblinPane.prompts[0], "SQLite. smallest thing that works") {
-		t.Errorf("the goblin's pane = %q (chosen %q), want the CFO's answer delivered once", goblinPane.prompts, chosen)
+	if typed := goblin.lines(t); chosen != "SQLite" || len(typed) != 1 || !strings.Contains(typed[0], "SQLite. smallest thing that works") {
+		t.Errorf("the goblin was typed %q (chosen %q), want the CFO's answer delivered once", typed, chosen)
 	}
 	if decidedForHim == nil || !strings.Contains(decidedForHim.Error(), "AFK mode is on") {
 		t.Errorf("recording the migration answered as his = %v, want it refused", decidedForHim)

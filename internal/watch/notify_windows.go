@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"encoding/binary"
 	"strings"
 	"sync"
@@ -56,7 +57,7 @@ var (
 // permanent-leak path documented on cancelAndDrain), so the OVERLAPPED and
 // the 4KB buffer behind it are safe to reuse on the next call. A run of
 // failMax consecutive API failures trips a one-way breaker: every later Wait
-// call, including after Close, degrades to time.Sleep(timeout) without
+// call, including after Close, degrades to a cancellable timer wait without
 // touching the API again, which is how this waiter survives AV filter
 // drivers and network paths that silently kill directory watches. All
 // exported methods are meant to be called from the single goroutine that
@@ -120,10 +121,10 @@ func NewNativeWaiter(dir string) (*DirWaiter, error) {
 	return w, err
 }
 
-// Wait blocks for up to timeout for a directory change and reports whether
-// one arrived. Its bool return has two halves, both load-bearing to
-// watch.Run's contract on Config.WaitEvent: true is returned ONLY when a
-// completed ReadDirectoryChangesW named at least one *.status or
+// Wait blocks until ctx is canceled or timeout passes for a directory change
+// and reports whether one arrived. Its bool return has two halves, both
+// load-bearing to watch.Run's contract on Config.WaitEvent: true is returned
+// ONLY when a completed ReadDirectoryChangesW named at least one *.status or
 // *.turn-ended file or a serve's handover request, or lost its content to a
 // buffer overflow (in which case
 // a real change is assumed since there is no way to say otherwise). Every
@@ -135,13 +136,16 @@ func NewNativeWaiter(dir string) (*DirWaiter, error) {
 // Filtering to the two suffixes ScanSignals actually acts on, and the one
 // request the watcher yields to at once, keeps unrelated typed monitor records
 // and other bookkeeping from waking the watcher.
-func (w *DirWaiter) Wait(timeout time.Duration) bool {
+func (w *DirWaiter) Wait(ctx context.Context, timeout time.Duration) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	// Degraded is checked before closed: once tripped it stays true for the
 	// waiter's remaining lifetime, including after Close, so every later
-	// call sleeps out the timeout exactly like pure timer mode rather than
-	// falling through to the closed-waiter strike path below.
+	// call waits for the timeout or cancellation, like pure timer mode rather
+	// than falling through to the closed-waiter strike path below.
 	if w.degraded {
-		time.Sleep(timeout)
+		sleep(ctx, timeout)
 		return false
 	}
 	if w.closed {
@@ -161,7 +165,7 @@ func (w *DirWaiter) Wait(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
 		remaining := time.Until(deadline)
-		if remaining <= 0 {
+		if ctx.Err() != nil || remaining <= 0 {
 			return false
 		}
 
@@ -184,24 +188,23 @@ func (w *DirWaiter) Wait(timeout time.Duration) bool {
 		}
 		w.pending = true
 
-		event, err := syscall.WaitForSingleObject(w.eventHandle, clampWaitMillis(remaining))
-		if err != nil {
-			w.recordFailure()
-			w.cancelAndDrain()
-			return false
-		}
-		if event != syscall.WAIT_OBJECT_0 {
-			// Ordinary timeout: not a failure. Reclaim the outstanding read;
-			// the deadline check at the top of the next pass returns false
-			// once the budget is actually exhausted.
-			w.cancelAndDrain()
-			if w.degraded {
-				// cancelAndDrain could not confirm the cancel landed within
-				// its own bound and has permanently degraded this waiter;
-				// touching the API again would race the kernel over ov/buf.
+		// Keep the read pending between bounded waits, so cancellation is
+		// observed without reissuing I/O or closing its handles concurrently.
+		for {
+			remaining := time.Until(deadline)
+			if ctx.Err() != nil || remaining <= 0 {
+				w.cancelAndDrain()
 				return false
 			}
-			continue
+			event, err := syscall.WaitForSingleObject(w.eventHandle, clampWaitMillis(min(remaining, handoverPoll)))
+			if err != nil {
+				w.recordFailure()
+				w.cancelAndDrain()
+				return false
+			}
+			if event == syscall.WAIT_OBJECT_0 {
+				break
+			}
 		}
 
 		w.pending = false

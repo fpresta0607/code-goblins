@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -44,14 +44,71 @@ func TestPeekReadsANativeTerminalsScreen(t *testing.T) {
 	}
 	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
 
-	screen, err := peekTerminal(context.Background(), h, "t1", 0)
-	last, lastErr := peekTerminal(context.Background(), h, "t1", 1)
+	screen, err := peekTerminal(h, "t1", 0)
+	last, lastErr := peekTerminal(h, "t1", 1)
 
 	if err != nil || screen != "ready\nhello\ngot hello\n" {
 		t.Errorf("peek t1 = %q, %v; want the three rows written", screen, err)
 	}
 	if lastErr != nil || last != "got hello\n" {
 		t.Errorf("peek t1 1 = %q, %v; want the last row written", last, lastErr)
+	}
+}
+
+func TestPeekAndReadinessReadAnInlineCodexScreen(t *testing.T) {
+	stateDir := t.TempDir()
+	hostAttachTestTerminal(t, stateDir, "t1")
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "t1", Worktree: t.TempDir(), Harness: "codex", Backend: "native"}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(stateDir, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if err := client.Input([]byte("codex-inline\r")); err != nil {
+		t.Fatal(err)
+	}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("Codex has no native readiness detector")
+	}
+	readAttempts := 0
+	readScreen := func(record host.Record) ([]string, error) {
+		readAttempts++
+		if readAttempts == 1 {
+			return nil, errors.New("forced transient console-attach error")
+		}
+		return host.ReadScreen(record)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		rows, err := readScreen(record)
+		if err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("inline Codex screen never became ready: %q; last read error: %v", rows, err)
+		}
+	}
+	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+	var stdout, stderr bytes.Buffer
+	exit := runPeek([]string{"gb-t1"}, &stdout, &stderr, commandRuntime{
+		resolveHome: func() (home.Home, error) { return h, nil },
+		peek:        peekTerminal,
+	})
+
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("peek exit=%d stderr=%q", exit, stderr.String())
+	}
+	for _, text := range []string{"Working tree is clean.", "\u203a Ask Codex to do anything", "gpt-6.1-sol high"} {
+		if !strings.Contains(stdout.String(), text) {
+			t.Errorf("peek = %q, want inline Codex row %q", stdout.String(), text)
+		}
 	}
 }
 
@@ -71,10 +128,10 @@ func TestPeekByTheGoblinsNameReadsANativeTasksTerminal(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the terminal never showed ready: %q", byID)
 		}
-		byID, _ = peekTerminal(context.Background(), h, "t1", 0)
+		byID, _ = peekTerminal(h, "t1", 0)
 	}
 
-	screen, err := peekTerminal(context.Background(), h, "gb-t1", 0)
+	screen, err := peekTerminal(h, "gb-t1", 0)
 
 	if err != nil || screen != byID {
 		t.Errorf("peek gb-t1 = %q, %v; want the screen peek t1 reads, %q", screen, err, byID)
@@ -97,10 +154,28 @@ func TestPeekOfANativeTerminalWhoseHostDoesNotAnswerFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	screen, err := peekTerminal(context.Background(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, "t1", 0)
+	screen, err := peekTerminal(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, "t1", 0)
 
 	if err == nil || screen != "" || !strings.Contains(err.Error(), "terminal t1") {
 		t.Fatalf("peek t1 = %q, %v; want an error naming terminal t1", screen, err)
+	}
+}
+
+// cfo peek reads native terminals only: a task an older build recorded in
+// Herdr, and a name no terminal answers to, fail naming what was asked for.
+func TestPeekOfATaskWithNoNativeTerminalFails(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "t1", Worktree: t.TempDir(), Harness: "claude", Kind: "ship", Backend: "herdr", HerdrSession: "fleet", HerdrWorkspaceID: "ws", HerdrTabID: "tab-t1", HerdrPaneID: "pane-t1"}); err != nil {
+		t.Fatal(err)
+	}
+	h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+
+	for _, target := range []string{"t1", "gb-t1", "fleet:pane-t1", "nobody"} {
+		screen, err := peekTerminal(h, target, 0)
+
+		if err == nil || screen != "" || !strings.Contains(err.Error(), target+" has no native terminal running") {
+			t.Errorf("peek %s = %q, %v; want a refusal naming it", target, screen, err)
+		}
 	}
 }
 
@@ -108,7 +183,7 @@ func TestRunPeekStreamsOnlyTail(t *testing.T) {
 	deps := testCommandRuntime(t)
 	var gotTarget string
 	var gotLines int
-	deps.peek = func(_ context.Context, _ home.Home, target string, lines int) (string, error) {
+	deps.peek = func(_ home.Home, target string, lines int) (string, error) {
 		gotTarget, gotLines = target, lines
 		return "marker\n", nil
 	}
@@ -129,7 +204,7 @@ func TestRunPeekStreamsOnlyTail(t *testing.T) {
 func TestRunPeekDefaultsLineCount(t *testing.T) {
 	deps := testCommandRuntime(t)
 	var gotLines int
-	deps.peek = func(_ context.Context, _ home.Home, _ string, lines int) (string, error) {
+	deps.peek = func(_ home.Home, _ string, lines int) (string, error) {
 		gotLines = lines
 		return "", nil
 	}
@@ -140,13 +215,13 @@ func TestRunPeekDefaultsLineCount(t *testing.T) {
 		t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 	}
 	if gotLines != 0 {
-		t.Errorf("lines = %d, want 0 so fleet.Peeker selects its default", gotLines)
+		t.Errorf("lines = %d, want 0, which reads the whole screen", gotLines)
 	}
 }
 
 func TestRunPeekWritesFailureOnlyToStderr(t *testing.T) {
 	deps := testCommandRuntime(t)
-	deps.peek = func(context.Context, home.Home, string, int) (string, error) {
+	deps.peek = func(home.Home, string, int) (string, error) {
 		return "partial", errors.New("pane unavailable")
 	}
 
@@ -163,7 +238,7 @@ func TestRunPeekWritesFailureOnlyToStderr(t *testing.T) {
 func TestRunPeekRejectsUnknownFlagInTargetPosition(t *testing.T) {
 	deps := testCommandRuntime(t)
 	called := false
-	deps.peek = func(context.Context, home.Home, string, int) (string, error) {
+	deps.peek = func(home.Home, string, int) (string, error) {
 		called = true
 		return "", nil
 	}

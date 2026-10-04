@@ -24,7 +24,7 @@ func TestTheRegisteredCFOIsCheckedThroughTheTerminalBackend(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, _ := testStore(t)
-			primary, _, _, _ := primaryFixture(t, store)
+			primary, _, _, _ := herdrPrimaryFixture(t, store)
 			foreground := primary.Process.PID
 			if c.gone {
 				foreground = 7 // the terminal's shell is back in the foreground
@@ -42,7 +42,7 @@ func TestTheRegisteredCFOIsCheckedThroughTheTerminalBackend(t *testing.T) {
 				return fake
 			}}
 
-			err := connection.check(context.Background())
+			err := connection.verifyHerdrPane(context.Background(), primary)
 
 			if c.want == "" && err != nil || c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
 				t.Fatalf("check = %v, want %q", err, c.want)

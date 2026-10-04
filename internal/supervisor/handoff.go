@@ -22,24 +22,31 @@ func archivedTasks(h home.Home) func() ([]os.DirEntry, error) {
 	})
 }
 
-func openTaskHandoff(h home.Home, id string, archived func() ([]os.DirEntry, error)) (*os.File, error) {
-	type note struct{ root, path string }
-	var paths []note
-	meta, err := state.ReadTaskMeta(h.State, id)
+// handoffPlace is one place a task's handoff may be: a file under a root it
+// must not leave.
+type handoffPlace struct{ root, path string }
+
+// handoffPlaces lists where task id's handoff may be, the first that opens
+// being the one: the note its last pause saved, the one in its data folder,
+// and for a task with no record, the ones in its archived folders, newest
+// first. meta and metaErr are what reading its record gave.
+func handoffPlaces(h home.Home, id string, meta state.TaskMeta, metaErr error, lifecycle func(string) (state.Lifecycle, error), archived func() ([]os.DirEntry, error)) ([]handoffPlace, error) {
+	var paths []handoffPlace
+	err := metaErr
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	if err == nil {
-		if record, readErr := state.ReadLifecycle(h.State, id); readErr == nil && record.Generation == meta.SpawnGen && record.HandoffSaved {
+		if record, readErr := lifecycle(id); readErr == nil && record.Generation == meta.SpawnGen && record.HandoffSaved {
 			name := filepath.Base(record.Handoff)
 			operation := strings.TrimSuffix(strings.TrimPrefix(name, "pause-"), ".md")
 			folder := filepath.Join(h.State, "tasktmp", id)
 			if strings.HasPrefix(name, "pause-") && strings.HasSuffix(name, ".md") && state.ValidTaskID(operation) == nil && strings.EqualFold(filepath.Dir(record.Handoff), folder) {
-				paths = append(paths, note{h.State, filepath.Join("tasktmp", id, name)})
+				paths = append(paths, handoffPlace{h.State, filepath.Join("tasktmp", id, name)})
 			}
 		}
 	}
-	paths = append(paths, note{h.Data, filepath.Join(id, "handoff.md")})
+	paths = append(paths, handoffPlace{h.Data, filepath.Join(id, "handoff.md")})
 	if errors.Is(err, os.ErrNotExist) {
 		archive := filepath.Join("archive", "finished")
 		entries, err := archived()
@@ -50,35 +57,49 @@ func openTaskHandoff(h home.Home, id string, archived func() ([]os.DirEntry, err
 			name := entries[i].Name()
 			match := archivedTaskDir.FindStringSubmatch(name)
 			if name == id || match != nil && match[1] == id {
-				paths = append(paths, note{h.Data, filepath.Join(archive, name, "handoff.md")})
+				paths = append(paths, handoffPlace{h.Data, filepath.Join(archive, name, "handoff.md")})
 			}
 		}
 	}
-	for _, path := range paths {
-		root, err := os.OpenRoot(path.root)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
+	return paths, nil
+}
+
+// openHandoff opens the handoff at one place: a regular file of at most
+// maxHandoff reached through plain directories under its root. A place with
+// no file there gives an error that is os.ErrNotExist.
+func openHandoff(place handoffPlace) (*os.File, error) {
+	root, err := os.OpenRoot(place.root)
+	if err != nil {
+		return nil, err
+	}
+	file, err := openRegular(root, place.path)
+	root.Close()
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil || info.Size() > maxHandoff {
+		file.Close()
 		if err != nil {
 			return nil, err
 		}
-		file, err := openRegular(root, path.path)
-		root.Close()
+		return nil, fmt.Errorf("handoff exceeds %d MiB", maxHandoff>>20)
+	}
+	return file, nil
+}
+
+func openTaskHandoff(h home.Home, id string, archived func() ([]os.DirEntry, error)) (*os.File, error) {
+	meta, metaErr := state.ReadTaskMeta(h.State, id)
+	places, err := handoffPlaces(h, id, meta, metaErr, func(id string) (state.Lifecycle, error) { return state.ReadLifecycle(h.State, id) }, archived)
+	if err != nil {
+		return nil, err
+	}
+	for _, place := range places {
+		file, err := openHandoff(place)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if err != nil {
-			return nil, err
-		}
-		info, err := file.Stat()
-		if err != nil || info.Size() > maxHandoff {
-			file.Close()
-			if err != nil {
-				return nil, err
-			}
-			return nil, fmt.Errorf("handoff exceeds %d MiB", maxHandoff>>20)
-		}
-		return file, nil
+		return file, err
 	}
 	return nil, os.ErrNotExist
 }

@@ -149,7 +149,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `GOTMPDIR`, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, so it draws in Claude's classic interface whatever the operator's `tui` setting and its history stays in the terminal's own scrollback.
-   Codex: `--dangerously-bypass-approvals-and-sandbox`.
+   Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
    Pi: `--tui-mode regular`.
    Kimi: no extra flags.
    Model and effort flags follow the lane table in `data/routing.json`.
@@ -178,7 +178,12 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 ## The CFO's memory
 
 The SessionStart hook prints a brief digest: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
-That file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
+Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
+It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
+After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
+The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.
+Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
+The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.

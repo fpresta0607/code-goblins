@@ -13,11 +13,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -166,6 +164,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if verb == "working" || strings.HasPrefix(verb, "waiting on ") && verb != "waiting on overlord" {
+		supervisor.Reported(h.State)
 		fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 		return 0
 	}
@@ -181,20 +180,19 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// The CFO is already woken; the Command Center copy is a second route
 	// to the Overlord, so its failure is reported and never fails the notify,
 	// except for a page: only its item gets the page polled.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
 	if verb == "waiting on overlord" {
-		if err := supervisor.PublishWait(ctx, h, terminals, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
+		if err := supervisor.PublishWait(h, id, record.Seq, state.NormalizeStatusDetail(detail), pageURL, page); err != nil {
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
 				return 1
 			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
-	} else if err := supervisor.SurfaceNotify(ctx, h.State, terminals, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
+	} else if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
 		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
 	}
+	// The board shows the report now, not at its next refresh.
+	supervisor.Reported(h.State)
 	fmt.Fprintf(stdout, "notified %s %s\n", id, line)
 	// While AFK mode is on nothing prompts the Overlord, so a goblin that
 	// waits on him is told to move to what does not depend on him.

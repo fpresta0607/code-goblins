@@ -26,6 +26,7 @@ type Event struct {
 	ID              string    `json:"id"`
 	Harness         string    `json:"harness"`
 	Kind            string    `json:"kind"`
+	Source          string    `json:"source,omitempty"`
 	SessionID       string    `json:"session_id"`
 	TaskID          string    `json:"task_id,omitempty"`
 	Role            string    `json:"role"`
@@ -69,6 +70,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		SessionID string `json:"session_id"`
 		CWD       string `json:"cwd"`
 		Event     string `json:"hook_event_name"`
+		Source    string `json:"source"`
 		TurnID    string `json:"turn_id"`
 		Pending   bool   `json:"pending_messages"`
 		AgentID   string `json:"agent_id"`
@@ -121,6 +123,9 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		c.Role = "cfo"
 	}
 	e := Event{Schema: 1, Harness: c.Harness, Kind: kind, SessionID: p.SessionID, TaskID: c.TaskID, Role: c.Role, TurnID: p.TurnID, Generation: c.Generation, CWD: p.CWD, OccurredAt: c.Now.UTC()}
+	if p.Event == "SessionStart" {
+		e.Source = p.Source
+	}
 	e.Prompt = p.Event == "UserPromptSubmit" || (c.Harness == "pi" && p.Event == "agent_start")
 	e.Model, e.AgentType = p.Model, p.AgentType
 	e.ParentSessionID, e.ParentHarness, e.RootSessionID = c.ParentSessionID, c.ParentHarness, c.RootSessionID
@@ -164,6 +169,9 @@ func (e Event) Validate() error {
 	if e.Prompt && e.Kind != "active" {
 		return errors.New("only an active event takes a prompt")
 	}
+	if e.Source != "" && e.Kind != "started" {
+		return errors.New("only a started event has a source")
+	}
 	if e.Role != "cfo" && e.Role != "goblin" && e.Role != "subagent" && e.Role != "worker" {
 		return errors.New("invalid session role")
 	}
@@ -191,7 +199,7 @@ func (e Event) Validate() error {
 	if e.ParentSessionID != "" && e.Relation != "spawned" && e.Relation != "delegated" {
 		return errors.New("invalid lineage relation")
 	}
-	for _, value := range []string{e.SessionID, e.TurnID, e.Generation, e.CWD, e.ParentSessionID, e.ParentHarness, e.RootSessionID, e.Model, e.AgentType} {
+	for _, value := range []string{e.SessionID, e.Source, e.TurnID, e.Generation, e.CWD, e.ParentSessionID, e.ParentHarness, e.RootSessionID, e.Model, e.AgentType} {
 		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
 			return errors.New("invalid event identity")
 		}

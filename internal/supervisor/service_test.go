@@ -393,6 +393,9 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 				store.db.TaskSessions[meta.ID] = "codex/current"
 				store.db.Sessions["codex/current"] = Session{ID: "codex/current", TaskID: meta.ID, Generation: sessionGeneration, Role: "goblin", Phase: tt.phase, UpdatedAt: time.Now()}
 			}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
 			view, err := (&Service{Store: store}).Snapshot()
 			if err != nil {
 				t.Fatal(err)

@@ -91,7 +91,7 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		}
 	}
 	primary := p.Reviewer
-	if p.Version == 2 {
+	if p.Version > 1 {
 		primary = p.Primary
 	}
 	if err := set(root, "agent", "agent", []string{primary.Harness}); err != nil {

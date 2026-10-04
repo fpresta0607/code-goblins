@@ -26,6 +26,8 @@ type Lifecycle struct {
 	Started           time.Time         `json:"started"`
 	Updated           time.Time         `json:"updated"`
 	Reason            string            `json:"reason"`
+	Pause             *PauseCondition   `json:"pause,omitempty"`
+	ResumeNote        string            `json:"resume_note,omitempty"`
 	Session           string            `json:"session,omitempty"`
 	GateRun           string            `json:"gate_run,omitempty"`
 	GateIntent        string            `json:"gate_intent,omitempty"`
@@ -73,11 +75,16 @@ func (record Lifecycle) SuppressesMonitoring(directory string) bool {
 	return false
 }
 
+// LifecyclePath is where task id's lifecycle record is.
+func LifecyclePath(directory, id string) string {
+	return filepath.Join(directory, "lifecycle", id+".json")
+}
+
 func ReadLifecycle(directory, id string) (Lifecycle, error) {
 	if err := ValidTaskID(id); err != nil {
 		return Lifecycle{}, err
 	}
-	data, err := fsx.ReadFile(filepath.Join(directory, "lifecycle", id+".json"))
+	data, err := fsx.ReadFile(LifecyclePath(directory, id))
 	if err != nil {
 		return Lifecycle{}, err
 	}
@@ -110,6 +117,14 @@ func WriteLifecycle(directory string, record Lifecycle) error {
 }
 
 func (record Lifecycle) validate() error {
+	if record.Pause != nil {
+		if _, err := NewPauseCondition(record.Pause.Reason, record.Pause.Until, record.Pause.At); err != nil {
+			return err
+		}
+		if record.Pause.At.IsZero() {
+			return errors.New("pause condition requires its original timestamp")
+		}
+	}
 	for _, process := range record.Teardown {
 		if process.PID <= 0 || process.Started.IsZero() || process.Name == "" {
 			return errors.New("teardown requires a named process and birth-checked identity")

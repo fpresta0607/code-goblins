@@ -29,6 +29,7 @@ import (
 	"github.com/coder/websocket"
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -39,6 +40,8 @@ import (
 
 // viewQuery opens task-1's current generation with the board's token.
 const viewQuery = "task=task-1&generation=g1&token=instance"
+
+const NATIVE_EXIT_PHASES_FILE = "native-exit-phases.txt"
 
 // TestNativeTerminalProgram is not a test but the program a native terminal
 // test runs in its terminal: it records each typed line in the file it is
@@ -53,6 +56,12 @@ func TestNativeTerminalProgram(t *testing.T) {
 	args := flag.Args()
 	if len(args) != 3 || args[0] != "native-terminal-program" {
 		t.Skip("runs only in a native terminal test's terminal")
+	}
+	phases := filepath.Join(args[2], NATIVE_EXIT_PHASES_FILE)
+	if _, err := os.Stat(phases); errors.Is(err, os.ErrNotExist) {
+		phases = ""
+	} else if err != nil {
+		t.Fatal(err)
 	}
 	// An orphaned program starts only once the relay that started it has
 	// exited, as what Git Bash's timeout starts outlives the bash it replaced.
@@ -75,12 +84,14 @@ func TestNativeTerminalProgram(t *testing.T) {
 	fmt.Println("program ready")
 	// harness makes the program show Claude Code's composer, and each line
 	// typed after it a turn in progress, so a native delivery can type into
-	// it the way it types into Claude Code.
+	// it the way it types into Claude Code. turn shows a turn already in
+	// progress, whose prompt hook reports nothing until it ends.
 	harness := false
 	// hooked raises a native prompt hook for every line taken, as a harness
 	// with native hooks does, naming the terminal it runs in.
 	hooked := false
 	lines := bufio.NewScanner(os.Stdin)
+	recordNativeExitPhase(t, phases, "scanner ready")
 	for lines.Scan() {
 		line := lines.Text()
 		switch {
@@ -89,8 +100,12 @@ func TestNativeTerminalProgram(t *testing.T) {
 			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
 		case line == "hooked":
 			hooked = true
+		case line == "turn":
+			harness, hooked = true, false
+			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+			fmt.Println("✽ Pondering… (esc to interrupt)")
 		case strings.HasPrefix(line, "ask "):
-			if _, err := goblinAsker(context.Background(), args[2], nil, strings.TrimPrefix(line, "ask ")); err != nil {
+			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())
 				continue
 			}
@@ -98,13 +113,13 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "present":
 			now := time.Now().UTC()
 			a := BoardActivity{ID: "cfo-walkthrough", Kind: "browser", State: "active", URL: "http://127.0.0.1:4387/walkthrough", At: now, Until: now.Add(time.Minute)}
-			if err := PublishPresentation(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, a); err != nil {
+			if err := PublishPresentation(home.Home{Root: filepath.Dir(args[2]), State: args[2]}, a); err != nil {
 				record("present error: " + err.Error())
 				continue
 			}
 			record("presented")
 		case strings.HasPrefix(line, "send "):
-			if err := PrepareSendActivity(context.Background(), home.Home{Root: filepath.Dir(args[2]), State: args[2]}, nil, strings.TrimPrefix(line, "send "))(); err != nil {
+			if err := PrepareSendActivity(home.Home{Root: filepath.Dir(args[2]), State: args[2]}, strings.TrimPrefix(line, "send "))(); err != nil {
 				record("send error: " + err.Error())
 				continue
 			}
@@ -120,7 +135,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			if line == "register by hand" {
 				session = ""
 			}
-			described, err := Register(context.Background(), args[2], nil, named, session)
+			described, err := Register(args[2], named, session)
 			if err != nil {
 				record("register error: " + err.Error())
 				continue
@@ -155,6 +170,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			record("spilled")
 		case strings.HasPrefix(line, "exit "):
 			code, _ := strconv.Atoi(strings.TrimPrefix(line, "exit "))
+			recordNativeExitPhase(t, phases, "exit received")
 			os.Exit(code)
 		default:
 			record(line)
@@ -173,7 +189,23 @@ func TestNativeTerminalProgram(t *testing.T) {
 			}
 		}
 	}
+	recordNativeExitPhase(t, phases, fmt.Sprintf("scanner ended error=%v", lines.Err()))
 	os.Exit(0)
+}
+
+func recordNativeExitPhase(t *testing.T, path, phase string) {
+	t.Helper()
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := fmt.Fprintf(file, "%s %s\n", time.Now().UTC().Format(time.RFC3339Nano), phase)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // orphanOf names, for a program a relay started, the relay it waits out.
@@ -232,8 +264,10 @@ func nativeBoard(t *testing.T, mode string) (*HTTP, *httptest.Server) {
 type hostedTerminal struct {
 	stateDir, id string
 	// typed is the file where the program records each line typed into it.
-	typed string
-	ended chan struct{}
+	typed  string
+	ended  chan struct{}
+	phases string
+	child  windows.Handle
 }
 
 // hostTask hosts task-1's terminal.
@@ -257,26 +291,43 @@ func hostTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 func hostProgram(t *testing.T, stateDir, id, typed string, args ...string) hostedTerminal {
 	t.Helper()
 	terminal := hostedTerminal{stateDir: stateDir, id: id, typed: typed, ended: make(chan struct{})}
+	terminal.phases = filepath.Join(stateDir, NATIVE_EXIT_PHASES_FILE)
+	if _, err := os.Stat(terminal.phases); errors.Is(err, os.ErrNotExist) {
+		terminal.phases = ""
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	phases := terminal.phases
 	go func() {
 		defer close(terminal.ended)
+		if phases != "" {
+			t.Logf("native exit phase host entered at=%s", time.Now().UTC().Format(time.RFC3339Nano))
+		}
 		err := host.Run(stateDir, host.Spec{ID: id, Args: args, Cols: 80, Rows: 24})
+		if phases != "" {
+			t.Logf("native exit phase host returned at=%s error=%v", time.Now().UTC().Format(time.RFC3339Nano), err)
+		}
 		if err != nil {
 			t.Errorf("the host ended with %v", err)
 		}
 	}()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := host.ReadRecord(stateDir, id); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the host never recorded itself")
-		}
-	}
 	t.Cleanup(func() {
+		defer func() {
+			if terminal.child != 0 {
+				if err := windows.CloseHandle(terminal.child); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+		if phases != "" {
+			terminal.exitSnapshot(t, "before owned fixture cleanup")
+		}
 		if record, err := host.ReadRecord(stateDir, id); err == nil {
 			if client, err := host.Dial(record); err == nil {
-				_ = client.CloseTerminal()
-				_ = client.Close()
+				closeErr := errors.Join(client.CloseTerminal(), client.Close())
+				if phases != "" {
+					t.Logf("native exit phase cleanup close requested at=%s error=%v", time.Now().UTC().Format(time.RFC3339Nano), closeErr)
+				}
 			}
 		}
 		select {
@@ -285,7 +336,74 @@ func hostProgram(t *testing.T, stateDir, id, typed string, args ...string) hoste
 			t.Error("the terminal's host did not end")
 		}
 	})
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if record, err := host.ReadRecord(stateDir, id); err == nil {
+			if phases != "" {
+				terminal.child, err = windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(record.ChildPID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var creation, exit, kernel, user windows.Filetime
+				if err := windows.GetProcessTimes(terminal.child, &creation, &exit, &kernel, &user); err != nil {
+					t.Fatal(err)
+				}
+				if started := time.Unix(0, creation.Nanoseconds()).UTC(); !started.Equal(record.ChildStart) {
+					t.Fatal("the retained fixture child does not match its host record")
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the host never recorded itself")
+		}
+	}
 	return terminal
+}
+
+// standIn makes this test process the program of the terminal: its host's
+// record names this process, so what the test calls is proven to run in that
+// terminal, while the host still serves it and its program still records what
+// is typed into it.
+func (terminal hostedTerminal) standIn(t *testing.T) {
+	t.Helper()
+	terminal.runs(t, os.Getpid())
+}
+
+// runs makes the host's record name pid as the terminal's program.
+func (terminal hostedTerminal) runs(t *testing.T, pid int) {
+	t.Helper()
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ChildPID = pid
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(terminal.stateDir, "hosts", terminal.id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// startTurn puts the terminal's program inside a long turn, as a harness
+// whose screen shows work and whose hooks report no prompt until it ends.
+func (terminal hostedTerminal) startTurn(t *testing.T) {
+	t.Helper()
+	terminal.typeLine(t, "turn")
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Claude)
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if rows, err := host.ReadScreen(record); err == nil && screens.IsWorking(rows) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the terminal never showed a turn under way")
+		}
+	}
 }
 
 // typeLine types line and Enter into the terminal directly, not through a
@@ -310,13 +428,59 @@ func (terminal hostedTerminal) typeLine(t *testing.T, line string) {
 // returns every line the program recorded before it exited.
 func (terminal hostedTerminal) exit(t *testing.T) []string {
 	t.Helper()
+	if terminal.phases != "" {
+		t.Logf("native exit phase input begins at=%s", time.Now().UTC().Format(time.RFC3339Nano))
+	}
 	terminal.typeLine(t, "exit 0")
+	if terminal.phases != "" {
+		t.Logf("native exit phase input submitted and client disconnected at=%s", time.Now().UTC().Format(time.RFC3339Nano))
+	}
 	select {
 	case <-terminal.ended:
 	case <-time.After(15 * time.Second):
+		terminal.exitSnapshot(t, "exit wait timed out before cleanup")
 		t.Fatal("the terminal did not exit")
 	}
+	terminal.exitSnapshot(t, "exit wait completed before final readback")
 	return terminal.lines(t)
+}
+
+func (terminal hostedTerminal) exitSnapshot(t *testing.T, phase string) {
+	t.Helper()
+	if terminal.phases == "" {
+		return
+	}
+	if terminal.child == 0 {
+		t.Logf("native exit phase %s: the owned child handle was not retained", phase)
+		return
+	}
+	var exitCode uint32
+	exitErr := windows.GetExitCodeProcess(terminal.child, &exitCode)
+	wait, waitErr := windows.WaitForSingleObject(terminal.child, 0)
+	isEnded := false
+	select {
+	case <-terminal.ended:
+		isEnded = true
+	default:
+	}
+	file, err := os.Open(terminal.phases)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	phases, readErr := io.ReadAll(io.LimitReader(file, 4097))
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		t.Error(err)
+		return
+	}
+	if len(phases) > 4096 {
+		t.Error("the fixture phase log exceeds 4096 bytes")
+		return
+	}
+	t.Logf("native exit phase %s at=%s child_exit_code=%d exit_error=%v wait_result=%d wait_error=%v host_ended=%t typed=%q child_phases=%q", phase, time.Now().UTC().Format(time.RFC3339Nano), exitCode, exitErr, wait, waitErr, isEnded, terminal.lines(t), phases)
+	if exitErr != nil || waitErr != nil {
+		t.Errorf("the retained fixture child state could not be read: %v", errors.Join(exitErr, waitErr))
+	}
 }
 
 func (terminal hostedTerminal) lines(t *testing.T) []string {

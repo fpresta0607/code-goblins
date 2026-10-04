@@ -9,9 +9,11 @@ import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabe
 import { waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { ShowMore } from "./ShowMore";
+import { AfkToggle } from "./afk-toggle";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
-// it. The CFO drawn without a task has no worktree to open.
+// it. The CFO drawn without a task has no worktree to open; its header carries
+// the AFK toggle beside its status.
 export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void }) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState("");
@@ -49,6 +51,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       {!compact && !owner && node && task && <p className="muted">Part of {task.title || task.id}</p>}
       {!compact && owner && task.activity && <ShowMore text={task.activity} className="panel-activity" />}
     </div>
+    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />}
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>

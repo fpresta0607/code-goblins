@@ -19,6 +19,7 @@ type Request struct {
 	Operation  string
 	Action     string
 	Reason     string
+	Until      string
 	Session    string
 }
 
@@ -30,6 +31,7 @@ type Operations struct {
 	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
 	Archive    func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
 	Memory     func() (available, commit uint64, err error)
+	Admit      func() error
 	Notify     func(state.Lifecycle) error
 }
 
@@ -49,6 +51,17 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if request.Action != "pause" && request.Action != "resume" && request.Action != "stop" {
 		return result, errors.New("action must be pause, resume or stop")
 	}
+	var pause *state.PauseCondition
+	if request.Action == "pause" {
+		condition, err := state.NewPauseCondition(request.Reason, request.Until, time.Now().UTC())
+		if err != nil {
+			return result, err
+		}
+		if condition.Reason == "dependency" && condition.Until == "task:"+request.ID {
+			return result, errors.New("a paused task cannot wait on itself")
+		}
+		pause = &condition
+	}
 	lockName := ".lifecycle-" + request.ID + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(service.StateDir, lockName); err != nil {
 		return result, err
@@ -61,6 +74,9 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if prior.Operation == request.Operation {
 		if prior.RequestGeneration != request.Generation || prior.Action != request.Action {
 			return result, errors.New("operation identity was already used for another request")
+		}
+		if pause != nil && (prior.Pause == nil || prior.Pause.Reason != pause.Reason || prior.Pause.Until != pause.Until) {
+			return result, errors.New("operation identity was already used for another pause condition")
 		}
 		if prior.Phase == "paused" || prior.Phase == "running" || prior.Phase == "stopped" || prior.Phase == "failed" {
 			finished, finishErr := service.finish(prior)
@@ -119,6 +135,11 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if len(short) > 0 {
 				return result, errors.New("Resume needs at least 5 GB of " + strings.Join(short, " and of ") + " to keep the 4 GB floor")
 			}
+			if service.Operations.Admit != nil {
+				if err := service.Operations.Admit(); err != nil {
+					return result, err
+				}
+			}
 		}
 	}
 	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session}
@@ -129,14 +150,17 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		result.Session = request.Session
 	}
 	result.Teardown = prior.Teardown
+	result.Pause = prior.Pause
 	switch request.Action {
 	case "pause":
+		result.Pause = pause
 		result.Phase = "pausing"
 		result.Handoff = filepath.Join(meta.TaskTmp, "pause-"+request.Operation+".md")
 	case "stop":
 		result.Phase = "stopping"
 	case "resume":
 		result.Phase = "resuming"
+		result.ResumeNote = prior.ResumeNote
 		result.Handoff, result.HandoffSaved = prior.Handoff, prior.HandoffSaved
 	}
 	if err := service.save(&result); err != nil {

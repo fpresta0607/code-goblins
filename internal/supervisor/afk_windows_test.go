@@ -143,7 +143,7 @@ func TestOnlyATerminalOfTheOverlordsOwnSwitchesAFKMode(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), c.refusal) || !strings.Contains(err.Error(), "only he turns it on or off") {
+			if err == nil || !strings.Contains(err.Error(), c.refusal) || !strings.Contains(err.Error(), "he turns it on or off from a terminal or a board of his own, and the registered CFO only at his ask, with his words") {
 				t.Fatalf("overlordsTerminal = %q, %v, want it refused as %q and saying whose switch it is", from, err, c.refusal)
 			}
 		})

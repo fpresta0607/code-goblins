@@ -9,14 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T) {
 	store, h := testStore(t)
-	_, identity, runner, cfo := primaryFixture(t, store)
+	_, identity, terminal, cfo := primaryFixture(t, store)
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +22,7 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "primary-review", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
-	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
+	if err := PublishPresentation(h, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -35,7 +33,7 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 		t.Fatal("primary borrowed or invented a task", got)
 	}
 	service := &Service{Store: store, Options: Options{CFO: cfo}}
-	service.reconcilePresentations(context.Background())
+	service.reconcilePresentations()
 	snap, err := service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +41,10 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	if !snap.Activity[0].Live {
 		t.Fatal("verified primary presentation not live")
 	}
-	runner.pid = 1
+	// The CFO's terminal now runs another program.
+	terminal.runs(t, 4)
 	service.presentationChecked = time.Time{}
-	service.reconcilePresentations(context.Background())
+	service.reconcilePresentations()
 	snap, err = service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -53,27 +52,19 @@ func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T
 	if snap.Activity[0].Live {
 		t.Fatal("unavailable primary presentation stayed live")
 	}
-	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err == nil {
+	if err := PublishPresentation(h, a); err == nil {
 		t.Fatal("unverified primary published")
 	}
 }
 
 // A send to a native goblin, by its id or gb-<id>, leaves the board's message
-// receipt as a send to a Herdr goblin does.
+// receipt.
 func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
 	for _, target := range []string{"task-1", "gb-task-1"} {
 		t.Run(target, func(t *testing.T) {
 			store, h := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			meta, err := state.ReadTaskMeta(h.State, "task-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			meta.Backend, meta.Window = "native", "native"
-			meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID, meta.HerdrPaneID = "", "", "", ""
-			if err := state.WriteTaskMeta(h.State, meta); err != nil {
-				t.Fatal(err)
-			}
+			primaryFixture(t, store)
+			meta := makeNative(t, h.State, "task-1")
 			if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +72,7 @@ func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = PrepareSendActivity(context.Background(), h, cfo.Terminals, target)()
+			err := PrepareSendActivity(h, target)()
 
 			if err != nil {
 				t.Fatal(err)
@@ -104,7 +95,8 @@ func TestASendToANativeGoblinLeavesABoardReceipt(t *testing.T) {
 
 func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
+	primaryFixture(t, store)
+	makeNative(t, h.State, "task-1")
 	now := time.Now().UTC()
 	if err := store.Accept(event(t, h, "SessionStart", "worker", "", now)); err != nil {
 		t.Fatal(err)
@@ -119,7 +111,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	}
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
-	if err := PrepareSendActivity(context.Background(), h, cfo.Terminals, "task-1")(); err != nil {
+	if err := PrepareSendActivity(h, "task-1")(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -136,7 +128,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareSendActivity(context.Background(), h, cfo.Terminals, "task-1")(); err != nil {
+	if err := PrepareSendActivity(h, "task-1")(); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -150,7 +142,7 @@ func TestSendReceiptNeverBorrowsSameHarnessParent(t *testing.T) {
 
 func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T) {
 	store, h := testStore(t)
-	_, identity, _, cfo := primaryFixture(t, store)
+	_, identity, _, _ := primaryFixture(t, store)
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +150,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "late-primary-report", Kind: "review", State: "active", URL: "http://127.0.0.1:4387/session/review", At: now, Until: now.Add(time.Minute)}
-	if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
+	if err := PublishPresentation(h, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestActivity(); err != nil {
@@ -172,7 +164,7 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 	for i, status := range []string{"active", "ended"} {
 		a.State = status
 		a.At = now.Add(time.Duration(i+1) * time.Second)
-		if err := PublishPresentation(context.Background(), h, cfo.Terminals, a); err != nil {
+		if err := PublishPresentation(h, a); err != nil {
 			t.Fatal("late native discovery rejected update", status, err)
 		}
 		if err := store.ingestActivity(); err != nil {
@@ -186,9 +178,9 @@ func TestPrimaryPresentationLateSessionDiscoveryKeepsReportIdentity(t *testing.T
 }
 
 // A goblin spawned while serve runs, with no native hook installed, presents
-// from its own pane and serve shows it at once; a process outside that pane
-// cannot present in its name.
-func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnPane(t *testing.T) {
+// from its own terminal and serve shows it at once; a process outside that
+// terminal cannot present in its name.
+func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnTerminal(t *testing.T) {
 	_, h := testStore(t)
 	s, err := Start(context.Background(), h, Options{})
 	if err != nil {
@@ -201,15 +193,15 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnPane(t *testing.T) {
 		}
 	}
 	worktree := t.TempDir()
-	meta := state.TaskMeta{ID: "task-2", Project: worktree, Worktree: worktree, Harness: "codex", Mode: "no-mistakes", Kind: "ship", Backend: "herdr", SpawnGen: "g7", HerdrSession: "isolated", HerdrWorkspaceID: "w1", HerdrTabID: "t1", HerdrPaneID: "w1:p1"}
+	meta := state.TaskMeta{ID: "task-2", Project: worktree, Worktree: worktree, Harness: "codex", Mode: "no-mistakes", Kind: "ship", Backend: "native", Window: "native", SpawnGen: "g7"}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	runner := &cfoRunner{t: t, pid: os.Getpid()}
-	client := terminal.HerdrSessions(&herdr.Client{Commands: runner})
+	goblin := hostTerminal(t, h.State, "task-2")
+	goblin.standIn(t)
 	now := time.Now().UTC()
 	a := BoardActivity{ID: "task-2-review", Kind: "review", TaskID: "task-2", State: "active", URL: "http://127.0.0.1:4387/session/f26e1c33babf6415", At: now, Until: now.Add(10 * time.Minute)}
-	if err := PublishPresentation(context.Background(), h, client, a); err != nil {
+	if err := PublishPresentation(h, a); err != nil {
 		t.Fatalf("a goblin spawned while serve runs could not present: %v", err)
 	}
 	var got BoardActivity
@@ -223,20 +215,21 @@ func TestGoblinSpawnedWhileServeRunsPresentsFromItsOwnPane(t *testing.T) {
 		t.Fatalf("serve holds %+v, want the goblin's live review", got)
 	}
 	a.ID, a.URL = "task-2-tailnet", "http://sermon.tailcc4238.ts.net:4387/session/f26e1c33babf6415"
-	if err := PublishPresentation(context.Background(), h, client, a); err != nil {
+	if err := PublishPresentation(h, a); err != nil {
 		t.Fatalf("the tailnet link Lavish returns was refused: %v", err)
 	}
 	a.ID, a.URL = "task-2-foreign", "http://192.0.2.10:4387/session/f26e1c33babf6415"
-	if err := PublishPresentation(context.Background(), h, client, a); err == nil || !strings.Contains(err.Error(), "plain http") {
+	if err := PublishPresentation(h, a); err == nil || !strings.Contains(err.Error(), "plain http") {
 		t.Fatalf("a plain http link off this machine and the tailnet = %v, want the rule named", err)
 	}
 	a.ID, a.Generation = "task-2-stale", "g6"
-	if err := PublishPresentation(context.Background(), h, client, a); err == nil || !strings.Contains(err.Error(), "generation") {
+	if err := PublishPresentation(h, a); err == nil || !strings.Contains(err.Error(), "generation") {
 		t.Fatalf("a previous generation presented: %v", err)
 	}
-	runner.pid = 2147483647
-	a.ID, a.Generation = "task-2-other-pane", ""
-	if err := PublishPresentation(context.Background(), h, client, a); err == nil || !strings.Contains(err.Error(), "does not run under it") {
-		t.Fatalf("a process outside the goblin's pane presented in its name: %v", err)
+	// The System process is live and never the ancestor of a test.
+	goblin.runs(t, 4)
+	a.ID, a.Generation = "task-2-other-terminal", ""
+	if err := PublishPresentation(h, a); err == nil || !strings.Contains(err.Error(), "does not run under it") {
+		t.Fatalf("a process outside the goblin's terminal presented in its name: %v", err)
 	}
 }

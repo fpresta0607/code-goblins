@@ -1,15 +1,11 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // runDeliver hands the Overlord a document as a Command Center item, with a
@@ -41,10 +37,7 @@ func runDeliver(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
-	defer cancel()
-	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
-	if err := supervisor.DeliverDocument(ctx, h, terminals, *task, *id, *title, *file, *link); err != nil {
+	if err := supervisor.DeliverDocument(h, *task, *id, *title, *file, *link); err != nil {
 		fmt.Fprintln(stderr, "cfo deliver: "+err.Error())
 		return 1
 	}

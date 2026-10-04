@@ -6,18 +6,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
-
-// reviewPublishTimeout bounds publishing or withdrawing an item, the Herdr
-// identity proof included.
-var reviewPublishTimeout = 20 * time.Second
 
 // runReview reports an item that stays in the Command Center until the
 // Overlord answers or clears it, withdraws the reporter's own item, or clears
@@ -68,11 +61,8 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	terminals := terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}})
 	if *clear != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
-		defer cancel()
-		if err := supervisor.ClearReview(ctx, h, terminals, *clear, *reason); err != nil {
+		if err := supervisor.ClearReview(h, *clear, *reason); err != nil {
 			fmt.Fprintln(stderr, "cfo review: "+err.Error())
 			return 1
 		}
@@ -80,9 +70,7 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 0
 	}
 	if *withdraw != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
-		defer cancel()
-		if err := supervisor.WithdrawReview(ctx, h, terminals, *task, *id, *withdraw); err != nil {
+		if err := supervisor.WithdrawReview(h, *task, *id, *withdraw); err != nil {
 			fmt.Fprintln(stderr, "cfo review: "+err.Error())
 			return 1
 		}
@@ -105,9 +93,7 @@ func runReview(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 1
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), reviewPublishTimeout)
-	defer cancel()
-	if err := supervisor.PublishReview(ctx, h, terminals, *task, *id, *title, *lavish, page, images); err != nil {
+	if err := supervisor.PublishReview(h, *task, *id, *title, *lavish, page, images); err != nil {
 		fmt.Fprintln(stderr, "cfo review: "+err.Error())
 		return 1
 	}

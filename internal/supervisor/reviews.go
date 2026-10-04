@@ -23,7 +23,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -144,26 +143,26 @@ func reviewImageDir(stateDir string, r Review) string {
 // reviewReporter proves who is reporting: a goblin from inside its task's own
 // terminal, or the registered primary CFO when taskID is empty. The returned
 // release keeps the CFO's registration from changing until the report is made.
-func reviewReporter(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string) (string, func(), error) {
+func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 	if taskID != "" {
-		meta, err := goblinAsker(ctx, h.State, terminals, taskID)
+		meta, err := goblinAsker(h.State, taskID)
 		if err != nil {
 			return "", nil, err
 		}
 		return goblinIdentity(meta), func() {}, nil
 	}
-	return (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
+	return (&CFOConnection{State: h.State}).CallerIdentity()
 }
 
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback.
-func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, title, lavish, page string, images []string) error {
+func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
 	}
-	return publishItem(ctx, h, terminals, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
+	return publishItem(h, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
 		sums, err := stageReviewImages(h, taskID, images, dir)
 		r.ImageSums = sums
 		return len(images) > 0, err
@@ -173,8 +172,8 @@ func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, 
 // publishItem records r for its reporter, proven the way reviewReporter does.
 // stage fills in what r copies into dir and says whether it copied anything;
 // the copies move beside the item's record only once the item is new.
-func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r Review, stage func(r *Review, dir string) (bool, error)) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, r.Task)
+func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error)) error {
+	identity, release, err := reviewReporter(h, r.Task)
 	if err != nil {
 		return err
 	}
@@ -228,8 +227,8 @@ func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r 
 }
 
 // WithdrawReview closes the reporter's own open item with its reason.
-func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, reason string) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, taskID)
+func WithdrawReview(h home.Home, taskID, id, reason string) error {
+	identity, release, err := reviewReporter(h, taskID)
 	if err != nil {
 		return err
 	}
@@ -261,8 +260,8 @@ func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener,
 // ClearReview closes any open item for the registered primary CFO, such as a
 // retired goblin's item that only its reporter could withdraw. The reason is
 // kept on the item and state/reviews.audit records the clear.
-func ClearReview(ctx context.Context, h home.Home, terminals terminal.Opener, id, reason string) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, "")
+func ClearReview(h home.Home, id, reason string) error {
+	identity, release, err := reviewReporter(h, "")
 	if err != nil {
 		return err
 	}
@@ -790,7 +789,7 @@ func (s *Store) clearReview(i int, reason string, at time.Time) []string {
 // received also reaches the CFO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
-		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	reviews := s.Store.Snapshot().Reviews
 	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == a.ReviewID && r.Identity == a.Generation && r.AnswerID == a.ID })
@@ -908,8 +907,8 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireItems relies on.
-func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, why, lavish, page string) error {
-	return PublishReview(ctx, h, terminals, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page string) error {
+	return PublishReview(h, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
 }
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the

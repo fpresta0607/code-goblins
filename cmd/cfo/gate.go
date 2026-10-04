@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -19,11 +21,15 @@ import (
 // runGate runs a check a no-mistakes gate calls from its run worktree.
 // tests-kept exits 1 when the gate's own fix commits deleted or skipped a
 // test, which parks the run with an ask-user finding instead of letting the
-// deletion through unseen. test is the repository's local test step.
-func runGate(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || (args[0] != "tests-kept" && args[0] != "test") || (args[0] == "tests-kept" && len(args) != 1) {
-		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept and test [--level fast|affected|full] [--plan]")
+// deletion through unseen. test is the repository's local test step, and
+// turns shows which test runs hold the machine's turns and which wait.
+func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) == 0 || !slices.Contains([]string{"tests-kept", "test", "turns"}, args[0]) || (args[0] != "test" && len(args) != 1) {
+		fmt.Fprintln(stderr, "cfo gate: the checks are tests-kept, test [--level fast|affected|full] [--plan] and turns")
 		return 2
+	}
+	if args[0] == "turns" {
+		return runGateTurns(stdout, stderr, runtime.availableMemory)
 	}
 	dir, err := os.Getwd()
 	if err != nil {
@@ -31,7 +37,7 @@ func runGate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if args[0] == "test" {
-		return runGateTest(args[1:], dir, stdout, stderr)
+		return runGateTest(args[1:], dir, stdout, stderr, runtime)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -59,8 +65,10 @@ func runGate(args []string, stdout, stderr io.Writer) int {
 // change requires, the changed packages and the packages that import them
 // directly, or every package once a module file changed, while CI runs every
 // package; --level runs another level and still says what is required, and
-// --plan prints the plan and runs nothing.
-func runGateTest(args []string, dir string, stdout, stderr io.Writer) int {
+// --plan prints the plan and runs nothing. Every check waits for the run's
+// turn on the machine, and checks that ran past their level's
+// budget do not pass.
+func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	levelName := flags.String("level", "", "fast, affected or full; the level the change requires when not given")
@@ -139,27 +147,45 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer) int {
 	}
 	printGatePlan(stdout, plan)
 
+	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
+	if report.Task != "" {
+		who += ", task " + report.Task
+	}
 	env := gatetest.Environment(os.Environ())
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
-			check.Start, check.Status, check.ExitCode = time.Now(), "passed", 0
-			process := execx.Command(command[0], command[1:]...)
-			process.Dir, process.Env, process.Stdout, process.Stderr = dir, env, stdout, stderr
-			if err := process.Run(); err != nil {
-				check.Status, check.ExitCode, report.Status = "failed", -1, "failed"
-				if process.ProcessState != nil {
-					check.ExitCode = process.ProcessState.ExitCode()
-				}
-				fmt.Fprintf(stderr, "cfo gate test: go %s: %v\n", command[1], err)
+			budget := runtime.gateBudget(plan.Level)
+			turn, admissionErr := takeGateTurn(stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
+			report.QueueSeconds += turn.Waited.Seconds()
+			if admissionErr != nil {
+				report.Status, report.QueueNote = "failed", admissionErr.Error()
+				report.Checks = append(report.Checks, check)
+				continue
 			}
-			check.DurationSeconds = time.Since(check.Start).Seconds()
+			check.Start, check.Status = time.Now(), "passed"
+			exit, err := runtime.gateRun(command, dir, env, stdout, stderr)
+			check.ExitCode = exit
+			if err != nil || exit != 0 {
+				check.Status, report.Status = "failed", "failed"
+				fmt.Fprintf(stderr, "cfo gate test: go %s: exit %d: %v\n", command[1], exit, err)
+			}
+			ran := time.Since(check.Start)
+			check.DurationSeconds = ran.Seconds()
+			turn.Release()
+			if check.Status == "passed" && ran > budget {
+				check.Status, report.Status = "over_budget", "failed"
+				fmt.Fprintf(stderr, "cfo gate test: go %s passed but ran for %s, past the %s budget of the %s level, so the run does not pass\n", command[1], ran.Round(time.Second), budget, plan.Level)
+			}
 		}
 		report.Checks = append(report.Checks, check)
 	}
 	report.DurationSeconds = time.Since(start).Seconds()
 
 	verdict := fmt.Sprintf("cfo gate test: %s at level %s in %s", report.Status, plan.Level, time.Since(start).Round(time.Second))
+	if waited := time.Duration(report.QueueSeconds * float64(time.Second)).Round(time.Second); waited > 0 {
+		verdict += fmt.Sprintf(", %s of it waiting for its turn", waited)
+	}
 	if reportPath != "" {
 		if err := verify.Finish(reportPath, report); err != nil {
 			fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
@@ -173,6 +199,128 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer) int {
 	}
 	if report.Status != "passed" {
 		return 1
+	}
+	return 0
+}
+
+// runGateCommand runs one of the step's commands as a process in dir with
+// env and returns its exit code, -1 when it did not start, with an error
+// unless it passed.
+func runGateCommand(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error) {
+	process := execx.Command(command[0], command[1:]...)
+	process.Dir, process.Env, process.Stdout, process.Stderr = dir, env, stdout, stderr
+	err := process.Run()
+	if process.ProcessState == nil {
+		return -1, err
+	}
+	return process.ProcessState.ExitCode(), err
+}
+
+// takeGateTurn waits in the machine's common line. Both physical and commit
+// availability must reach the floor before a check starts. It prints what
+// the run waits for as it
+// starts to wait, whenever its place in line changes and once a minute:
+// which run holds the turn, for how long and under what budget, and where
+// this run stands in line. An unavailable or expired floor reading, or a
+// store failure, prevents execution. Budget expiry never displaces custody.
+func takeGateTurn(stdout, stderr io.Writer, available func() (supervisor.Memory, error), who string, budget, limit time.Duration) (verify.Turn, error) {
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate test: this run takes no turn: %v\n", err)
+		return verify.Turn{}, err
+	}
+	var pairedAvailable func() (uint64, error)
+	if available != nil {
+		pairedAvailable = func() (uint64, error) {
+			memory, err := available()
+			return min(memory.Available, memory.CommitAvailable), err
+		}
+	}
+	turn, err := verify.Admission{
+		Dir:       store,
+		Floor:     supervisor.MemoryFloor,
+		Available: pairedAvailable,
+		Who:       who,
+		Budget:    budget,
+		Limit:     limit,
+		Poll:      time.Second,
+		Waiting: func(waited time.Duration, why string) {
+			fmt.Fprintf(stdout, "cfo gate test: waiting for its turn (%s so far): %s\n", waited.Round(time.Second), why)
+		},
+	}.Wait(context.Background())
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "cfo gate test: this run takes no turn: %v\n", err)
+	case turn.Waited >= time.Second:
+		fmt.Fprintf(stdout, "cfo gate test: took its turn after %s\n", turn.Waited.Round(time.Second))
+	}
+	return turn, err
+}
+
+// gateBudget is how long the tests of a level may run: twice go test's 45
+// minute package timeout at the affected level, and twice that at the full
+// level, which runs every package. Checks that ran past it do not pass, and
+// keep custody until their execution ends.
+func gateBudget(level gatetest.Level) time.Duration {
+	if level == gatetest.Full {
+		return 3 * time.Hour
+	}
+	return 90 * time.Minute
+}
+
+// runGateTurns shows the line that cfo gate test runs take their turns in:
+// each run that holds a turn, with how long it has and its budget, the runs
+// that wait, in the order they asked, and the machine's memory when it is
+// under the floor a run waits for. A gate shows a step's output only once
+// the step has ended, so this is where a run's wait can be read while it
+// lasts.
+func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory, error)) int {
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	_, floor, err := verify.AdmissionLimits(store)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	holding, waiting, err := verify.Line(store)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	now := time.Now()
+	switch {
+	case len(holding) == 0 && len(waiting) == 0:
+		fmt.Fprintln(stdout, "no run holds the turn and none waits")
+	case len(holding) == 0:
+		fmt.Fprintln(stdout, "turn: free")
+	}
+	for _, run := range holding {
+		line := fmt.Sprintf("turn: %s (pid %d), for %s", run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
+		if run.Budget > 0 {
+			line += fmt.Sprintf(" of its %s budget", run.Budget)
+		}
+		fmt.Fprintln(stdout, line)
+	}
+	if len(waiting) > 0 {
+		fmt.Fprintln(stdout, "waiting:")
+	}
+	for place, run := range waiting {
+		fmt.Fprintf(stdout, "%d. %s (pid %d), for %s\n", place+1, run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
+	}
+	if available == nil {
+		fmt.Fprintln(stderr, "available memory cannot be read")
+		return 2
+	}
+	memory, err := available()
+	if err != nil {
+		fmt.Fprintf(stderr, "available memory cannot be read: %v\n", err)
+		return 2
+	}
+	if min(memory.Available, memory.CommitAvailable) < floor {
+		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(memory.Available), verify.Gigabytes(memory.CommitAvailable), verify.Gigabytes(floor))
 	}
 	return 0
 }

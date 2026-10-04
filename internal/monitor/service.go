@@ -624,10 +624,12 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 		observation.EvidenceAt = timePointer(written)
 	}
 	if err != nil {
+		observation.HasJobProgress = false
 		return nil, false, err
 	}
 	observation.ProgressReadAt, observation.Jobs = timePointer(now), progress.Jobs
 	if len(progress.Jobs) == 0 {
+		observation.HasJobProgress = false
 		observation.JobCPU = 0
 		observation.JobSampledAt = nil
 		observation.JobSampledSince = nil
@@ -635,11 +637,15 @@ func (s Service) sampleProgress(ctx context.Context, meta state.TaskMeta, sample
 	}
 	previous := observation.JobSampledAt
 	if previous == nil || observation.JobSampledSince == nil || previous.Before(stretch) {
+		observation.HasJobProgress = false
 		observation.JobSampledSince = timePointer(now)
 	} else if elapsed := now.Sub(*previous); elapsed < jobSampleInterval {
 		return progress.Jobs, now.Sub(*observation.JobSampledSince) >= s.stallAfter(), nil
-	} else if float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare {
-		observation.EvidenceAt = timePointer(now)
+	} else {
+		observation.HasJobProgress = float64(progress.JobCPU-observation.JobCPU) >= float64(elapsed)*jobCPUShare
+		if observation.HasJobProgress {
+			observation.EvidenceAt = timePointer(now)
+		}
 	}
 	observation.JobCPU = progress.JobCPU
 	observation.JobSampledAt = timePointer(now)

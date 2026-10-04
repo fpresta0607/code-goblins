@@ -133,6 +133,9 @@ func TestMain(m *testing.M) {
 		attachTestProgram()
 		os.Exit(0)
 	}
+	if len(os.Args) > 1 && os.Args[1] == nativeSendPasteComposer {
+		os.Exit(runNativeSendPasteComposer(os.Args[2:]))
+	}
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
 	}

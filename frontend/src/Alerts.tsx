@@ -66,7 +66,8 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
     // The supervisor answers after later snapshots may have come, so what
     // it hands this tab is shown against the items open by then.
     void announce(snapshot.instance, fresh.filter(isItemAlert).map(announceKey), fresh.filter((alert) => !isItemAlert(alert)).map(announceKey)).then((claimed) => {
-      const mine = fresh.filter((alert) => (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
+      // With AFK mode on now, even an earlier claim hands nothing.
+      const mine = fresh.filter((alert) => latest.current.afk.state !== "on" && (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
       if (!mine.length) return;
       setToasts((prior) => arrive(prior, mine));
       if (asksPermission(permission(), asked())) setAsking(true);
@@ -96,7 +97,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (targ
   if (!toasts.length && !asking) return null;
   return <section className="toasts" aria-live="polite" aria-label="Alerts">
     {asking && <div className="toast ask">
-      <DialogueBox persona="cfo" tone="needs" label="Windows notifications"
+      <DialogueBox persona="cfo" label="Windows notifications"
         actions={<>
           <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
           <button className="pixel-button outline" onClick={() => answer(false)}>Not now</button>

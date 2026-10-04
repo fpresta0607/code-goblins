@@ -21,7 +21,7 @@ export function Toast({ alert, persona, onOpen, onDismiss, onExpire }: { alert: 
     return () => clearTimeout(timer);
   }, [resting]);
   return <div className="toast" onPointerEnter={() => setResting(true)} onPointerLeave={() => setResting(false)} onFocus={() => setResting(true)} onBlur={() => setResting(false)}>
-    <DialogueBox persona={persona} tone={alert.tone} label={alert.text}
+    <DialogueBox persona={persona} label={alert.text}
       actions={<>
         <button className={"pixel-button" + (alert.tone === "needs" ? "" : " outline")} onClick={onOpen}>{alert.action}</button>
         <button className="icon-button pixel-icon" aria-label={"Dismiss: " + alert.text} data-tip="Dismiss" data-tip-align="end" onClick={onDismiss}><Icon name="close" /></button>

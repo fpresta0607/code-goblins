@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,7 +107,7 @@ func TestReviewImagesStayInsideTheTaskAndAreImages(t *testing.T) {
 // only while the goblin that asked is the same live task.
 func TestQuestionImagesServedOnlyWhileTheAskerLives(t *testing.T) {
 	store, h := testStore(t)
-	meta, record, _, connection := goblinFixture(t, store)
+	meta, record, _, _ := goblinFixture(t, store)
 	paths := []string{filepath.Join(meta.Worktree, "postgres.png"), filepath.Join(h.Data, meta.ID, "sqlite.png"), filepath.Join(meta.Worktree, "mysql.png")}
 	var data [][]byte
 	for _, path := range paths {
@@ -118,7 +117,7 @@ func TestQuestionImagesServedOnlyWhileTheAskerLives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(context.Background(), h.State, connection.Terminals, meta.ID, record, record.Detail, images); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, images); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

@@ -61,6 +61,36 @@ func TestReadBacklogPreservesSectionsOrderAndUnstructuredRows(t *testing.T) {
 	}
 }
 
+func TestReadBacklogKeepsPriorityForScheduler(t *testing.T) {
+	for _, test := range []struct {
+		name, metadata, priority string
+	}{
+		{"ordinary", "", ""},
+		{"production defect", " (priority: production-defect)", "production-defect"},
+		{"combined metadata", " (repo: goblins, kind: ship, priority: high)", "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := snapshotHome(t)
+			if err := os.MkdirAll(h.Data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content := "## Queued\n- [ ] next - Continue paused work" + test.metadata + "\n"
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			backlog, err := ReadBacklog(h)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(backlog.Queued) != 1 || backlog.Queued[0].Priority != test.priority || backlog.Queued[0].Title != "Continue paused work" {
+				t.Fatalf("queued=%+v, want one row with priority %q", backlog.Queued, test.priority)
+			}
+		})
+	}
+}
+
 func TestReadBacklogMissingFileIsTypedEmpty(t *testing.T) {
 	h := home.Home{Root: t.TempDir()}
 	h.Data = filepath.Join(h.Root, "data")

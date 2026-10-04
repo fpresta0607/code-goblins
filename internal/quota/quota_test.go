@@ -16,6 +16,16 @@ import (
 // fresh unless a test moves the clock.
 var snapshotTime = time.Date(2026, 9, 17, 12, 31, 0, 0, time.UTC)
 
+func TestParseKeepsTheMeasuredFractionForAllowanceFloors(t *testing.T) {
+	data := strings.ReplaceAll(string(fixture(t, "projected")), `"effectivePercentRemaining": 12`, `"effectivePercentRemaining": 3.1`)
+
+	report, err := Parse([]byte(data), snapshotTime)
+
+	if err != nil || float64(report.Providers["claude"].Scopes["model:fable"].PercentRemaining) != 3.1 {
+		t.Fatalf("fraction lost from allowance reading: %+v, %v", report.Providers["claude"].Scopes, err)
+	}
+}
+
 type fakeRunner struct {
 	result   execx.Result
 	err      error

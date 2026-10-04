@@ -20,7 +20,7 @@ func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
-	if err := connection.PublishQuestion(context.Background(), "drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
+	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
@@ -28,7 +28,7 @@ func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	}
 
 	// Act
-	_, recordErr := connection.RecordAnswer(context.Background(), "drop-legacy-invoices", "Apply it", "", "chat")
+	_, recordErr := connection.RecordAnswer("drop-legacy-invoices", "Apply it", "", "chat")
 	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: "drop-legacy-invoices", Option: "Apply it", Answer: "Apply it", In: "chat", At: time.Now().UTC()}})
 
 	// Assert
@@ -52,7 +52,7 @@ func TestAnAnswerHeGaveElsewhereIsRecordedOnceAFKModeIsOff(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
-	if err := connection.PublishQuestion(context.Background(), "drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
+	if err := connection.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops legacy_invoices. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
@@ -63,7 +63,7 @@ func TestAnAnswerHeGaveElsewhereIsRecordedOnceAFKModeIsOff(t *testing.T) {
 	}
 
 	// Act
-	chosen, err := connection.RecordAnswer(context.Background(), "drop-legacy-invoices", "Keep it held", "", "chat")
+	chosen, err := connection.RecordAnswer("drop-legacy-invoices", "Keep it held", "", "chat")
 
 	// Assert
 	if err != nil || chosen != "Keep it held" {
@@ -81,7 +81,7 @@ func TestTheCFOsAnswerToAGoblinIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	meta, record, runner, connection := goblinFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
@@ -92,8 +92,8 @@ func TestTheCFOsAnswerToAGoblinIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	chosen, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "sqlite", "keep it local")
 
 	// Assert
-	if err != nil || chosen != "SQLite" || len(runner.prompts) != 1 {
-		t.Fatalf("AnswerGoblin = %q, %v with %d prompts, want SQLite delivered once", chosen, err, len(runner.prompts))
+	if typed := goblin.lines(t); err != nil || chosen != "SQLite" || len(typed) != 1 {
+		t.Fatalf("AnswerGoblin = %q, %v with the goblin typed %q, want SQLite delivered once", chosen, err, typed)
 	}
 	entries := afkEntries(t, h.State)
 	if len(entries) != 2 {
@@ -122,7 +122,7 @@ func TestAChoiceTheCFORecordsAfterwardsIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	}
 
 	// Act
-	chosen, err := connection.RecordAnswer(context.Background(), q.ID, "sqlite", "decided out of band", "")
+	chosen, err := connection.RecordAnswer(q.ID, "sqlite", "decided out of band", "")
 
 	// Assert
 	if err != nil || chosen != "SQLite" {

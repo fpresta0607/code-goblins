@@ -140,6 +140,13 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			memory, err := supervisor.MachineMemory()
 			return memory.Available, memory.CommitAvailable, err
 		},
+		Admit: func() error {
+			memory, err := supervisor.MachineMemory()
+			if err != nil {
+				return err
+			}
+			return supervisor.CheckLaunch(h, memory)
+		},
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
 		},
@@ -164,6 +171,14 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if prior.HandoffSaved {
 		handoff = prior.Handoff
 	}
-	_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
+	session := prior.Session
+	pausedAt := prior.Started
+	if prior.Pause != nil {
+		pausedAt = prior.Pause.At
+	}
+	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
+		session = ""
+	}
+	_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote})
 	return err
 }

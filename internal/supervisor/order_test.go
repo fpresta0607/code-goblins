@@ -82,11 +82,38 @@ func TestOrderQueuedSavesTheBacklogOrderTheCFODispatchesIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "## Queued\n- **briefed** - briefed (repo: PrecisionDocs-AI)\n- **second** - Second (repo: code-goblins)\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n"; got != want {
+	if got, want := string(data), "## Queued\n- [ ] briefed - briefed (repo: PrecisionDocs-AI)\n- **second** - Second (repo: code-goblins)\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n"; got != want {
 		t.Fatalf("backlog.md = %q, want %q", got, want)
 	}
 	if got := snapshotIDs(t, handler, queued); !reflect.DeepEqual(got, []string{"briefed", "second", "first"}) {
 		t.Fatalf("Tasks lists %v, want the saved order", got)
+	}
+}
+
+func TestCompletedOutcomeStaysOutsideTheRunnableQueueOrder(t *testing.T) {
+	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
+		t.Run(row, func(t *testing.T) {
+			// Arrange
+			handler, h := orderBoard(t)
+			path := filepath.Join(h.Data, "backlog.md")
+			writeFile(t, path, "## Queued\n- [ ] first - First\n"+row+"\n  Preserved evidence.\n- [ ] second - Second\n")
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Phase: "done", Evidence: "reported pull request"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			response := postOrder(handler, `{"list":"queued","order":["second","first"]}`, "http://board.local", orderToken)
+
+			// Assert
+			if response.Code != 200 {
+				t.Fatalf("queue order=%d %s", response.Code, response.Body)
+			}
+			got, err := os.ReadFile(path)
+			want := "## Queued\n- [ ] second - Second\n" + row + "\n  Preserved evidence.\n- [ ] first - First\n"
+			if err != nil || string(got) != want {
+				t.Fatalf("completed evidence moved with runnable work: %q %v", got, err)
+			}
+		})
 	}
 }
 
@@ -227,7 +254,7 @@ func TestQueuedBriefNamesItsProject(t *testing.T) {
 			writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\r\n\r\n## Project\r\n\r\n"+tc.project+"\r\n")
 
 			// Act
-			briefs := queuedBriefs(h)
+			briefs := queuedBriefs(h, diskBriefs)
 
 			// Assert
 			if len(briefs) != 1 || briefs[0].Project != tc.want {

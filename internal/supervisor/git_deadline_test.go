@@ -13,11 +13,23 @@ import (
 	"time"
 )
 
+const CUSTODY_GIT_PHASE_VARIABLE = "CFO_TEST_CUSTODY_GIT_PHASE"
+
 // TestMain runs this test binary as a git that never answers when it is
 // started under that name, the stand-in for a git slowed past its deadline,
 // and as a process holding the watcher lock when started as one.
 func TestMain(m *testing.M) {
 	if name := filepath.Base(os.Args[0]); strings.EqualFold(strings.TrimSuffix(name, filepath.Ext(name)), "git") {
+		if path := os.Getenv(CUSTODY_GIT_PHASE_VARIABLE); path != "" {
+			if err := os.WriteFile(path+".tmp", []byte(strings.Join(os.Args[1:], " ")+"\n"), 0o600); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+			if err := os.Rename(path+".tmp", path); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		}
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}

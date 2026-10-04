@@ -2,6 +2,8 @@ package afk
 
 import (
 	"bytes"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -183,5 +185,43 @@ func TestTheReportIsKeptForTheStretchItEnds(t *testing.T) {
 	report, found, err := ReadReport(dir)
 	if err != nil || !found || report.Session != "afk-1" || len(report.Decisions) != 4 || len(report.Held) != 2 || !report.Ended.Equal(nightReport().Ended) {
 		t.Errorf("ReadReport = %+v, %v, %v, want the report that was saved", report, found, err)
+	}
+}
+
+// The report's decisions sit under the same headings in the CFO's text and on
+// the board's page. A heading the report always shows is there with nothing
+// under it, so a night with no deploy says so; the others are there only when
+// they hold something.
+func TestTheReportsDecisionsSitUnderItsHeadings(t *testing.T) {
+	// Act
+	night, quiet := nightReport().Sections(), Report{}.Sections()
+
+	// Assert
+	titled := func(sections []Section) []string {
+		var titles []string
+		for _, section := range sections {
+			titles = append(titles, section.Title+" "+strconv.Itoa(len(section.Entries)))
+		}
+		return titles
+	}
+	if got, want := titled(night), []string{"Merged 1", "Merge words with no merge recorded 1", "Deployed 1", "Migrations applied 0", "Installed 0", "Answered for goblins 1"}; !slices.Equal(got, want) {
+		t.Errorf("the night's headings = %q, want %q", got, want)
+	}
+	if merged := night[0].Entries[0]; merged.What != "https://github.com/acme/api/pull/12" || merged.Outcome != OutcomeMerged {
+		t.Errorf("under Merged = %+v, want the merge word whose merge was recorded", merged)
+	}
+	if unmerged := night[1].Entries[0]; unmerged.What != "https://github.com/acme/api/pull/13" || unmerged.Outcome != "" {
+		t.Errorf("under Merge words with no merge recorded = %+v, want the one with no outcome", unmerged)
+	}
+	if got, want := titled(quiet), []string{"Merged 0", "Deployed 0", "Migrations applied 0", "Installed 0", "Answered for goblins 0"}; !slices.Equal(got, want) {
+		t.Errorf("a quiet stretch's headings = %q, want %q", got, want)
+	}
+	for _, section := range quiet {
+		if section.Entries == nil {
+			t.Errorf("%s has no list of entries, want an empty one: the board's page reads it as a list", section.Title)
+		}
+	}
+	if lasted := nightReport().Lasted(); lasted != "10h21m" {
+		t.Errorf("Lasted = %q, want 10h21m", lasted)
 	}
 }

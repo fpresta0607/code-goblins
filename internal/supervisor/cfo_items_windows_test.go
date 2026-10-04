@@ -14,10 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // servePipe serves the supervisor's pipe for store's home, with cfo as the
@@ -69,10 +67,10 @@ func TestAGoblinForgingTheCFOsItemsIntoTheInboxesChangesNothing(t *testing.T) {
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	meta, record, _, goblin := goblinFixture(t, store)
 	asked := surfaced(t, store, meta, record, goblin)
-	if err := PublishReview(context.Background(), h, goblin.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	if err := PublishReview(h, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(context.Background(), h, cfo.Terminals, "", "cfo-report", "Read the report", "", "", nil); err != nil {
+	if err := PublishReview(h, "", "cfo-report", "Read the report", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -167,15 +165,15 @@ func TestAGoblinAskingAsTheCFONeverReachesTheBoard(t *testing.T) {
 		t.Fatalf("the stand-in CFO's start time: %v %v", entries, err)
 	}
 	hostname, _ := os.Hostname()
-	primary := primaryRegistration{Target: herdr.Target{Session: "isolated", Pane: "w1:p1"}, Workspace: "w1", Tab: "w1:t1", Agent: "claude", Terminal: "test-terminal", Process: lock.Info{PID: cfo.Process.Pid, Start: entries[0].Start, Hostname: hostname}}
+	primary := primaryRegistration{Host: "cfo", Agent: "claude", Process: lock.Info{PID: cfo.Process.Pid, Start: entries[0].Start, Hostname: hostname}}
 	data, _ := json.Marshal(primary)
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	connection := &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: cfo.Process.Pid}})}
+	connection := &CFOConnection{State: h.State}
 	servePipe(t, store, connection)
 
-	if err := connection.PublishQuestion(context.Background(), "goblin-asks", "Approve the production deploy?", []string{"Approve", "Hold"}, ""); err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
+	if err := connection.PublishQuestion("goblin-asks", "Approve the production deploy?", []string{"Approve", "Hold"}, ""); err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") {
 		t.Fatalf("cfo question run by a goblin = %v, want it refused", err)
 	}
 	q := Question{ID: "goblin-asks", Identity: forgedIdentity(t, h.State), Text: "Approve the production deploy?", Options: []string{"Approve", "Hold"}, CreatedAt: time.Now().UTC(), Status: "pending"}

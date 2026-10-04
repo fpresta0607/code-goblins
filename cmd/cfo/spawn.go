@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -181,6 +182,16 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 		}
 	}
+	if skipped == "" {
+		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, time.Now().UTC()); isLow {
+			if reset.IsZero() {
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; its reset time is unknown\n", *harnessName)
+			} else {
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
+			}
+			return 1
+		}
+	}
 	if routed || *auto {
 		taskClass = string(assessment.Class)
 		if b, ok := inputs.manifest.Budgets[taskClass]; ok {
@@ -332,6 +343,13 @@ func usableLane(report quota.Report, skipped string) routing.Usable {
 	}
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
+		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, time.Now().UTC()); isLow {
+			note := lane.Harness + " at the 3 percent allowance floor"
+			if !reset.IsZero() {
+				note += ", resets " + reset.UTC().Format(time.RFC3339)
+			}
+			return false, note
+		}
 		return !headroom.Exhausted, headroom.String()
 	}
 }

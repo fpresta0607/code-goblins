@@ -71,30 +71,34 @@ func queueWake(t *testing.T, stateDir, kind, key, detail string) {
 // wake line into its terminal while it sits idle at an empty composer: once
 // for the records it covers, and not again within the gap.
 func TestAWakeIsTypedIntoAnIdleCodexOrPiCFOOnce(t *testing.T) {
-	for agent, screen := range map[string][]string{"codex": idleCodexCFO, "pi": idlePiCFO} {
-		t.Run(agent, func(t *testing.T) {
-			s, stateDir, typed, _ := typedWakeCFO(t, agent, screen)
-			now := time.Date(2026, 9, 30, 18, 0, 0, 0, time.UTC)
-			queueWake(t, stateDir, "notify", "cg-wakes", "done: PR https://example.test/pull/209")
+	for _, kind := range []string{"notify", "pr"} {
+		t.Run(kind, func(t *testing.T) {
+			for agent, screen := range map[string][]string{"codex": idleCodexCFO, "pi": idlePiCFO} {
+				t.Run(agent, func(t *testing.T) {
+					s, stateDir, typed, _ := typedWakeCFO(t, agent, screen)
+					now := time.Date(2026, 9, 30, 18, 0, 0, 0, time.UTC)
+					queueWake(t, stateDir, kind, "cg-wakes", "done: PR https://example.test/pull/209")
 
-			if err := s.wakeCFO(context.Background(), now); err != nil {
-				t.Fatal(err)
-			}
-			if len(*typed) != 1 || !strings.HasPrefix((*typed)[0], "cfo|"+agent+"|cfo watcher wake: 1 queued wake (notify cg-wakes); run cfo drain") || strings.ContainsAny((*typed)[0], "\r\n") {
-				t.Fatalf("typed = %q, want one wake line naming the notify", *typed)
-			}
-			if err := s.wakeCFO(context.Background(), now.Add(10*time.Second)); err != nil || len(*typed) != 1 {
-				t.Fatalf("a covered record was typed about again: %q, %v", *typed, err)
-			}
-			queueWake(t, stateDir, "stale", "g2", "goblin_idle: at its prompt for 3m")
-			if err := s.wakeCFO(context.Background(), now.Add(20*time.Second)); err != nil || len(*typed) != 1 {
-				t.Fatalf("a second line was typed within the gap: %q, %v", *typed, err)
-			}
-			if err := s.wakeCFO(context.Background(), now.Add(40*time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			if len(*typed) != 2 || !strings.Contains((*typed)[1], "1 queued wake (stale g2)") {
-				t.Fatalf("typed = %q, want a second line naming only the new record", *typed)
+					if err := s.wakeCFO(context.Background(), now); err != nil {
+						t.Fatal(err)
+					}
+					if len(*typed) != 1 || !strings.HasPrefix((*typed)[0], "cfo|"+agent+"|cfo watcher wake: 1 queued wake ("+kind+" cg-wakes); run cfo drain") || strings.ContainsAny((*typed)[0], "\r\n") {
+						t.Fatalf("typed = %q, want one wake line naming %s", *typed, kind)
+					}
+					if err := s.wakeCFO(context.Background(), now.Add(10*time.Second)); err != nil || len(*typed) != 1 {
+						t.Fatalf("a covered record was typed about again: %q, %v", *typed, err)
+					}
+					queueWake(t, stateDir, "stale", "g2", "goblin_idle: at its prompt for 3m")
+					if err := s.wakeCFO(context.Background(), now.Add(20*time.Second)); err != nil || len(*typed) != 1 {
+						t.Fatalf("a second line was typed within the gap: %q, %v", *typed, err)
+					}
+					if err := s.wakeCFO(context.Background(), now.Add(40*time.Second)); err != nil {
+						t.Fatal(err)
+					}
+					if len(*typed) != 2 || !strings.Contains((*typed)[1], "1 queued wake (stale g2)") {
+						t.Fatalf("typed = %q, want a second line naming only the new record", *typed)
+					}
+				})
 			}
 		})
 	}
@@ -104,29 +108,59 @@ func TestAWakeIsTypedIntoAnIdleCodexOrPiCFOOnce(t *testing.T) {
 // in its composer that somebody left unsent, nor when the second reading
 // finds it busy again.
 func TestNoWakeIsTypedMidTurnOrOverUnsentText(t *testing.T) {
-	for name, test := range map[string]struct {
-		agent   string
-		screens [][]string
-	}{
-		"codex in a turn":        {"codex", [][]string{{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}}},
-		"codex holding text":     {"codex", [][]string{{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}}},
-		"codex at a dialog":      {"codex", [][]string{{"  Hooks need review", "› 1. Review hooks", "  3. Continue without trusting (hooks won't run)", "› Ask Codex to do anything"}}},
-		"pi holding text":        {"pi", [][]string{{"Done.", cfoRule, " merge it ", cfoRule, "0.8%/1.0M (auto)"}}},
-		"pi in a turn":           {"pi", [][]string{{"── ⠸ Working ──", "  ", cfoRule, "0.8%/1.0M (auto)"}}},
-		"busy on second reading": {"codex", [][]string{idleCodexCFO, {"• Working (0s • esc to interrupt)", "› Ask Codex to do anything"}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			s, stateDir, typed, _ := typedWakeCFO(t, test.agent, test.screens...)
-			queueWake(t, stateDir, "stale", "g1", "goblin_idle: at its prompt for 3m")
+	for _, kind := range []string{"stale", "pr"} {
+		t.Run(kind, func(t *testing.T) {
+			for name, test := range map[string]struct {
+				agent   string
+				screens [][]string
+			}{
+				"codex in a turn":        {"codex", [][]string{{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}}},
+				"codex holding text":     {"codex", [][]string{{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}}},
+				"codex at a dialog":      {"codex", [][]string{{"  Hooks need review", "› 1. Review hooks", "  3. Continue without trusting (hooks won't run)", "› Ask Codex to do anything"}}},
+				"pi holding text":        {"pi", [][]string{{"Done.", cfoRule, " merge it ", cfoRule, "0.8%/1.0M (auto)"}}},
+				"pi in a turn":           {"pi", [][]string{{"── ⠸ Working ──", "  ", cfoRule, "0.8%/1.0M (auto)"}}},
+				"busy on second reading": {"codex", [][]string{idleCodexCFO, {"• Working (0s • esc to interrupt)", "› Ask Codex to do anything"}}},
+			} {
+				t.Run(name, func(t *testing.T) {
+					s, stateDir, typed, _ := typedWakeCFO(t, test.agent, test.screens...)
+					queueWake(t, stateDir, kind, "g1", "goblin_idle: at its prompt for 3m")
 
-			if err := s.wakeCFO(context.Background(), time.Now()); err != nil {
-				t.Fatal(err)
+					if err := s.wakeCFO(context.Background(), time.Now()); err != nil {
+						t.Fatal(err)
+					}
+					if len(*typed) != 0 {
+						t.Fatalf("typed %q into a CFO that was not idle at an empty composer", *typed)
+					}
+					if _, err := os.Stat(filepath.Join(stateDir, cfoWokenFile)); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("records were marked covered though nothing was typed: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestNoPRWakeIsTypedIntoAReplacedNativeRecipient(t *testing.T) {
+	for agent, screen := range map[string][]string{"codex": idleCodexCFO, "pi": idlePiCFO} {
+		t.Run(agent, func(t *testing.T) {
+			s, stateDir, typed, _ := typedWakeCFO(t, agent, screen)
+			queueWake(t, stateDir, "pr", "cg-wakes", "PR 209 needs review")
+			recordHost(t, stateDir, 0)
+			s.Options.CFO.ReadScreen = func(host.Record) ([]string, error) {
+				t.Error("a replaced recipient's screen was read")
+				return screen, nil
+			}
+
+			err := s.wakeCFO(context.Background(), time.Now())
+
+			if err == nil || !strings.Contains(err.Error(), "ended or runs another program") {
+				t.Fatalf("wake = %v, want the changed terminal program reported", err)
 			}
 			if len(*typed) != 0 {
-				t.Fatalf("typed %q into a CFO that was not idle at an empty composer", *typed)
+				t.Fatalf("typed %q into a replaced recipient", *typed)
 			}
 			if _, err := os.Stat(filepath.Join(stateDir, cfoWokenFile)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("records were marked covered though nothing was typed: %v", err)
+				t.Fatalf("the refused PR record was marked covered: %v", err)
 			}
 		})
 	}

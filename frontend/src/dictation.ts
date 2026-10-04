@@ -1,17 +1,18 @@
 import { voiceLevel } from "./voice.ts";
 
 // Push-to-talk dictation into a terminal: holding Ctrl+Shift+Space listens
-// through the browser's own speech recognition, and releasing it types what
-// was heard into the terminal that has the keyboard, as one line the Overlord
-// sends with Enter. Nothing is installed; a browser without speech recognition
-// says so.
+// through a recognizer, and releasing it types what was heard into the
+// terminal that has the keyboard, as one line the Overlord sends with Enter.
+// The recognizer is the board's own, which hands the sound to the supervisor
+// on this machine (localDictation.ts), or the browser's when he turns that on.
 
 export interface Recognizer {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
   onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
+  // message, when a recognizer gives one, is the note to show as it is.
+  onerror: ((event: { error: string; message?: string }) => void) | null;
   onend: (() => void) | null;
   // start listens to the track given, or opens its own microphone without one.
   start(track?: MediaStreamTrack): void;
@@ -24,13 +25,6 @@ type RecognizerClass = new () => Recognizer;
 export function speechRecognition(): RecognizerClass | null {
   const scope = window as unknown as { SpeechRecognition?: RecognizerClass; webkitSpeechRecognition?: RecognizerClass };
   return scope.SpeechRecognition || scope.webkitSpeechRecognition || null;
-}
-
-// inDesktopApp says whether the desktop app, not a browser, shows the board.
-// The app shows it in WebView2, which gives every page window.chrome.webview;
-// no browser has it.
-export function inDesktopApp(scope: unknown = window): boolean {
-  return Boolean((scope as { chrome?: { webview?: unknown } }).chrome?.webview);
 }
 
 // dictationKey says what a key event means for dictation: whether it starts
@@ -93,59 +87,49 @@ function captureProblem(error: unknown): string {
   return "Dictation stopped: the microphone could not be opened.";
 }
 
-const UNSUPPORTED = "This browser has no speech recognition, so dictation is unavailable. Edge and Chrome have it.";
-// The desktop app has no speech recognition of its own, and no other browser
-// to send the Overlord to: dictation there waits for the board's own engine.
-const NOT_IN_APP = "Dictation is not in the desktop app yet. It is being built.";
+const RECOGNITION_MS = 120_000;
 
 export class Dictation {
   private readonly events: DictationEvents;
-  private readonly recognition: () => RecognizerClass | null;
+  private readonly recognition: () => RecognizerClass;
   private readonly lang: string;
   private readonly microphone: (() => Promise<Capture>) | null;
-  private readonly inApp: () => boolean;
   private recognizer: Recognizer | null = null;
   private started = false;
   private capture: Capture | null = null;
-  private phrases: string[] = [];
+  // Capture order is insertion order; null means recognition is unfinished.
+  private readonly pending = new Map<Recognizer, { text: string | null; timer?: ReturnType<typeof setTimeout> }>();
 
   // With a microphone, the recognizer listens to the track that microphone
-  // opens, so the waveform and the words come from one capture. inApp says
-  // whether the desktop app shows the board, which words a missing recognizer.
-  constructor(events: DictationEvents, recognition: () => RecognizerClass | null, lang: string, microphone: (() => Promise<Capture>) | null = null, inApp: () => boolean = () => false) {
+  // opens, so the waveform and the words come from one capture.
+  constructor(events: DictationEvents, recognition: () => RecognizerClass, lang: string, microphone: (() => Promise<Capture>) | null = null) {
     this.events = events;
     this.recognition = recognition;
     this.lang = lang;
     this.microphone = microphone;
-    this.inApp = inApp;
   }
 
   start(): void {
     if (this.recognizer) return;
-    const Recognition = this.recognition();
-    if (!Recognition) { this.events.problem(this.inApp() ? NOT_IN_APP : UNSUPPORTED); return; }
-    const recognizer = new Recognition();
+    const recognizer = new (this.recognition())();
     recognizer.continuous = true;
     recognizer.interimResults = false;
     recognizer.lang = this.lang;
-    this.phrases = [];
+    this.pending.set(recognizer, { text: null });
+    const phrases: string[] = [];
     // Without interim results every result the browser sends is final.
     recognizer.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) this.phrases.push(event.results[i][0].transcript);
+      for (let i = event.resultIndex; i < event.results.length; i++) phrases.push(event.results[i][0].transcript);
     };
-    recognizer.onerror = (event) => { const note = dictationProblem(event.error); if (note) this.events.problem(note); };
-    recognizer.onend = () => {
-      this.recognizer = null;
-      this.release();
-      this.events.listening(false);
-      const text = spoken(this.phrases);
-      this.phrases = [];
-      if (text) this.events.heard(text);
+    recognizer.onerror = (event) => {
+      const note = event.message || dictationProblem(event.error);
+      if (note) this.events.problem(note);
+      this.finish(recognizer, "");
     };
+    recognizer.onend = () => this.finish(recognizer, spoken(phrases));
     this.recognizer = recognizer;
     this.started = false;
     this.events.problem("");
-    this.events.listening(true);
     if (!this.microphone) { this.begin(recognizer); return; }
     this.microphone().then((capture) => {
       // Released or closed while the microphone opened: keep nothing open.
@@ -154,24 +138,46 @@ export class Dictation {
       this.begin(recognizer, capture.track);
     }, (error: unknown) => {
       if (this.recognizer !== recognizer) return;
-      this.recognizer = null;
-      this.events.listening(false);
       this.events.problem(captureProblem(error));
+      this.finish(recognizer, "");
     });
+  }
+
+  private finish(recognizer: Recognizer, text: string): void {
+    const result = this.pending.get(recognizer);
+    if (!result || result.text !== null) return;
+    result.text = text;
+    clearTimeout(result.timer);
+    recognizer.onresult = null;
+    recognizer.onerror = null;
+    recognizer.onend = null;
+    if (this.recognizer === recognizer) {
+      this.recognizer = null;
+      this.release();
+      this.events.listening(false);
+    }
+    for (const [prior, result] of this.pending) {
+      if (result.text === null) break;
+      this.pending.delete(prior);
+      if (result.text) this.events.heard(result.text);
+    }
   }
 
   private begin(recognizer: Recognizer, track?: MediaStreamTrack): void {
     this.started = true;
-    if (!track) { recognizer.start(); return; }
-    try {
-      recognizer.start(track);
-    } catch (error) {
-      // A recognizer that cannot take a track opens its own microphone, so
-      // this one closes rather than capture twice, and shows no level.
-      if (!(error instanceof TypeError)) throw error;
-      this.release();
-      recognizer.start();
+    if (!track) recognizer.start();
+    else {
+      try {
+        recognizer.start(track);
+      } catch (error) {
+        // A recognizer that cannot take a track opens its own microphone, so
+        // this one closes rather than capture twice, and shows no level.
+        if (!(error instanceof TypeError)) throw error;
+        this.release();
+        recognizer.start();
+      }
     }
+    if (this.recognizer === recognizer) this.events.listening(true);
   }
 
   private release(): void {
@@ -184,25 +190,42 @@ export class Dictation {
     return this.capture?.level() ?? 0;
   }
 
+  // stop ends the listening at once: the bubble goes idle and the microphone
+  // closes. The recognizer has what was said by then and its words are typed
+  // in capture order, so the next dictation can start meanwhile.
   stop(): void {
     const recognizer = this.recognizer;
     if (!recognizer) return;
-    if (this.started) { recognizer.stop(); return; }
-    // Released before the microphone opened: nothing was heard.
     this.recognizer = null;
     this.events.listening(false);
+    // Released before the microphone opened: nothing was heard.
+    if (!this.started) { this.finish(recognizer, ""); return; }
+    recognizer.stop();
+    this.release();
+    const result = this.pending.get(recognizer);
+    if (result?.text === null) {
+      result.timer = setTimeout(() => {
+        if (this.pending.get(recognizer)?.text !== null) return;
+        this.events.problem("Dictation did not finish within 120 seconds. Its words were not typed.");
+        this.finish(recognizer, "");
+        recognizer.abort();
+      }, RECOGNITION_MS);
+    }
   }
 
-  // dispose stops listening without typing anything, for a terminal going away.
+  // dispose stops listening without typing anything, for a terminal going
+  // away, and drops the words still on their way.
   dispose(): void {
-    const recognizer = this.recognizer;
+    const opening = this.recognizer && !this.started ? this.recognizer : null;
     this.recognizer = null;
-    this.phrases = [];
     this.release();
-    if (!recognizer || !this.started) return;
-    recognizer.onresult = null;
-    recognizer.onerror = null;
-    recognizer.onend = null;
-    recognizer.abort();
+    for (const [recognizer, result] of this.pending) {
+      clearTimeout(result.timer);
+      recognizer.onresult = null;
+      recognizer.onerror = null;
+      recognizer.onend = null;
+      if (result.text === null && recognizer !== opening) recognizer.abort();
+    }
+    this.pending.clear();
   }
 }

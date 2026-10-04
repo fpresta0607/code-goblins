@@ -171,7 +171,11 @@ func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
 	store.mu.Lock()
 	store.db.Reviews[0].CreatedAt, store.db.Reviews[0].UpdatedAt = old, old
 	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	err := store.save()
 	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	if err := store.pruneReviews(time.Now()); err != nil {
@@ -434,14 +438,22 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	}
 	store.mu.Lock()
 	store.db.Tasks["task-1"] = Evaluation{Phase: "blocked", Reason: "Pipeline decision required at review", Generation: "g1"}
+	saveErr := store.save()
 	store.mu.Unlock()
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
 	report("task-1", "working: polishing docs")
 	if got := task(); got.Phase != "blocked" {
 		t.Fatalf("a report under a gate parked for a decision = %+v, want the gate's blocked", got.Evaluation)
 	}
 	store.mu.Lock()
 	delete(store.db.Tasks, "task-1")
+	saveErr = store.save()
 	store.mu.Unlock()
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
 	if _, err := wake.Append(h.State, "notify", "task-1", "blocked: Which port?"); err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +545,11 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 			}
 			store.mu.Lock()
 			c.close(&store.db.Reviews[0])
+			saveErr := store.save()
 			store.mu.Unlock()
+			if saveErr != nil {
+				t.Fatal(saveErr)
+			}
 
 			// Act
 			snapshot, err := (&Service{Store: store}).Snapshot()

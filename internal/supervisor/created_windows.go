@@ -1,17 +1,14 @@
 package supervisor
 
 import (
-	"os"
+	"io/fs"
 	"syscall"
 	"time"
 )
 
-// fileCreated is when a file was created, zero when it cannot be read.
-func fileCreated(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
+// created is when the file info describes was created, zero when info does
+// not say.
+func created(info fs.FileInfo) time.Time {
 	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
 	if !ok {
 		return time.Time{}

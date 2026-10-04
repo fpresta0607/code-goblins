@@ -85,6 +85,21 @@ func assertNothingInstalled(t *testing.T, local, temp string) {
 	}
 }
 
+// serveFiles serves a release holding files, each at its name.
+func serveFiles(t *testing.T, files map[string][]byte) string {
+	t.Helper()
+	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, ok := files[strings.TrimPrefix(r.URL.Path, "/")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(release.Close)
+	return release.URL
+}
+
 // runPin runs tools/pin-installer.ps1 in shell, as release.yml does, and
 // returns where it was told to write the release's install script.
 func runPin(t *testing.T, shell, repository, tag, publisher string) (destination, output string, err error) {
@@ -120,7 +135,7 @@ func TestAPublishedInstallDownloadsFromItsOwnRelease(t *testing.T) {
 			output, local, temp, err := runStrippedPowerShell(t, installtest.WindowsPowerShell(), "", "-Command", offline+"Get-Content -Raw -LiteralPath '"+script+"' | Invoke-Expression")
 
 			// Assert
-			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/cfo.exe"
+			want := "GET https://github.com/" + repository + "/releases/download/v1.2.3/SHA256SUMS"
 			if err == nil || !strings.Contains(output, want) {
 				t.Fatalf("install = %v, want it to download from %s:\n%s", err, want, output)
 			}
@@ -151,6 +166,48 @@ func TestThePinRefusesAValueItCannotWriteAsItIs(t *testing.T) {
 				t.Errorf("pin-installer.ps1 wrote %s (%v), want nothing written", script, statErr)
 			}
 		})
+	}
+}
+
+// A release that lists its desktop window in SHA256SUMS has the window
+// downloaded and checked beside cfo.exe, and a window that does not match its
+// sum stops the install before anything runs. A copy of the script that names
+// no publisher says it checks the sums only.
+func TestOneLineInstallChecksTheDesktopWindowTheReleaseLists(t *testing.T) {
+	binary, window := []byte("not a program"), []byte("not a window")
+	for _, shell := range installtest.OneLineShells(t) {
+		for name, test := range map[string]struct {
+			windowSum [32]byte
+			want      string
+			refused   bool
+		}{
+			"a window that matches":        {sha256.Sum256(window), "Verified goblins-window.exe against the release's SHA256SUMS", false},
+			"a window that does not match": {sha256.Sum256([]byte("another window")), "The downloaded goblins-window.exe does not match the release's SHA256SUMS", true},
+		} {
+			t.Run(filepath.Base(shell)+" "+name, func(t *testing.T) {
+				// Arrange
+				sums := fmt.Sprintf("%x  cfo.exe\n%x  goblins-window.exe\n", sha256.Sum256(binary), test.windowSum)
+				base := serveFiles(t, map[string][]byte{"cfo.exe": binary, "goblins-window.exe": window, "SHA256SUMS": []byte(sums)})
+
+				// Act
+				output, local, temp, err := runOneLineInstall(t, shell, base)
+
+				// Assert
+				if !strings.Contains(output, test.want) {
+					t.Fatalf("install = %v, want %q:\n%s", err, test.want, output)
+				}
+				if !strings.Contains(output, "names no publisher, so the download is checked against the release's SHA256SUMS only") {
+					t.Errorf("an unpinned script does not say it checks sums only:\n%s", output)
+				}
+				if test.refused && strings.Contains(output, "Verified goblins-window.exe") {
+					t.Errorf("a window that does not match was verified:\n%s", output)
+				}
+				if err == nil {
+					t.Fatalf("install succeeded with stand-in programs that cannot run:\n%s", output)
+				}
+				assertNothingInstalled(t, local, temp)
+			})
+		}
 	}
 }
 
@@ -509,7 +566,9 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 
 // -Dev replaces a cfo.exe that is still running, as a supervisor or a CFO's
 // terminal host keeps it on a working clone: the running copy moves aside,
-// and cfo.exe and goblins.exe both become the new build. A rerun after the
+// and cfo.exe and goblins.exe both become the new build, with the desktop
+// window built beside them as a program that opens no console, and the
+// install says the programs it built are unsigned. A rerun after the
 // next pull replaces them again while that copy still runs, and removes
 // every old copy nothing runs. A -Dev install runs through install.cmd, which
 // always starts Windows PowerShell, so Windows PowerShell alone checks it; the
@@ -517,7 +576,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // runner.
 func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 	checkout := fakeCheckout(t)
-	newBuild := filepath.Join(t.TempDir(), "built")
+	newBuild, newWindow := filepath.Join(t.TempDir(), "built"), filepath.Join(t.TempDir(), "built-window")
 	// A running cfo.exe: ping, copied under that name, needs no console and
 	// runs for about 30 minutes, longer than a package may run, so the test
 	// stops it first, and a run cut off before its cleanup leaves nothing
@@ -545,24 +604,33 @@ func TestDevReplacesABuildThatIsStillRunning(t *testing.T) {
 		<-exited
 	})
 	// go build -trimpath -o <path> ./cmd/cfo copies the new build to
-	// <path>; a build that would keep this machine's folders in the
-	// binary fails.
-	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n@copy /y \"" + newBuild + "\" \"%4\" >nul\r\n"}
+	// <path>, and the window's build its own; a build that would keep this
+	// machine's folders in the binary fails, and so does a window built to
+	// open a console.
+	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n" +
+		"@if not \"%7\"==\"./cmd/goblins-window\" copy /y \"" + newBuild + "\" \"%4\" >nul & exit /b\r\n" +
+		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@copy /y \"" + newWindow + "\" \"%4\" >nul\r\n"}
 
 	for _, build := range []string{"the build from this clone", "the build after the next pull"} {
 		if err := os.WriteFile(newBuild, []byte(build), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(newWindow, []byte(build+", its window"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 
 		output, _, _, _ := runPowerShellWithStubs(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
 
-		if !strings.Contains(output, "Built cfo.exe and goblins.exe") {
+		if !strings.Contains(output, "Built cfo.exe, goblins.exe and goblins-window.exe") {
 			t.Fatalf("install -Dev did not replace the build with %q:\n%s", build, output)
 		}
-		for _, name := range []string{"cfo.exe", "goblins.exe"} {
-			if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != build {
-				t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, build, output)
+		for name, want := range map[string]string{"cfo.exe": build, "goblins.exe": build, "goblins-window.exe": build + ", its window"} {
+			if built, err := os.ReadFile(filepath.Join(checkout, name)); err != nil || string(built) != want {
+				t.Errorf("%s = %q (%v), want %q:\n%s", name, built, err, want, output)
 			}
+		}
+		if !strings.Contains(output, "These programs are unsigned") {
+			t.Errorf("install -Dev does not say the programs it built are unsigned:\n%s", output)
 		}
 	}
 	select {

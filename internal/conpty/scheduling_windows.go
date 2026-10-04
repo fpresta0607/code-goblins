@@ -22,6 +22,12 @@ type powerThrottling struct {
 	Version, ControlMask, StateMask uint32
 }
 
+// KeepCurrentProcessInteractive prevents automatic throttling of a hidden
+// process serving interactive clients, as the native terminal host does.
+func KeepCurrentProcessInteractive() error {
+	return interactiveScheduling(windows.CurrentProcess())
+}
+
 // Hidden consoles have no foreground window to earn interactive scheduling.
 // Explicit HighQoS prevents automatic efficiency-core throttling, without
 // changing priority, affinity, timer policy or other power controls.

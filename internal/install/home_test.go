@@ -115,6 +115,64 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 	}
 }
 
+// The desktop window ships beside the binary in a release, and install puts
+// it in the home beside goblins.exe, where goblins looks for it.
+func TestInstallPutsTheDesktopWindowBesideGoblins(t *testing.T) {
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), "goblins-window.exe"), "window 1")
+
+	output := f.install()
+
+	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 1" {
+		t.Errorf("goblins-window.exe in the home = %q, want the window beside the binary", got)
+	}
+	if !strings.Contains(output, "goblins-window.exe") {
+		t.Errorf("the install does not name the window it copied:\n%s", output)
+	}
+
+	writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), "goblins-window.exe"), "window 2")
+	f.install()
+
+	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 2" {
+		t.Errorf("after an update goblins-window.exe = %q, want the new window", got)
+	}
+}
+
+// A build with no window beside it, such as one from source, installs no
+// window, and goblins shows the board in the browser.
+func TestInstallWithoutAWindowLeavesTheBrowser(t *testing.T) {
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+
+	output := f.install()
+
+	if _, err := os.Stat(filepath.Join(f.root, "goblins-window.exe")); !os.IsNotExist(err) {
+		t.Errorf("the home holds a window no release shipped: %v", err)
+	}
+	if !strings.Contains(output, "no desktop window beside") {
+		t.Errorf("the install does not say the board opens in the browser:\n%s", output)
+	}
+}
+
+// A build with no window beside it leaves a window an earlier install put in
+// the home, and says goblins keeps using it rather than the browser.
+func TestInstallWithoutAWindowKeepsTheHomesWindow(t *testing.T) {
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	window := filepath.Join(f.root, "goblins-window.exe")
+	writeFile(t, window, "window 1")
+
+	output := f.install()
+
+	if got := readFile(t, window); got != "window 1" {
+		t.Errorf("goblins-window.exe in the home = %q, want the window it already held", got)
+	}
+	if !strings.Contains(output, "keeps its existing "+window) {
+		t.Errorf("the install does not name the window the home keeps:\n%s", output)
+	}
+	if strings.Contains(output, "in the browser") {
+		t.Errorf("the install says the board opens in the browser though the home has a window:\n%s", output)
+	}
+}
+
 func TestInstallOutsideACheckoutTwiceChangesNothingTheSecondTime(t *testing.T) {
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	f.install()
@@ -397,5 +455,157 @@ func TestReinstallOutsideACheckoutNeverRemovesAPathOutsideTheHome(t *testing.T) 
 
 	if got := readFile(t, outside); got != "not the home's" {
 		t.Errorf("the file beside the home = %q, want it untouched", got)
+	}
+}
+
+// An update carries the desktop window beside its build into the home as an
+// install puts it there, and says what it did; a build with no window beside
+// it leaves the home's window as it is.
+func TestCarryWindowBringsTheWindowBesideTheBuildIntoTheHome(t *testing.T) {
+	for name, test := range map[string]struct {
+		beside string
+		want   string
+		says   string
+	}{
+		"a newer window beside the build":  {"window 2", "window 2", "copied "},
+		"the same window beside the build": {"window 1", "window 1", "is already this build"},
+		"no window beside the build":       {"", "window 1", "keeps its existing "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root, release := t.TempDir(), t.TempDir()
+			window := filepath.Join(root, "goblins-window.exe")
+			writeFile(t, window, "window 1")
+			if test.beside != "" {
+				writeFile(t, filepath.Join(release, "goblins-window.exe"), test.beside)
+			}
+			var out strings.Builder
+
+			// Act
+			err := CarryWindow(root, filepath.Join(release, "cfo.exe"), &out)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := readFile(t, window); got != test.want {
+				t.Errorf("goblins-window.exe in the home = %q, want %q", got, test.want)
+			}
+			if !strings.Contains(out.String(), test.says) {
+				t.Errorf("the report does not say %q:\n%s", test.says, out.String())
+			}
+		})
+	}
+}
+
+// A window that cannot be put in the home is an error the update can report,
+// and the home's window is left as it was.
+func TestCarryWindowReportsAWindowItCannotReplace(t *testing.T) {
+	// Arrange: a folder where the window goes cannot be replaced by a file.
+	root, release := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(root, "goblins-window.exe", "held"), "not a program")
+	writeFile(t, filepath.Join(release, "goblins-window.exe"), "window 2")
+
+	// Act
+	err := CarryWindow(root, filepath.Join(release, "cfo.exe"), io.Discard)
+
+	// Assert
+	if err == nil {
+		t.Fatal("CarryWindow reports no error for a window it could not put in the home")
+	}
+	if got := readFile(t, filepath.Join(root, "goblins-window.exe", "held")); got != "not a program" {
+		t.Errorf("what the home held in the window's place is now %q", got)
+	}
+}
+
+// earlierWindow gives the fixture a copy of the desktop window in a folder of
+// its own, as an earlier install left one, and a window beside the binary for
+// this install to put in the home. It returns the earlier copy's folder.
+func earlierWindow(t *testing.T, f *fixture) string {
+	t.Helper()
+	f.service.EarlierWindow = filepath.Join(t.TempDir(), "CodeGoblinsWindow")
+	writeFile(t, filepath.Join(f.service.EarlierWindow, "goblins-window.exe"), "window 0")
+	writeFile(t, filepath.Join(f.service.EarlierWindow, "goblins-window.png"), "picture")
+	writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), "goblins-window.exe"), "window 1")
+	return f.service.EarlierWindow
+}
+
+// An install whose home holds the desktop window takes the place of a copy an
+// earlier install kept in a folder of its own: the copy and its folder go,
+// and a second install finds nothing left to do.
+func TestInstallRemovesTheEarlierCopyOfTheDesktopWindow(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	earlier := earlierWindow(t, f)
+
+	// Act
+	output := f.install()
+	again := f.install()
+
+	// Assert
+	if _, err := os.Stat(earlier); !os.IsNotExist(err) {
+		t.Errorf("the earlier copy's folder %s is still there: %v", earlier, err)
+	}
+	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 1" {
+		t.Errorf("goblins-window.exe in the home = %q, want the window beside the binary", got)
+	}
+	if !strings.Contains(output, "removed the earlier desktop window in "+earlier) {
+		t.Errorf("the install does not say it removed the earlier copy:\n%s", output)
+	}
+	if !strings.Contains(again, "nothing changed") {
+		t.Errorf("a second install changes something:\n%s", again)
+	}
+}
+
+// A home that holds no desktop window leaves the earlier copy alone: it is
+// the only window there is.
+func TestInstallWithNoWindowKeepsTheEarlierCopy(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	earlier := earlierWindow(t, f)
+	if err := os.Remove(filepath.Join(filepath.Dir(f.service.Binary), "goblins-window.exe")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	output := f.install()
+
+	// Assert
+	for name, want := range map[string]string{"goblins-window.exe": "window 0", "goblins-window.png": "picture"} {
+		if got := readFile(t, filepath.Join(earlier, name)); got != want {
+			t.Errorf("%s of the earlier copy = %q, want it as it was", name, got)
+		}
+	}
+	if !strings.Contains(output, "kept the earlier desktop window in "+earlier) {
+		t.Errorf("the install does not say it kept the earlier copy:\n%s", output)
+	}
+}
+
+// Only what an earlier install put in the folder is removed: a folder that
+// holds anything else stays, with that in it, and the install says so once.
+func TestInstallLeavesWhatElseTheEarlierWindowsFolderHolds(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+	earlier := earlierWindow(t, f)
+	writeFile(t, filepath.Join(earlier, "notes.txt"), "the user's own")
+
+	// Act
+	output := f.install()
+	again := f.install()
+
+	// Assert
+	if got := readFile(t, filepath.Join(earlier, "notes.txt")); got != "the user's own" {
+		t.Errorf("notes.txt = %q, want the user's file untouched", got)
+	}
+	for _, name := range []string{"goblins-window.exe", "goblins-window.png"} {
+		if _, err := os.Stat(filepath.Join(earlier, name)); !os.IsNotExist(err) {
+			t.Errorf("%s of the earlier copy is still there: %v", name, err)
+		}
+	}
+	if !strings.Contains(output, "left the folder, which holds other files") {
+		t.Errorf("the install does not say it left the folder:\n%s", output)
+	}
+	if !strings.Contains(again, "nothing changed") {
+		t.Errorf("a second install changes something:\n%s", again)
 	}
 }

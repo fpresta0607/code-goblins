@@ -265,7 +265,7 @@ func TestQueuedBriefsListOnlyBriefsNothingStarted(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	queued := queuedBriefs(h)
+	queued := queuedBriefs(h, diskBriefs)
 	if len(queued) != 1 || queued[0].ID != "queued" || queued[0].Phase != "queued" {
 		t.Fatalf("queued = %+v, want only the brief nothing started", queued)
 	}
@@ -945,6 +945,9 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 		t.Run(c.phase, func(t *testing.T) {
 			store, h := testStore(t)
 			store.db.Tasks["task-1"] = Evaluation{Phase: c.phase, Generation: "g1", At: time.Now()}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
 			if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/o/r/pull/31"); err != nil {
 				t.Fatal(err)
 			}
@@ -968,7 +971,13 @@ func TestSnapshotDropsAMergeOnlyWhenTheLiveTaskAlreadyShowsIt(t *testing.T) {
 
 func TestCompletedLiveTaskUsesItsPullRequestTitleAndRepository(t *testing.T) {
 	store, h := testStore(t)
+	store.mu.Lock()
 	store.db.Tasks["task-1"] = Evaluation{Phase: "done", Generation: "g1", PR: "https://github.com/owner/repository/pull/7", At: time.Now()}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
 		return PullRequestInfo{State: "MERGED", Title: "Make task completion consistent"}, nil
 	}}}

@@ -191,11 +191,14 @@ func ValidTaskID(id string) error {
 
 // ReadTaskMeta reads the compatibility record through ReadMeta, retaining its
 // CRLF tolerance and last-value-wins semantics.
+// TaskMetaPath is where task id's record is.
+func TaskMetaPath(stateDir, id string) string { return filepath.Join(stateDir, id+".meta") }
+
 func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 	if err := ValidTaskID(id); err != nil {
 		return TaskMeta{}, err
 	}
-	kv, err := ReadMeta(filepath.Join(stateDir, id+".meta"))
+	kv, err := ReadMeta(TaskMetaPath(stateDir, id))
 	if err != nil {
 		return TaskMeta{}, err
 	}

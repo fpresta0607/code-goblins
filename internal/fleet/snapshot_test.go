@@ -59,6 +59,30 @@ type snapshotEndpoint struct {
 	calls      []string
 }
 
+func TestCompletedFleetOutcomeHasNoRunnableQueueRow(t *testing.T) {
+	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
+		t.Run(row, func(t *testing.T) {
+			// Arrange
+			h := snapshotHome(t)
+			writeBacklog(t, h.Data, "## Queued\n"+row+"\n- [ ] next - Next task\n")
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Phase: "done", Title: "Delivered", Evidence: "reported pull request"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			snapshot, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Backlog.Queued) != 1 || snapshot.Backlog.Queued[0].ID != "next" || len(snapshot.Completed) != 1 || snapshot.Completed[0].ID != "delivered" {
+				t.Fatalf("completed work remains queued or loses history: %+v", snapshot)
+			}
+		})
+	}
+}
+
 func TestHerdrEndpointReadsOnlyLiveAgentEvidence(t *testing.T) {
 	runner := &fakeRunner{replies: []runnerReply{
 		jsonReply(`{"result":{"pane":{"pane_id":"pane-7"}}}`),

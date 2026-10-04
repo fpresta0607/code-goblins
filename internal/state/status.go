@@ -27,7 +27,7 @@ func NormalizeStatusDetail(value string) string {
 // on the file, such as an antivirus or indexer scan's.
 func AppendStatus(dir, id, line string) error {
 	line = time.Now().UTC().Format(time.RFC3339) + " " + line
-	f, err := fsx.OpenAppend(filepath.Join(dir, id+".status"), 0o644)
+	f, err := fsx.OpenAppend(StatusPath(dir, id), 0o644)
 	if err != nil {
 		return err
 	}
@@ -35,12 +35,15 @@ func AppendStatus(dir, id, line string) error {
 	return errors.Join(werr, f.Close())
 }
 
+// StatusPath is where task id's status log is.
+func StatusPath(dir, id string) string { return filepath.Join(dir, id+".status") }
+
 // TailStatus returns the last n lines of state/<id>.status. A missing log
 // returns (nil, nil): "no status yet" is a real fleet state, not an error.
 // ponytail: whole-file read; switch to a reverse block scan if logs outgrow
 // the line caps a later plan ports.
 func TailStatus(dir, id string, n int) ([]string, error) {
-	lines, err := fsx.ReadLines(filepath.Join(dir, id+".status"))
+	lines, err := fsx.ReadLines(StatusPath(dir, id))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil

@@ -14,7 +14,7 @@ const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest =>
 });
 
 const board = (credentials: CredentialRequest[], runs: Run[] = []): Snapshot =>
-  ({ tasks: [{ id: "add-billing", title: "Add Stripe billing", phase: "working", generation: "g1" } as Task], questions: [], reviews: [], runs, credentials, attention: [] as string[] }) as unknown as Snapshot;
+  ({ tasks: [{ id: "add-billing", title: "Add Stripe billing", phase: "working", generation: "g1" } as Task], questions: [], reviews: [], runs, credentials, attention: [] as string[], afk: { state: "off" } }) as unknown as Snapshot;
 
 test("a settled request says which names were saved for which project, or why it closed", () => {
   assert.equal(credentialSettled(request({ state: "saved", saved: ["STRIPE_SECRET_KEY", "DATABASE_URL"] })), "Saved STRIPE_SECRET_KEY and DATABASE_URL for precisiondocs");
@@ -103,9 +103,9 @@ test("a request's alert has nothing left to open once the request is saved or ex
   assert.equal(outlived(alert, board([])), false, "a request the snapshot does not hold is not known to be closed");
 });
 
-test("the CFO bar says what a request waits for", () => {
-  assert.deepEqual(cfoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { asking: true, line: "Waiting on you: Paste STRIPE_SECRET_KEY for precisiondocs" });
-  assert.equal(cfoSummary(board([request({ state: "saved", saved: ["STRIPE_SECRET_KEY"] })])).asking, false);
+test("the CFO bar counts an open request as waiting on the Overlord, and a saved one no longer", () => {
+  assert.deepEqual(cfoSummary(board([request({ names: ["STRIPE_SECRET_KEY"] })])), { waiting: 1, line: "The CFO supervises 1 goblin." });
+  assert.equal(cfoSummary(board([request({ state: "saved", saved: ["STRIPE_SECRET_KEY"] })])).waiting, 0);
 });
 
 test("a request waits on the Overlord until it closes, and its terminal is part of its card, not an item of its own", () => {

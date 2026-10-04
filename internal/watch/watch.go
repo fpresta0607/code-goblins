@@ -59,7 +59,7 @@ type Config struct {
 	// Routing is the standing answer to a harness that starts erroring. An
 	// empty policy simply means every fault wakes the CFO undecided.
 	Routing routing.Policy
-	Sleep   func(time.Duration)
+	Sleep   func(context.Context, time.Duration)
 
 	// Reap is the orphan sweep. The watcher is the fleet's only existing
 	// timer, so the sweep rides it rather than becoming a second daemon: an
@@ -77,17 +77,17 @@ type Config struct {
 	FileEvery time.Duration
 
 	// WaitEvent is Task 9's filesystem-notification seam, replacing the
-	// plain Sleep(Poll) wait between checks. Its bool return has two
+	// plain Sleep(ctx, Poll) wait between checks. Its bool return has two
 	// halves, both load-bearing: true means an event was observed within
 	// timeout and Run proceeds to rescan immediately - that fast path is
 	// the entire point of supplying WaitEvent. False means the wait ended
 	// with no event observed, and Run itself then enforces the floor: it
 	// measures the elapsed time around the call and calls Sleep for
-	// whatever is left of timeout, so a WaitEvent that returns early for
-	// any reason (a broken directory handle, a bug) cannot spin the loop
-	// faster than Poll for the whole in-process eight-hour host Task 11
-	// runs.
-	WaitEvent func(timeout time.Duration) bool
+	// whatever is left of timeout unless handover cancels ctx. A WaitEvent
+	// that returns early for any reason (a broken directory handle, a bug)
+	// cannot spin the loop faster than Poll for the whole in-process
+	// eight-hour host Task 11 runs.
+	WaitEvent func(context.Context, time.Duration) bool
 
 	Cleanup func()
 
@@ -132,7 +132,7 @@ func ConfigFromEnv(h home.Home) Config {
 		SignalGrace:  clampMin1s(claudehook.Seconds("CFO_SIGNAL_GRACE", 30)),
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
-		Sleep:        time.Sleep,
+		Sleep:        sleep,
 	}
 	// A missing or unreadable policy is not fatal: the fleet simply wakes the
 	// CFO undecided, which is what it did before there was a policy at all.
@@ -210,6 +210,15 @@ func clampMin1s(d time.Duration) time.Duration {
 		return time.Second
 	}
 	return d
+}
+
+func sleep(ctx context.Context, duration time.Duration) {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 // Change is one *.status or *.turn-ended file ScanSignals found moved
@@ -379,7 +388,7 @@ func Run(cfg Config) (string, error) {
 		if len(changes) > 0 {
 			// Linger one grace period so a crewmate's final status write and
 			// the same turn's turn-end marker land as one wake, not two.
-			cfg.Sleep(cfg.SignalGrace)
+			cfg.Sleep(ctx, cfg.SignalGrace)
 
 			// A successor may have stolen the singleton during the grace
 			// sleep. Re-check before this cycle commits to anything: a
@@ -484,13 +493,13 @@ func Run(cfg Config) (string, error) {
 			// itself so a WaitEvent that returns early for any reason
 			// cannot spin the loop.
 			start := time.Now()
-			if !cfg.WaitEvent(cfg.Poll) {
+			if !cfg.WaitEvent(ctx, cfg.Poll) {
 				if remaining := cfg.Poll - time.Since(start); remaining > 0 {
-					cfg.Sleep(remaining)
+					cfg.Sleep(ctx, remaining)
 				}
 			}
 		} else {
-			cfg.Sleep(cfg.Poll)
+			cfg.Sleep(ctx, cfg.Poll)
 		}
 
 		// A successor may have stolen the singleton while we waited. Without

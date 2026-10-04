@@ -86,6 +86,7 @@ type Service struct {
 	Sleep       func(context.Context, time.Duration) error
 	ReleaseLock func(string, string) error
 	PolicyPath  string
+	Admit       func() error
 	// UserEnvironment is the environment a native task starts from: the
 	// variables Windows gives a new process of this user, never this
 	// process's own. Nil reads them from the user's and the machine's
@@ -185,6 +186,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}()
 	if err := rejectTaskIDAlias(s.StateDir, req.ID); err != nil {
 		return Result{}, err
+	}
+	if s.Admit != nil {
+		if err := s.Admit(); err != nil {
+			return Result{}, err
+		}
 	}
 	if req.Capsule != nil {
 		// A spawn that fails before the task is published has no teardown, so

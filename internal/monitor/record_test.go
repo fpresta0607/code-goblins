@@ -1,12 +1,41 @@
 package monitor
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestCPUProgressJudgmentRoundtripAndLegacyDefault(t *testing.T) {
+	for _, hasProgress := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy default no evidence", true: "persisted positive CPU"}[hasProgress], func(t *testing.T) {
+			stateDir := t.TempDir()
+			now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+			since := now.Add(-time.Minute)
+			in := Observation{TaskID: "g1", Endpoint: "fleet:pane-g1", EndpointVerdict: ProbePresent, Health: HealthIdle, Reason: None, Digest: "quiet-pane", LastObserved: now, LastSeen: now, LastProgress: now, EvidenceAt: &now, JobCPU: 5 * time.Second, JobSampledAt: &now, JobSampledSince: &since, HasJobProgress: hasProgress}
+			if err := WriteObservation(stateDir, in); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(ObservationPath(stateDir, in.TaskID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(data, []byte(`"has_job_progress"`)) != hasProgress {
+				t.Fatalf("unexpected persisted judgment: %s", data)
+			}
+			got, err := ReadObservation(stateDir, in.TaskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.HasJobProgress != hasProgress || got.JobSampledAt == nil || !got.JobSampledAt.Equal(now) || got.JobSampledSince == nil || !got.JobSampledSince.Equal(since) {
+				t.Errorf("persisted CPU judgment lost its sample binding: %+v", got)
+			}
+		})
+	}
+}
 
 func TestMonitorRecordPathsAndStrictJSON(t *testing.T) {
 	stateDir := t.TempDir()

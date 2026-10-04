@@ -24,7 +24,8 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	flags.SetOutput(stderr)
 	generation := flags.String("generation", "", "expected task generation")
 	operation := flags.String("operation", "", "idempotent operation identity")
-	reason := flags.String("reason", "Requested by the operator", "why the task is changing")
+	reason := flags.String("reason", "", "pause reason: memory, allowance, overlord, dependency, question, ci or deploy")
+	until := flags.String("until", "", "pause clearing condition: reset time, task:<id>, pr:<URL>, date:<RFC3339> or question id")
 	revision := flags.String("revision", "", "expected queued task revision")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return 2
@@ -32,6 +33,20 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	if err := state.ValidTaskID(args[0]); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	if action == "pause" {
+		if _, err := state.NewPauseCondition(*reason, *until, time.Now().UTC()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	} else {
+		if *until != "" {
+			fmt.Fprintln(stderr, "--until is only valid for pause")
+			return 2
+		}
+		if *reason == "" {
+			*reason = "Requested by the operator"
+		}
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -45,7 +60,7 @@ func runLifecycle(action string, args []string, stdout, stderr io.Writer, runtim
 	if *operation == "" {
 		*operation = fmt.Sprintf("op-%d", time.Now().UnixNano())
 	}
-	request := lifecycle.Request{ID: args[0], Generation: *generation, Operation: *operation, Action: action, Reason: *reason}
+	request := lifecycle.Request{ID: args[0], Generation: *generation, Operation: *operation, Action: action, Reason: *reason, Until: *until}
 	meta, err := state.ReadTaskMeta(h.State, request.ID)
 	if err != nil && !(errors.Is(err, os.ErrNotExist) && action == "stop") {
 		fmt.Fprintln(stderr, err)

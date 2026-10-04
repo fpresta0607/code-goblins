@@ -28,14 +28,14 @@ func TestTheCFODeliversADocumentTheBoardServesAsACopy(t *testing.T) {
 	}
 	ctx := context.Background()
 	for range 2 {
-		if err := DeliverDocument(ctx, h, cfo.Terminals, "", "setbacks-1204-oak", "Setbacks and envelope, 1204 Oak St", source, ""); err != nil {
+		if err := DeliverDocument(h, "", "setbacks-1204-oak", "Setbacks and envelope, 1204 Oak St", source, ""); err != nil {
 			t.Fatalf("deliver (and an unchanged redeliver): %v", err)
 		}
 	}
 	if err := os.WriteFile(source, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := DeliverDocument(ctx, h, cfo.Terminals, "", "setbacks-1204-oak", "Setbacks and envelope, 1204 Oak St", source, ""); err == nil || !strings.Contains(err.Error(), "already used") {
+	if err := DeliverDocument(h, "", "setbacks-1204-oak", "Setbacks and envelope, 1204 Oak St", source, ""); err == nil || !strings.Contains(err.Error(), "already used") {
 		t.Fatalf("a redeliver with other content = %v, want refused", err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -101,7 +101,7 @@ func TestADocumentABrowserCouldRunIsOnlyEverDownloaded(t *testing.T) {
 			if err := os.WriteFile(source, []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := DeliverDocument(context.Background(), h, cfo.Terminals, "", "document-under-test", "Look at this", source, ""); err != nil {
+			if err := DeliverDocument(h, "", "document-under-test", "Look at this", source, ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -123,10 +123,9 @@ func TestADocumentABrowserCouldRunIsOnlyEverDownloaded(t *testing.T) {
 // carries a query.
 func TestADocumentIsRefusedOutsideItsReportersFoldersOrLimits(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, goblin := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	_, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	ctx := context.Background()
 	outside := filepath.Join(t.TempDir(), "elsewhere.pdf")
 	inside := filepath.Join(meta.Worktree, "plan.pdf")
 	huge := filepath.Join(t.TempDir(), "huge.pdf")
@@ -139,19 +138,19 @@ func TestADocumentIsRefusedOutsideItsReportersFoldersOrLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DeliverDocument(ctx, h, goblin.Terminals, meta.ID, "goblin-outside", "Plan", outside, ""); err == nil || !strings.Contains(err.Error(), "inside its worktree") {
+	if err := DeliverDocument(h, meta.ID, "goblin-outside", "Plan", outside, ""); err == nil || !strings.Contains(err.Error(), "inside its worktree") {
 		t.Errorf("a goblin's document outside its folders = %v, want refused", err)
 	}
-	if err := DeliverDocument(ctx, h, goblin.Terminals, meta.ID, "goblin-inside", "Plan", inside, ""); err != nil {
+	if err := DeliverDocument(h, meta.ID, "goblin-inside", "Plan", inside, ""); err != nil {
 		t.Errorf("a goblin's document inside its worktree = %v, want it delivered", err)
 	}
-	if err := DeliverDocument(ctx, h, cfo.Terminals, "", "cfo-too-large", "Plan", huge, ""); err == nil || !strings.Contains(err.Error(), "at most") {
+	if err := DeliverDocument(h, "", "cfo-too-large", "Plan", huge, ""); err == nil || !strings.Contains(err.Error(), "at most") {
 		t.Errorf("a document over the cap = %v, want refused", err)
 	}
-	if err := DeliverDocument(ctx, h, cfo.Terminals, "", "cfo-signed-link", "Plan", outside, "https://files.example.com/plan.pdf?X-Amz-Signature=abc"); err == nil || !strings.Contains(err.Error(), "query") {
+	if err := DeliverDocument(h, "", "cfo-signed-link", "Plan", outside, "https://files.example.com/plan.pdf?X-Amz-Signature=abc"); err == nil || !strings.Contains(err.Error(), "query") {
 		t.Errorf("a document whose link carries a query = %v, want refused", err)
 	}
-	if err := DeliverDocument(ctx, h, cfo.Terminals, "", "cfo-hosted-link", "Plan", outside, "https://files.example.com/plan.pdf"); err != nil {
+	if err := DeliverDocument(h, "", "cfo-hosted-link", "Plan", outside, "https://files.example.com/plan.pdf"); err != nil {
 		t.Errorf("a document with a plain hosted link = %v, want it delivered", err)
 	}
 }

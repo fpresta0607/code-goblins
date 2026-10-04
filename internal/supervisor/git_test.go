@@ -72,7 +72,13 @@ func TestRetainedTaskBaseSurvivesRemoteAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.mu.Lock()
 	s.db.Tasks["task-1"] = Evaluation{Base: base, Generation: "g1"}
+	err = s.save()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{Store: s}
 	for _, args := range [][]string{{"update-ref", "refs/remotes/origin/main", "HEAD"}, {"symbolic-ref", "--delete", "refs/remotes/origin/HEAD"}} {
 		cmd := exec.Command("git", args...)

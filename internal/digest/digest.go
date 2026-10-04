@@ -198,7 +198,7 @@ func composeLong(h home.Home, ew *werr) {
 // call holds, as every other mutation is: a session that does not hold the
 // home is told to print the long form with `cfo session-start` instead. The
 // completion marker is written as Compose writes it.
-func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error {
+func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool, w io.Writer) error {
 	var lockSection bytes.Buffer
 	heldLock := writeSessionLock(h.State, ownerPID, session, &werr{w: &lockSection})
 
@@ -220,10 +220,21 @@ func ComposeBrief(h home.Home, ownerPID int, session string, w io.Writer) error 
 	var afkMode, instructions bytes.Buffer
 	writeAFKMode(h.State, &werr{w: &afkMode})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
+	checkpoint := ""
+	if isAfterCompact {
+		path := filepath.Join(h.State, CheckpointFile)
+		info, err := os.Stat(path)
+		if err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) <= 15*time.Minute {
+			checkpoint = path + " holds the checkpoint written before compaction. Read it first.\n"
+		} else {
+			checkpoint = "no checkpoint was written before this compaction, or the one on disk is stale or unreadable; run cfo install to register the pre-compact hook.\n"
+		}
+	}
 	tail := func(isWholeQueue, isWholeFleet bool) []byte {
 		var text bytes.Buffer
 		ew := &werr{w: &text}
 		ew.println("== READ THIS NEXT ==")
+		ew.printf("%s", checkpoint)
 		ew.println("READ THIS NEXT: " + next)
 		writeBriefContract(isWholeQueue, isWholeFleet, ew)
 		writeNextStep(ew)
@@ -315,6 +326,9 @@ func fleetLine(stateDir, id string) string {
 	}
 	if runes := []rune(status); len(runes) > fleetStatusWidth {
 		status = string(runes[:fleetStatusWidth]) + "..."
+	}
+	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && record.Phase == "paused" && record.Pause != nil {
+		status = record.Pause.Description()
 	}
 	return fmt.Sprintf("%s  %s/%s  %s  %s\n", id, meta["harness"], meta["model"], meta["kind"], status)
 }
@@ -594,6 +608,11 @@ func writeMetaEntry(stateDir, id string, statusTail int, ew *werr) bool {
 		}
 	}
 	isPrinted := err == nil
+	if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
+		if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil {
+			ew.printf("  paused: %s\n", record.Pause.Description())
+		}
+	}
 
 	tail, err := state.TailStatus(stateDir, id, statusTail)
 	if err != nil {

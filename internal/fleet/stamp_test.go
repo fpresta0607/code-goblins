@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"context"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/routing"
@@ -12,18 +11,11 @@ import (
 // fault. Both this test and the detector's reach the prefix through
 // routing.SteerPrefix; changing the constant moves both, and a stamp that
 // stopped using it would fail here.
-func TestSenderTextStampsTheSteerPrefixTheDetectorExcludes(t *testing.T) {
-	fake := newAgentFake(agentFake{})
+func TestStampUsesTheSteerPrefixTheDetectorExcludes(t *testing.T) {
 	message := "CI is failing on a GitHub Actions rate limit exceeded, not on you; keep going"
-	if err := newAgentSender(fake).Text(context.Background(), "task-7", message); err != nil {
-		t.Fatalf("Text: %v", err)
-	}
-	var prompt string
-	for _, args := range fake.requests {
-		if len(args) >= 4 && args[0] == "agent" && args[1] == "prompt" {
-			prompt = args[3]
-		}
-	}
+
+	prompt := Stamp(message)
+
 	if prompt != routing.SteerPrefix+message {
 		t.Fatalf("prompt = %q, want the message stamped with routing.SteerPrefix", prompt)
 	}

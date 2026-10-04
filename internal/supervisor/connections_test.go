@@ -119,9 +119,15 @@ func TestConnectionClipboardCardNeverReadsClipboardAndCannotRunForReplacedTask(t
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
+	store.mu.Lock()
 	for index := range store.db.Runs {
 		store.db.Runs[index].RunAction = "action"
 		store.db.Runs[index].State = "running"
+	}
+	err = store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
 	}
 	_, err = service.startRun(context.Background(), Action{ID: "action", RunID: run.ID, Generation: run.Identity})
 	if err == nil {

@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -27,7 +28,7 @@ func TestWaitSeesFileWrite(t *testing.T) {
 	}()
 
 	start := time.Now()
-	got := w.Wait(5 * time.Second)
+	got := w.Wait(context.Background(), 5*time.Second)
 	elapsed := time.Since(start)
 
 	if !got {
@@ -47,7 +48,7 @@ func TestWaitTimesOutQuietly(t *testing.T) {
 	defer w.Close()
 
 	start := time.Now()
-	got := w.Wait(200 * time.Millisecond)
+	got := w.Wait(context.Background(), 200*time.Millisecond)
 	elapsed := time.Since(start)
 
 	if got {
@@ -55,6 +56,49 @@ func TestWaitTimesOutQuietly(t *testing.T) {
 	}
 	if elapsed < 150*time.Millisecond {
 		t.Fatalf("Wait took %v, want at least 150ms", elapsed)
+	}
+}
+
+func TestWaitCancellationInterruptsNativeAndDegradedWaits(t *testing.T) {
+	for _, isDegraded := range []bool{false, true} {
+		name := "native"
+		if isDegraded {
+			name = "degraded"
+		}
+		t.Run(name, func(t *testing.T) {
+			waiter, err := NewDirWaiter(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer waiter.Close()
+			if isDegraded {
+				waiter.Close()
+				for range waiter.failMax {
+					waiter.Wait(context.Background(), time.Millisecond)
+				}
+				if !waiter.Degraded() {
+					t.Fatal("the closed waiter never degraded")
+				}
+			}
+			priorFailures := waiter.failStreak
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timer := time.AfterFunc(100*time.Millisecond, cancel)
+			defer timer.Stop()
+			started := time.Now()
+
+			got := waiter.Wait(ctx, 20*time.Second)
+
+			if got || ctx.Err() == nil {
+				t.Fatalf("Wait = %t, context error %v; want cancellation without an event", got, ctx.Err())
+			}
+			if waited := time.Since(started); waited > 5*time.Second {
+				t.Errorf("the canceled wait took %s; want it to stop before its twenty-second timeout", waited)
+			}
+			if waiter.failStreak != priorFailures {
+				t.Error("cancellation counted as a directory API failure")
+			}
+		})
 	}
 }
 
@@ -67,7 +111,7 @@ func TestBreakerDegradesAfterThreeFailures(t *testing.T) {
 	w.Close()
 
 	for i := 0; i < 3; i++ {
-		if got := w.Wait(10 * time.Millisecond); got {
+		if got := w.Wait(context.Background(), 10*time.Millisecond); got {
 			t.Fatalf("call %d: Wait returned true on a closed waiter, want false", i+1)
 		}
 	}
@@ -76,7 +120,7 @@ func TestBreakerDegradesAfterThreeFailures(t *testing.T) {
 	}
 
 	start := time.Now()
-	got := w.Wait(50 * time.Millisecond)
+	got := w.Wait(context.Background(), 50*time.Millisecond)
 	elapsed := time.Since(start)
 	if got {
 		t.Fatalf("fourth call returned true, want false")
@@ -128,7 +172,7 @@ func TestWaitTimeoutsLeaveNothingOutstanding(t *testing.T) {
 	}
 
 	for i := 0; i < 50; i++ {
-		if got := w.Wait(10 * time.Millisecond); got {
+		if got := w.Wait(context.Background(), 10*time.Millisecond); got {
 			t.Fatalf("call %d: Wait returned true on an untouched dir, want false", i+1)
 		}
 	}

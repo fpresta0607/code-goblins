@@ -60,7 +60,7 @@ func (runner gateRunRunner) Run(_ context.Context, request execx.Request) (execx
 }
 
 func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
-	for _, status := range []string{"completed", "failed", "cancelled", "running"} {
+	for _, status := range []string{"completed", "failed", "cancelled", "ci_monitor_interrupted", "running"} {
 		t.Run(status, func(t *testing.T) {
 			directory := t.TempDir()
 			stateDir := filepath.Join(directory, "state")

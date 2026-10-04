@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -25,12 +26,7 @@ const queueFile = ".wake-queue"
 // AckThrough, PublishEpisode, AckEpisode) holds for its read-modify-write,
 // serializing them across processes. Read-only paths (Pending, ReadEpisode)
 // take no lock and create nothing, keeping INERT MEANS INERT intact.
-// The lock is NOT reentrant. Calling a second wake mutator from inside the
-// fn of one already in flight does not deadlock, because AcquireNamedOwner
-// treats the same process re-acquiring as an idempotent self-match; instead
-// the inner call's release drops the lock out from under the outer call,
-// which then finishes its own read-modify-write believing it is still
-// exclusive when it no longer is. A caller that needs several acks done
+// The lock is NOT reentrant. A caller that needs several acks done
 // together, such as cfo drain, must call them sequentially, one at a time,
 // never nested.
 const wakeLockName = ".wake-queue.lock"
@@ -38,9 +34,9 @@ const wakeLockName = ".wake-queue.lock"
 // kinds is the whitelist Append enforces: upstream's four documented wake
 // kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
 // sweep appends, the `review` kind the supervisor appends when the Overlord
-// answers a goblin's item or page, and the `memory` and `ci` kinds it appends
-// when memory comes back for waiting work and when CI finishes or a
-// repository's CI cannot be read, and no others.
+// answers a goblin's item or page, and the `memory`, `ci` and `pr` kinds it
+// appends when memory comes back for waiting work, CI finishes or cannot be
+// read, and a pull request conflicts or falls behind, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -51,6 +47,7 @@ var kinds = map[string]bool{
 	"review":    true,
 	"memory":    true,
 	"ci":        true,
+	"pr":        true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -84,13 +81,20 @@ const ackFile = ".wake-ack"
 // for seconds.
 const lockBudget = 5 * time.Second
 
+var mutationMutex sync.Mutex
+
 // withLock serializes a wake-state read-modify-write behind
-// state/.wake-queue.lock. A live holder is waited out within lockBudget,
+// state/.wake-queue.lock. The process-local mutex serializes goroutines,
+// since the file lock accepts a same-process holder.
+// A live holder is waited out within lockBudget,
 // 10 ms after the first attempt and twice as long after each next one up to
 // half a second, and past it the contention is returned to the caller
 // rather than swallowed; a dead holder is stolen by the lock package
 // itself, so a process killed inside fn cannot wedge the home.
 func withLock(dir string, fn func() error) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
+
 	deadline := time.Now().Add(lockBudget)
 	wait := 10 * time.Millisecond
 	for {
@@ -161,7 +165,7 @@ func writeQueue(dir string, records []Record) error {
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
 	if !kinds[kind] {
-		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci", kind)
+		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr", kind)
 	}
 	var rec Record
 	err := withLock(dir, func() error {

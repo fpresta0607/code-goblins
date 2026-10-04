@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,11 @@ func TestConsoleLatencyChild(t *testing.T) {
 	if len(arguments) != 2 || arguments[0] != "latency-child" {
 		return
 	}
+	progress, err := os.Create(os.Getenv("CONPTY_LATENCY_PROGRESS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer progress.Close()
 	input := windows.Handle(os.Stdin.Fd())
 	var mode uint32
 	if err := windows.GetConsoleMode(input, &mode); err != nil {
@@ -37,6 +43,20 @@ func TestConsoleLatencyChild(t *testing.T) {
 		}()
 	}
 	fmt.Println("latency-ready")
+	wrapMarker := func() {
+		if arguments[1] != "wrapped" {
+			return
+		}
+		output := windows.Handle(os.Stdout.Fd())
+		var info windows.ConsoleScreenBufferInfo
+		if err := windows.GetConsoleScreenBufferInfo(output, &info); err != nil {
+			t.Fatal(err)
+		}
+		position := uint32(116) | uint32(uint16(info.CursorPosition.Y))<<16
+		if ok, _, err := kernel32.NewProc("SetConsoleCursorPosition").Call(uintptr(output), uintptr(position)); ok == 0 {
+			t.Fatal(err)
+		}
+	}
 	readEvents := windows.NewLazySystemDLL("kernel32.dll").NewProc("ReadConsoleInputW")
 	var burst []byte
 	isBurst := false
@@ -55,6 +75,11 @@ func TestConsoleLatencyChild(t *testing.T) {
 		if ok == 0 {
 			t.Fatal(err)
 		}
+		if received > 0 && !isBurst {
+			if _, err := fmt.Fprintf(progress, "input kind=%d down=%d repeat=%d character=%04x at=%s\n", event.Kind, event.Down, event.Repeat, event.Character, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if received == 0 || event.Kind != 1 || event.Down == 0 || event.Character == 0 {
 			continue
 		}
@@ -63,23 +88,42 @@ func TestConsoleLatencyChild(t *testing.T) {
 			if isBurst {
 				burst = append(burst, character)
 				if len(burst) == 2000 {
-					fmt.Printf("burst-%x\n", sha256.Sum256(burst))
+					wrapMarker()
+					written, err := fmt.Printf("\rburst-%x\n", sha256.Sum256(burst))
+					if _, progressErr := fmt.Fprintf(progress, "burst output bytes=%d error=%v at=%s\n", written, err, time.Now().UTC().Format(time.RFC3339Nano)); progressErr != nil {
+						t.Fatal(progressErr)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
 					isBurst = false
 				}
 			} else if character == '!' {
 				isBurst = true
 			} else {
 				sequence++
-				fmt.Printf("key-%04d\n", sequence)
+				wrapMarker()
+				written, err := fmt.Printf("\rkey-%04d\n", sequence)
+				if _, progressErr := fmt.Fprintf(progress, "key-%04d output bytes=%d error=%v at=%s\n", sequence, written, err, time.Now().UTC().Format(time.RFC3339Nano)); progressErr != nil {
+					t.Fatal(progressErr)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 	}
 }
 
 func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
-	for _, activity := range []string{"idle", "busy"} {
+	for _, activity := range []string{"idle", "busy", "wrapped"} {
 		t.Run(activity, func(t *testing.T) {
-			console, err := Start(Spec{Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity}, Cols: 120, Rows: 40})
+			progressPath := filepath.Join(t.TempDir(), "native-input.log")
+			console, err := Start(Spec{
+				Args: []string{os.Args[0], "-test.run=^TestConsoleLatencyChild$", "--", "latency-child", activity},
+				Env:  append(os.Environ(), "CONPTY_LATENCY_PROGRESS="+progressPath),
+				Cols: 120, Rows: 40,
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,6 +172,12 @@ func TestConsoleInputLatencyWhileIdleAndPrinting(t *testing.T) {
 							pending = pending[len(pending)-4096:]
 						}
 					case <-timer.C:
+						progress, err := os.ReadFile(progressPath)
+						if err != nil {
+							t.Logf("native input progress unavailable: %v", err)
+						} else {
+							t.Logf("native input progress:\n%s", progress)
+						}
 						t.Fatalf("no %q within %s; last output %q", marker, limit, pending)
 					}
 				}

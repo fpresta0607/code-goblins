@@ -144,8 +144,8 @@ func TestDetectReadsAGitHubHTTPStatusAsThirdPartyNotProvider(t *testing.T) {
 }
 
 func TestDetectExclusionUsesTheSameConstantTheSenderStamps(t *testing.T) {
-	// fleet.Sender stamps every steer with SteerPrefix; the exclusion keys on
-	// the same constant, so this test and the sender's test move together
+	// fleet.Stamp marks every steer with SteerPrefix; the exclusion keys on
+	// the same constant, so this test and the stamp's test move together
 	// when the prefix changes. A literal here would drift.
 	if fault, _, found := Detect(SteerPrefix + "Error: 429 Too Many Requests - rate limit reached"); found {
 		t.Errorf("Detect = %q, want a prefixed line excluded", fault)

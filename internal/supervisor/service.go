@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -67,7 +70,8 @@ type Options struct {
 	// board starts no goblin.
 	Dispatch *Dispatch
 	// CI runs gh and git for the CI wakes; without it no CI is watched.
-	CI execx.Runner
+	CI       execx.Runner
+	Progress execx.Runner
 	// Credentials opens the credential store cfo auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
@@ -80,6 +84,7 @@ type Options struct {
 	// says why it could not; AFK mode's report sets the reading taken when it
 	// turned on beside the one taken when it turned off.
 	Allowance func(ctx context.Context) ([]afk.Allowance, string)
+	Quota     func(ctx context.Context) (quota.Report, string)
 }
 
 type Service struct {
@@ -111,12 +116,15 @@ type Service struct {
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
 	// recovery cycle. ciUnreadable is why each watched repository's CI
-	// cannot be read, as of the last fleet reading; every recovery cycle
-	// reports it for as long as the failure lasts.
-	historyErr   error
-	cfoWakeErr   error
-	fleetErr     error
-	ciUnreadable error
+	// cannot be read, as of the last fleet reading; publish joins it into
+	// whatever it publishes for as long as the failure lasts.
+	historyErr      error
+	cfoWakeErr      error
+	fleetErr        error
+	ciUnreadable    error
+	workProgress    map[string]WorkProgress
+	ciDurations     []CIDuration
+	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
 	runRequests sync.Mutex
@@ -144,16 +152,32 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
-	// inspectCaller reads the ancestry and environment of the process a pipe
-	// request came from; nil reads the process itself.
+	// inspectCaller reads the ancestry and environment of the process a
+	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
-	done          chan struct{}
-	work          chan struct{}
-	cancel        context.CancelFunc
+	// peerOf names the process at the other end of a connection to the board;
+	// nil asks Windows.
+	peerOf func(peer, board netip.AddrPort) (int, error)
+	done   chan struct{}
+	work   chan struct{}
+	// looks takes each request to look at the fleet now, which the loop
+	// answers by closing it once its cycle has run (see lookNow).
+	looks  chan chan struct{}
+	cancel context.CancelFunc
 	// tickets keeps each task's GitHub issue where the task is; nil without
 	// Options.Tickets.
 	tickets *ticketKeeper
+	// snapshots shares each build of the board's snapshot between its
+	// readers, and buildSnapshot stands in for Snapshot in a test of that.
+	snapshots     sharedSnapshots
+	buildSnapshot func() (Snapshot, error)
+	// reads is what the snapshot remembers of the fleet's files.
+	reads keptReads
 }
+
+// snapshotRefresh is how often every board gets a fresh snapshot with nothing
+// published: a goblin's status file changes without the store changing.
+const snapshotRefresh = 15 * time.Second
 
 // Start acquires the same singleton as legacy watch BEFORE opening recovery
 // state. The browser, hook writers, and competing serve invocations cannot
@@ -177,7 +201,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), cancel: cancel}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -212,6 +236,7 @@ func (s *Service) publish(err error) {
 		}
 	}
 	s.mu.Lock()
+	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
@@ -323,7 +348,7 @@ func (s *Service) run(ctx context.Context) {
 		for ctx.Err() == nil {
 			before := time.Now()
 			if waiter != nil {
-				waiter.Wait(2 * time.Second)
+				waiter.Wait(ctx, 2*time.Second)
 			} else {
 				time.Sleep(2 * time.Second)
 			}
@@ -341,11 +366,24 @@ func (s *Service) run(ctx context.Context) {
 	defer reconcile.Stop()
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
+	refresh := time.NewTicker(snapshotRefresh)
+	defer refresh.Stop()
 	s.cycle(ctx, true)
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-refresh.C:
+			s.notify()
+		case looked := <-s.looks:
+			// A report changes a goblin's status file, which no cycle
+			// counts as a change, so the boards are told here.
+			before := s.Revision()
+			s.cycle(ctx, false)
+			if s.Revision() == before {
+				s.notify()
+			}
+			close(looked)
 		case <-reconcile.C:
 			s.cycle(ctx, true)
 		case <-notified:
@@ -370,6 +408,10 @@ func (s *Service) run(ctx context.Context) {
 }
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
+	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
+	s.mu.Lock()
+	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
+	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	if err := s.Store.Ingest(); err != nil {
 		s.publish(err)
@@ -391,15 +433,15 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
-	s.reconcilePresentations(ctx)
+	s.reconcilePresentations()
 	s.watchPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
-		s.checkRegistration(ctx)
+		s.checkRegistration()
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
@@ -517,14 +559,12 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 // terminal backend what Snapshot's own read of the registration cannot, so a
 // CFO that moved shows as one state on the board before anyone tries to
 // deliver to it.
-func (s *Service) checkRegistration(ctx context.Context) {
+func (s *Service) checkRegistration() {
 	if s.Options.CFO == nil {
 		return
 	}
-	check, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
 	problem := ""
-	identity, err := s.Options.CFO.examine(check)
+	identity, err := s.Options.CFO.examine()
 	if err != nil {
 		problem = err.Error()
 	}
@@ -677,11 +717,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if !found {
 			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
-		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
-		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO while it was working; it takes the answer when its current turn ends."}, nil
-		}
-		return result, err
+		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
@@ -846,6 +882,7 @@ type Task struct {
 	QueueRevision string           `json:"queue_revision,omitempty"`
 	Detail        string           `json:"detail,omitempty"`
 	Notes         []string         `json:"notes,omitempty"`
+	Progress      *WorkProgress    `json:"progress,omitempty"`
 	Evaluation
 }
 
@@ -897,7 +934,11 @@ type Snapshot struct {
 	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory *Memory `json:"memory,omitempty"`
+	Memory      *Memory      `json:"memory,omitempty"`
+	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	// AFK is AFK mode, the Overlord's switch for running the fleet while he
+	// is away, as the board shows it.
+	AFK AFKView `json:"afk"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -906,9 +947,18 @@ func (snapshot *Snapshot) setItems(items Items) {
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
+	// The build reads the folders of task records whole, once, to learn
+	// which of their files changed.
+	directory := s.Store.Home.State
+	defer s.reads.begin(directory, filepath.Dir(state.LifecyclePath(directory, "task")), filepath.Dir(monitor.ObservationPath(directory, "task")))()
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
+	progress := maps.Clone(s.workProgress)
+	out.CIDurations = slices.Clone(s.ciDurations)
+	if s.progressReadErr != nil {
+		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
+	}
 	history := append([]Task(nil), s.history...)
 	checked, checkedIdentity := s.registration, s.registrationIdentity
 	for i := range d.Activity {
@@ -934,12 +984,18 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.setItems(boardItems(d))
 	out.Activity = d.Activity
+	// A log of AFK mode that could not be read is said where the board says
+	// the supervisor's other troubles, unless one is already there.
+	var afkErr error
+	if out.AFK, afkErr = s.afkView(d); afkErr != nil && out.Error == "" {
+		out.Error = bounded(afkErr.Error(), 1000)
+	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
-			if meta, err := state.ReadTaskMeta(s.Store.Home.State, node.TaskID); err == nil {
+			if meta, err := s.taskMeta(node.TaskID); err == nil {
 				node.Runtime = s.runtimeEvidence(meta, node, out.At)
-				if record, err := state.ReadLifecycle(s.Store.Home.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
+				if record, err := s.lifecycle(meta.ID); err == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(s.Store.Home.State) {
 					node.Phase = record.Phase
 				}
 			}
@@ -962,7 +1018,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			continue
 		}
 		id := strings.TrimSuffix(entry.Name(), ".meta")
-		meta, err := state.ReadTaskMeta(s.Store.Home.State, id)
+		meta, err := s.taskMeta(id)
 		if err != nil {
 			continue
 		}
@@ -972,12 +1028,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
-		lines, _ := state.TailStatus(s.Store.Home.State, id, 200)
-		reportedAt, report := latestReport(lines, spawnTime(meta.SpawnGen))
+		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
+		lines, _ := s.statusTail(id)
+		spawned := spawnTime(meta.SpawnGen)
+		reportedAt, report := latestReport(lines, spawned)
 		decisions := out.Decisions
-		if supersedesQuestion(report) {
+		if !spawned.IsZero() || supersedesQuestion(report) {
 			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
-				return r.Key == id && !r.Time.Truncate(time.Second).After(reportedAt)
+				return r.Key == id && (r.Time.Before(spawned.Truncate(time.Second)) || supersedesQuestion(report) && !r.Time.Truncate(time.Second).After(reportedAt))
 			})
 		}
 		if !linked {
@@ -985,12 +1043,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		} else if node.Generation != meta.SpawnGen {
 			evaluation = Evaluation{Phase: "unknown", Reason: "Native session evidence has not been reported"}
 		}
-		if linked && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
+		if linked && node.Generation == meta.SpawnGen && !isGateHeld && (node.Phase == "active" || node.Phase == "started") && node.UpdatedAt.After(evaluation.At) {
 			if runtime.working() {
-				evaluation = Evaluation{Phase: "working", Reason: "Native activity and runtime evidence agree", At: node.UpdatedAt}
+				evaluation.Phase, evaluation.Reason, evaluation.At = "working", "Native activity and runtime evidence agree", node.UpdatedAt
 			} else {
-				evaluation = Evaluation{Phase: "unavailable", Reason: runtime.Reason + "; independent task evaluation is pending", At: runtime.At}
+				evaluation.Phase, evaluation.Reason, evaluation.At = "unavailable", runtime.Reason+"; independent task evaluation is pending", runtime.At
 			}
+			evaluation.WaitingOn = ""
 		}
 		if evaluation.Phase == "" {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
@@ -999,13 +1058,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// or the gate holds it or its work already merged. A question it asked
 		// since replaces no such report: once answered, the goblin stands on
 		// it again.
-		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
-		if phase, reason, target, ok := reportedProgress(s.Store.Home.State, id, d.Reviews, standingAt, standing); ok && evaluation.Phase != "blocked" && evaluation.Phase != "failed" && evaluation.Phase != "merged" && evaluation.Phase != "done" {
+		standingAt, standing := standingReport(lines, spawned)
+		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		activity, pr := statusActivity(lines, spawnTime(meta.SpawnGen))
-		lastReport, _ := taskSessionSummary(lines, spawnTime(meta.SpawnGen))
-		if _, detail, ok := waitingQuestion(decisions, id); ok {
+		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && (reportKind(standing) == "working" || reportKind(standing) == "done") && !runtime.At.Before(standingAt) {
+			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
+				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "idle", runtime.Reason, ""
+			} else if runtime.working() && evaluation.Phase == "review" {
+				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
+			}
+		}
+		activity, pr := statusActivity(lines, spawned)
+		lastReport, _ := taskSessionSummary(lines, spawned)
+		if verb, detail, ok := waitingQuestion(decisions, id); ok {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
 		}
 		if evaluation.PR == "" {
@@ -1016,7 +1083,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1031,7 +1098,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			return !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.ID == id })
 		})
 	}
-	backlog, err := fleet.ReadBacklog(s.Store.Home)
+	backlog, err := s.backlog()
 	if err != nil {
 		return out, err
 	}
@@ -1051,21 +1118,31 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
-			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: briefWritten(s.Store.Home, row.ID), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
+			if _, err := s.queuedTask(row.ID); errors.Is(err, fleet.ErrNotQueued) {
+				continue
+			} else if err != nil {
+				return out, err
+			}
+			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}
-	for _, brief := range queuedBriefs(s.Store.Home) {
-		isParked := slices.ContainsFunc(backlog.Parked, func(row fleet.BacklogRow) bool { return row.Structured && row.ID == brief.ID })
-		if !isParked && len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
+	for _, brief := range queuedBriefs(s.Store.Home, briefReader{s.reads.look, s.briefProject}) {
+		if _, err := s.queuedTask(brief.ID); errors.Is(err, fleet.ErrNotQueued) {
+			continue
+		}
+		if len(out.Tasks) < maxSessions && !slices.ContainsFunc(out.Tasks, func(t Task) bool { return t.ID == brief.ID }) {
 			out.Tasks = append(out.Tasks, brief)
 		}
 	}
 	s.starts.Lock()
+	starting := s.starting
+	startErrors, changing, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changing), maps.Clone(s.changeErrors)
+	s.starts.Unlock()
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
-		task.Starting = task.ID == s.starting
+		task.Starting = task.ID == starting
 		if task.Phase == "queued" {
-			if queued, err := fleet.ReadQueuedTask(s.Store.Home, task.ID); err == nil {
+			if queued, err := s.queuedTask(task.ID); err == nil {
 				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
 				if queued.IsBriefOnly {
 					task.Title = queued.Row.Title
@@ -1076,13 +1153,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 					task.Notes = append(task.Notes, strings.TrimPrefix(record.Detail, "task note: "))
 				}
 			}
-			task.Brief = exists(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
-			task.StartError = s.startErrors[task.ID]
+			_, briefErr := s.reads.look(filepath.Join(s.Store.Home.Data, task.ID, "brief.md"))
+			task.Brief = briefErr == nil
+			task.StartError = startErrors[task.ID]
 		}
-		record, lifecycleErr := state.ReadLifecycle(s.Store.Home.State, task.ID)
+		record, lifecycleErr := s.lifecycle(task.ID)
 		isCurrent := record.Generation == task.Generation || record.Generation == "queued" && task.Phase == "queued" && record.Phase == "stopping"
 		if lifecycleErr == nil && !isCurrent && record.Action == "resume" && (record.Phase == "resuming" || record.Phase == "failed") {
-			meta, err := state.ReadTaskMeta(s.Store.Home.State, task.ID)
+			meta, err := s.taskMeta(task.ID)
 			isCurrent = err == nil && meta.SpawnGen == task.Generation && meta.ResumeOperation == record.Operation
 		}
 		if lifecycleErr == nil {
@@ -1092,23 +1170,37 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			task.Lifecycle = lifecycleStatus(record)
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
-				task.Activity = record.Reason
+				if record.Pause != nil && record.Phase == "paused" {
+					task.Reason = record.Pause.Description()
+				}
+				task.Activity = task.Reason
 			}
 			if record.Phase == "stopped" {
 				task.Archived = true
 			}
 		}
-		if failure, ok := s.changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
+		if failure, ok := changeErrors[task.ID]; ok && failure.Generation == task.Generation && (lifecycleErr != nil || failure.Operation == record.Operation && failure.Updated.Equal(record.Updated)) {
 			task.ActionError = failure.Message
 		}
-		if action := s.changing[task.ID]; action != "" {
-			task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+		if phase := map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[changing[task.ID]]; phase != "" {
+			task.Phase = phase
 		}
 	}
-	s.starts.Unlock()
+	for i := range out.Tasks {
+		task := &out.Tasks[i]
+		if progress, exists := progress[task.ID]; exists && progress.Generation == task.Generation {
+			progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
+			task.Progress = &progress
+		}
+	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next = memoryFloor, memoryNext
+			if capacity, err := ReadFleetCapacity(s.Store.Home, memory); err == nil {
+				memory.Capacity = &capacity
+			} else {
+				out.Issues = append(slices.Clone(out.Issues), err.Error())
+			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
@@ -1142,10 +1234,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task := &out.Tasks[i]
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
-			if file, err := openTaskHandoff(s.Store.Home, id, archived); err == nil {
-				task.Handoff = true
-				file.Close()
-			}
+			task.Handoff = s.hasHandoff(id, archived)
 		}
 	}
 	if len(out.Decisions) > 100 {

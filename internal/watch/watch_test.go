@@ -219,7 +219,7 @@ func baseConfig(dir string) Config {
 		SignalGrace:  time.Millisecond,
 		Heartbeat:    time.Hour,
 		HeartbeatMax: time.Hour,
-		Sleep:        func(time.Duration) {},
+		Sleep:        func(context.Context, time.Duration) {},
 	}
 }
 
@@ -291,7 +291,7 @@ func TestRunClosesOnSignal(t *testing.T) {
 	}
 	sleepCalls := 0
 	cfg := baseConfig(dir)
-	cfg.Sleep = func(time.Duration) {
+	cfg.Sleep = func(context.Context, time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
 			appendFile(t, aPath, "needs-decision: a2")
@@ -446,7 +446,7 @@ func TestRunContinuesWhenPostGraceRescanIsEmpty(t *testing.T) {
 	sleepCalls := 0
 	cfg := baseConfig(dir)
 	cfg.Monitor = monitoringService(t, dir, "g1")
-	cfg.Sleep = func(time.Duration) {
+	cfg.Sleep = func(context.Context, time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
 			// The file that triggered this cycle is gone by the time the
@@ -553,7 +553,7 @@ func TestRunReturnsQuietlyWhenSingletonStolen(t *testing.T) {
 
 	sleepCalls := 0
 	cfg := baseConfig(dir)
-	cfg.Sleep = func(time.Duration) {
+	cfg.Sleep = func(context.Context, time.Duration) {
 		sleepCalls++
 		if sleepCalls == 1 {
 			foreign := liveForeignInfo(t, cmd.Process.Pid)

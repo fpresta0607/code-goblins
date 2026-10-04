@@ -47,6 +47,9 @@ func attachTestProgram() {
 			}
 			fmt.Println("spilled")
 			continue
+		case "codex-inline":
+			fmt.Print("\x1b[2J\x1b[HOpenAI Codex (fixture)\r\n\r\n\u2022 Working tree is clean.\r\n\r\n\u203a Ask Codex to do anything\r\n\r\n  gpt-6.1-sol high\r\n")
+			continue
 		default:
 			fmt.Println("got", lines.Text())
 			continue
@@ -146,6 +149,27 @@ func hostAttachTestTerminal(t *testing.T, stateDir, id string) {
 			t.Error("the terminal's host did not end")
 		}
 	})
+}
+
+// standInAsTerminalProgram makes this test process the program of native
+// terminal id, which hostAttachTestTerminal hosts: the host's record names
+// this process, so what the test calls is proven to run in that terminal,
+// while the host still answers on its pipe.
+func standInAsTerminalProgram(t *testing.T, stateDir, id string) {
+	t.Helper()
+	record, err := host.ReadRecord(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ChildPID = os.Getpid()
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", id+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(host.IDVariable, id)
 }
 
 // attachInConsole runs cfo attach id in a 100x30 pseudo console of its own.

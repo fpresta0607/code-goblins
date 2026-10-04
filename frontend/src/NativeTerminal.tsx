@@ -69,7 +69,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
   const [attempt, setAttempt] = useState(0);
   const pasteText = useRef<((text: string) => void) | null>(null);
   const voice = useVoice(task?.id || "cfo");
-  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); });
+  const dictation = useDictation((text) => { pasteText.current?.(text); voice.remember(text); }, instance);
   const dictate = dictation.key;
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
@@ -635,7 +635,7 @@ export function NativeTerminal({ task, node, instance, visible, shown, focus = 0
       </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" data-tip-align="end" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
+    <VoiceBubble voice={voice} listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
     {error ? <p className="terminal-error" role="alert">{error}</p> : dictation.note && <p className="terminal-error" role="status">{dictation.note}</p>}
   </section>;
 }

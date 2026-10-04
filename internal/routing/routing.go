@@ -76,7 +76,7 @@ var faultPatterns = []struct {
 // of their own. Detect blanks lines carrying either, and the indented
 // continuation lines a pane wraps a long prompt into, before it looks for a
 // fault: text an operator wrote about a provider is not evidence about the
-// harness. The sender (fleet.Sender.Text) stamps with this same constant and
+// harness. Every send (fleet.Stamp) stamps with this same constant and
 // its test asserts the stamp through it, so a prefix change here changes the
 // stamp and the exclusion together rather than leaving one behind.
 const (
@@ -91,7 +91,7 @@ const (
 // because a platform rate limit or 5xx is a wait/backoff case that must never
 // route to a harness switch.
 func Detect(paneTail string) (Fault, string, bool) {
-	lowered := redactOperatorLines(strings.ToLower(paneTail))
+	lowered := redactQuotedLines(redactOperatorLines(strings.ToLower(paneTail)))
 	if index, ok := thirdPartyFault(lowered); ok {
 		return ThirdParty, evidence(paneTail, index), true
 	}
@@ -107,7 +107,23 @@ func Detect(paneTail string) (Fault, string, bool) {
 			}
 		}
 	}
+	if detail, found := codexCapacityRefusal(paneTail, lowered); found {
+		return Provider, detail, true
+	}
 	return "", "", false
+}
+
+// The complete native refusal is evidence only outside fenced quotations
+// and indented command output. Other fault recognition stays unchanged.
+func codexCapacityRefusal(original, lowered string) (string, bool) {
+	for index, line := range strings.Split(lowered, "\n") {
+		switch strings.TrimSpace(line) {
+		case "■ selected model is at capacity. please try a different model.",
+			"■ error running remote compact task: selected model is at capacity. please try a different model.":
+			return strings.TrimSpace(strings.Split(original, "\n")[index]), true
+		}
+	}
+	return "", false
 }
 
 // thirdPartyMarkers name a git platform or its CI on a line: GitHub Actions
@@ -215,7 +231,7 @@ func redactOperatorLines(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	redacting := false
 	for i, line := range lines {
-		trimmed := strings.TrimLeft(line, " \t>›❯│")
+		trimmed := strings.TrimLeft(line, " \t>›❯│↳")
 		switch {
 		case strings.HasPrefix(trimmed, strings.ToLower(SteerPrefix)) || strings.HasPrefix(trimmed, strings.ToLower(OverlordPrefix)):
 			redacting = true
@@ -225,6 +241,80 @@ func redactOperatorLines(lowered string) string {
 		}
 		if redacting {
 			lines[i] = strings.Repeat(" ", len(line))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+var quotedLinePrefix = regexp.MustCompile(`^(?:[+-]|[0-9]+[ \t]+[+-]|\S+\.[[:alnum:]_]+:[0-9]+:)`)
+
+// redactQuotedLines keeps source/diff excerpts, fenced quotations and Codex
+// command output from becoming the worker's own provider refusal. Actual git
+// platform failures in command output still need third-party classification.
+// Blanking preserves byte offsets into the original evidence.
+func redactQuotedLines(lowered string) string {
+	lines := strings.Split(lowered, "\n")
+	fenceEnd, toolIndent := -1, -1
+	isToolCommandContext := false
+	for index, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		indent := len(line) - len(trimmed)
+		if index > fenceEnd && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
+			marker := trimmed[:1]
+			width := len(trimmed) - len(strings.TrimLeft(trimmed, marker))
+			for end := index + 1; end < len(lines); end++ {
+				closing := strings.TrimSpace(lines[end])
+				if len(closing) >= width && strings.Trim(closing, marker) == "" {
+					fenceEnd = end
+					break
+				}
+			}
+		}
+		isQuoted := index <= fenceEnd || quotedLinePrefix.MatchString(trimmed)
+		isToolCommand := !isQuoted && (strings.HasPrefix(trimmed, "\u2022 ran ") || strings.HasPrefix(trimmed, "ran "))
+		isToolOutput := strings.HasPrefix(trimmed, "└")
+		if isToolCommand {
+			toolIndent = indent + 2
+			isToolCommandContext = true
+		} else if isToolOutput {
+			toolIndent = indent + 2
+			isToolCommandContext = false
+		} else if trimmed == "" || indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0 {
+			toolIndent = -1
+			isToolCommandContext = false
+		}
+		if isToolOutput || toolIndent >= 0 {
+			if _, isThirdParty := thirdPartyFault(line); isToolCommandContext || !isThirdParty {
+				isQuoted = true
+			}
+		}
+		if isQuoted {
+			lines[index] = strings.Repeat(" ", len(line))
+			continue
+		}
+		// Only complete same-width inline code spans are blanked; unmatched runs stay evidence.
+		for start := 0; start < len(line); {
+			opening := strings.IndexByte(line[start:], '`')
+			if opening < 0 {
+				break
+			}
+			opening += start
+			width := len(line[opening:]) - len(strings.TrimLeft(line[opening:], "`"))
+			start = opening + width
+			for closing := start; closing < len(line); {
+				marker := strings.IndexByte(line[closing:], '`')
+				if marker < 0 {
+					break
+				}
+				marker += closing
+				closingWidth := len(line[marker:]) - len(strings.TrimLeft(line[marker:], "`"))
+				closing = marker + closingWidth
+				if closingWidth == width {
+					lines[index] = lines[index][:opening] + strings.Repeat(" ", closing-opening) + lines[index][closing:]
+					start = closing
+					break
+				}
+			}
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -242,7 +332,7 @@ func lineStartMatches(haystack, needle string) []int {
 		}
 		index += start
 		lineStart := strings.LastIndexByte(haystack[:index], '\n') + 1
-		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│") == "" {
+		if strings.TrimLeft(haystack[lineStart:index], " \t⎿●✻◐⏺❯›>│└↳") == "" {
 			indexes = append(indexes, index)
 		}
 		start = index + len(needle)

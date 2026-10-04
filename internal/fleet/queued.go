@@ -111,7 +111,7 @@ func changeQueuedTask(h home.Home, id, revision, title, detail string, remove bo
 		if at := queuedTitleSuffix.FindStringIndex(match[2]); at != nil {
 			suffix = " " + strings.TrimSpace(match[2][at[0]:])
 		}
-		changed = []string{"- **" + id + "** - " + title + suffix}
+		changed = []string{"- [ ] " + id + " - " + title + suffix}
 		if detail != "" {
 			for _, line := range strings.Split(detail, "\n") {
 				changed = append(changed, "  "+line)
@@ -174,42 +174,43 @@ func ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return QueuedTask{}, err
 	}
-	data, err := fsx.ReadFile(filepath.Join(h.Data, "backlog.md"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	backlog, err := ReadBacklog(h)
+	if err != nil {
 		return QueuedTask{}, err
 	}
-	lines := strings.Split(string(data), "\n")
-	blocks, _ := queuedBlocks(lines, nil)
-	var found *queuedBlock
-	for _, block := range blocks {
-		if block.id == id {
-			if found != nil {
-				return QueuedTask{}, fmt.Errorf("backlog queues %s twice", id)
-			}
-			copy := block
-			found = &copy
-		}
-	}
-	if found == nil {
-		return readUndispatchedBrief(h, id, lines)
-	}
-	detail := make([]string, 0, found.end-found.start-1)
-	for _, line := range lines[found.start+1 : found.end] {
-		detail = append(detail, strings.TrimSpace(line))
-	}
-	return QueuedTask{
-		Row:      parseBacklogRow(strings.TrimSpace(lines[found.start])),
-		Detail:   strings.TrimSpace(strings.Join(detail, "\n")),
-		Revision: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(lines[found.start:found.end], "\n")))),
-	}, nil
+	return backlog.ReadQueuedTask(h, id)
 }
 
-func readUndispatchedBrief(h home.Home, id string, backlog []string) (QueuedTask, error) {
-	for _, line := range backlog {
-		if row := parseBacklogRow(strings.TrimSpace(line)); row.Structured && row.ID == id {
+// ReadQueuedTask reuses this reading of the backlog; a brief without a row
+// is read separately, without parsing the backlog again for each task.
+func (backlog BacklogRows) ReadQueuedTask(h home.Home, id string) (QueuedTask, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return QueuedTask{}, err
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "outcomes", id+".json")); err == nil {
+		outcome, err := state.ReadOutcome(h.State, id)
+		if err != nil {
+			return QueuedTask{}, err
+		}
+		if outcome.Phase == "done" {
 			return QueuedTask{}, ErrNotQueued
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return QueuedTask{}, err
 	}
+	if backlog.duplicates[id] {
+		return QueuedTask{}, fmt.Errorf("backlog queues %s twice", id)
+	}
+	if task, found := backlog.queuedTasks[id]; found {
+		return task, nil
+	}
+	if backlog.listed[id] {
+		return QueuedTask{}, ErrNotQueued
+	}
+	return readUndispatchedBrief(h, id)
+}
+
+func readUndispatchedBrief(h home.Home, id string) (QueuedTask, error) {
 	for _, suffix := range []string{".meta", ".status"} {
 		if _, err := os.Stat(filepath.Join(h.State, id+suffix)); !errors.Is(err, os.ErrNotExist) {
 			return QueuedTask{}, ErrNotQueued

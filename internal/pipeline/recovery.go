@@ -404,12 +404,19 @@ func (r Reader) recoveryHead(ctx context.Context, repo, ref string, bare bool) (
 	if symbolic.ExitCode != 1 {
 		return "", false, errors.New("pipeline: could not inspect recovery anchor")
 	}
-	result, err := r.runGit(ctx, repo, bare, "show-ref", "--verify", "--hash", ref)
+	exists, err := r.runGit(ctx, repo, bare, "show-ref", "--exists", ref)
 	if err != nil {
 		return "", false, err
 	}
-	if result.ExitCode == 1 {
+	if exists.ExitCode == 2 {
 		return "", false, nil
+	}
+	if exists.ExitCode != 0 {
+		return "", false, errors.New("pipeline: could not inspect recovery anchor")
+	}
+	result, err := r.runGit(ctx, repo, bare, "show-ref", "--verify", "--hash", ref)
+	if err != nil {
+		return "", false, err
 	}
 	head := strings.TrimSpace(string(result.Stdout))
 	if result.ExitCode != 0 || head == "" {
