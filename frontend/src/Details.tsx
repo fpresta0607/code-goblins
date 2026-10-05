@@ -150,7 +150,7 @@ export function TaskView({ task, snapshot, connected, reviews, onRepair }: {
   task: Task; snapshot: Snapshot; connected: boolean; reviews: ReviewControls; onRepair?: (key: string) => void;
 }) {
   return <div className="panel-content">
-      <WorkspaceDetails task={task} runs={snapshot.runs} onRepair={onRepair} />
+      <WorkspaceDetails task={task} runs={snapshot.runs} instance={snapshot.instance} onRepair={onRepair} />
       {task.generation ? <Disclosure title="Changes" defaultOpen kind="changes-section"><Changes task={task} reviews={reviews} connected={connected} /></Disclosure> : <p className="muted padded">Changes will appear when this task starts.</p>}
       <Disclosure title="Activity"><Activity task={task} snapshot={snapshot} /></Disclosure>
       {task.generation && <Disclosure title="History"><History task={task} reviews={reviews} connected={connected} /></Disclosure>}

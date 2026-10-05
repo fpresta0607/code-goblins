@@ -244,19 +244,26 @@ func TestSwitchRefusesANoOpWhileTheHarnessRuns(t *testing.T) {
 	assertLeftRunning(t, f, terminal, before)
 }
 
-// A failure between stopping the old harness and starting the new one - here
-// the target adapter refusing to build its launch - leaves a durable record
-// that the goblin has no harness, and how to start one.
-func TestSwitchRecordsAnEmptyTerminalWhenTheTargetRefusesToBuild(t *testing.T) {
-	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
-	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, buildErr: errors.New(`harness: Codex does not support effort "max"`)}
+// A launch the target refuses to build, such as an effort it does not take,
+// is refused while the old harness still runs: the goblin is left as it was.
+func TestSwitchRefusesALaunchTheTargetCannotBuildBeforeStoppingTheHarness(t *testing.T) {
+	f, terminal := newRunningGoblin(t)
+	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.Harness.Adapters[harness.Codex] = nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit"}, buildErr: errors.New(`harness: Codex does not support effort "ultra"`)}
 
-	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Effort: "max"})
+	_, err = f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Effort: "ultra"})
 
-	assertEmptyTerminalRecorded(t, f, err, "--effort default")
+	if err == nil || !strings.Contains(err.Error(), `does not support effort "ultra"`) || !strings.Contains(err.Error(), "left running") {
+		t.Fatalf("err = %v, want the harness's refusal and that the goblin was left running", err)
+	}
+	assertLeftRunning(t, f, terminal, before)
 }
 
-// A replacement whose terminal cannot start leaves the same record.
+// A replacement whose terminal cannot start leaves a durable record that the
+// goblin has no harness, and how to start one.
 func TestSwitchRecordsAnEmptyTerminalWhenTheNewHarnessWillNotStart(t *testing.T) {
 	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
 	f.service.HostCommand = []string{filepath.Join(t.TempDir(), "no-such-host.exe")}

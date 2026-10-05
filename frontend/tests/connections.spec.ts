@@ -1,6 +1,10 @@
 import { expect, test } from "./site";
 
 const checkedAt = "2026-09-29T14:56:12Z";
+const engines = { harnesses: [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "gpt-6-astra", efforts: ["xhigh"], default_effort: "xhigh" }] }] };
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/engines", (route) => route.fulfill({ json: engines }));
+});
 const entries = [
   { id: "mcp:github", name: "GitHub", kind: "mcp", status: "connected", source: "Codex", checked_at: checkedAt },
   { id: "mcp:context7", name: "Context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", checked_at: checkedAt, actions: ["login"] },
@@ -19,7 +23,9 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
-      if (url.pathname === "/api/workspace") {
+      if (url.pathname === "/api/engines") {
+        await route.fulfill({ json: engines });
+      } else if (url.pathname === "/api/workspace") {
         await route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", harness: "codex", model: "Reported: gpt-6-astra", notes: [] } });
       } else if (url.pathname === "/api/connections" && route.request().method() === "GET") {
         checks++;
