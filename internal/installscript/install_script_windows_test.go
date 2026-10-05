@@ -120,7 +120,7 @@ func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (d
 
 func TestReleaseSigningIdentityAllowsUnsignedDraftWithoutAzure(t *testing.T) {
 	// Arrange
-	workflow, err := os.ReadFile(filepath.Join(".github", "workflows", "release.yml"))
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
