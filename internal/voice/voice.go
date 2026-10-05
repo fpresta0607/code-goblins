@@ -126,6 +126,9 @@ func (s Settings) check() error {
 	if s.Program == "" || filepath.Base(s.Program) != s.Program {
 		return fmt.Errorf("program %q must be the name of one of the engine's files", s.Program)
 	}
+	if _, err := parseModelSettings(s.Args); err != nil {
+		return fmt.Errorf("args: %w", err)
+	}
 	return nil
 }
 

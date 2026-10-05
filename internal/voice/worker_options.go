@@ -27,11 +27,21 @@ func ParseWorkerArguments(arguments []string) (WorkerOptions, error) {
 	if len(arguments) == 0 || !filepath.IsAbs(arguments[0]) {
 		return WorkerOptions{}, errors.New("voice-worker needs the full path of the engine's library, then the model's settings")
 	}
-	options := WorkerOptions{Library: arguments[0]}
+	options, err := parseModelSettings(arguments[1:])
+	if err != nil {
+		return WorkerOptions{}, err
+	}
+	options.Library = arguments[0]
+	return options, nil
+}
+
+// parseModelSettings reads the model's settings, each of them once.
+func parseModelSettings(arguments []string) (WorkerOptions, error) {
+	var options WorkerOptions
 	var threads string
 	names := []string{"--num-threads", "--model-type", "--encoder", "--decoder", "--joiner", "--tokens"}
 	values := map[string]*string{"--num-threads": &threads, "--model-type": &options.ModelType, "--encoder": &options.Encoder, "--decoder": &options.Decoder, "--joiner": &options.Joiner, "--tokens": &options.Tokens}
-	for _, argument := range arguments[1:] {
+	for _, argument := range arguments {
 		name, value, _ := strings.Cut(argument, "=")
 		target, known := values[name]
 		if !known || value == "" || *target != "" {

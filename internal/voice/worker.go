@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -48,15 +49,34 @@ type workerReply struct {
 	Error string `json:"error,omitempty"`
 }
 
+// workerLog is what the worker wrote on its standard error, which says why
+// it failed.
+type workerLog struct {
+	mutex sync.Mutex
+	data  []byte
+}
+
+func (l *workerLog) Write(data []byte) (int, error) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.data = append(l.data, data...)
+	return len(data), nil
+}
+
+// since returns what was written after the first mark bytes.
+func (l *workerLog) since(mark int) []byte {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.data[mark:]
+}
+
 // worker is one running `cfo voice-worker`.
 type worker struct {
 	command *exec.Cmd
 	end     context.CancelFunc
 	input   io.Writer
 	output  io.Reader
-	// log is what the worker wrote on its standard error, read only once it
-	// has exited.
-	log    bytes.Buffer
+	log    workerLog
 	exited chan struct{}
 	idle   *time.Timer
 	// uses counts the dictations it answered, so an idle timer that fired
@@ -179,6 +199,8 @@ func (v *Voice) exchange(ctx context.Context, sound []byte) (string, error) {
 		v.worker = w
 	}
 	w := v.worker
+	// An error quotes only what the worker wrote during this dictation.
+	mark := len(w.log.since(0))
 	answer := make(chan workerAnswer, 1)
 	go func() { answer <- w.ask(sound) }()
 	var reply workerAnswer
@@ -193,7 +215,7 @@ func (v *Voice) exchange(ctx context.Context, sound []byte) (string, error) {
 	}
 	if reply.err != nil {
 		v.retire()
-		return "", fmt.Errorf("the dictation engine failed: %w: %s", reply.err, lastLines(w.log.Bytes(), 3))
+		return "", fmt.Errorf("the dictation engine failed: %w: %s", reply.err, lastLines(w.log.since(mark), 3))
 	}
 	w.uses++
 	uses := w.uses

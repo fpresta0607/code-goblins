@@ -86,7 +86,7 @@ func entries(t *testing.T, dir string) []string {
 func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 	valid := `{"engine":{"name":"engine","version":"1","url":"https://example.test/e.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["bin/e.exe"]},
 "model":{"name":"model","version":"2","url":"https://example.test/m.tar.bz2","sha256":"` + fixtureSHA256 + `","files":["tokens.txt"]},
-"program":"e.exe","args":["--num-threads=2","--tokens={model}/tokens.txt"]}`
+"program":"e.exe","args":["--num-threads=2","--encoder={model}/e.onnx","--decoder={model}/d.onnx","--joiner={model}/j.onnx","--tokens={model}/tokens.txt","--model-type=nemo_transducer"]}`
 	path := filepath.Join(t.TempDir(), "voice.json")
 	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
@@ -106,6 +106,11 @@ func TestSettingsAreReadWholeAndRefusedWhenTheyDoNotPinADownload(t *testing.T) {
 		"an archive that is not tar.bz2": {"https://example.test/m.tar.bz2", "https://example.test/m.zip"},
 		"a field it does not know":       {`"program":"e.exe"`, `"program":"e.exe","cloud":true`},
 		"a program that is not a file":   {`"program":"e.exe"`, `"program":"bin/e.exe"`},
+		// Settings the engine's worker would refuse, such as those of the
+		// program each dictation once started, fail here rather than at
+		// every dictation.
+		"args the worker does not take": {`"--model-type=nemo_transducer"`, `"--model-type=nemo_transducer","--debug=1"`},
+		"args missing one it needs":     {`"--joiner={model}/j.onnx",`, ``},
 	} {
 		if !strings.Contains(valid, change[0]) {
 			t.Fatalf("%s: the valid settings do not hold %q", name, change[0])

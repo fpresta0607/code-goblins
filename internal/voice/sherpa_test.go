@@ -2,21 +2,33 @@ package voice
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
-// fakeSherpaAPI counts the engine's calls and fails the one named failure.
-// Its result is testdata/sherpa-onnx-1.13.8-stdout.txt, what the pinned
-// engine gave for one spoken line, as it was captured.
+// The fake engine's handles, each a different number, so a call handed the
+// wrong one shows.
+const (
+	fakeRecognizer = 11
+	fakeStream     = 22
+	fakeWave       = 33
+	fakeResult     = 44
+)
+
+// fakeSherpaAPI records the engine's calls with their handles and fails the
+// one named failure. Its result is testdata/sherpa-onnx-1.13.8-stdout.txt,
+// what the pinned engine gave for one spoken line, as it was captured.
 type fakeSherpaAPI struct {
 	failure string
 	result  []byte
-	config  *sherpaOfflineRecognizerConfig
-	calls   map[string]int
-	sounds  []string
+	// settings are the strings the configuration handed the engine.
+	settings map[string]string
+	threads  int32
+	calls    []string
 }
 
 func newFakeSherpaAPI(t *testing.T, failure string) *fakeSherpaAPI {
@@ -25,56 +37,99 @@ func newFakeSherpaAPI(t *testing.T, failure string) *fakeSherpaAPI {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fakeSherpaAPI{failure: failure, result: result, calls: map[string]int{}}
+	return &fakeSherpaAPI{failure: failure, result: result}
 }
 
-func (api *fakeSherpaAPI) called(name string) uintptr {
-	api.calls[name]++
+func (api *fakeSherpaAPI) call(name string, handles ...uintptr) {
+	api.calls = append(api.calls, strings.TrimSuffix(fmt.Sprint(name, handles), "[]"))
+}
+
+func (api *fakeSherpaAPI) answer(name string, handle uintptr) uintptr {
 	if api.failure == name {
 		return 0
 	}
-	return 1
+	return handle
+}
+
+// cString reads a NUL-terminated string the way the engine does.
+func cString(text *byte) string {
+	if text == nil {
+		return ""
+	}
+	var characters []byte
+	for at := unsafe.Pointer(text); *(*byte)(at) != 0; at = unsafe.Add(at, 1) {
+		characters = append(characters, *(*byte)(at))
+	}
+	return string(characters)
 }
 
 func (api *fakeSherpaAPI) createRecognizer(config *sherpaOfflineRecognizerConfig) uintptr {
-	api.config = config
-	return api.called("create-recognizer")
+	api.call("create-recognizer")
+	model := config.ModelConfig
+	api.settings = map[string]string{
+		"encoder": cString(model.Transducer.Encoder), "decoder": cString(model.Transducer.Decoder), "joiner": cString(model.Transducer.Joiner),
+		"tokens": cString(model.Tokens), "provider": cString(model.Provider), "model type": cString(model.ModelType),
+		"decoding": cString(config.DecodingMethod), "paraformer": cString(model.Paraformer.Model), "language model": cString(config.LmConfig.Model),
+	}
+	api.threads = model.NumThreads
+	if config.FeatConfig.SampleRate != 16000 || config.FeatConfig.FeatureDim != 80 || config.MaxActivePaths != 4 || model.Debug != 0 {
+		api.call("unexpected-features")
+	}
+	return api.answer("create-recognizer", fakeRecognizer)
 }
 
-func (api *fakeSherpaAPI) readWave(sound []byte) uintptr {
-	api.sounds = append(api.sounds, string(sound))
-	return api.called("read-wave")
+func (api *fakeSherpaAPI) readWave([]byte) uintptr {
+	api.call("read-wave")
+	return api.answer("read-wave", fakeWave)
 }
 
-func (api *fakeSherpaAPI) waveData(uintptr) (sherpaWave, error) {
-	if api.called("wave-data") == 0 {
+func (api *fakeSherpaAPI) waveData(wave uintptr) (sherpaWave, error) {
+	api.call("wave-data", wave)
+	if api.failure == "wave-data" {
 		return sherpaWave{}, errors.New("unreadable")
 	}
 	return sherpaWave{Samples: 1, SampleRate: 16000, NumSamples: 4}, nil
 }
 
-func (api *fakeSherpaAPI) freeWave(uintptr)                   { api.called("free-wave") }
-func (api *fakeSherpaAPI) createStream(uintptr) uintptr       { return api.called("create-stream") }
-func (api *fakeSherpaAPI) destroyStream(uintptr)              { api.called("destroy-stream") }
-func (api *fakeSherpaAPI) acceptWaveform(uintptr, sherpaWave) { api.called("accept-waveform") }
-func (api *fakeSherpaAPI) decode(uintptr, uintptr)            { api.called("decode") }
-func (api *fakeSherpaAPI) resultJSON(uintptr) uintptr         { return api.called("result-json") }
-func (api *fakeSherpaAPI) freeJSON(uintptr)                   { api.called("free-json") }
+func (api *fakeSherpaAPI) freeWave(wave uintptr) { api.call("free-wave", wave) }
 
-func (api *fakeSherpaAPI) readJSON(uintptr) ([]byte, error) {
-	if api.called("read-json") == 0 {
+func (api *fakeSherpaAPI) createStream(recognizer uintptr) uintptr {
+	api.call("create-stream", recognizer)
+	return api.answer("create-stream", fakeStream)
+}
+
+func (api *fakeSherpaAPI) destroyStream(stream uintptr) { api.call("destroy-stream", stream) }
+
+func (api *fakeSherpaAPI) acceptWaveform(stream uintptr, wave sherpaWave) {
+	api.call("accept-waveform", stream, uintptr(wave.SampleRate))
+}
+
+func (api *fakeSherpaAPI) decode(recognizer, stream uintptr) {
+	api.call("decode", recognizer, stream)
+}
+
+func (api *fakeSherpaAPI) resultJSON(stream uintptr) uintptr {
+	api.call("result-json", stream)
+	return api.answer("result-json", fakeResult)
+}
+
+func (api *fakeSherpaAPI) readJSON(result uintptr) ([]byte, error) {
+	api.call("read-json", result)
+	switch api.failure {
+	case "read-json":
 		return nil, errors.New("unreadable")
-	}
-	if api.failure == "not-json" {
+	case "not-json":
 		return []byte("Done!"), nil
 	}
 	return api.result, nil
 }
 
+func (api *fakeSherpaAPI) freeJSON(result uintptr) { api.call("free-json", result) }
+
 func workerArguments(folder string) []string {
 	return []string{
 		filepath.Join(folder, "sherpa-onnx-c-api.dll"),
-		"--num-threads=2",
+		"--num-threads=3",
 		"--encoder=" + filepath.Join(folder, "encoder.onnx"),
 		"--decoder=" + filepath.Join(folder, "decoder.onnx"),
 		"--joiner=" + filepath.Join(folder, "joiner.onnx"),
@@ -106,7 +161,7 @@ func TestTheWorkerTakesEachModelSettingOnceAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.Library != valid[0] || options.Threads != 2 || options.ModelType != "nemo_transducer" || options.Joiner != strings.TrimPrefix(valid[4], "--joiner=") {
+	if options.Library != valid[0] || options.Threads != 3 || options.ModelType != "nemo_transducer" || options.Joiner != strings.TrimPrefix(valid[4], "--joiner=") {
 		t.Fatalf("the worker read %+v", options)
 	}
 }
@@ -131,7 +186,8 @@ func TestTheShippedSettingsAreWhatTheWorkerTakes(t *testing.T) {
 }
 
 func TestTheRecognizerLoadsTheModelOnceAndFreesWhatEachSoundNeeded(t *testing.T) {
-	options, err := ParseWorkerArguments(workerArguments(t.TempDir()))
+	folder := t.TempDir()
+	options, err := ParseWorkerArguments(workerArguments(folder))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,8 +196,21 @@ func TestTheRecognizerLoadsTheModelOnceAndFreesWhatEachSoundNeeded(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sound := range []string{"RIFF-first", "RIFF-second"} {
-		text, err := recognizer.Recognize([]byte(sound))
+	want := map[string]string{
+		"encoder": filepath.Join(folder, "encoder.onnx"), "decoder": filepath.Join(folder, "decoder.onnx"), "joiner": filepath.Join(folder, "joiner.onnx"),
+		"tokens": filepath.Join(folder, "tokens.txt"), "provider": "cpu", "model type": "nemo_transducer",
+		"decoding": "greedy_search", "paraformer": "", "language model": "",
+	}
+	for name, value := range want {
+		if api.settings[name] != value {
+			t.Errorf("the engine was handed %s %q, want %q", name, api.settings[name], value)
+		}
+	}
+	if api.threads != 3 {
+		t.Errorf("the engine was handed %d threads, want 3", api.threads)
+	}
+	for range 2 {
+		text, err := recognizer.Recognize([]byte("RIFF-sound"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,17 +218,9 @@ func TestTheRecognizerLoadsTheModelOnceAndFreesWhatEachSoundNeeded(t *testing.T)
 			t.Fatalf("heard %q, want %q", text, want)
 		}
 	}
-	if api.calls["create-recognizer"] != 1 || strings.Join(api.sounds, " ") != "RIFF-first RIFF-second" {
-		t.Fatalf("the engine loaded %d times for %q", api.calls["create-recognizer"], api.sounds)
-	}
-	for _, name := range []string{"free-wave", "destroy-stream", "decode", "free-json"} {
-		if api.calls[name] != 2 {
-			t.Errorf("%s was called %d times for two sounds", name, api.calls[name])
-		}
-	}
-	config := api.config
-	if config.FeatConfig.SampleRate != 16000 || config.FeatConfig.FeatureDim != 80 || config.ModelConfig.NumThreads != 2 || config.ModelConfig.Debug != 0 || config.ModelConfig.Paraformer.Model != nil || config.LmConfig.Model != nil {
-		t.Fatalf("the engine was configured with %+v", config)
+	once := "read-wave wave-data[33] create-stream[11] accept-waveform[22 16000] decode[11 22] result-json[22] read-json[44] free-json[44] destroy-stream[22] free-wave[33]"
+	if got := strings.Join(api.calls, " "); got != "create-recognizer "+once+" "+once {
+		t.Fatalf("the engine was called\n%s\nwant\n%s", got, "create-recognizer "+once+" "+once)
 	}
 }
 
@@ -168,27 +229,30 @@ func TestEveryFailureFreesWhatTheEngineMadeAndNothingTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, failure := range []struct {
-		name                 string
-		wave, stream, result int
-	}{
-		{"read-wave", 0, 0, 0},
-		{"wave-data", 1, 0, 0},
-		{"create-stream", 1, 0, 0},
-		{"result-json", 1, 1, 0},
-		{"read-json", 1, 1, 1},
-		{"not-json", 1, 1, 1},
+	for failure, frees := range map[string]string{
+		"read-wave":     "",
+		"wave-data":     "free-wave[33]",
+		"create-stream": "free-wave[33]",
+		"result-json":   "destroy-stream[22] free-wave[33]",
+		"read-json":     "free-json[44] destroy-stream[22] free-wave[33]",
+		"not-json":      "free-json[44] destroy-stream[22] free-wave[33]",
 	} {
-		api := newFakeSherpaAPI(t, failure.name)
+		api := newFakeSherpaAPI(t, failure)
 		recognizer, err := newSherpaRecognizer(options, api)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if text, err := recognizer.Recognize([]byte("RIFF-sound")); text != "" || err == nil {
-			t.Fatalf("%s: answered %q, %v", failure.name, text, err)
+			t.Fatalf("%s: answered %q, %v", failure, text, err)
 		}
-		if api.calls["free-wave"] != failure.wave || api.calls["destroy-stream"] != failure.stream || api.calls["free-json"] != failure.result {
-			t.Fatalf("%s: freed %v", failure.name, api.calls)
+		var freed []string
+		for _, call := range api.calls {
+			if strings.HasPrefix(call, "free-") || strings.HasPrefix(call, "destroy-") {
+				freed = append(freed, call)
+			}
+		}
+		if got := strings.Join(freed, " "); got != frees {
+			t.Fatalf("%s: freed %q, want %q", failure, got, frees)
 		}
 	}
 }

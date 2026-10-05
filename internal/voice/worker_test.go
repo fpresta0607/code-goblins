@@ -74,7 +74,12 @@ func standInWorker(arguments []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 3
 	}
+	answered := 0
 	err = RunWorker(os.Stdin, os.Stdout, func(sound []byte) (string, error) {
+		answered++
+		if fixture.Role == "dies silently later" && answered > 1 {
+			os.Exit(255)
+		}
 		run, err := json.Marshal(engineRun{Args: os.Args[1:], Bytes: len(sound), Payload: string(sound), PID: os.Getpid(), Environment: os.Environ()})
 		if err == nil {
 			err = os.WriteFile(fixture.Record, run, 0o600)
@@ -355,6 +360,19 @@ func TestAnEngineThatBreaksIsEndedAndTheNextDictationStartsAnother(t *testing.T)
 	}
 }
 
+// What the engine said during an earlier dictation is not given as the
+// reason a later one failed.
+func TestABrokenEngineIsReportedWithWhatItSaidThatTimeOnly(t *testing.T) {
+	voice, _ := engine(t, "dies silently later", 8<<30)
+	if _, err := voice.Recognize(context.Background(), []byte("RIFF-first")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := voice.Recognize(context.Background(), []byte("RIFF-second"))
+	if err == nil || strings.Contains(err.Error(), "not words") {
+		t.Fatalf("the engine that died answered %v", err)
+	}
+}
+
 // An engine that exited between dictations, by itself or ended by something
 // else, is replaced rather than handed the next sound.
 func TestAnEngineThatExitedWhileIdleIsReplaced(t *testing.T) {
@@ -383,7 +401,7 @@ func TestAnEngineThatExitedWhileIdleIsReplaced(t *testing.T) {
 
 func TestAnIdleEngineIsEndedAndTheNextDictationLoadsItAgain(t *testing.T) {
 	idle := workerIdle
-	workerIdle = time.Second
+	workerIdle = 2 * time.Second
 	t.Cleanup(func() { workerIdle = idle })
 	voice, _ := engine(t, "hears", 8<<30)
 	if _, err := voice.Recognize(context.Background(), []byte("RIFF-first")); err != nil {
@@ -391,11 +409,11 @@ func TestAnIdleEngineIsEndedAndTheNextDictationLoadsItAgain(t *testing.T) {
 	}
 	loaded := current(t, voice)
 	// Dictating within the idle time keeps it past the first one's end.
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(1300 * time.Millisecond)
 	if _, err := voice.Recognize(context.Background(), []byte("RIFF-second")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(1300 * time.Millisecond)
 	if exited(loaded) || current(t, voice) != loaded {
 		t.Fatal("the engine was ended although it was used within its idle time")
 	}
