@@ -176,7 +176,8 @@ type Service struct {
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
 	// reads is what the snapshot remembers of the fleet's files.
-	reads keptReads
+	reads                keptReads
+	subscriptionReadings map[string]quota.WeeklyReading
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -319,6 +320,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}()
+	defer func() { s.cancel(); <-usageDone }()
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
@@ -949,8 +956,9 @@ type Snapshot struct {
 	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory      *Memory      `json:"memory,omitempty"`
-	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	Memory        *Memory             `json:"memory,omitempty"`
+	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -1286,5 +1294,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	return out, nil
 }
