@@ -948,7 +948,14 @@ func TestGateTestDoesNotPassARunWhoseTestsRanPastTheirBudget(t *testing.T) {
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
 	runtime := standIn()
-	runtime.gateBudget = func(gatetest.Level) time.Duration { return time.Millisecond }
+	// Every check is held to its level's budget. go vet asks first and gets
+	// an hour, so however the clock steps it passes; the tests get 1ms.
+	budgets := []time.Duration{time.Hour, time.Millisecond}
+	runtime.gateBudget = func(gatetest.Level) time.Duration {
+		budget := budgets[0]
+		budgets = budgets[1:]
+		return budget
+	}
 	runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
 		// Longer than the budget, by more than a clock's coarsest step.
 		if command[1] == "test" {
