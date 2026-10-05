@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -58,6 +59,12 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
+	// dictation is the engine's one download; dictationWork waits for it,
+	// and dictationSlot runs one engine at a time.
+	dictation         dictationFetch
+	dictationWork     sync.WaitGroup
+	dictationSlot     chan struct{}
+	dictationPatience time.Duration
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -68,7 +75,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +112,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Home string `json:"home"`
 		}{os.Getpid(), h.Service.Store.Home.Root})
 	case r.URL.Path == "/api/snapshot" && r.Method == "GET":
-		snapshot, err := h.Service.Snapshot()
+		snapshot, err := h.Service.SnapshotSince(h.Service.Revision())
 		if err != nil {
 			apiError(w, 503, err.Error())
 			return
@@ -133,6 +140,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, value)
+	case r.URL.Path == "/api/dictation" && r.Method == "GET":
+		h.dictationStatus(w)
+	case r.URL.Path == "/api/dictation" && r.Method == "POST":
+		h.dictate(w, r)
 	case r.URL.Path == "/api/connections" && r.Method == "GET":
 		h.readConnections(w, r)
 	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
@@ -151,14 +162,29 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":
 		h.announceItems(w, r)
+	case r.URL.Path == "/api/afk" && r.Method == "POST":
+		h.switchAFKFromBoard(w, r)
+	case r.URL.Path == "/api/afk/report" && r.Method == "GET":
+		h.afkReport(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
 		h.lifecycleTask(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
+	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":
+		h.selectTaskEngine(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/engines" && r.Method == "GET":
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		catalog, err := h.Service.engineCatalog(ctx, execx.OSRunner{})
+		if err != nil {
+			apiError(w, 500, err.Error())
+			return
+		}
+		respond(w, 200, catalog)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
 		h.startCFO(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
@@ -237,31 +263,88 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	ch, unsubscribe := h.Service.subscribe()
 	defer unsubscribe()
-	ping := time.NewTicker(15 * time.Second)
-	defer ping.Stop()
-	for {
-		snapshot, err := h.Service.Snapshot()
-		if err != nil {
-			return
-		}
-		snapshot.Build = h.build
-		data, err := json.Marshal(snapshot)
-		if err != nil {
-			return
-		}
-		controller := http.NewResponseController(w)
-		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if _, err := fmt.Fprintf(w, "id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data); err != nil {
-			return
+	send := func(format string, args ...any) error {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err := fmt.Fprintf(w, format, args...); err != nil {
+			return err
 		}
 		flusher.Flush()
+		return nil
+	}
+	// A snapshot reads the fleet from disk, which can take seconds, so each
+	// is waited for away from this loop, one at a time, while the loop goes on
+	// sending the Command Center's items the moment the store changes: what
+	// the Overlord or the CFO answered leaves every board at once, whatever a
+	// build takes. Every stream shares the build (see SnapshotSince). stale
+	// says the fleet changed while this stream waited for one, so it asks for
+	// another. The service publishes at least every snapshotRefresh, so a
+	// stream needs no clock of its own.
+	type build struct {
+		snapshot Snapshot
+		err      error
+	}
+	built := make(chan build, 1)
+	building, stale := false, false
+	begin := func(need uint64) {
+		building, stale = true, false
+		go func() {
+			snapshot, err := h.Service.SnapshotSince(need)
+			built <- build{snapshot, err}
+		}()
+	}
+	// sent is the items the board has, as they were last sent to it; nil
+	// before its first snapshot, which the items go on.
+	var sent []byte
+	begin(h.Service.Revision())
+	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-h.Service.done:
 			return
+		case result := <-built:
+			building = false
+			if result.err != nil {
+				return
+			}
+			// The items are read again as the snapshot is sent, so one built
+			// before an answer never shows its item open after the board
+			// was told it closed.
+			snapshot := result.snapshot
+			items, revision := h.Service.Items()
+			snapshot.setItems(items)
+			snapshot.Revision, snapshot.Build = revision, h.build
+			data, err := json.Marshal(snapshot)
+			if err != nil {
+				return
+			}
+			if sent, err = json.Marshal(items); err != nil {
+				return
+			}
+			if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+				return
+			}
+			if stale {
+				begin(revision)
+			}
 		case <-ch:
-		case <-ping.C:
+			items, revision := h.Service.Items()
+			body, err := json.Marshal(items)
+			if err != nil {
+				return
+			}
+			if sent != nil && !bytes.Equal(body, sent) {
+				data, err := json.Marshal(itemsEvent{h.Service.Instance, revision, items})
+				if err != nil || send("event: items\ndata: %s\n\n", data) != nil {
+					return
+				}
+				sent = body
+			}
+			if building {
+				stale = true
+			} else {
+				begin(revision)
+			}
 		}
 	}
 }
@@ -311,7 +394,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind}
 	var err error
 	if a.Kind == "review" {
-		a, err = h.Service.Store.QueueReview(r.Context(), a, h.Service.Options.CFO)
+		a, err = h.Service.Store.QueueReview(a, h.Service.Options.CFO)
 	} else {
 		a, err = h.Service.Store.Queue(a)
 	}

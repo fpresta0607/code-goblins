@@ -21,14 +21,14 @@ import (
 
 // waitWithACommand makes the fixture's goblin wait on the Overlord with a
 // command for him to run, as cfo notify --run does, and returns the goblin,
-// its runner and connection, and the run item on the board.
-func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMeta, *cfoRunner, *CFOConnection, Run) {
+// its terminal and connection, and the run item on the board.
+func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMeta, hostedTerminal, *CFOConnection, Run) {
 	t.Helper()
-	meta, _, runner, connection := goblinFixture(t, store)
+	meta, _, goblin, connection := goblinFixture(t, store)
 	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: Sign in to GitHub so I can push"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishGoblinRun(context.Background(), store.Home, connection.Terminals, meta.ID, 7, "Sign in to GitHub so I can push", "powershell", command); err != nil {
+	if err := PublishGoblinRun(store.Home, meta.ID, 7, "Sign in to GitHub so I can push", "powershell", command); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestGoblinRuns(); err != nil {
@@ -38,7 +38,7 @@ func waitWithACommand(t *testing.T, store *Store, command string) (state.TaskMet
 	if len(runs) != 1 {
 		t.Fatalf("runs = %+v, issues %q, want the goblin's one command", runs, store.Snapshot().Issues)
 	}
-	return meta, runner, connection, runs[0]
+	return meta, goblin, connection, runs[0]
 }
 
 func TestAGoblinsCommandBecomesARunCardNamedForIt(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAGoblinsUnrunCommandIsWithdrawnOnceItReportsAgain(t *testing.T) {
 func TestAGoblinsCommandRunsInAUsableWindowAndTheGoblinIsTold(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, runner, connection, r := waitWithACommand(t, store, "gh auth login\n")
+	_, goblin, connection, r := waitWithACommand(t, store, "gh auth login\n")
 	launcher := &fakeRunLauncher{started: liveStart(t)}
 	s := &Service{Store: store, Options: Options{CFO: connection, Runs: launcher}}
 
@@ -178,8 +178,8 @@ func TestAGoblinsCommandRunsInAUsableWindowAndTheGoblinIsTold(t *testing.T) {
 	if after.State != "succeeded" || after.ExitCode == nil || *after.ExitCode != 0 {
 		t.Errorf("run = %s exit %v, want it finished with exit code 0", after.State, after.ExitCode)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "The Overlord ran your command") || !strings.Contains(runner.prompts[0], "exit code 0") {
-		t.Errorf("the goblin got %q, want one message that he ran its command and how it ended", runner.prompts)
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "The Overlord ran your command") || !strings.Contains(told[0], "exit code 0") {
+		t.Errorf("the goblin got %q, want one message that he ran its command and how it ended", told)
 	}
 }
 

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { announce, message, request } from "./api";
-import { parseAction, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
+import { parseAction, string, type BoardActivity, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, cardKey, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, asItems, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk } from "./credentials";
@@ -55,14 +56,19 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // quietly; an item he acted on never comes back, so a delivery that fails
 // later reads as its line in History. The
 // last one ends on "You're all done" before the Command Center closes. It
-// tells onUnsent whether any card keeps an answer not yet sent.
-export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void }) {
+// tells onUnsent whether any card keeps an answer not yet sent, and onSent
+// what he sent for an item the moment he sends it, then null if the
+// supervisor refused it.
+export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const pressedOutside = useRef(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [publications, setPublications] = useState(() => new Map(asItems(snapshot).map((item) => [item.key, publishedAt(item)])));
+  const latestPublications = useRef(publications);
+  useLayoutEffect(() => { latestPublications.current = publications; }, [publications]);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
@@ -87,8 +93,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // it; trouble keeps the card itself on screen with what went wrong. A run
   // keeps its card, which shows the command's result. An item he answered
   // elsewhere, such as on its page, finishes the same way, whatever this card
-  // tried meanwhile.
-  const elsewhere = !!item && answeredElsewhere(item);
+  // tried meanwhile, and so does one that closed while this card sent nothing:
+  // answered on another board, or taken back by its asker or the CFO.
+  const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
+  const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
   const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
@@ -100,13 +108,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Every question still open is asked about once, one its page's card
   // carries too, so it never opens the Command Center when that card closes.
+  // With AFK mode on when its answer comes, even an earlier claim opens nothing.
   const { instance } = snapshot;
+  const afkState = useRef(snapshot.afk.state);
+  useEffect(() => { afkState.current = snapshot.afk.state; });
   const pending = [...openKeys(snapshot)].filter((key) => key.startsWith("question:")).join("\n");
   useEffect(() => {
     const keys = pending ? pending.split("\n").filter((key) => !asked.current.has(key)) : [];
     if (!keys.length) return;
     for (const key of keys) asked.current.add(key);
-    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => claimed === null || claimed.includes("open:" + key))]));
+    void announce(instance, keys.map((key) => "open:" + key)).then((claimed) => setArrived((prior) => [...prior, ...keys.filter((key) => afkState.current !== "on" && (claimed === null || claimed.includes("open:" + key)))]));
   }, [pending, instance]);
   if (arrived.length) {
     setArrived([]);
@@ -151,7 +162,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered or cleared elsewhere turns into its settled card instead of vanishing.
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item;
-  const shownKey = item?.key || "";
+  const shownKey = item ? item.key + ":" + publishedAt(item) : "";
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -203,13 +214,21 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const post = async (key: string, payload: Record<string, unknown>) => {
     const draft = drafts[key] || EMPTY_DRAFT;
     if (draft.sending || draft.submission && snapshot.actions.some((action) => action.id === draft.submission?.id)) return;
+    const publication = publications.get(key);
     const submission = submissionFor(JSON.stringify(payload), draft.submission, () => crypto.randomUUID());
     update(key, { submission, sending: true, error: "" });
     setKept((prior) => new Set([...prior, key]));
+    const item = itemFor(snapshot, key);
+    if (item) onSent?.(key, { kind: string(payload.kind), id: submission.id, text: string(payload.text), answer_kind: string(payload.answer_kind), created_at: publishedAt(item) });
     try {
       const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
+      if (latestPublications.current.get(key) !== publication) return;
       update(key, { receipt, sending: false });
-    } catch (error: unknown) { update(key, { error: message(error), sending: false }); }
+    } catch (error: unknown) {
+      if (latestPublications.current.get(key) !== publication) return;
+      update(key, { error: message(error), sending: false });
+      onSent?.(key, null);
+    }
   };
   const send = (target: Item) => {
     const draft = drafts[target.key] || EMPTY_DRAFT;
@@ -235,6 +254,20 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
   const notices = presentations.filter((event) => !background.has(event.id)).slice(-4).reverse();
   const settled = settledItems(snapshot).slice(0, 20);
+  // Reset before committing this render, including IDs absent between publications.
+  // Registration changes identity but keeps created_at, so unfinished answers survive.
+  const changed = asItems(snapshot).filter((candidate) => publications.get(candidate.key) !== publishedAt(candidate));
+  if (changed.length) {
+    const replaced = new Set(changed.filter((candidate) => publications.has(candidate.key)).map((candidate) => candidate.key));
+    setPublications(new Map([...publications, ...changed.map((candidate): [string, string] => [candidate.key, publishedAt(candidate)])]));
+    if (replaced.size) {
+      setDrafts((prior) => Object.fromEntries(Object.entries(prior).filter(([key]) => !replaced.has(key))));
+      setSent((prior) => new Set([...prior].filter((key) => !replaced.has(key))));
+      setKept((prior) => new Set([...prior].filter((key) => !replaced.has(key))));
+      if (replaced.has(current)) { setGallery(null); setAllDone(false); }
+      if (replaced.has(leaving)) setLeaving("");
+    }
+  }
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
       <summary className="icon-button" data-tip="Command Center" data-tip-align="end" aria-label={"Command Center" + (waiting.length ? ", " + waiting.length + " waiting on you" : "")}><Icon name="command-center" />{waiting.length > 0 && <span className="count-badge" aria-hidden="true">{waiting.length}</span>}</summary>
@@ -298,20 +331,20 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : elsewhere
-              ? <DoneCard key={item.key} heading="Answered" label={settledLabel(item, snapshot.actions)} pager={pager} />
+              ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
-              ? <DoneCard key={item.key} heading={sending.heading}
+              ? <DoneCard key={shownKey} heading={sending.heading}
                 label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />
               : item.kind === "question"
-              ? <QuestionCard key={item.key} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
+              ? <QuestionCard key={shownKey} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
               : item.kind === "credential"
-              ? <CredentialCard key={item.key} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
+              ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={item.key} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
+              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document
-              ? <DocumentCard key={item.key} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
-              : <ReviewCard key={item.key} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
+              ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
+              : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
       </>}

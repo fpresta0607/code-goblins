@@ -12,6 +12,29 @@ import (
 	"time"
 )
 
+func TestStrictExclusiveAcquisitionPreservesAnUnreleasedSameProcessLease(t *testing.T) {
+	// Arrange
+	dir, name := t.TempDir(), "slot-1"
+	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
+	self.Acquired = time.Now().Add(-24 * time.Hour).UTC()
+	if err := writeInfo(filepath.Join(dir, name), self); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, acquireErr := AcquireExclusiveNamedStrict(dir, name)
+
+	// Assert
+	after, err := os.ReadFile(filepath.Join(dir, name))
+	if !errors.Is(acquireErr, ErrHeld) || err != nil || string(before) != string(after) {
+		t.Fatalf("strict acquire changed uncertain release custody: acquire=%v read=%v", acquireErr, err)
+	}
+}
+
 func TestAcquireOnEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	info, err := Acquire(dir)
@@ -431,7 +454,7 @@ func TestAcquireExclusiveNamedContendsButRetainsItsOwnVerifiedRecord(t *testing.
 	if err := writeInfo(filepath.Join(dir, name), self); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := acquire(dir, name, self, false); err != nil {
+	if _, err := acquire(dir, name, self, false, false); err != nil {
 		t.Fatalf("exclusive acquire did not retain its own verified record: %v", err)
 	}
 }
@@ -572,7 +595,7 @@ func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *test
 		t.Fatal(err)
 	}
 	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
-	if _, err := acquire(dir, name, self, false); !errors.Is(err, ErrHeld) {
+	if _, err := acquire(dir, name, self, false, false); !errors.Is(err, ErrHeld) {
 		t.Fatalf("acquire over a live holder error = %v, want ErrHeld", err)
 	}
 	if err := os.Remove(filepath.Join(dir, name)); err != nil {

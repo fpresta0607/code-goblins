@@ -192,7 +192,10 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Its animations are off: in a terminal that says it is an xterm, idle
 	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	// It draws inline rather than in the alternate screen, as a claude goblin
+	// does, so its history stays in the terminal's scrollback and a drag
+	// selects text.
+	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
@@ -206,14 +209,12 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
 	if hasValue(spec.Effort) {
-		switch spec.Effort {
-		case "low", "medium", "high", "xhigh", "max":
-			// Codex accepts a raw string when a config value is not TOML.
-			// Avoid embedded quotes on PowerShell 5.1's native argument path.
-			launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
-		default:
+		if !validSharedEffort(spec.Effort) {
 			return Launch{}, fmt.Errorf("harness: Codex does not support effort %q", spec.Effort)
 		}
+		// Codex accepts a raw string when a config value is not TOML.
+		// Avoid embedded quotes on PowerShell 5.1's native argument path.
+		launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
 	}
 	return launch, nil
 }

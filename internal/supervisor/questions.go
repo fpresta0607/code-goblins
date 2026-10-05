@@ -16,15 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -110,35 +109,28 @@ func goblinIdentity(meta state.TaskMeta) string {
 
 // goblinAsker proves the calling process runs under the task's own terminal,
 // the same proof registration uses for the CFO: the program in its native
-// terminal, or the harness in its Herdr pane. No other process can ask in a
-// goblin's name.
-func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string) (state.TaskMeta, error) {
+// terminal. No other process can ask in a goblin's name.
+func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(stateDir, taskID)
 	if err != nil {
 		return meta, fmt.Errorf("task %s has no live record: %w", taskID, err)
 	}
-	if meta.Backend == "native" {
-		_, _, err := nativeProgram(stateDir, meta.ID)
-		return meta, err
+	if meta.Backend != "native" {
+		return meta, fmt.Errorf("task %s runs in no native terminal, so nothing proves who speaks in its name", taskID)
 	}
-	if meta.Backend != "herdr" || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
-		return meta, fmt.Errorf("task %s has no Herdr pane to answer", taskID)
-	}
-	if _, _, err := paneHarness(ctx, terminals(meta.HerdrSession), herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}); err != nil {
-		return meta, err
-	}
-	return meta, nil
+	_, _, err = nativeProgram(stateDir, meta.ID)
+	return meta, err
 }
 
 // SurfaceNotify shows a goblin's blocking notify in the Command Center when
 // it offers choices, labelled with the goblin, and the Overlord's answer
-// returns to the goblin's pane once. A notify without choices is prose for
+// returns to the goblin's terminal once. A notify without choices is prose for
 // the CFO and never opens the modal, and neither does a failed notify.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the board shows the question with its own line breaks.
-func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, detail string, images []string) error {
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, images []string) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -146,7 +138,7 @@ func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Open
 		return nil
 	}
 	options, recommended := questionChoices(options)
-	meta, err := goblinAsker(ctx, stateDir, terminals, taskID)
+	meta, err := goblinAsker(stateDir, taskID)
 	if err != nil {
 		return err
 	}
@@ -174,41 +166,30 @@ func questionChoices(options []string) ([]string, string) {
 	return choices, recommended
 }
 
-// SendGoblin delivers text to the goblin a question named: through its own
-// terminal for a native goblin, and otherwise through the same Herdr
-// connection the board uses for the CFO. The delivery is pinned to the task
-// generation and terminal that asked, so a restarted or moved task never
-// receives an answer meant for its predecessor.
+// SendGoblin delivers text to the goblin a question named, through its own
+// native terminal. The delivery is pinned to the task generation that asked,
+// so a restarted task never receives an answer meant for its predecessor.
 func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
-	if meta, err := state.ReadTaskMeta(c.State, taskID); err == nil && meta.Backend == "native" {
-		if goblinIdentity(meta) != identity {
-			return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
-		}
-		sender := spawn.Service{StateDir: c.State, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
-			return NativePromptSince(c.State, taskID, generation, since)
-		}}
-		if err := sender.SendNative(ctx, meta, fleet.Stamp(oneLine(text))); err != nil {
-			return Evaluation{}, err
-		}
-		return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
-	}
-	current := func(target herdr.Target) error {
-		meta, err := state.ReadTaskMeta(c.State, taskID)
-		if err != nil || goblinIdentity(meta) != identity || target != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) {
-			return errors.New("the goblin's task restarted or ended")
-		}
-		return nil
-	}
 	meta, err := state.ReadTaskMeta(c.State, taskID)
-	if err != nil || current(herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) != nil {
+	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 	}
-	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
-	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
-	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
+	if meta.Backend != "native" {
+		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
+	}
+	if err := typeIntoGoblin(ctx, c.State, meta, fleet.Stamp(oneLine(text))); err != nil {
 		return Evaluation{}, err
 	}
-	return Evaluation{Reason: "Accepted by the goblin through Herdr."}, nil
+	return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
+}
+
+// typeIntoGoblin delivers text into a goblin's native terminal. It is a
+// variable so a test can act while a delivery is in flight.
+var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
+	sender := spawn.Service{StateDir: stateDir, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+		return NativePromptSince(stateDir, taskID, generation, since)
+	}}
+	return sender.SendNative(ctx, meta, text)
 }
 
 // answerGoblin returns the Overlord's board answer to the goblin that asked.
@@ -216,7 +197,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 // nor the CFO asks it again; retiring it is still the CFO's ordinary ack.
 func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
-		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool {
 		return q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID && q.Task != ""
@@ -242,7 +223,15 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		label = "Answer (Other)"
 	}
 	sent := time.Now().UTC()
-	result, err := s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text))
+	text := fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, label, a.Text)
+	isSaved, err := savePausedAnswer(s.Store.Home.State, q.Task, q.Identity, text)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	result := Evaluation{Reason: "Answer saved for the goblin's Resume."}
+	if !isSaved {
+		result, err = s.Options.CFO.SendGoblin(ctx, q.Task, q.Identity, text)
+	}
 	if errors.Is(err, fleet.ErrQueuedBehindTurn) {
 		result, err = s.behindGoblinsTurn(q.Task, sent, "Submitted to the goblin while it was working; it takes the answer when its current turn ends."), nil
 	}
@@ -287,7 +276,7 @@ type cfoAnswer struct {
 // ends: that is a delivery, submitted once, and it is recorded like one, so
 // neither the CFO nor the board sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
-	identity, release, err := c.CallerIdentity(ctx)
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", false, err
 	}
@@ -313,7 +302,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if record.Answered != "" {
 		return "", false, fmt.Errorf("notify %d was already answered: %s", seq, record.Answered)
 	}
-	_, options, ok := wake.Question(record)
+	asked, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 {
 		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
 	}
@@ -355,6 +344,9 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 			unrecorded = append(unrecorded, err)
 		}
 	}
+	if err := logAFKAnswer(c.State, id, q.Task, asked, answer); err != nil {
+		unrecorded = append(unrecorded, err)
+	}
 	if err := errors.Join(unrecorded...); err != nil {
 		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
 	}
@@ -394,14 +386,19 @@ var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 // is a question the Overlord is answering on the board. id is the question's
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
-func (c *CFOConnection) RecordAnswer(ctx context.Context, id, option, note, in string) (string, error) {
-	identity, release, err := c.CallerIdentity(ctx)
+func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error) {
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", err
 	}
 	defer release()
 	if in != "" && !answerPlace.MatchString(in) {
 		return "", errors.New("--in names where the Overlord answered in a few plain words, such as chat")
+	}
+	if in != "" {
+		if err := overlordAway(c.State); err != nil {
+			return "", err
+		}
 	}
 	if _, err := strconv.Atoi(id); err == nil {
 		return "", fmt.Errorf("--record-only takes the question's ID, such as notify-<task>-<sequence>, not the wake sequence %s", id)
@@ -452,7 +449,44 @@ func (c *CFOConnection) RecordAnswer(ctx context.Context, id, option, note, in s
 	if err := c.recordAnswer(identity, q, q.ID, chosen, withNote(chosen, note), in); err != nil {
 		return "", err
 	}
+	if in == "" {
+		if err := logAFKAnswer(c.State, q.ID, q.Task, q.Text, withNote(chosen, note)); err != nil {
+			return chosen, fmt.Errorf("recorded on the board; do not record it again, but %w", err)
+		}
+	}
 	return chosen, nil
+}
+
+// errOverlordAway refuses an answer recorded as the Overlord's while AFK mode
+// is on: he is away, so nothing he is said to have answered is taken as his.
+var errOverlordAway = errors.New("AFK mode is on: the Overlord is away, so no answer is recorded as his. The question stays held for him; record his answer once he is back and has turned AFK mode off")
+
+// overlordAway is errOverlordAway while AFK mode is on, and the reason its
+// switch cannot be read when it cannot.
+func overlordAway(stateDir string) error {
+	switched, err := afk.Read(stateDir)
+	if err != nil {
+		return err
+	}
+	if switched.On {
+		return errOverlordAway
+	}
+	return nil
+}
+
+// logAFKAnswer logs an answer the CFO gave a goblin while AFK mode is on as a
+// decision made under its authority, with the question and the answer as its
+// evidence. It logs nothing while AFK mode is off.
+func logAFKAnswer(stateDir, id, task, question, answer string) error {
+	switched, err := afk.Read(stateDir)
+	if err != nil || !switched.On {
+		return err
+	}
+	evidence := bounded("asked: "+question+" answered: "+answer, 6000)
+	if err := sendPipeRequest(stateDir, runPipeRequest{Kind: "afk-log", AFK: &afk.Entry{Kind: afk.KindAnswer, What: id, Task: task, Evidence: evidence}}); err != nil {
+		return fmt.Errorf("AFK mode's log did not take the decision: %w", err)
+	}
+	return nil
 }
 
 // recordAnswer tells the board which choice closed a goblin's question and
@@ -619,6 +653,13 @@ func (s *Store) ingestAnswers() error {
 // recordCFOAnswer records an answer the CFO gave with cfo answer, or keeps it
 // for a later pass when its question cannot take it yet.
 func (s *Store) recordCFOAnswer(a cfoAnswer) error {
+	// An answer that reads as the Overlord's is refused while he is away,
+	// whatever command or process sent it.
+	if a.In != "" {
+		if err := overlordAway(s.Home.State); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.applyCFOAnswer(a); errors.Is(err, errAnswerWaits) {
@@ -689,14 +730,14 @@ func (s *Store) issue(text string) {
 // CFO, including its creation time, and that its native identity is live, and
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
-func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), error) {
-	return c.identityOf(ctx, os.Getpid(), time.Now())
+func (c *CFOConnection) CallerIdentity() (string, func(), error) {
+	return c.identityOf(os.Getpid(), time.Now())
 }
 
 // identityOf is CallerIdentity for any process that was running at connected,
 // such as a client of the supervisor's run request pipe: a process that
 // started later took the PID of the one that connected, and proves nothing.
-func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.Time) (string, func(), error) {
+func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -727,7 +768,7 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
-	if err := c.verify(ctx, p); err != nil {
+	if err := c.verify(p); err != nil {
 		release()
 		return "", nil, err
 	}
@@ -753,8 +794,8 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
-	identity, release, err := c.CallerIdentity(ctx)
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended string) error {
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}
@@ -968,18 +1009,12 @@ func (s *Store) ingestQuestions() error {
 	return nil
 }
 
+// supersedeQuestions closes the goblins' questions that no longer apply. The
+// CFO's own questions are never superseded: they follow the home's CFO across
+// a restart (followCFO).
 func (s *Store) supersedeQuestions() error {
-	// Missing evidence cannot establish replacement: an unreadable
-	// registration leaves the CFO's questions alone, and an unreadable queue
+	// Missing evidence cannot establish replacement: an unreadable queue
 	// leaves the goblins' questions alone.
-	identity := ""
-	if file, err := openPrimary(filepath.Join(s.Home.State, "primary.json")); err == nil {
-		_, current, err := decodePrimary(file)
-		_ = file.Close()
-		if err == nil {
-			identity = current
-		}
-	}
 	pending, pendingErr := wake.Pending(s.Home.State)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -990,10 +1025,6 @@ func (s *Store) supersedeQuestions() error {
 			continue
 		}
 		if q.Task == "" {
-			if identity != "" && q.Identity != identity {
-				q.Status, q.Message = "superseded", "The CFO session changed. Ask the current CFO to reissue this question."
-				changed = true
-			}
 			continue
 		}
 		meta, err := state.ReadTaskMeta(s.Home.State, q.Task)
@@ -1045,36 +1076,19 @@ func (s *Store) questionAnswer(a Action) error {
 	return errors.New("this user question is unavailable")
 }
 
-// clearQuestion closes a question the Overlord cleared from the Command
-// Center: one that closed without an answer, or one still waiting on him that
-// he answered elsewhere or no longer needs, which he dismissed. It returns
-// the dismissed question, which the CFO must hear of, and nil otherwise.
-// Clearing one already cleared changes nothing.
-func (s *Store) clearQuestion(id, identity string) (Evaluation, *Question, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == id && q.Identity == identity })
-	if i < 0 {
-		return Evaluation{}, nil, fmt.Errorf("%w: the question is gone; nothing was cleared", ErrRejected)
-	}
+// clearQuestion closes question i, which the Overlord cleared from the
+// Command Center: one that closed without an answer, or one still waiting on
+// him that he answered elsewhere or no longer needs, which he dismissed. It
+// returns the dismissed question's ID, which the CFO must hear of, and nothing
+// otherwise. The caller holds the store lock and has checked that the
+// question may be cleared.
+func (s *Store) clearQuestion(i int) []string {
 	q := &s.db.Questions[i]
-	if q.Status == "cleared" {
-		return Evaluation{Reason: "The question was already cleared."}, nil, nil
-	}
-	dismissed := q.Status == "pending" && q.AnswerID == ""
-	if !dismissed && q.Status != "superseded" && q.Status != "failed" {
-		return Evaluation{}, nil, fmt.Errorf("%w: the question is %s; only one waiting on you or closed without an answer can be cleared", ErrRejected, q.Status)
-	}
+	dismissed := q.Status == "pending"
 	q.Status = "cleared"
-	if dismissed {
-		q.Message = "You dismissed it: answered elsewhere or no longer needed."
+	if !dismissed {
+		return nil
 	}
-	if err := s.save(); err != nil {
-		return Evaluation{}, nil, err
-	}
-	if dismissed {
-		cleared := *q
-		return Evaluation{Reason: "Dismissed from the Command Center."}, &cleared, nil
-	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, nil, nil
+	q.Message = "You dismissed it: answered elsewhere or no longer needed."
+	return []string{q.ID}
 }

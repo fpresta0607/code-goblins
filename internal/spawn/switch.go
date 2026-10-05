@@ -36,6 +36,7 @@ type SwitchRequest struct {
 	IsResume      bool
 	ResumeSession string
 	ResumeHandoff string
+	ResumeNote    string
 	Generation    string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
@@ -198,6 +199,24 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err := os.MkdirAll(goTmp, 0o755); err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: create go temporary directory: %w", err)
 	}
+	briefPath := meta.Brief
+	if briefPath == "" {
+		briefPath = req.BriefPath
+	}
+	// The new launch is built while the old harness still runs, so a model or
+	// an effort the new one refuses leaves the goblin as it was.
+	launch, err := adapter.Build(harness.LaunchSpec{
+		BriefPath:       briefPath,
+		TaskTmp:         meta.TaskTmp,
+		GoTmp:           goTmp,
+		Model:           target.Model,
+		Effort:          target.Effort,
+		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
+		CodexMCPServers: codexServers,
+	})
+	if err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w; task %s was left running as it was", err, req.ID)
+	}
 
 	// Stop before anything else is written, so a harness that refuses to exit
 	// leaves the task exactly as it was.
@@ -210,11 +229,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// harness started, so nothing is left to wait on.
 	if err := s.stopNative(ctx, meta.ID, current.Control()); err != nil {
 		return SwitchResult{}, err
-	}
-
-	briefPath := meta.Brief
-	if briefPath == "" {
-		briefPath = req.BriefPath
 	}
 
 	launchMeta := meta
@@ -242,7 +256,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, req)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, launch, project, worktreePath, briefPath, dirty, req.ID, manifest.Env, req)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -255,9 +269,6 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		if nativeTerminalRuns(s.StateDir, meta.ID) {
 			recovery = fmt.Sprintf("the native terminal still holds a live %s: it started but the switch did not complete cleanly. Work in %s is untouched. Steer the native terminal directly or inspect it with `cfo peek %s` - do NOT rerun `cfo switch`, which would stop a running harness.",
 				to, worktreePath, req.ID)
-		}
-		if errors.Is(err, errBuildLaunch) {
-			recovery += " If the new harness refused an effort, retry with `--effort default` to clear it."
 		}
 		err = fmt.Errorf("%w\n%s", err, recovery)
 		if appendErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(err.Error()), 1000)); appendErr != nil {
@@ -290,29 +301,15 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	return result, nil
 }
 
-var errBuildLaunch = errors.New("switch: build harness launch")
-
-// relaunchHarness builds the target launch, injects credentials, writes the
+// relaunchHarness injects credentials into the target's launch, writes the
 // resume instruction or handoff, and starts the new harness. Every step after
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-terminal recovery. Anything knowable before the stop is resolved by
-// Switch and handed in, redirects and Codex's MCP servers included.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
+// Switch and handed in: the built launch and the project's redirects.
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, project, worktreePath, briefPath, dirty, id string, redirects map[string]string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
-	}
-	launch, err := adapter.Build(harness.LaunchSpec{
-		BriefPath:       briefPath,
-		TaskTmp:         meta.TaskTmp,
-		GoTmp:           goTmp,
-		Model:           target.Model,
-		Effort:          target.Effort,
-		MCPConfig:       goblinMCPConfig(meta.TaskTmp),
-		CodexMCPServers: codexServers,
-	})
-	if err != nil {
-		return "", false, host.Record{}, fmt.Errorf("%w: %w", errBuildLaunch, err)
 	}
 	launch.Dir = worktreePath
 	// The launch is rebuilt from scratch, so the project's declared
@@ -353,6 +350,9 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	if request.IsResume && request.ResumeHandoff != "" {
 		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
 	}
+	if request.IsResume && request.ResumeNote != "" {
+		launch.Instruction += "\n" + request.ResumeNote
+	}
 	if meta.PipelineHash != "" {
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use cfo pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
@@ -384,7 +384,7 @@ func (t switchTarget) same(meta state.TaskMeta) bool {
 // so `--model` alone keeps the harness it is already running.
 //
 // Neither a model name nor an effort survives a change of harness - "opus"
-// means nothing to codex, and Kimi has no effort knob at all - so changing
+// means nothing to codex, and pi may lack an effort claude has - so changing
 // harness without naming them resets both to the new harness's defaults
 // rather than carrying values the new harness cannot honour. An effort the
 // operator still passes explicitly is refused loudly when its launch is

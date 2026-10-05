@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -17,15 +16,16 @@ var errFromInbox = errors.New("an item that speaks for the CFO reaches the board
 // the board, once the process that sent it over the pipe is proven to be that
 // CFO: its ancestry, each parent created no later than its child, reaches the
 // process primary.json registers (pid and creation time), that process is
-// alive, its Herdr pane or native terminal still holds it, and the process
+// alive, its native terminal still holds it, and the process
 // was already running when it connected. The item must also carry the
 // identity that proof yields, and be the CFO's own kind: a question or review
-// item with no task, or a clear.
-func (s *Service) acceptCFOItem(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
+// item with no task, or a clear. A decision logged under AFK mode carries no
+// identity: the proof is what makes it the CFO's.
+func (s *Service) acceptCFOItem(pid int, connected time.Time, req runPipeRequest) error {
 	if s.Options.CFO == nil {
 		return errors.New("this supervisor cannot verify the CFO")
 	}
-	identity, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	identity, release, err := s.Options.CFO.identityOf(pid, connected)
 	if err != nil {
 		return err
 	}
@@ -64,6 +64,8 @@ func (s *Service) acceptCFOItem(ctx context.Context, pid int, connected time.Tim
 		return err
 	case req.Kind == "withdraw-run":
 		return s.Store.withdrawRun(req.ID, req.Reason)
+	case req.Kind == "afk-log" && req.AFK != nil:
+		return s.logAFKDecision(*req.AFK)
 	}
 	return fmt.Errorf("the supervisor takes no %q request of that shape", req.Kind)
 }

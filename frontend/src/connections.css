@@ -1,8 +1,7 @@
-.connections-panel { min-width: 0; padding-top: 4px; font-size: 1rem; }
+.connections-panel { container: connections / inline-size; min-width: 0; padding-top: 4px; font-size: 1rem; }
 .connections-panel p, .connections-panel span, .connections-panel time, .connections-panel button, .connections-panel h4, .connections-panel a { font-size: 1rem; }
 .connections .connections-panel p { color: #edf4f3; margin: 0; font-size: 1rem; }
 .disclosure.connections p { font-size: 1rem; color: #edf4f3; }
-.connections-panel [data-tip]::after { font-size: 1rem; }
 .connections-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 0 16px; }
 .connections-toolbar p { font-weight: 700; }
 .connections-panel .icon-button { min-width: 44px; min-height: 44px; flex-shrink: 0; }
@@ -11,19 +10,25 @@
 .connection-notice { display: grid; gap: 12px; justify-items: start; }
 .connections-group h4 { margin: 0 0 8px; color: #edf4f3; font-weight: 700; }
 .connections-group ul { padding: 0; margin: 0; list-style: none; }
-.connection-row { display: flex; gap: 14px; align-items: flex-start; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.connection-row { display: flex; gap: 14px; align-items: flex-start; padding: 24px 0; border-bottom: 1px solid var(--border); }
 .connection-row > .mark { margin-top: 3px; flex-shrink: 0; }
-.connection-copy { min-width: 0; flex: 1; display: grid; gap: 6px; }
-.connection-copy strong { font-size: 1.125rem; overflow-wrap: anywhere; }
+.connection-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px 14px; }
+.connection-copy strong { min-width: 0; font-size: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connection-copy > p, .connection-copy > time { grid-column: 1 / -1; }
 .connection-copy p { overflow-wrap: anywhere; }
 .connection-copy time { color: #c5d3df; }
-.connection-verdict { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.connection-verdict { display: flex; align-items: center; justify-self: end; gap: 7px; font-weight: 700; white-space: nowrap; }
 .connection-verdict .icon { width: 20px; height: 20px; }
 .connection-verdict.is-connected { color: var(--mint); }
 .connection-verdict.is-provided { color: #c5d3df; }
 .connection-verdict.needs-attention { color: var(--amber); }
 .connection-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 96px; }
 .connections .chip { font-size: 1rem; color: #c5d3df; }
+@container connections (width < 520px) {
+  .connection-copy { grid-template-columns: minmax(0, 1fr); }
+  .connection-copy strong { white-space: normal; overflow-wrap: anywhere; }
+  .connection-verdict { justify-self: start; }
+}
 @media (max-width: 480px) {
   .connection-row { gap: 10px; }
   .connection-actions { max-width: 44px; }

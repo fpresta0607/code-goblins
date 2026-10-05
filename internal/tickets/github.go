@@ -25,8 +25,8 @@ type GitHub struct {
 	Commands execx.Runner
 }
 
-// The read's bounds: rounds of follow-up pages, and branches compared one by
-// one. What lies past either is named in Activity.Unread.
+// The read's bounds: pages per connection or pull request, and branches
+// compared one by one. What lies past either is named in Activity.Unread.
 const (
 	maxPageRounds     = 10
 	maxBranchCompares = 30
@@ -34,11 +34,22 @@ const (
 
 var githubRemote = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?$`)
 
+// ErrNotGitHub says a checkout has no GitHub repository: it has no origin
+// remote, or its origin is somewhere else.
+var ErrNotGitHub = errors.New("not a GitHub repository")
+
+// noSuchRemote is git remote get-url's exit code for a remote that does not
+// exist.
+const noSuchRemote = 2
+
 // RepositoryOf names the GitHub repository a checkout's origin remote is.
 func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, error) {
 	result, err := g.Commands.Run(ctx, execx.Request{Name: "git", Args: []string{"-C", checkout, "remote", "get-url", "origin"}})
 	if err != nil {
 		return "", fmt.Errorf("read the origin remote of %s: %w", checkout, err)
+	}
+	if result.ExitCode == noSuchRemote {
+		return "", fmt.Errorf("read the origin remote of %s: %s: %w", checkout, strings.TrimSpace(string(result.Stderr)), ErrNotGitHub)
 	}
 	if result.ExitCode != 0 {
 		return "", fmt.Errorf("read the origin remote of %s: %s", checkout, strings.TrimSpace(string(result.Stderr)))
@@ -46,7 +57,7 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 	remote := strings.TrimSpace(string(result.Stdout))
 	match := githubRemote.FindStringSubmatch(remote)
 	if match == nil {
-		return "", fmt.Errorf("origin %s of %s is not a GitHub repository", remote, checkout)
+		return "", fmt.Errorf("origin %s of %s is %w", remote, checkout, ErrNotGitHub)
 	}
 	return match[1], nil
 }
@@ -56,7 +67,7 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 const activityQuery = `query($owner:String!,$name:String!,$since:GitTimestamp!,$first:Boolean!,$issues:Boolean!,$issuesAfter:String,$pulls:Boolean!,$pullsAfter:String,$refs:Boolean!,$refsAfter:String){
 viewer @include(if:$first){login name}
 repository(owner:$owner,name:$name){
-nameWithOwner
+nameWithOwner isPrivate
 defaultBranchRef @include(if:$first){name target{oid ... on Commit{history(first:100,since:$since){nodes{committedDate author{name user{login avatarUrl}}}}}}}
 recentIssues:issues(first:100,orderBy:{field:CREATED_AT,direction:DESC}) @include(if:$first){nodes{number createdAt author{__typename login avatarUrl}}}
 recentPullRequests:pullRequests(first:100,orderBy:{field:CREATED_AT,direction:DESC}) @include(if:$first){nodes{number createdAt author{__typename login avatarUrl}}}
@@ -116,6 +127,7 @@ type activityResponse struct {
 		} `json:"viewer"`
 		Repository *struct {
 			NameWithOwner    string `json:"nameWithOwner"`
+			IsPrivate        bool   `json:"isPrivate"`
 			DefaultBranchRef *struct {
 				Name   string `json:"name"`
 				Target struct {
@@ -191,6 +203,16 @@ type activityResponse struct {
 
 // Read reads one repository's activity as of now.
 func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Activity, error) {
+	return g.read(ctx, repository, now, true)
+}
+
+// ReadOpenWork keeps collaboration and open-item evidence without spending
+// additional reads on the changed files of branches without pull requests.
+func (g GitHub) ReadOpenWork(ctx context.Context, repository string, now time.Time) (Activity, error) {
+	return g.read(ctx, repository, now, false)
+}
+
+func (g GitHub) read(ctx context.Context, repository string, now time.Time, shouldCompareBranches bool) (Activity, error) {
 	owner, name, ok := strings.Cut(repository, "/")
 	if !ok || owner == "" || name == "" {
 		return Activity{}, fmt.Errorf("repository %q is not owner/name", repository)
@@ -210,8 +232,23 @@ func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Act
 			break
 		}
 		response, err := g.query(ctx, owner, name, since, include, cursors)
+		if err != nil && response.Data.Repository == nil {
+			if include["first"] {
+				return Activity{}, err
+			}
+			for _, connection := range []string{"issues", "pulls", "refs"} {
+				if include[connection] {
+					activity.Unread = append(activity.Unread, fmt.Sprintf("open %s after the first %d pages: %v", connectionNoun[connection], round, err))
+				}
+			}
+			break
+		}
 		if err != nil {
-			return Activity{}, err
+			activity.Unread = append(activity.Unread, err.Error())
+		} else {
+			for _, failure := range response.Errors {
+				activity.Unread = append(activity.Unread, fmt.Sprintf("GitHub left part of %s unread: %s", repository, failure.Message))
+			}
 		}
 		data := response.Data
 		if include["first"] {
@@ -222,6 +259,13 @@ func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Act
 		}
 		repo := data.Repository
 		include["first"] = false
+		missing := map[string]bool{"issues": repo.Issues == nil, "pulls": repo.PullRequests == nil, "refs": repo.Refs == nil}
+		for _, connection := range []string{"issues", "pulls", "refs"} {
+			if include[connection] && missing[connection] {
+				activity.Unread = append(activity.Unread, fmt.Sprintf("open %s on page %d: the connection was not read", connectionNoun[connection], round+1))
+				include[connection] = false
+			}
+		}
 		if include["issues"] {
 			for _, node := range repo.Issues.Nodes {
 				issue := Issue{Number: node.Number, Title: node.Title, Body: node.Body, URL: node.URL, CreatedAt: node.CreatedAt, Author: node.Author.actor(), Assignees: []string{}, Labels: []string{}}
@@ -254,17 +298,46 @@ func (g GitHub) Read(ctx context.Context, repository string, now time.Time) (Act
 		}
 	}
 	for i, pull := range activity.PullRequests {
-		if pullFiles[pull.Number] <= len(pull.Files) {
+		changedFiles := pullFiles[pull.Number]
+		if changedFiles <= len(pull.Files) {
 			continue
 		}
-		files, err := g.lines(ctx, "api", "--paginate", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100", repository, pull.Number), "--jq", ".[].filename")
-		if err != nil {
-			activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d past the first %d: %v", pull.Number, len(pull.Files), err))
-			continue
+		knownFiles := map[string]bool{}
+		activity.PullRequests[i].Files = nil
+		for _, file := range pull.Files {
+			if !knownFiles[file] {
+				activity.PullRequests[i].Files = append(activity.PullRequests[i].Files, file)
+				knownFiles[file] = true
+			}
 		}
-		activity.PullRequests[i].Files = files
+		pagesRead := 0
+		hasReadFailure := false
+		lastPage := min((changedFiles+99)/100, maxPageRounds)
+		for page := 1; page <= lastPage; page++ {
+			files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100&page=%d", repository, pull.Number, page), "--jq", ".[].filename")
+			if err != nil {
+				activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d past the first %d: %v", pull.Number, len(knownFiles), err))
+				hasReadFailure = true
+				break
+			}
+			pagesRead = page
+			for _, file := range files {
+				if !knownFiles[file] {
+					activity.PullRequests[i].Files = append(activity.PullRequests[i].Files, file)
+					knownFiles[file] = true
+				}
+			}
+			if len(files) < min(100, changedFiles-(page-1)*100) {
+				break
+			}
+		}
+		if !hasReadFailure && len(knownFiles) < changedFiles {
+			activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of pull request %d: read %d of %d files after the first %d pages", pull.Number, len(knownFiles), changedFiles, pagesRead))
+		}
 	}
-	g.compareBranches(ctx, &activity, now)
+	if shouldCompareBranches {
+		g.compareBranches(ctx, &activity, now)
+	}
 	return activity, nil
 }
 
@@ -339,7 +412,10 @@ func (g GitHub) query(ctx context.Context, owner, name, since string, include ma
 	for _, problem := range response.Errors {
 		messages = append(messages, problem.Message)
 	}
-	if result.ExitCode != 0 {
+	repo := response.Data.Repository
+	hasRequiredConnections := repo != nil && (!include["issues"] || repo.Issues != nil) && (!include["pulls"] || repo.PullRequests != nil) && (!include["refs"] || repo.Refs != nil)
+	hasReadableConnections := repo != nil && (include["issues"] && repo.Issues != nil || include["pulls"] && repo.PullRequests != nil || include["refs"] && repo.Refs != nil)
+	if result.ExitCode != 0 && (decodeErr != nil || !hasReadableConnections || len(response.Errors) == 0) {
 		messages = append(messages, strings.TrimSpace(string(result.Stderr)))
 		return activityResponse{}, fmt.Errorf("gh api graphql exited %d: %s", result.ExitCode, strings.Join(messages, "; "))
 	}
@@ -352,12 +428,22 @@ func (g GitHub) query(ctx context.Context, owner, name, since string, include ma
 		}
 		return activityResponse{}, fmt.Errorf("repository %s/%s is not visible to gh", owner, name)
 	}
-	repo := response.Data.Repository
-	if include["issues"] && repo.Issues == nil || include["pulls"] && repo.PullRequests == nil || include["refs"] && repo.Refs == nil {
+	if result.ExitCode != 0 {
+		exitMessage := fmt.Sprintf("gh api graphql exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+		messages = append(messages, exitMessage)
+	}
+	if !hasRequiredConnections {
 		if len(messages) == 0 {
 			messages = []string{"no error given"}
 		}
-		return activityResponse{}, fmt.Errorf("GitHub left part of %s/%s unread: %s", owner, name, strings.Join(messages, "; "))
+		err := fmt.Errorf("GitHub left part of %s/%s unread: %s", owner, name, strings.Join(messages, "; "))
+		if !hasReadableConnections {
+			return activityResponse{}, err
+		}
+		return response, err
+	}
+	if result.ExitCode != 0 {
+		return response, errors.New(strings.Join(messages, "; "))
 	}
 	return response, nil
 }

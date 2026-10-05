@@ -40,8 +40,9 @@ type TaskMeta struct {
 	HerdrWorkspaceID string
 	HerdrTabID       string
 	HerdrPaneID      string
-	// Title is the short title the task was dispatched under, from its
-	// backlog row; empty when it had none.
+	// Title is the task's short title: the one cfo spawn was given with
+	// --title, else its backlog row's, or the one cfo title wrote since;
+	// empty when it had none.
 	Title string
 }
 
@@ -190,11 +191,14 @@ func ValidTaskID(id string) error {
 
 // ReadTaskMeta reads the compatibility record through ReadMeta, retaining its
 // CRLF tolerance and last-value-wins semantics.
+// TaskMetaPath is where task id's record is.
+func TaskMetaPath(stateDir, id string) string { return filepath.Join(stateDir, id+".meta") }
+
 func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 	if err := ValidTaskID(id); err != nil {
 		return TaskMeta{}, err
 	}
-	kv, err := ReadMeta(filepath.Join(stateDir, id+".meta"))
+	kv, err := ReadMeta(TaskMetaPath(stateDir, id))
 	if err != nil {
 		return TaskMeta{}, err
 	}

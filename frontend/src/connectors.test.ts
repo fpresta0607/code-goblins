@@ -28,7 +28,7 @@ test("an unknown name gets a neutral mark, never bare text or a lookalike servic
 
 test("harnesses and model providers each carry their own mark", () => {
   assert.deepEqual(harnessMark("claude"), { brand: "claude" });
-  assert.deepEqual(harnessMark("codex"), { brand: "openai" });
+  assert.deepEqual(harnessMark("codex"), { glyph: "codex" });
   assert.deepEqual(harnessMark("pi"), { glyph: "pi" });
   assert.deepEqual(harnessMark("kimi"), { brand: "kimi" });
   assert.deepEqual(harnessMark("something-new"), { glyph: "terminal" });

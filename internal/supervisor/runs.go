@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -52,11 +53,17 @@ var runShells = []string{"powershell", "pwsh", "bash"}
 type Run struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
-	Title    string `json:"title"`
-	Shell    string `json:"shell"`
-	Admin    bool   `json:"admin"`
-	Command  string `json:"command"`
-	Cwd      string `json:"cwd"`
+	// Made is the identity the item was made under, once it has followed the
+	// CFO to another registration: its directory stays named after it.
+	Made string `json:"made,omitempty"`
+	// By is "cfo" on an item the registered CFO published over the pipe. Only
+	// such an item follows the CFO and waits to tell it how it ended.
+	By      string `json:"by,omitempty"`
+	Title   string `json:"title"`
+	Shell   string `json:"shell"`
+	Admin   bool   `json:"admin"`
+	Command string `json:"command"`
+	Cwd     string `json:"cwd"`
 	// ScriptSum is the SHA-256 of the script file Run executes: Run refuses
 	// a file that changed, and the audit line records it.
 	ScriptSum string `json:"script_sum,omitempty"`
@@ -76,6 +83,10 @@ type Run struct {
 
 	ConnectionTask       string `json:"connection_task,omitempty"`
 	ConnectionGeneration string `json:"connection_generation,omitempty"`
+	// Untold is how the item ended, in the words the CFO is told, while no
+	// CFO has been told yet: one that was closed when the item ended hears it
+	// once it runs again.
+	Untold string `json:"untold,omitempty"`
 	// CredentialRequest is the credential request whose card opened this
 	// terminal, and CredentialNames the names it stores.
 	CredentialRequest string   `json:"credential_request,omitempty"`
@@ -148,7 +159,7 @@ func sameRun(a, b Run) bool {
 // runDir holds one item's script and what its run leaves behind. Its name is
 // the item's own digest, so a later item with the same ID never shares it.
 func runDir(stateDir string, r Run) string {
-	sum := sha256.Sum256([]byte(r.ID + "\n" + r.Identity + "\n" + strconv.FormatInt(r.CreatedAt.UnixNano(), 10)))
+	sum := sha256.Sum256([]byte(r.ID + "\n" + madeUnder(r.Made, r.Identity) + "\n" + strconv.FormatInt(r.CreatedAt.UnixNano(), 10)))
 	return filepath.Join(stateDir, "runs", hex.EncodeToString(sum[:]))
 }
 
@@ -189,8 +200,11 @@ func WithdrawRun(h home.Home, id, reason string) error {
 // runPipeRequest is one request over the supervisor's pipe: a run item as cfo
 // run-request sends it, or, named by Kind, an item only the registered CFO
 // may put on the board (a question, a review record, an answer or a
-// credential request) or a run item it withdraws, which the supervisor
-// records only once the sending process is proven to be the CFO.
+// credential request), a run item it withdraws or a decision it logs under
+// AFK mode, which the supervisor records only once the sending process is
+// proven to be the CFO. AFK mode's switch (afk-on, afk-off) is the one kind
+// the CFO may not send: the supervisor makes it only for a process proven to
+// be the Overlord's own terminal.
 type runPipeRequest struct {
 	Kind        string             `json:"kind,omitempty"`
 	ID          string             `json:"id"`
@@ -205,6 +219,11 @@ type runPipeRequest struct {
 	Review      *Review            `json:"review,omitempty"`
 	Answer      *cfoAnswer         `json:"answer,omitempty"`
 	Credential  *CredentialRequest `json:"credential,omitempty"`
+	// AFK is a decision the CFO logs under AFK mode's authority.
+	AFK *afk.Entry `json:"afk,omitempty"`
+	// Asked is the Overlord's words when the CFO asks for his AFK switch at
+	// his ask, as the CFO quotes them.
+	Asked string `json:"asked,omitempty"`
 }
 
 // acceptRunRequest records a run item that came over the pipe from process
@@ -212,11 +231,11 @@ type runPipeRequest struct {
 // registered primary CFO.
 // Republishing an ID with the same content while its item still waits changes
 // nothing; any other reuse of the ID is refused.
-func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.Time, req runPipeRequest) error {
+func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequest) error {
 	if s.Options.CFO == nil {
 		return errors.New("this supervisor cannot verify the CFO")
 	}
-	identity, release, err := s.Options.CFO.identityOf(ctx, pid, connected)
+	identity, release, err := s.Options.CFO.identityOf(pid, connected)
 	if err != nil {
 		return err
 	}
@@ -229,7 +248,7 @@ func (s *Service) acceptRunRequest(ctx context.Context, pid int, connected time.
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Interactive: req.Interactive, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Interactive: req.Interactive, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -418,6 +437,19 @@ func (s *Store) finishRun(id, action string, code *int, output, reason string) (
 	return true, s.save()
 }
 
+// untoldRun records what the CFO is still to be told of how an item ended,
+// or with text empty that it was told.
+func (s *Store) untoldRun(id, action, text string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.RunAction == action })
+	if i < 0 || s.db.Runs[i].Untold == text {
+		return nil
+	}
+	s.db.Runs[i].Untold = text
+	return s.save()
+}
+
 // noteRun adds a note to how an item ended.
 func (s *Store) noteRun(id, action, note string) error {
 	s.mu.Lock()
@@ -565,28 +597,60 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 	if output != "" {
 		text += " The output ends: " + tail(output, 1500)
 	}
-	if delivery := s.tellCFO(ctx, text); delivery != nil {
+	if r.By == "cfo" && !s.Store.cfoLive() {
+		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
+	}
+	delivery := s.tellCFO(ctx, text)
+	if r.By == "cfo" && errors.Is(delivery, ErrRejected) {
+		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
+	}
+	if delivery != nil {
 		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
 	}
 	return err
 }
 
+// retellRuns tells the CFO, while one runs, how each of its items ended that
+// no CFO was told of. A result stays untold only while nothing of it was
+// sent: one that may have reached the CFO is noted and never typed again.
+func (s *Service) retellRuns(ctx context.Context) error {
+	var errs error
+	for _, r := range s.Store.Snapshot().Runs {
+		if r.By != "cfo" || r.Untold == "" {
+			continue
+		}
+		delivery := s.tellCFO(ctx, r.Untold)
+		if errors.Is(delivery, ErrRejected) {
+			return errors.Join(errs, delivery)
+		}
+		if delivery != nil {
+			errs = errors.Join(errs, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
+		}
+		errs = errors.Join(errs, s.Store.untoldRun(r.ID, r.RunAction, ""))
+	}
+	return errs
+}
+
 // tellCFO sends a run's result to the CFO registered now, which may have
-// restarted since it created the item.
+// restarted since it created the item. A result submitted behind the CFO's
+// turn is told: the CFO takes it when the turn ends. An error that is
+// ErrRejected sent nothing; any other may have reached the CFO.
 func (s *Service) tellCFO(ctx context.Context, text string) error {
 	if s.Options.CFO == nil {
 		return errors.New("no CFO transport")
 	}
 	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
 	if err != nil {
-		return errors.New("no CFO is registered")
+		return fmt.Errorf("%w: no CFO is registered", ErrRejected)
 	}
 	_, identity, err := decodePrimary(file)
 	_ = file.Close()
 	if err != nil {
-		return errors.New("the CFO registration is unreadable")
+		return fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
 	}
-	_, err = s.Options.CFO.Send(ctx, identity, text)
+	if _, err = s.Options.CFO.Send(ctx, identity, text); errors.Is(err, fleet.ErrQueuedBehindTurn) {
+		return nil
+	}
 	return err
 }
 

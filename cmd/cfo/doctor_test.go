@@ -28,7 +28,7 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 	}
 	path := filepath.Join(root, "data", "routing.json")
 	wants := []string{
-		"routing: 2 standing switch rule(s) from " + path,
+		"routing: 1 standing switch rule(s) from " + path,
 		"routing: 4 execution lane(s) from " + path + " (default build, escalate to deep)",
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "claude", "fable", "xhigh", "architecture, security, migration, rescue, anything high risk"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "claude", "opus", "high", "ordinary implementation; the default lane"),
@@ -135,8 +135,8 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
@@ -155,28 +155,32 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 }
 
-// Without Herdr, doctor says who needs it and how to get it, and stays
-// healthy: a goblin or CFO in a native terminal needs no Herdr.
-func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
+// Doctor neither checks nor names Herdr or Kimi: no goblin or CFO starts in
+// Herdr, and a spawn refuses kimi, so a machine with neither is healthy.
+func TestRunDoctorIsHealthyWithoutHerdrOrKimi(t *testing.T) {
+	// Arrange
 	bin := t.TempDir()
 	for _, name := range []string{
 		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
-		"claude", "codex", "pi", "kimi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("CFO_HOME", t.TempDir())
 
+	// Act
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
 
-	want := "OPTIONAL herdr not found on PATH (install: irm https://herdr.dev/install.ps1 | iex) - only a goblin or CFO started in Herdr needs it"
-	if !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "MISSING") {
-		t.Errorf("stdout lacks %q or reports something missing\n%s", want, stdout.String())
+	// Assert
+	if exit != 0 || strings.Contains(stdout.String(), "MISSING") || strings.Contains(stdout.String(), "broken") {
+		t.Errorf("exit = %d, want 0 with nothing missing or broken\n%s", exit, stdout.String())
 	}
-	if exit != 0 {
-		t.Errorf("exit = %d, want 0: a missing Herdr must not make doctor unhealthy\n%s", exit, stdout.String())
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && (fields[1] == "herdr" || fields[1] == "kimi") {
+			t.Errorf("doctor checks %s: %q\n%s", fields[1], line, stdout.String())
+		}
 	}
 }
 
@@ -187,8 +191,8 @@ func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
 func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
@@ -197,7 +201,7 @@ func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
-	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
+	want := "PRESENTATION_UNAVAILABLE lavish-axi not found on PATH (requires >=0.1.79-codegoblins.3; install: npm install -g " + doctor.LavishRelease + ") - nonvisual work proceeds in plain text"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 	}
@@ -238,5 +242,76 @@ func TestRunDoctorReportsStaleWakesHeldBackBesideThoseRaised(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("doctor lacks %q\n%s", want, stdout.String())
 		}
+	}
+}
+
+func TestRunDoctorNamesTheDictationModelAndWhetherItIsThere(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CFO_HOME", root)
+
+	var stdout, stderr bytes.Buffer
+	run([]string{"doctor"}, &stdout, &stderr)
+	want := "dictation: parakeet-tdt-110m en-36000-int8 on sherpa-onnx 1.13.8, not fetched yet: the first dictation downloads it once into " + filepath.Join(root, "caches", "voice")
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+	}
+
+	// A home with settings of its own is read from them, and settings that
+	// pin nothing are named as unreadable rather than passed over.
+	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "voice.json"), []byte(`{"engine":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	run([]string{"doctor"}, &stdout, &stderr)
+	if !strings.Contains(stdout.String(), "dictation: settings unreadable (") || strings.Contains(stdout.String(), "parakeet") {
+		t.Errorf("stdout does not say the home's own settings are unreadable\n%s", stdout.String())
+	}
+}
+
+// cfo doctor says which harness this home starts the CFO as and what a CFO in
+// it gets, from the same table the quick start and the first-run page read:
+// a Codex or pi CFO names each thing it goes without, and Claude Code none.
+func TestRunDoctorSaysWhatTheCFOsHarnessGets(t *testing.T) {
+	for _, tc := range []struct {
+		name, remembered string
+		want             []string
+		lacks            int
+	}{
+		{"a home that remembers none starts Claude Code", "", []string{"cfo harness: Claude Code (the best experience); its SessionStart hook registers it\n"}, 0},
+		{"Codex", "codex", []string{"cfo harness: Codex (woken by a typed line; no digest or guards); its first prompt runs cfo register\n", "  goes without: no turn-end guard and no pre-tool guards\n"}, 3},
+		{"pi", "pi", []string{"cfo harness: pi (woken by a typed line; no digest, guards or resume); its first prompt runs cfo register\n", "  goes without: a closed pi CFO starts a new conversation: it is not resumed\n"}, 4},
+		{"a harness no CFO runs in", "kimi", []string{"cfo harness: unreadable ("}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			t.Setenv("CFO_HOME", root)
+			t.Setenv("CFO_STATE_OVERRIDE", "")
+			if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.remembered != "" {
+				if err := os.WriteFile(filepath.Join(root, "state", "cfo-harness"), []byte(tc.remembered+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var stdout bytes.Buffer
+
+			// Act
+			reportCFOHarness(&stdout)
+
+			// Assert
+			for _, want := range tc.want {
+				if !strings.Contains(stdout.String(), want) {
+					t.Errorf("doctor lacks %q\n%s", want, stdout.String())
+				}
+			}
+			if got := strings.Count(stdout.String(), "  goes without: "); got != tc.lacks {
+				t.Errorf("doctor names %d things the CFO goes without, want %d\n%s", got, tc.lacks, stdout.String())
+			}
+		})
 	}
 }

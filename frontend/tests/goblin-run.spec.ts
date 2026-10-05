@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The Overlord, 2026-10-02, on a goblin's waiting card whose command sat in a
 // paragraph: "this should be copy and paste?", then "sorry not copy and paste

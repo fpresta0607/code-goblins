@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestANewCFOsKnownStartupDialogsAreAnsweredAndOthersLeftToThePerson(t *testi
 			"Claude Code's own first-run screen", "claude",
 			[]scriptedScreen{{rows: themePicker}},
 			nil,
-			[]string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: choose Yes with Up, then press Enter."},
+			[]string{"If Claude Code asks whether you trust this folder, its first choice, No, exits: move to Yes, I trust this folder, then press Enter."},
 		},
 		{
 			"Codex's directory trust and hook review", "codex",
@@ -134,6 +135,61 @@ func TestTheWatchEndsOnceTheScreenSettles(t *testing.T) {
 	// Assert
 	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet+time.Second {
 		t.Errorf("the watch took %s on a settled screen, want about %s", took, cfoSettleQuiet)
+	}
+}
+
+// A CFO started with a first prompt redraws its working line all through its
+// first turn, so its screen never settles: a turn in progress is past the
+// startup dialogs and ends the watch at once, with what to choose at a dialog
+// it may still show.
+func TestTheWatchEndsOnceTheHarnessIsWorking(t *testing.T) {
+	// Arrange
+	terminal := &scriptedCFO{t: t, clock: time.Unix(0, 0)}
+	for poll := range int(cfoSettle/cfoSettlePoll) + 1 {
+		terminal.screens = append(terminal.screens, scriptedScreen{
+			rows:  []string{fmt.Sprintf("• Working (%d • esc to interrupt)", poll), "› Ask Codex to do anything"},
+			lasts: cfoSettlePoll,
+		})
+	}
+
+	// Act
+	notes := settleCFO("codex", settleScreen(t, harness.Codex), terminal.terminal())
+
+	// Assert
+	if took := terminal.clock.Sub(time.Unix(0, 0)); took != 0 {
+		t.Errorf("the watch took %s on a screen showing a turn in progress, want it to end at once", took)
+	}
+	if len(terminal.answered) != 0 {
+		t.Errorf("answered %q on a screen showing no dialog", terminal.answered)
+	}
+	want := []string{"If Codex asks you to review hooks, Continue without trusting keeps them off; trusting them is your own decision."}
+	if !slices.Equal(notes, want) {
+		t.Errorf("notes %q, want %q", notes, want)
+	}
+}
+
+// A dialog shown after a screen that is not yet a turn in progress is still
+// answered, and the turn that follows it ends the watch.
+func TestADialogShownBeforeTheHarnessIsWorkingIsStillAnswered(t *testing.T) {
+	// Arrange
+	terminal := &scriptedCFO{t: t, clock: time.Unix(0, 0), screens: []scriptedScreen{
+		{rows: []string{"  Starting Codex"}, lasts: time.Second},
+		{rows: codexHooks},
+		{rows: []string{"• Working (0s • esc to interrupt)", "› Ask Codex to do anything"}},
+	}}
+
+	// Act
+	notes := settleCFO("codex", settleScreen(t, harness.Codex), terminal.terminal())
+
+	// Assert
+	if want := []string{"3. Continue without trusting"}; !slices.Equal(terminal.answered, want) {
+		t.Errorf("answered %q, want %q", terminal.answered, want)
+	}
+	if want := []string{"Answered the hook review prompt in the CFO's terminal: 3. Continue without trusting."}; !slices.Equal(notes, want) {
+		t.Errorf("notes %q, want %q", notes, want)
+	}
+	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet {
+		t.Errorf("the watch took %s, want it to end once the turn shows, before the quiet window %s", took, cfoSettleQuiet)
 	}
 }
 

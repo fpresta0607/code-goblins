@@ -24,6 +24,12 @@ var Agents = []string{"claude", "codex", "pi"}
 // agentNames are the names the quick start shows each agent by.
 var agentNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "pi": "pi"}
 
+// Name is the name the quick start shows the agent id by, in every line that
+// names it.
+func Name(id string) string {
+	return agentNames[id]
+}
+
 // State is how ready an agent is to run the CFO.
 type State int
 

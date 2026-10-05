@@ -23,7 +23,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -49,8 +48,11 @@ var reviewID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`)
 type Review struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
-	Task     string `json:"task,omitempty"`
-	Title    string `json:"title"`
+	// Made is the identity the item was made under, once it has followed the
+	// CFO to another registration: its directory stays named after it.
+	Made  string `json:"made,omitempty"`
+	Task  string `json:"task,omitempty"`
+	Title string `json:"title"`
 	// ImageSums are the SHA-256 of each copied image in order. They make a
 	// republish with the same ID and content change nothing and refuse other
 	// content, and the board only ever sees ImageCount.
@@ -138,7 +140,7 @@ func sameReview(a, b Review) bool {
 // its document. Its name is that publication's own digest, so no other
 // record, not even a republish of the same ID, ever names it.
 func reviewImageDir(stateDir string, r Review) string {
-	parts := []string{r.ID, r.Identity, strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}
+	parts := []string{r.ID, madeUnder(r.Made, r.Identity), strconv.FormatInt(r.CreatedAt.UnixNano(), 10), strings.Join(r.ImageSums, ",")}
 	if r.Document != nil {
 		parts = append(parts, r.Document.Sum)
 	}
@@ -149,26 +151,26 @@ func reviewImageDir(stateDir string, r Review) string {
 // reviewReporter proves who is reporting: a goblin from inside its task's own
 // terminal, or the registered primary CFO when taskID is empty. The returned
 // release keeps the CFO's registration from changing until the report is made.
-func reviewReporter(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string) (string, func(), error) {
+func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 	if taskID != "" {
-		meta, err := goblinAsker(ctx, h.State, terminals, taskID)
+		meta, err := goblinAsker(h.State, taskID)
 		if err != nil {
 			return "", nil, err
 		}
 		return goblinIdentity(meta), func() {}, nil
 	}
-	return (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
+	return (&CFOConnection{State: h.State}).CallerIdentity()
 }
 
 // PublishReview reports an item for the Overlord from the reporter's own
 // process. Images are checked the way a question's are and copied under
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback.
-func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, title, lavish, page string, images []string) error {
+func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
 		return fmt.Errorf("only a goblin's review takes images, at most %d", maxReviewImages)
 	}
-	return publishItem(ctx, h, terminals, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
+	return publishItem(h, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
 		sums, err := stageReviewImages(h, taskID, images, dir)
 		r.ImageSums = sums
 		return len(images) > 0, err
@@ -178,8 +180,8 @@ func PublishReview(ctx context.Context, h home.Home, terminals terminal.Opener, 
 // publishItem records r for its reporter, proven the way reviewReporter does.
 // stage fills in what r copies into dir and says whether it copied anything;
 // the copies move beside the item's record only once the item is new.
-func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r Review, stage func(r *Review, dir string) (bool, error)) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, r.Task)
+func publishItem(h home.Home, r Review, stage func(r *Review, dir string) (bool, error)) error {
+	identity, release, err := reviewReporter(h, r.Task)
 	if err != nil {
 		return err
 	}
@@ -233,8 +235,8 @@ func publishItem(ctx context.Context, h home.Home, terminals terminal.Opener, r 
 }
 
 // WithdrawReview closes the reporter's own open item with its reason.
-func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, reason string) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, taskID)
+func WithdrawReview(h home.Home, taskID, id, reason string) error {
+	identity, release, err := reviewReporter(h, taskID)
 	if err != nil {
 		return err
 	}
@@ -266,8 +268,8 @@ func WithdrawReview(ctx context.Context, h home.Home, terminals terminal.Opener,
 // ClearReview closes any open item for the registered primary CFO, such as a
 // retired goblin's item that only its reporter could withdraw. The reason is
 // kept on the item and state/reviews.audit records the clear.
-func ClearReview(ctx context.Context, h home.Home, terminals terminal.Opener, id, reason string) error {
-	identity, release, err := reviewReporter(ctx, h, terminals, "")
+func ClearReview(h home.Home, id, reason string) error {
+	identity, release, err := reviewReporter(h, "")
 	if err != nil {
 		return err
 	}
@@ -598,6 +600,7 @@ func (s *Store) acceptReview(r Review) error {
 	i := slices.IndexFunc(s.db.Reviews, func(prior Review) bool { return prior.ID == r.ID })
 	switch r.State {
 	case "open":
+		r.Made = ""
 		if err := validReview(r); err != nil {
 			return err
 		}
@@ -769,33 +772,21 @@ func (s *Store) pruneReviews(now time.Time) error {
 	return err
 }
 
-// clearReview closes an open item the Overlord cleared, with how he closed it
-// when he opened or downloaded its document. A page's card shows the question
-// its goblin asked beside the page, so clearing it dismisses that question in
-// the same step, and the questions dismissed come back for the CFO to hear
-// of. Clearing one already closed changes nothing.
-func (s *Store) clearReview(id, identity, reason string) (Evaluation, []Question, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	i := slices.IndexFunc(s.db.Reviews, func(r Review) bool { return r.ID == id && r.Identity == identity })
-	if i < 0 {
-		return Evaluation{}, nil, fmt.Errorf("%w: the review is gone; nothing was cleared", ErrRejected)
-	}
-	if s.db.Reviews[i].State != "open" {
-		return Evaluation{Reason: "The review was already " + s.db.Reviews[i].State + "."}, nil, nil
-	}
-	var dismissed []Question
+// clearReview closes open item i, which the Overlord cleared at at, with how
+// he closed it when he opened or downloaded its document. A page's card shows
+// the question its goblin asked beside the page, so clearing it dismisses
+// that question in the same step, and the IDs of the questions dismissed come
+// back for the CFO to hear of. The caller holds the store lock.
+func (s *Store) clearReview(i int, reason string, at time.Time) []string {
+	var dismissed []string
 	for j := range s.db.Questions {
 		if q := &s.db.Questions[j]; carriesQuestion(s.db.Reviews[i], *q) && q.AnswerID == "" {
 			q.Status, q.Message = "cleared", "You cleared its page's card."
-			dismissed = append(dismissed, *q)
+			dismissed = append(dismissed, q.ID)
 		}
 	}
-	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, time.Now().UTC()
-	if err := s.save(); err != nil {
-		return Evaluation{}, nil, err
-	}
-	return Evaluation{Reason: "Cleared from the Command Center."}, dismissed, nil
+	s.db.Reviews[i].State, s.db.Reviews[i].Reason, s.db.Reviews[i].UpdatedAt = "cleared", reason, at
+	return dismissed
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
@@ -806,7 +797,7 @@ func (s *Store) clearReview(id, identity, reason string) (Evaluation, []Question
 // received also reaches the CFO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
-		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	reviews := s.Store.Snapshot().Reviews
 	i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == a.ReviewID && r.Identity == a.Generation && r.AnswerID == a.ID })
@@ -926,9 +917,9 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // names the item waiting-<task>-<wake sequence>, which retireItems relies on.
 // why keeps the goblin's lines, so its card can show a table of values, and
 // link is the web link it gives as where he goes, if any.
-func PublishWait(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, why, lavish, page, link string) error {
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link string) error {
 	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
-	return publishItem(ctx, h, terminals, wait, func(*Review, string) (bool, error) { return false, nil })
+	return publishItem(h, wait, func(*Review, string) (bool, error) { return false, nil })
 }
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the

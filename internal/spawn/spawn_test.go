@@ -880,7 +880,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 
 	for _, want := range []string{
 		exe + " notify task-7 --working \"<what>\"",
-		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy> \"<why>\"",
+		exe + " notify task-7 --waiting-on <task-id|overlord|ci|deploy|memory> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --run <command.ps1>",
 		"runs it with one click in a window he can use",

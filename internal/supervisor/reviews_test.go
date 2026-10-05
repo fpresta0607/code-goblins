@@ -183,7 +183,11 @@ func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
 	store.mu.Lock()
 	store.db.Reviews[0].CreatedAt, store.db.Reviews[0].UpdatedAt = old, old
 	store.db.Reviews[0].State, store.db.Reviews[0].Answer, store.db.Reviews[0].AnswerID, store.db.Reviews[0].Delivered = "answered", "use the blue plan", "action-1", true
+	err := store.save()
 	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	if err := store.pruneReviews(time.Now()); err != nil {
@@ -446,14 +450,22 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	}
 	store.mu.Lock()
 	store.db.Tasks["task-1"] = Evaluation{Phase: "blocked", Reason: "Pipeline decision required at review", Generation: "g1"}
+	saveErr := store.save()
 	store.mu.Unlock()
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
 	report("task-1", "working: polishing docs")
 	if got := task(); got.Phase != "blocked" {
 		t.Fatalf("a report under a gate parked for a decision = %+v, want the gate's blocked", got.Evaluation)
 	}
 	store.mu.Lock()
 	delete(store.db.Tasks, "task-1")
+	saveErr = store.save()
 	store.mu.Unlock()
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
 	if _, err := wake.Append(h.State, "notify", "task-1", "blocked: Which port?"); err != nil {
 		t.Fatal(err)
 	}
@@ -476,6 +488,31 @@ func TestSnapshotReadsWorkingAndWaitingOnReports(t *testing.T) {
 	}
 	if got := task(); got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which port?" {
 		t.Fatalf("a question newer than the latest report = %+v, want blocked on it", got.Evaluation)
+	}
+}
+
+// A wait on memory names no task, so it lasts until the goblin reports again
+// even when a task with the id memory reports done after it.
+func TestWaitingOnMemoryOutlastsATaskNamedMemoryReportingDone(t *testing.T) {
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	for _, report := range [][2]string{{"task-1", "waiting on memory: the full test suite needs 5 GB"}, {"memory", "done: PR https://github.com/example/repo/pull/9"}} {
+		if err := state.AppendStatus(h.State, report[0], report[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := s.Snapshot()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if index < 0 {
+		t.Fatal("task-1 missing from the snapshot")
+	}
+	if task := snapshot.Tasks[index]; task.Phase != "waiting" || task.WaitingOn != "memory" {
+		t.Fatalf("a task waiting on memory = %+v, want it still waiting on memory", task.Evaluation)
 	}
 }
 
@@ -520,7 +557,11 @@ func TestSnapshotEndsAWaitOnTheOverlordOnceTheAnswerReachesTheGoblin(t *testing.
 			}
 			store.mu.Lock()
 			c.close(&store.db.Reviews[0])
+			saveErr := store.save()
 			store.mu.Unlock()
+			if saveErr != nil {
+				t.Fatal(saveErr)
+			}
 
 			// Act
 			snapshot, err := (&Service{Store: store}).Snapshot()

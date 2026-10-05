@@ -16,6 +16,16 @@ import (
 // fresh unless a test moves the clock.
 var snapshotTime = time.Date(2026, 9, 17, 12, 31, 0, 0, time.UTC)
 
+func TestParseKeepsTheMeasuredFractionForAllowanceFloors(t *testing.T) {
+	data := strings.ReplaceAll(string(fixture(t, "projected")), `"effectivePercentRemaining": 12`, `"effectivePercentRemaining": 3.1`)
+
+	report, err := Parse([]byte(data), snapshotTime)
+
+	if err != nil || float64(report.Providers["claude"].Scopes["model:fable"].PercentRemaining) != 3.1 {
+		t.Fatalf("fraction lost from allowance reading: %+v, %v", report.Providers["claude"].Scopes, err)
+	}
+}
+
 type fakeRunner struct {
 	result   execx.Result
 	err      error
@@ -159,5 +169,33 @@ func TestHeadroomReadsAMeasuredZeroAndAStaleProviderRight(t *testing.T) {
 func TestReadRequiresARunner(t *testing.T) {
 	if _, skipped := (Reader{}).Read(context.Background()); !strings.Contains(skipped, "command runner is required") {
 		t.Errorf("skipped = %q, want the missing runner named", skipped)
+	}
+}
+
+// AFK mode's report says what was spent while the Overlord was away, so the
+// snapshot keeps each window's use and a credit balance, which the headroom
+// scopes do not carry.
+func TestReadKeepsEachWindowsUseAndACreditBalance(t *testing.T) {
+	report, skipped := read(t, &fakeRunner{result: execx.Result{Stdout: fixture(t, "projected")}}, snapshotTime)
+	if skipped != "" {
+		t.Fatalf("skipped = %q, want the check to run", skipped)
+	}
+
+	claude := report.Providers["claude"]
+	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", Kind: "session", WindowSeconds: 18000, PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
+		t.Errorf("claude windows = %+v, want its session, week and model windows with what each has used", claude.Windows)
+	}
+	if scope := claude.Scopes["model:fable"]; len(claude.Windows) != 3 || strings.Join(scope.BoundedBy, ",") != "five_hour,seven_day,model:fable" || claude.Windows[1].Kind != "weekly" || claude.Windows[2].Kind != "model" || claude.Windows[2].WindowSeconds != 604800 {
+		t.Errorf("weekly scope metadata lost: windows=%+v scope=%+v", claude.Windows, scope)
+	}
+	if claude.Credits != nil {
+		t.Errorf("claude credits = %+v, want none: quota-axi reported no balance", claude.Credits)
+	}
+	codex := report.Providers["codex"]
+	if codex.Credits == nil || *codex.Credits != (Credits{Remaining: 0, Unit: "credits"}) {
+		t.Errorf("codex credits = %+v, want the zero balance quota-axi reported", codex.Credits)
+	}
+	if len(codex.Windows) != 3 || codex.Windows[0].PercentUsed != 40 {
+		t.Errorf("codex windows = %+v, want three with the week at 40%% used", codex.Windows)
 	}
 }

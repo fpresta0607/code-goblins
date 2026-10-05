@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +27,10 @@ const (
 	memoryNext = 5 << 30
 )
 
+// MemoryFloor is the free memory the fleet keeps, for what starts heavy work
+// outside the supervisor: a verification run waits for it before its tests.
+const MemoryFloor = memoryFloor
+
 // The fleet's defaults for a goblin whose backlog row and brief name none.
 const (
 	defaultHarness = "claude"
@@ -36,15 +39,16 @@ const (
 )
 
 var (
-	spawnHarnesses = []string{"claude", "codex", "pi", "kimi"}
+	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
-	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
+	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
 	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S+)\s*$`)
 )
 
 // Dispatch is what a queued task's Start reads and runs on this machine:
 // its memory, and cfo spawn itself. Without it the board starts no goblin.
 type Dispatch struct {
+	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
 	// CommitHolders names the apps holding the most commit.
@@ -69,13 +73,13 @@ type Memory struct {
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
+	Capacity        *FleetCapacity `json:"capacity,omitempty"`
 }
 
 // shortfall says how much of memory, of commit or of both is free when it is
 // under the mark at which a task starts, rounded down so memory just under
 // the mark never reads as the mark itself, and is empty when both reach it.
 func (m Memory) shortfall() string {
-	gigabytes := func(bytes uint64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
 	switch {
 	case m.Available < memoryNext && m.CommitAvailable < memoryNext:
 		return fmt.Sprintf("Only %.1f GB of memory and %.1f GB of commit (RAM plus page file) are free", gigabytes(m.Available), gigabytes(m.CommitAvailable))
@@ -91,6 +95,8 @@ func (m Memory) shortfall() string {
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
 	missingBrief                                     *fleet.QueuedTask
+	isOverlord                                       bool
+	isProductionDefect                               bool
 }
 
 func (p startPlan) args() []string {
@@ -144,31 +150,48 @@ func (h *HTTP) startTask(w http.ResponseWriter, r *http.Request) {
 // startTask checks that id can start now and starts cfo spawn for it; one
 // task starts at a time, and the board shows it starting until spawn ends.
 func (s *Service) startTask(id string) error {
+	return s.startQueued(id, true)
+}
+
+func (s *Service) startQueued(id string, isOverlord bool) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil {
 		return StartRefusal{Reason: "This board cannot start goblins"}
 	}
 	s.starts.Lock()
-	defer s.starts.Unlock()
 	if s.startErrors == nil {
 		s.startErrors = map[string]string{}
 	}
 	if s.starting != "" {
-		return StartRefusal{Reason: s.starting + " is starting; start another once it is up", Passing: true}
+		starting := s.starting
+		s.starts.Unlock()
+		return StartRefusal{Reason: starting + " is starting; start another once it is up", Passing: true}
 	}
 	for task, action := range s.changing {
 		if action == "resume" {
+			s.starts.Unlock()
 			return StartRefusal{Reason: task + " is resuming; start another once it is up", Passing: true}
 		}
 	}
 	if s.changing[id] != "" {
+		s.starts.Unlock()
 		return StartRefusal{Reason: "This task is being changed", Passing: true}
 	}
+	s.starting = id
+	s.starts.Unlock()
+	isStarting := false
+	defer func() {
+		if !isStarting {
+			s.starts.Lock()
+			s.starting = ""
+			s.starts.Unlock()
+			s.notify()
+		}
+	}()
 	queueLock := ".queued-" + id + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
 		return StartRefusal{Reason: "This queued task is being changed; try again", Passing: true}
 	}
-	isStarting := false
 	defer func() {
 		if !isStarting {
 			if err := lock.ReleaseExclusiveNamed(s.Store.Home.State, queueLock); err != nil {
@@ -180,12 +203,16 @@ func (s *Service) startTask(id string) error {
 	if err != nil {
 		return err
 	}
+	plan.isOverlord = isOverlord
 	memory, err := dispatch.Memory()
 	if err != nil {
 		return StartRefusal{Reason: "Free memory cannot be read, so nothing starts: " + err.Error()}
 	}
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
+	}
+	if err := CheckLaunch(s.Store.Home, memory); err != nil {
+		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {
 		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
@@ -195,9 +222,10 @@ func (s *Service) startTask(id string) error {
 			return err
 		}
 	}
-	s.starting = id
 	isStarting = true
+	s.starts.Lock()
 	delete(s.startErrors, id)
+	s.starts.Unlock()
 	go s.runStart(dispatch, plan)
 	return nil
 }
@@ -232,6 +260,12 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 			s.publish(readErr)
 		}
 		detail = "started: the Overlord started this from the board, at the top of In progress; its row is still in backlog.md's Queued section"
+		if !plan.isOverlord {
+			detail = "started: the supervisor started the next queued task after checking cleared pauses; its row is still in backlog.md's Queued section"
+		}
+		if plan.isProductionDefect {
+			detail += "; production defect jumped the order"
+		}
 	}
 	if _, err := wake.Append(h.State, "notify", plan.id, detail); err != nil {
 		s.publish(err)
@@ -269,49 +303,31 @@ func planStart(h home.Home, id string) (startPlan, error) {
 	if err != nil {
 		return startPlan{}, err
 	}
-	listed := func(row fleet.BacklogRow) bool { return row.Structured && row.ID == id }
-	var row fleet.BacklogRow
-	if at := slices.IndexFunc(backlog.Queued, listed); at >= 0 {
-		row = backlog.Queued[at]
+	queued, err := backlog.ReadQueuedTask(h, id)
+	if errors.Is(err, fleet.ErrNotQueued) {
+		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
+	if err != nil {
+		return startPlan{}, err
+	}
+	row := queued.Row
 	brief := filepath.Join(h.Data, id, "brief.md")
 	_, briefErr := os.Stat(brief)
-	switch {
-	case slices.ContainsFunc(backlog.Parked, listed) || !row.Structured && briefErr != nil:
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
-	case briefErr != nil && !errors.Is(briefErr, os.ErrNotExist):
+	if briefErr != nil && !errors.Is(briefErr, os.ErrNotExist) {
 		return startPlan{}, briefErr
-	case !row.Structured && !slices.ContainsFunc(queuedBriefs(h), func(task Task) bool { return task.ID == id }):
-		return startPlan{}, StartRefusal{Reason: id + " is not queued"}
 	}
 	if len(row.BlockedByIDs) > 0 {
 		return startPlan{}, StartRefusal{Reason: id + " is waiting on " + strings.Join(row.BlockedByIDs, ", ") + ": " + row.BlockedReason}
 	}
-	plan := startPlan{id: id, brief: brief, project: briefProject(brief)}
+	plan := startPlan{id: id, brief: brief, project: briefProject(brief), isProductionDefect: row.Priority == "production-defect"}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
 	}
-	named := briefSettings(brief)
-	pick := func(fromRow, key, fallback string) string {
-		switch {
-		case fromRow != "":
-			return fromRow
-		case named[key] != "":
-			return named[key]
-		}
-		return fallback
-	}
-	plan.harness = pick(row.Harness, "harness", defaultHarness)
-	fallbackModel, fallbackEffort := "", ""
-	if plan.harness == defaultHarness {
-		fallbackModel, fallbackEffort = defaultModel, defaultEffort
-	}
-	plan.model = pick(row.Model, "model", fallbackModel)
-	plan.effort = pick(row.Effort, "effort", fallbackEffort)
-	plan.mode = pick(row.Mode, "mode", "")
+	settings := queuedEngine(row, briefSettings(brief))
+	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
 	switch {
 	case !slices.Contains(spawnHarnesses, plan.harness):
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names harness " + plan.harness + ", which cfo spawn does not run"}
@@ -321,14 +337,31 @@ func planStart(h home.Home, id string) (startPlan, error) {
 		return startPlan{}, StartRefusal{Reason: "The backlog row or brief names a model or effort cfo spawn cannot take"}
 	}
 	if errors.Is(briefErr, os.ErrNotExist) {
-		queued, err := fleet.ReadQueuedTask(h, id)
-		if err != nil {
-			return startPlan{}, err
-		}
 		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
 		plan.missingBrief = &queued
 	}
 	return plan, nil
+}
+
+func queuedEngine(row fleet.BacklogRow, named map[string]string) startPlan {
+	pick := func(fromRow, key, fallback string) string {
+		switch {
+		case fromRow != "":
+			return fromRow
+		case named[key] != "":
+			return named[key]
+		}
+		return fallback
+	}
+	plan := startPlan{harness: pick(row.Harness, "harness", defaultHarness)}
+	fallbackModel, fallbackEffort := "", ""
+	if plan.harness == defaultHarness {
+		fallbackModel, fallbackEffort = defaultModel, defaultEffort
+	}
+	plan.model = pick(row.Model, "model", fallbackModel)
+	plan.effort = pick(row.Effort, "effort", fallbackEffort)
+	plan.mode = pick(row.Mode, "mode", "")
+	return plan
 }
 
 // briefSettings are the harness, model, effort and mode a brief names on

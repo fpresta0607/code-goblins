@@ -250,6 +250,51 @@ func TestApplyWritesNothingWhileTheTicketIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestApplyRecordsAPullRequestThatAppearsWhileTheStateStays(t *testing.T) {
+	claimed := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: Paused, Status: "Paused", Labels: []string{"cfo: paused", "goblin: claude"}}
+	cases := []struct {
+		name      string
+		from      *Record
+		wantWrite string
+		wantBody  func(Ticket) string
+	}{
+		{name: "an opened issue's body gets its link", from: openedRecord(Paused, "cfo: paused", "goblin: claude"), wantWrite: "PATCH repos/" + northwind + "/issues/501", wantBody: Ticket.Body},
+		{name: "a claimed issue's status comment is written again", from: claimed, wantWrite: "PATCH repos/" + northwind + "/issues/comments/9001", wantBody: Ticket.StatusLine},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGitHub{}
+			ticket := Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude", PullRequest: mergedPull}
+
+			// Act
+			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstPass := gh.requests()
+			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, 0)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(firstPass, []string{tc.wantWrite}) {
+				t.Fatalf("requests = %v, want only %s", firstPass, tc.wantWrite)
+			}
+			if body := gh.call(t, tc.wantWrite).Fields["body"]; len(body) != 1 || body[0] != tc.wantBody(ticket) {
+				t.Fatalf("written = %q, want %q", body, tc.wantBody(ticket))
+			}
+			if record.PullRequest != mergedPull.URL || record.Status != "Paused" || record.IsDone {
+				t.Fatalf("record = %+v, want the pull request kept on a ticket still paused", record)
+			}
+			if len(gh.calls) != 1 || again != record {
+				t.Fatalf("requests = %v, want the second pass to write nothing", gh.requests())
+			}
+		})
+	}
+}
+
 func TestApplyWritesNothingOnceTheIssueIsDone(t *testing.T) {
 	gh := &issueGitHub{}
 	from := openedRecord(Merged, "goblin: claude")
@@ -620,7 +665,7 @@ func TestEnsureLabelsCreatesEachLabelOnceAndAcceptsExistingOnes(t *testing.T) {
 		}
 		names = append(names, call.Fields["name"][0])
 	}
-	want := []string{"cfo: queued", "cfo: in progress", "cfo: pr open", "cfo: paused", "cfo: blocked", "goblin: claude", "goblin: codex", "goblin: pi", "goblin: kimi"}
+	want := []string{"cfo: queued", "cfo: in progress", "cfo: pr open", "cfo: paused", "cfo: blocked", "goblin: claude", "goblin: codex", "goblin: pi"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("labels created = %v, want %v", names, want)
 	}

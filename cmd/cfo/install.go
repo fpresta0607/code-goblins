@@ -29,6 +29,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
 	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
+	windowBuilt := fs.Bool("window-built", false, "the desktop window in this checkout was just built from it, as install.cmd -Dev builds it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -56,6 +57,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
 		Env:          install.NewEnvStore(execx.OSRunner{}),
+		// The desktop window's Start at login entry, which an uninstall
+		// removes and an install takes over from an earlier copy.
+		StartAtLoginKey: install.StartAtLoginKey,
 	}
 	if !checkout {
 		service.Contract, service.Policy = codegoblins.Contract, codegoblins.Policy
@@ -92,6 +96,8 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	service.EarlierWindow = install.EarlierWindowDir()
+	service.BuiltWindow = *windowBuilt
 	fmt.Fprintf(stdout, "cfo install: wiring %s into this machine\n", root)
 	if err := service.Install(stdout); err != nil {
 		fmt.Fprintln(stderr, err)

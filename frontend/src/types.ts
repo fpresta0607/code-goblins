@@ -20,6 +20,8 @@ export interface Task extends Evaluation {
   queue_revision: string;
   notes: string[];
   action_error: string;
+  pending_engine?: { harness: string; model: string; effort: string; when: string };
+  switching?: boolean;
   branch: string;
   runtime?: RuntimeEvidence;
   id: string;
@@ -143,8 +145,10 @@ export interface Snapshot {
   // cfo_runs says a CFO is registered and running or starting; without one
   // the board shows its first-run page.
   cfo_runs: boolean;
-  // cfo_starting says the CFO runs in its terminal but has not registered,
-  // which it does only after Claude Code's sign-in there.
+  // cfo_starting says the CFO runs in its terminal but has not registered
+  // yet: Claude Code registers through its SessionStart hook after its
+  // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
+  // register.
   cfo_starting: boolean;
   inbox: number;
   tasks: Task[];
@@ -161,6 +165,25 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  afk: Afk;
+}
+// AfkHeld is an item held for the Overlord while AFK mode is on: its key in
+// the Command Center, its goblin (empty for the CFO's own), what it asks,
+// whether it still waits on him and what became of it, and what its goblin
+// reported meanwhile.
+export interface AfkHeld {
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string;
+}
+// Afk is AFK mode, the Overlord's switch for running the fleet while he is
+// away: on, off, or unreadable when the supervisor cannot read the switch.
+// While on it says since when and from where, how many decisions the CFO
+// logged and what is held for him; asked holds his words when the CFO turned
+// it on at his ask, and is empty when he turned it on himself. While off,
+// report names the last stretch that ended, once its report is kept.
+export interface Afk {
+  state: "off" | "on" | "unreadable";
+  since: string; from: string; asked: string; decided: number; held: AfkHeld[];
+  report: string;
 }
 export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
@@ -253,21 +276,28 @@ export interface FileDiff {
   code_omitted: boolean;
   fingerprint: string;
 }
-// Setup is the first-run page: the projects folder and the git checkouts in
-// it, or why it offers none, the agents this machine has, and whether a CFO
-// already runs.
+// Setup is the first-run page: the home the CFO starts in, the agent the
+// quick start remembered, or "" when none was chosen, the projects folder and
+// the git checkouts in it, or why it offers none, the agents this machine
+// has, and whether a CFO already runs.
 export interface Setup {
+  home: string;
+  agent: string;
   projects_root: string;
   checkouts: string[];
   problem: string;
   agents: SetupAgent[];
   cfo_runs: boolean;
 }
-// SetupAgent is one agent the first-run page shows, and why Start cannot
-// pick it when it cannot.
+// SetupAgent is one agent the first-run page shows: whether it is the
+// recommended one and the few words on what a CFO in it gets, both from the
+// supervisor's table of what is proved, and why Start cannot pick it when it
+// cannot.
 export interface SetupAgent {
   id: string;
   name: string;
+  recommended: boolean;
+  note: string;
   installed: boolean;
   signed_in: boolean;
   reason: string;
@@ -376,9 +406,56 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
     created_at: string(c.created_at), expires_at: string(c.expires_at), closed_at: string(c.closed_at),
   };
 }
+export function parseAfkHeld(value: unknown): AfkHeld {
+  const h = object(value);
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile) };
+}
+// A supervisor from before AFK mode reached the board sends none, which is off.
+function parseAfk(value: unknown): Afk {
+  const a = value == null ? {} : object(value);
+  const state = a.state == null ? "off" : string(a.state);
+  if (state !== "off" && state !== "on" && state !== "unreadable") throw new Error("Invalid AFK state");
+  return { state, since: string(a.since), from: string(a.from), asked: string(a.asked), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), report: string(a.report) };
+}
+// The Command Center's items as the supervisor's stream sends them between
+// snapshots: its questions, review items, runs, credential requests and
+// actions, with the supervisor they are from and its revision.
+export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; actions: Action[] }
+function itemLists(v: Record<string, unknown>) {
+  return {
+    questions: array(v.questions).map((value) => {
+      const q = object(value);
+      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
+    }),
+    reviews: array(v.reviews).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
+        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
+        state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
+        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
+        created_at: string(r.created_at), updated_at: string(r.updated_at) };
+    }),
+    runs: array(v.runs).map((value) => {
+      const r = object(value);
+      return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
+        command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
+        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
+        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
+    }),
+    credentials: array(v.credentials).map(parseCredentialRequest),
+    actions: array(v.actions).map(parseAction),
+  };
+}
+export function parseItems(value: unknown): Items {
+  const v = object(value);
+  return { instance: string(v.instance), revision: number(v.revision), ...itemLists(v) };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
     started: string(v.started),
@@ -403,33 +480,14 @@ export function parseSnapshot(value: unknown): Snapshot {
     issues: strings(v.issues),
     attention: strings(v.attention),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
-    questions: array(v.questions).map((value) => {
-      const q = object(value);
-      return { id: string(q.id), identity: string(q.identity), text: string(q.text), options: strings(q.options), recommended: string(q.recommended), answer: string(q.answer), answer_kind: string(q.answer_kind), created_at: string(q.created_at), answer_id: string(q.answer_id), status: string(q.status), message: string(q.message), answered_option: string(q.answered_option), answered_by: string(q.answered_by), answered_at: string(q.answered_at), task: string(q.task), image_count: number(q.image_count), generation: string(q.generation), page: string(q.page), answered_in: string(q.answered_in) };
-    }),
-    reviews: array(v.reviews).map((value) => {
-      const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
-        document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
-        state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
-        answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
-        created_at: string(r.created_at), updated_at: string(r.updated_at) };
-    }),
-    runs: array(v.runs).map((value) => {
-      const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
-        command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
-        output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
-        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
-        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
-    }),
-    credentials: array(v.credentials).map(parseCredentialRequest),
+    ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
+        switching: t.switching === undefined ? false : boolean(t.switching),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),
@@ -486,7 +544,6 @@ export function parseSnapshot(value: unknown): Snapshot {
         updated_at: string(s.updated_at),
       };
     }),
-    actions: array(v.actions).map(parseAction),
     decisions: array(v.decisions).map((value) => {
       const d = object(value);
       return {
@@ -521,12 +578,14 @@ export function parseDiff(value: unknown): FileDiff {
 export function parseSetup(value: unknown): Setup {
   const v = object(value);
   return {
+    home: string(v.home),
+    agent: string(v.agent),
     projects_root: string(v.projects_root),
     checkouts: strings(v.checkouts),
     problem: string(v.problem),
     agents: array(v.agents).map((value) => {
       const agent = object(value);
-      return { id: string(agent.id), name: string(agent.name), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
+      return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), signed_in: boolean(agent.signed_in), reason: string(agent.reason) };
     }),
     cfo_runs: boolean(v.cfo_runs),
   };

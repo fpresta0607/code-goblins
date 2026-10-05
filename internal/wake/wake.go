@@ -3,13 +3,16 @@
 package wake
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -23,20 +26,17 @@ const queueFile = ".wake-queue"
 // AckThrough, PublishEpisode, AckEpisode) holds for its read-modify-write,
 // serializing them across processes. Read-only paths (Pending, ReadEpisode)
 // take no lock and create nothing, keeping INERT MEANS INERT intact.
-// The lock is NOT reentrant. Calling a second wake mutator from inside the
-// fn of one already in flight does not deadlock, because AcquireNamedOwner
-// treats the same process re-acquiring as an idempotent self-match; instead
-// the inner call's release drops the lock out from under the outer call,
-// which then finishes its own read-modify-write believing it is still
-// exclusive when it no longer is. A caller that needs several acks done
+// The lock is NOT reentrant. A caller that needs several acks done
 // together, such as cfo drain, must call them sequentially, one at a time,
 // never nested.
 const wakeLockName = ".wake-queue.lock"
 
 // kinds is the whitelist Append enforces: upstream's four documented wake
 // kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
-// sweep appends, and the `review` kind the supervisor appends when the
-// Overlord answers a goblin's item or page, and no others.
+// sweep appends, the `review` kind the supervisor appends when the Overlord
+// answers a goblin's item or page, and the `memory`, `ci` and `pr` kinds it
+// appends when memory comes back for waiting work, CI finishes or cannot be
+// read, and a pull request conflicts or falls behind, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -45,6 +45,9 @@ var kinds = map[string]bool{
 	"notify":    true,
 	"orphan":    true,
 	"review":    true,
+	"memory":    true,
+	"ci":        true,
+	"pr":        true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -78,13 +81,20 @@ const ackFile = ".wake-ack"
 // for seconds.
 const lockBudget = 5 * time.Second
 
+var mutationMutex sync.Mutex
+
 // withLock serializes a wake-state read-modify-write behind
-// state/.wake-queue.lock. A live holder is waited out within lockBudget,
+// state/.wake-queue.lock. The process-local mutex serializes goroutines,
+// since the file lock accepts a same-process holder.
+// A live holder is waited out within lockBudget,
 // 10 ms after the first attempt and twice as long after each next one up to
 // half a second, and past it the contention is returned to the caller
 // rather than swallowed; a dead holder is stolen by the lock package
 // itself, so a process killed inside fn cannot wedge the home.
 func withLock(dir string, fn func() error) error {
+	mutationMutex.Lock()
+	defer mutationMutex.Unlock()
+
 	deadline := time.Now().Add(lockBudget)
 	wait := 10 * time.Millisecond
 	for {
@@ -155,7 +165,7 @@ func writeQueue(dir string, records []Record) error {
 // single-writer, and gains AtomicWriteFile's bounded retry on Windows sharing locks.
 func Append(dir, kind, key, detail string) (Record, error) {
 	if !kinds[kind] {
-		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review", kind)
+		return Record{}, fmt.Errorf("wake: unknown kind %q, want one of signal, stale, check, heartbeat, notify, orphan, review, memory, ci, pr", kind)
 	}
 	var rec Record
 	err := withLock(dir, func() error {
@@ -287,8 +297,8 @@ func AckThrough(dir string, seq int) error {
 // it displayed. If a future change filters the listing again, the tool
 // withholds the ack line instead of printing one that overreaches.
 //
-// Apart from that withheld-ack line, which the loop below keeps unreachable,
-// Render prints one of four output shapes: an empty queue with no pending
+// Apart from that withheld-ack line, which only RenderWithin's bounded
+// listing reaches, Render prints one of four output shapes: an empty queue with no pending
 // episode (nothing further); an empty queue with a pending episode; a
 // non-empty queue with a pending episode (the full listing plus a
 // generation-qualified ack command); and a non-empty queue with NO pending
@@ -301,54 +311,81 @@ func AckThrough(dir string, seq int) error {
 // --recovery-generation 0: acking generation 0 against a home that never had
 // an episode would fabricate one (see AckEpisode's guard).
 func Render(w io.Writer, records []Record, ep Episode, now time.Time) error {
+	_, err := RenderWithin(w, records, ep, now, math.MaxInt)
+	return err
+}
+
+// RenderWithin is Render for a reader with room for only so many bytes: a
+// hook's output reaches a session whole only up to a limit, and a listing the
+// harness cut off would still have printed its ack line into the part nobody
+// was handed. It prints the records that fit, oldest first and each one
+// whole, and reports whether that was all of them. A listing that is not
+// withholds the ack line and says how many records it left out, because the
+// ack command retires every record at or below its sequence.
+func RenderWithin(w io.Writer, records []Record, ep Episode, now time.Time, room int) (bool, error) {
 	if len(records) == 0 && !ep.Pending {
 		_, err := fmt.Fprintln(w, "WAKE QUEUE: empty")
-		return err
+		return true, err
 	}
 
-	if _, err := fmt.Fprintf(w, "WAKE QUEUE: %d pending\n", len(records)); err != nil {
-		return err
+	header := fmt.Sprintf("WAKE QUEUE: %d pending\n", len(records))
+	if _, err := io.WriteString(w, header); err != nil {
+		return false, err
 	}
+	withheld := func(left int) string {
+		return fmt.Sprintf("WAKE_ACK_WITHHELD: %d of the %d records are not listed above; run \"cfo drain\" to read every record and get the ack command, because acking from this listing would retire records nobody has read\n", left, len(records))
+	}
+	used := len(header) + len(withheld(len(records)))
 	displayed := make([]Record, 0, len(records))
 	for _, rec := range records {
-		if verb, question, options, ok := decision(rec); ok {
-			if err := renderDecision(w, rec, verb, question, options, now); err != nil {
-				return err
-			}
-			displayed = append(displayed, rec)
-			continue
+		var row bytes.Buffer
+		if err := renderRecord(&row, rec, now); err != nil {
+			return false, err
 		}
-		line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
-		if rec.Key != rec.Kind {
-			line += terminalText(rec.Key) + ": "
+		if row.Len() > room-used {
+			break
 		}
-		line += terminalText(rec.Detail)
-		if _, err := fmt.Fprintln(w, line); err != nil {
-			return err
+		used += row.Len()
+		if _, err := w.Write(row.Bytes()); err != nil {
+			return false, err
 		}
 		displayed = append(displayed, rec)
 	}
 
+	// The ack sequence comes from the rows written out, never from the full
+	// set: an ack line covering records nobody read is a silent failure.
+	// TestAckSequenceRefusesToOutrunTheListing asserts the premise by driving
+	// ackSequence with a narrowed listing.
 	maxSeq, complete := ackSequence(records, displayed)
-	// Unreachable today by construction: the loop above appends every row it
-	// prints, so displayed always accounts for records. It is kept because the
-	// failure it guards is silent - a filtered listing would print an ack line
-	// covering records nobody read. TestAckSequenceRefusesToOutrunTheListing
-	// asserts the premise by driving ackSequence with a narrowed listing.
 	if !complete {
-		_, err := fmt.Fprintln(w, "WAKE_ACK_WITHHELD: the listing above does not account for every unacknowledged record; acking now would retire records nobody has read")
-		return err
+		_, err := io.WriteString(w, withheld(len(records)-len(displayed)))
+		return false, err
 	}
 
 	if !ep.Pending {
 		_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
-		return err
+		return true, err
 	}
 
 	if _, err := fmt.Fprintf(w, "RECOVERY EPISODE: pending, generation %d\n", ep.Gen); err != nil {
-		return err
+		return false, err
 	}
 	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
+	return true, err
+}
+
+// renderRecord prints one record: a decision as its block, anything else as
+// one line.
+func renderRecord(w io.Writer, rec Record, now time.Time) error {
+	if verb, question, options, ok := decision(rec); ok {
+		return renderDecision(w, rec, verb, question, options, now)
+	}
+	line := fmt.Sprintf("  %d  %-6s  ", rec.Seq, rec.Kind)
+	if rec.Key != rec.Kind {
+		line += terminalText(rec.Key) + ": "
+	}
+	line += terminalText(rec.Detail)
+	_, err := fmt.Fprintln(w, line)
 	return err
 }
 

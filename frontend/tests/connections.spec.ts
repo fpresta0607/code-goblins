@@ -1,6 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 const checkedAt = "2026-09-29T14:56:12Z";
+const engines = { harnesses: [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "gpt-6-astra", efforts: ["xhigh"], default_effort: "xhigh" }] }] };
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/engines", (route) => route.fulfill({ json: engines }));
+});
 const entries = [
   { id: "mcp:github", name: "GitHub", kind: "mcp", status: "connected", source: "Codex", checked_at: checkedAt },
   { id: "mcp:context7", name: "Context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", checked_at: checkedAt, actions: ["login"] },
@@ -19,7 +23,9 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
-      if (url.pathname === "/api/workspace") {
+      if (url.pathname === "/api/engines") {
+        await route.fulfill({ json: engines });
+      } else if (url.pathname === "/api/workspace") {
         await route.fulfill({ json: { repository: "code-goblins", root: "C:/scratch/work", harness: "codex", model: "Reported: gpt-6-astra", notes: [] } });
       } else if (url.pathname === "/api/connections" && route.request().method() === "GET") {
         checks++;
@@ -61,31 +67,44 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
   });
 }
 
-test("an open panel stays idle and reopening reads only the cached check", async ({ page }) => {
-  await page.clock.install();
-  const replies = [false, true, false];
-  let reads = 0;
-  await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "codex", notes: [] } }));
-  await page.route("**/api/connections**", (route) => {
-    const isChecking = replies[reads] ?? false;
-    reads++;
-    return route.fulfill({ json: { instance: "connections-proof", checking: isChecking, checked_at: checkedAt, entries: isChecking ? [] : [entries[0]] } });
+for (const shouldDelayCheckingResponse of [false, true]) {
+  test("an open panel stays idle and reopening reads only the cached check" + (shouldDelayCheckingResponse ? " after a delayed checking response" : ""), async ({ page }) => {
+    await page.clock.install();
+    if (shouldDelayCheckingResponse) await page.clock.pauseAt(Date.now() + 1000);
+    const replies = [false, true, false];
+    let reads = 0;
+    let releaseCheckingResponse = () => {};
+    const checkingResponse = new Promise<void>((resolve) => { releaseCheckingResponse = resolve; });
+    await page.route("**/api/workspace**", (route) => route.fulfill({ json: { repository: "scratch", harness: "codex", notes: [] } }));
+    await page.route("**/api/connections**", async (route) => {
+      const isChecking = replies[reads] ?? false;
+      reads++;
+      if (isChecking && shouldDelayCheckingResponse) await checkingResponse;
+      return route.fulfill({ json: { instance: "connections-proof", checking: isChecking, checked_at: checkedAt, entries: isChecking ? [] : [entries[0]] } });
+    });
+    await page.goto("/tests/fixtures/connections.html");
+    const disclosure = page.getByText("Connections", { exact: true });
+    await disclosure.click();
+    await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
+    await page.clock.runFor(5 * 60 * 1000);
+    expect(reads).toBe(1);
+    await disclosure.click();
+    await disclosure.click();
+    await expect(page.getByText("Checking connections...", { exact: true })).toBeVisible();
+    // The panel says it is checking from the moment it opens, before its
+    // request is counted here, so the count is waited for.
+    await expect.poll(() => reads).toBe(2);
+    await page.clock.runFor(2000);
+    releaseCheckingResponse();
+    await expect.poll(async () => {
+      await page.clock.runFor(2000);
+      return reads;
+    }).toBe(3);
+    await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
+    await page.clock.runFor(5 * 60 * 1000);
+    expect(reads).toBe(3);
   });
-  await page.goto("/tests/fixtures/connections.html");
-  const disclosure = page.getByText("Connections", { exact: true });
-  await disclosure.click();
-  await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
-  await page.clock.runFor(5 * 60 * 1000);
-  expect(reads).toBe(1);
-  await disclosure.click();
-  await disclosure.click();
-  await expect(page.getByText("Checking connections...", { exact: true })).toBeVisible();
-  expect(reads).toBe(2);
-  await page.clock.runFor(2000);
-  await expect(page.getByText("Connection health", { exact: true })).toBeVisible();
-  await page.clock.runFor(5 * 60 * 1000);
-  expect(reads).toBe(3);
-});
+}
 
 test("a slow check leaves the dropdown usable and ends in an honest timeout", async ({ page }) => {
   let hasTimedOut = false;

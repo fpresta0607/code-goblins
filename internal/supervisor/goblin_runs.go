@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // A goblin's wait or question can carry a command for the Overlord to run
@@ -39,8 +37,8 @@ func goblinRunID(taskID string, seq int) string { return fmt.Sprintf("run-%s-%d"
 // supervisor from the goblin's own process, proven the way its questions are.
 // title says why he should run it, and the command runs in the goblin's
 // worktree.
-func PublishGoblinRun(ctx context.Context, h home.Home, terminals terminal.Opener, taskID string, seq int, title, shell, command string) error {
-	meta, err := goblinAsker(ctx, h.State, terminals, taskID)
+func PublishGoblinRun(h home.Home, taskID string, seq int, title, shell, command string) error {
+	meta, err := goblinAsker(h.State, taskID)
 	if err != nil {
 		return err
 	}

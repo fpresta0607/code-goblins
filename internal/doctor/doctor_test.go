@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,16 +48,16 @@ func fakeTool(t *testing.T, dir, name, out string, code int) {
 
 func TestRunAllToolsPresent(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" version 1.0.0", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
 	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
-	if len(checks) != 12 {
-		t.Fatalf("len = %d, want 12 (10 tools + conpty + hook-pairing)", len(checks))
+	if len(checks) != 11 {
+		t.Fatalf("len = %d, want 11 (9 tools + conpty + hook-pairing)", len(checks))
 	}
 	if !Healthy(checks) {
 		t.Errorf("Healthy = false with all tools present: %+v", checks)
@@ -63,23 +65,23 @@ func TestRunAllToolsPresent(t *testing.T) {
 	if checks[0].Name != "git" || checks[0].Version != "git version 1.0.0" {
 		t.Errorf("git check = %+v, want captured version line", checks[0])
 	}
-	if checks[3].Name != "tasks-axi" || checks[4].Name != "quota-axi" {
-		t.Errorf("AXI checks = %+v, want tasks-axi and quota-axi", checks[3:5])
+	if checks[1].Name != "gh" || checks[2].Name != "tasks-axi" || checks[3].Name != "quota-axi" {
+		t.Errorf("checks after git = %+v, want gh, tasks-axi and quota-axi: neither Herdr nor anything else in between", checks[1:4])
 	}
-	if checks[5].Name != "no-mistakes" || checks[6].Name != "gh-axi" || checks[7].Name != "chrome-devtools-axi" {
-		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[5:8])
+	if checks[4].Name != "no-mistakes" || checks[5].Name != "gh-axi" || checks[6].Name != "chrome-devtools-axi" {
+		t.Errorf("gate/API checks = %+v, want no-mistakes, gh-axi, chrome-devtools-axi", checks[4:7])
 	}
-	if checks[8].Name != "lavish-axi" || checks[8].Err != "" || checks[8].Floor != "0.1.79" {
-		t.Errorf("checks[8] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79 floor", checks[8])
+	if checks[7].Name != "lavish-axi" || checks[7].Err != "" || checks[7].Floor != "0.1.79-codegoblins.3" {
+		t.Errorf("checks[7] = %+v, want the Code Goblins build of lavish-axi at its 0.1.79-codegoblins.3 floor", checks[7])
 	}
-	if checks[9].Name != "winget" || checks[9].Err != "" || !checks[9].Installer {
-		t.Errorf("checks[9] = %+v, want winget as an installer-only check", checks[9])
+	if checks[8].Name != "winget" || checks[8].Err != "" || !checks[8].Installer {
+		t.Errorf("checks[8] = %+v, want winget as an installer-only check", checks[8])
 	}
-	if checks[10].Name != "conpty" || checks[10].Err != "" {
-		t.Errorf("checks[10] = %+v, want this Windows's pseudo console available", checks[10])
+	if checks[9].Name != "conpty" || checks[9].Err != "" {
+		t.Errorf("checks[9] = %+v, want this Windows's pseudo console available", checks[9])
 	}
-	if checks[11].Name != "hook-pairing" {
-		t.Errorf("checks[11] = %+v, want hook-pairing", checks[11])
+	if checks[10].Name != "hook-pairing" {
+		t.Errorf("checks[10] = %+v, want hook-pairing", checks[10])
 	}
 }
 
@@ -87,10 +89,10 @@ func TestRunAllToolsPresent(t *testing.T) {
 // still healthy: only install.ps1 uses winget.
 func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
-	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
+	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.3", 0)
 	t.Setenv("PATH", dir)
 	t.Setenv("CFO_HOME", t.TempDir())
 
@@ -125,12 +127,14 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 		{name: "unparseable", version: "lavish dev", wantErr: true},
 		{name: "upstream at floor", version: "0.1.79", wantErr: true},
 		{name: "upstream above floor", version: "lavish-axi v0.2.0", wantErr: true},
-		{name: "the fork's build at floor", version: "0.1.79-codegoblins.1"},
-		{name: "the fork's build above floor", version: "lavish-axi v0.2.0-codegoblins.3"},
+		{name: "the fork's build before the board look", version: "0.1.79-codegoblins.2", wantErr: true},
+		{name: "the fork's build at floor", version: "0.1.79-codegoblins.3"},
+		{name: "the fork's later build of the floor's version", version: "0.1.79-codegoblins.10"},
+		{name: "the fork's build above floor", version: "lavish-axi v0.2.0-codegoblins.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			for _, name := range []string{"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
+			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
 				fakeTool(t, dir, name, name+" ok", 0)
 			}
 			if tc.version != "" {
@@ -159,6 +163,58 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	}
 }
 
+// The install script installs the release the doctor's hint names, so a
+// machine the install set up meets the floor the doctor checks.
+func TestInstallScriptInstallsTheReleaseTheDoctorNames(t *testing.T) {
+	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), LavishRelease) {
+		t.Errorf("install.ps1 does not install %s", LavishRelease)
+	}
+	if !strings.Contains(LavishRelease, "/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz") {
+		t.Errorf("LavishRelease = %s, want the release at the lavish-axi floor", LavishRelease)
+	}
+}
+
+// The install script installs exactly the tools and harnesses the doctor
+// checks, winget aside, which only the install uses. Herdr and Kimi are in
+// neither: no goblin or CFO starts in Herdr, and a spawn refuses kimi.
+func TestInstallScriptInstallsExactlyTheToolsTheDoctorChecks(t *testing.T) {
+	// Arrange
+	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := []string{}
+	for _, tool := range tools {
+		if !tool.installer {
+			checked = append(checked, tool.name)
+		}
+	}
+	for _, harness := range harnessTools {
+		checked = append(checked, harness.name)
+	}
+
+	// Act
+	installed := []string{}
+	for _, match := range regexp.MustCompile(`@\{ Name = "([^"]+)";\s+Kind = `).FindAllStringSubmatch(string(script), -1) {
+		installed = append(installed, match[1])
+	}
+
+	// Assert
+	want := []string{"chrome-devtools-axi", "claude", "codex", "gh", "gh-axi", "git", "lavish-axi", "no-mistakes", "pi", "quota-axi", "tasks-axi"}
+	slices.Sort(checked)
+	slices.Sort(installed)
+	if !slices.Equal(checked, want) {
+		t.Errorf("the doctor checks %v, want %v", checked, want)
+	}
+	if !slices.Equal(installed, want) {
+		t.Errorf("install.ps1 installs %v, want %v", installed, want)
+	}
+}
+
 func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 	for _, tc := range []struct {
 		versionLine string
@@ -175,6 +231,13 @@ func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 		{versionLine: "0.1.71.1", floor: "0.1.71", want: true},
 		{versionLine: "0.1.79-codegoblins.1", floor: "0.1.79", want: true},
 		{versionLine: "lavish-axi v0.1.78-codegoblins.9", floor: "0.1.79"},
+		{versionLine: "0.1.79-codegoblins.3", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.10", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.2", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79-other.9", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "lavish-axi v0.2.0-codegoblins.1", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.78-codegoblins.9", floor: "0.1.79-codegoblins.3"},
 		{versionLine: "dev", floor: "0.1.71"},
 		{versionLine: "", floor: "0.1.71"},
 	} {
@@ -188,7 +251,7 @@ func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 
 func TestRunMissingToolCarriesHint(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "herdr"} {
+	for _, name := range []string{"git", "gh"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir) // no tasks-axi
@@ -197,7 +260,7 @@ func TestRunMissingToolCarriesHint(t *testing.T) {
 	if Healthy(checks) {
 		t.Error("Healthy = true with tasks-axi missing")
 	}
-	last := checks[3]
+	last := checks[2]
 	if last.Name != "tasks-axi" || last.Err == "" || last.Hint == "" {
 		t.Errorf("tasks-axi check = %+v, want Err and Hint set", last)
 	}
@@ -205,7 +268,7 @@ func TestRunMissingToolCarriesHint(t *testing.T) {
 
 func TestRunBrokenToolReportsFailure(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"gh", "claude", "herdr"} {
+	for _, name := range []string{"gh", "claude"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	fakeTool(t, dir, "git", "boom", 1)
@@ -217,34 +280,6 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 	}
 	if checks[0].Name != "git" || checks[0].Err == "" {
 		t.Errorf("git check = %+v, want Err set", checks[0])
-	}
-}
-
-// Herdr is reported but optional: a goblin or CFO in a native terminal needs
-// none, so a missing or broken Herdr never makes the environment unhealthy.
-func TestRunMissingOrBrokenHerdrIsOptional(t *testing.T) {
-	for name, herdrExits := range map[string]int{"missing": -1, "broken": 1} {
-		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
-			for _, tool := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi"} {
-				fakeTool(t, dir, tool, tool+" ok", 0)
-			}
-			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.1", 0)
-			if herdrExits >= 0 {
-				fakeTool(t, dir, "herdr", "boom", herdrExits)
-			}
-			t.Setenv("PATH", dir)
-			t.Setenv("CFO_HOME", t.TempDir())
-
-			checks := Run()
-
-			if checks[2].Name != "herdr" || checks[2].Err == "" || !strings.Contains(checks[2].Optional, "Herdr") {
-				t.Errorf("herdr check = %+v, want its failure reported as optional", checks[2])
-			}
-			if !Healthy(checks) {
-				t.Errorf("Healthy = false with only herdr failing: %+v", checks)
-			}
-		})
 	}
 }
 
@@ -302,20 +337,20 @@ func TestProbeHarnessesRefusesAClaudeScriptShim(t *testing.T) {
 
 func TestProbeHarnessesReportsMissingWithInstallHints(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "herdr"} {
+	for _, name := range []string{"git", "gh"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
 
 	probes := ProbeHarnesses(context.Background())
-	if len(probes) != 4 {
-		t.Fatalf("len = %d, want 4 (every supported harness)", len(probes))
+	if len(probes) != 3 {
+		t.Fatalf("len = %d, want 3 (every supported harness)", len(probes))
 	}
 	byName := make(map[string]HarnessProbe, len(probes))
 	for _, probe := range probes {
 		byName[probe.Name] = probe
 	}
-	for _, name := range []string{"claude", "codex", "pi", "kimi"} {
+	for _, name := range []string{"claude", "codex", "pi"} {
 		probe, ok := byName[name]
 		if !ok || probe.OK || !strings.Contains(probe.Detail, "not found on PATH") || !strings.Contains(probe.Detail, "install") {
 			t.Errorf("%s probe = %+v, want missing harness with install hint", name, probe)
@@ -325,7 +360,7 @@ func TestProbeHarnessesReportsMissingWithInstallHints(t *testing.T) {
 
 func TestRunMissingAXIToolsCarryInstallHints(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "codex", "pi"} {
+	for _, name := range []string{"git", "gh", "claude", "codex", "pi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
@@ -346,7 +381,7 @@ func TestRunMissingAXIToolsCarryInstallHints(t *testing.T) {
 
 func TestRunMissingGateAndAXICapabilityToolsCarryInstallHints(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "claude", "herdr", "codex", "pi", "kimi", "tasks-axi", "quota-axi"} {
+	for _, name := range []string{"git", "gh", "claude", "codex", "pi", "tasks-axi", "quota-axi"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
@@ -372,8 +407,8 @@ func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	t.Setenv("PATH", dir)
 
 	probes := ProbeHarnesses(context.Background())
-	if len(probes) != 4 {
-		t.Fatalf("len = %d, want 4 (every supported harness): %+v", len(probes), probes)
+	if len(probes) != 3 {
+		t.Fatalf("len = %d, want 3 (every supported harness): %+v", len(probes), probes)
 	}
 	if probes[0].Name != "claude" || !probes[0].OK || probes[0].Detail != fakeClaudeVersion {
 		t.Errorf("claude probe = %+v, want ok with the version line", probes[0])
@@ -381,10 +416,8 @@ func TestProbeHarnessesReportsOkAndBroken(t *testing.T) {
 	if probes[1].Name != "codex" || probes[1].OK || probes[1].Detail == "" {
 		t.Errorf("codex probe = %+v, want broken with failure detail", probes[1])
 	}
-	for _, index := range []int{2, 3} {
-		if probes[index].OK || !strings.Contains(probes[index].Detail, "not found on PATH") {
-			t.Errorf("probes[%d] = %+v, want missing harness reported broken", index, probes[index])
-		}
+	if probes[2].Name != "pi" || probes[2].OK || !strings.Contains(probes[2].Detail, "not found on PATH") {
+		t.Errorf("probes[2] = %+v, want missing pi reported broken", probes[2])
 	}
 }
 

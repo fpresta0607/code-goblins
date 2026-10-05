@@ -8,9 +8,9 @@ The binary still owns review, fixes, tests, lint, documentation, push, PR creati
 
 | Spawn class | Review repair cycles | Reviewer |
 | --- | --- | --- |
-| `ordinary` (default) | 2 | Codex gpt-5.6-sol high |
-| `high-risk` | 3 | Codex gpt-5.6-sol high |
-| `mechanical` | 2 | Codex gpt-5.6-sol high |
+| `ordinary` (default) | 2 | Codex gpt-6.1-sol xhigh |
+| `high-risk` | 3 | Codex gpt-6.1-sol xhigh |
+| `mechanical` | 2 | Codex gpt-6.1-sol xhigh |
 
 Use `cfo spawn <id> ... --class high-risk` for a high-risk task.
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
@@ -18,8 +18,9 @@ Editing the source policy does not change a running task's snapshot, and `cfo sw
 Direct-PR and local-only tasks retain their existing delivery paths.
 Existing tasks without a snapshot are not silently migrated.
 
-Policy v2 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
-The global primary profile defaults to Codex gpt-5.6-sol at high effort.
+Policy v3 uses the native Codex CLI through the machine's existing ChatGPT OAuth login.
+The global primary profile defaults to Codex gpt-6.1-sol at xhigh effort.
+Frozen v1 Claude Opus/high and v2 Codex gpt-5.6-sol/high policies remain valid with their original hashes until explicitly migrated.
 Global-only `review_agents.reviewer` and `review_agents.fixer` pin every review and review-fix invocation to that same profile without fallbacks.
 No-mistakes v1.75.1 resolves test, document, and lint from the primary agent.
 Its effective repository `agent` normally comes from the trusted default branch, but a trusted `allow_repo_commands` setting delegates that field to the submitted branch.
@@ -43,6 +44,8 @@ cfo pipeline migrate <id>
 
 `config-drift` is read-only and prints owned field names, never their values or unrelated configuration.
 `config-apply` requires a scheduled idle window: the daemon must already be stopped and every durable run must be terminal.
+Native v1.75.1 treats completed, failed, cancelled and ci_monitor_interrupted runs as terminal; pending, running, unknown and NULL statuses still block the window.
+An interrupted CI monitor is not a passed gate and requires no cancellation or database rewrite to establish that it has stopped executing.
 It takes the native daemon singleton lock throughout the database check, backup and replacement, preventing a concurrent daemon startup.
 It does not stop or restart anything, cancel a run, or repair stale state.
 The command currently supports Windows, using the native singleton lock contract retained by v1.75.1.
@@ -55,7 +58,7 @@ The command prints the backup path, preserves unrelated YAML settings and commen
 It refuses a missing or unreadable database or configuration file.
 An operator can restore the printed backup in another idle window; restoration is never automatic over an operator's intervening edit.
 
-Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-5.6-sol, effort: high}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
+Owned machine fields are `agent: [codex]`, `agent_config.codex: {model: gpt-6.1-sol, effort: xhigh}`, both global `review_agents` roles with the same Codex profile, `agent_args_override.codex: [-c, 'service_tier="default"']`, the absence of `agent_path_override.codex`, `auto_fix.review: 0`, and one automatic follow-up each for test, lint, rebase and CI.
 The raw Codex argument override forces standard service for every managed role, so a user-level fast or priority preference cannot leak into a gate, while `agent_config` owns model and reasoning effort.
 Removing the Codex executable override makes no-mistakes resolve the native `codex` command from `PATH`; executable overrides for other harnesses remain operator-owned.
 The exact legacy CFO-owned Claude model and effort vector is removed during apply; a differing operator-owned Claude vector is preserved.
@@ -64,8 +67,9 @@ Spawn never rewrites shared YAML.
 The YAML parser dependency is needed to preserve unrelated configuration structurally; v3.0.1 avoids the old parser's [known panic vulnerability](https://pkg.go.dev/vuln/GO-2022-0603).
 
 Run `config-apply` before migrating any live task snapshot.
-`migrate` requires the applied v2 global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
-It accepts only the reviewed v1-to-v2 transition and preserves the task class and `review_cycles` cap exactly.
+`migrate` requires the applied target-version global configuration, the daemon stopped, every durable native run terminal, and the task's pipeline lock.
+It accepts the reviewed v1-to-v2, v1-to-v3 and v2-to-v3 transitions and preserves the task class and `review_cycles` cap exactly.
+The same frozen policy is a no-op; downgrades and invalid snapshots are refused.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
 An interrupted command resumes that journal under the same pipeline, cleanup, metadata, and native idle locks before any pipeline command trusts the snapshot hash.
 The task-scoped metadata lock also serializes `cfo pr check` and `cfo switch`, so neither command can publish a stale whole-record update over the migrated hash.
@@ -92,7 +96,8 @@ Commit work on a named feature branch before `run`.
 The project must be initialized for no-mistakes, with readable committed task and origin default-branch `.no-mistakes.yaml` files.
 Refresh origin before starting; global reviewer/fixer drift is refused.
 A repository's committed `auto_fix` counts are read from the submitted branch, which can edit its own `.no-mistakes.yaml`, so each is held to the frozen policy's count as a ceiling: a repository may lower one, which only sends more to a person, and a count above the policy's, a negative count, or a key the policy does not govern (anything but review, test, lint, rebase, ci and its legacy name babysit) is refused.
-No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation, so `run` refuses before invoking native start instead of relying on an opaque launch receipt.
+No-mistakes v1.75.1 does not expose an assertion that binds an expected trusted SHA and effective primary after its fresh fetch but before agent creation.
+The current `run` check validates the trusted inputs before invoking native start; it does not establish that post-fetch binding.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
@@ -135,7 +140,111 @@ After native has already returned clean user-owned custody, the registered ident
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
 After the shared idle apply, migrate each idle legacy task explicitly before starting its next run.
-Newly spawned tasks freeze policy v2 directly.
+Newly spawned tasks freeze policy v3 directly.
+
+## Verification levels
+
+`cfo gate test` is this repository's test step (`commands.test` in `.no-mistakes.yaml`), and it plans before it runs.
+
+```powershell
+cfo gate test                 # the level the change requires
+cfo gate test --level fast    # while working: static checks and the quick changed packages
+cfo gate test --level full    # every package
+cfo gate test --plan          # print the plan and run nothing
+```
+
+| Level | `go vet` | `go test` |
+| --- | --- | --- |
+| `fast` | the changed packages and all their importers, including test imports | the changed packages the policy does not list as slow |
+| `affected` | the changed packages and all their importers, including test imports | the same packages |
+| `full` | every package | every package |
+
+A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed or the policy cannot be read.
+With no `--level` the step runs the required level, which is what the gate runs.
+A level asked for runs instead: a broader one is always allowed, and a narrower one exits 0 when its checks pass while its last line and its report say which level the change still requires.
+The plan prints why each package is in it (`changed`, or `imports <package>`) and every test run the level left to a broader one, with why.
+CI runs every package whatever the local level was.
+
+The policy is `config/verify.json`:
+
+```json
+{
+  "version": 1,
+  "slow_packages": [".", "cmd/cfo", "internal/supervisor"]
+}
+```
+
+`slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their tests to `affected`.
+The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
+A change to the file therefore takes effect once it is on the default branch.
+A build ignores a field it does not know, so the build a gate has installed keeps reading a policy that a later build extended.
+A file that does not parse, or a version the build does not know, makes the change require `full`.
+A repository with no policy file has no slow packages.
+
+Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
+A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
+`CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
+For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
+
+The tests run as `go test -json`, and the step prints what `go test` prints without `-v`: a compile error as it arrives, each package's summary line as the package ends, and for a package that did not pass what it printed itself and what its failed and unfinished tests printed.
+A run in which a package did not pass ends its tests' output by saying which packages, and which tests in them:
+
+```text
+cfo gate test: go test did not pass in 2 of 7 package(s):
+- example.com/m/internal/spawn: TestSwitchWaits did not finish
+- example.com/m/cmd/cfo: TestUpdate, TestUpdate/rollback failed
+```
+
+The log holds every line the tests wrote, as `go test -v` prints them, so a passing test's lines and every test's own time are read there.
+If the test output or log cannot be written, the test check fails even when `go test` exits zero.
+The 20 reports of a project written last are kept, the one a run just wrote always among them, and an older one is removed with its log.
+A log with no report belongs to a run still going and stays, until nothing has written to it for 24 hours, when the project's next run removes it.
+A run that cannot write its report says so and keeps its verdict: the checks decide the exit code, never the store.
+
+### Taking turns
+
+Every `go vet` and `go test` command waits for a turn at every level: the shared capacity limits concurrent commands, every goblin's and every gate's alike, in the order they asked.
+Each command releases its turn when execution ends and joins the common line again before its next command.
+The default remains one, which keeps heavy commands from competing for the same machine's resources.
+Production admission always uses the operating system's user cache folder under `cfo/verify/slots`, regardless of report or process environment redirects.
+The shared `capacity.json` setting accepts only `{"capacity":1}` or `{"capacity":2}`; absence means one.
+Activating capacity two requires a separately reviewed quiet window with no legacy command executing or queued.
+An unreadable or invalid setting, or any nonempty `CFO_VERIFY_SLOTS` process setting, refuses admission.
+Only test binaries can use explicitly isolated admission stores.
+
+A command also waits while either physical or commit availability is under the shared floor: 4 GiB at capacity one or 8 GiB at capacity two.
+An unavailable reading or an hour of floor waiting refuses admission and starts no command.
+
+While it waits, a run says which run holds the turn, for how long and under what budget, and where it stands in line, as it starts to wait, whenever its place in line changes and once a minute:
+
+```text
+cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget; 1 run is ahead of this one in line
+```
+
+A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
+Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
+A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
+The run's recorded repository and branch select that worktree; the shared process's task variable is not used.
+If the run or owner cannot be verified, the task stays unnamed and the log explains why.
+
+```text
+turn: code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget
+  now: go test: 3 package(s) done; running example.com/m/internal/spawn TestSwitchWaits for 40s; last output: ok  	example.com/m/internal/lock	21.2s
+waiting:
+1. code-goblins at 89abcdef, affected level, in C:\work\other (pid 5150), for 3m0s
+```
+
+Waiting is not execution or a passed check.
+It is part of the run's duration and of no check's own time: the verdict line and the report's `queue_seconds` sum the waits before its commands.
+Failed admission fails the run, records its reason in `queue_note`, and preserves unstarted required checks as `not_run` with no start or execution duration.
+
+A turn has a budget: 90 minutes at `fast` and `affected`, twice `go test`'s package timeout, and 3 hours at `full`.
+Checks that ran past their budget do not pass: the check is recorded `over_budget` and the run fails.
+A live or unverifiable process retains custody past its budget until its execution ends or its recorded PID and birth time prove it is gone.
+Unreadable or incomplete custody records retain their place regardless of age; the line command reports the uncertainty instead of reporting an empty line.
+A cancelled waiter removes only its own exact record, and a release cannot remove a later lease from the same process.
+A store failure prevents commands from starting.
 
 ## Reading speed evidence
 

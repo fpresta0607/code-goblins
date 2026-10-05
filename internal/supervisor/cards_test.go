@@ -34,6 +34,46 @@ func TestSnapshotCarriesAGoblinsWholeStatusLineForShowMore(t *testing.T) {
 	}
 }
 
+func TestSnapshotTitlesARunningTaskFromItsRecordBeforeItsQueuedRow(t *testing.T) {
+	// Arrange
+	handler, h := orderBoard(t)
+	for _, meta := range []state.TaskMeta{
+		{ID: "titled", Title: "Recorded title"},
+		{ID: "untitled"},
+	} {
+		meta.Project, meta.Harness, meta.Mode, meta.Kind, meta.Backend, meta.SpawnGen = h.Root, "claude", "no-mistakes", "ship", "native", "g1"
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n"+
+		"- [ ] titled - Row title one blocked-by: untitled - needs the other first (repo: goblins)\n"+
+		"- [ ] untitled - Row title two blocked-by: waiting - needs the queue first (repo: goblins)\n"+
+		"- [ ] waiting - Row title three (repo: goblins)\n")
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := map[string]Task{}
+	for _, task := range snapshot.Tasks {
+		tasks[task.ID] = task
+	}
+	for id, want := range map[string]string{"titled": "Recorded title", "untitled": "Row title two", "waiting": "Row title three"} {
+		if got := tasks[id].Title; got != want {
+			t.Errorf("%s is titled %q on the board, want %q", id, got, want)
+		}
+	}
+	for id, want := range map[string]string{"titled": "untitled", "untitled": "waiting"} {
+		if got := tasks[id].Dependencies; len(got) != 1 || got[0] != want {
+			t.Errorf("%s depends on %v, want its row's blocker %s", id, got, want)
+		}
+	}
+}
+
 func TestSnapshotDatesEachSessionAndEachQueuedBrief(t *testing.T) {
 	// Arrange
 	handler, h := orderBoard(t)
