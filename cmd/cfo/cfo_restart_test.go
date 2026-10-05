@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -317,6 +318,80 @@ func TestRestartCFOLeavesACFOItCannotBringBackRunning(t *testing.T) {
 			}
 			if after, err := os.ReadFile(filepath.Join(h.State, "cfo-conversation.json")); err != nil || string(after) != string(conversation) {
 				t.Errorf("the CFO's conversation record = %q, %v after the refusal, want it as it was, %q", after, err, conversation)
+			}
+		})
+	}
+}
+
+func TestRestartCFORejectsAConversationNotOwnedByItsRunningHarness(t *testing.T) {
+	for _, testCase := range []struct {
+		name, harness      string
+		isBeforeChildStart bool
+		hasUpdate          bool
+	}{
+		{"a conversation predating the current child", "claude", true, true},
+		{"a conversation without a registration time", "claude", false, false},
+		{"a conversation naming another supported harness", "codex", false, true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h := fakeClaudeHome(t)
+			record := nativeCFORunning(t, h, "current-session")
+			started, isAlive := proc.StartTime(record.ChildPID)
+			if !isAlive || record.ChildStart.IsZero() || !started.Equal(record.ChildStart) {
+				t.Fatalf("the fixture child birth = %v, alive=%t, want actual recorded birth %v", started, isAlive, record.ChildStart)
+			}
+			updated := record.ChildStart
+			if testCase.isBeforeChildStart {
+				updated = updated.Add(-time.Nanosecond)
+			}
+			if !testCase.hasUpdate {
+				updated = time.Time{}
+			}
+			conversation := supervisor.CFOConversation{Harness: testCase.harness, Session: "earlier-session", Host: record.ID, PID: record.ChildPID, Updated: updated}
+			conversationBytes, err := json.Marshal(conversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conversationPath := filepath.Join(h.State, "cfo-conversation.json")
+			if err := os.WriteFile(conversationPath, conversationBytes, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			primaryPath := filepath.Join(h.State, "primary.json")
+			primaryBytes, err := os.ReadFile(primaryPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			argumentsPath := filepath.Join(h.Root, fakeClaudeArguments)
+			argumentsBytes, err := os.ReadFile(argumentsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			_, isResumed, err := restartCFO(h)
+
+			// Assert
+			if err == nil || isResumed || !strings.Contains(err.Error(), "registered no conversation it can come back on, so it is left running") {
+				t.Errorf("restartCFO resumed=%t error=%v, want refusal before closing the current child", isResumed, err)
+			}
+			if afterStart, isAlive := proc.StartTime(record.ChildPID); !isAlive || !afterStart.Equal(started) || !host.Running(record) {
+				t.Errorf("the original child pid %d birth %v was changed or stopped", record.ChildPID, started)
+			}
+			if afterRecord, err := host.ReadRecord(h.State, record.ID); err != nil || afterRecord != record {
+				t.Errorf("the native host record changed after refusal: %v", err)
+			}
+			for _, snapshot := range []struct {
+				path  string
+				bytes []byte
+			}{
+				{conversationPath, conversationBytes},
+				{primaryPath, primaryBytes},
+				{argumentsPath, argumentsBytes},
+			} {
+				if afterBytes, err := os.ReadFile(snapshot.path); err != nil || !bytes.Equal(afterBytes, snapshot.bytes) {
+					t.Errorf("%s changed after refusal: %v", filepath.Base(snapshot.path), err)
+				}
 			}
 		})
 	}
