@@ -63,6 +63,7 @@ type Hook struct {
 func Hooks(root string) []Hook {
 	hooks := []Hook{
 		{Name: "session-start", Event: "SessionStart", Timeout: 120},
+		{Name: "pre-compact", Event: "PreCompact"},
 		{Name: "pretool-bash", Event: "PreToolUse", Matcher: "Bash"},
 		{Name: "pretool-subagent", Event: "PreToolUse", Matcher: guard.HookMatcher()},
 		{Name: "turnend-guard", Event: "Stop"},

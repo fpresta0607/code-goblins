@@ -20,9 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // fakeRunLauncher records each launch in place of opening a window.
@@ -98,7 +96,7 @@ func commandFile(t *testing.T, command string) string {
 // refused before anything is written.
 func TestRunRequestRefusesAProcessThatIsNotTheCFO(t *testing.T) {
 	store, h := testStore(t)
-	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: &cfoRunner{t: t, pid: os.Getpid()}})}}})
+	runPipe(t, &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}})
 	file := commandFile(t, "Write-Output hello\n")
 	err := PublishRun(h, RunRequest{ID: "install-tool", Title: "Install the tool", Shell: "powershell", CommandFile: file})
 	if err == nil || !strings.Contains(err.Error(), "not registered") {
@@ -375,7 +373,7 @@ func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
 	}{{0, "succeeded"}, {3, "failed"}} {
 		t.Run(test.state, func(t *testing.T) {
 			store, h := testStore(t)
-			_, identity, runner, connection := primaryFixture(t, store)
+			_, identity, terminal, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			r := readyRun(t, store, identity, "migrate-db", "powershell", false, time.Now().UTC())
 			pressRun(t, s, r, "press-migrate")
@@ -395,8 +393,8 @@ func TestRunResultReachesTheCFOAndTheAudit(t *testing.T) {
 			if got.State != test.state || got.ExitCode == nil || *got.ExitCode != test.code || got.Output != "applying migration 42\nmigration 42 applied" || got.FinishedAt == nil {
 				t.Fatalf("run = %+v, want %s with exit code %d and its output", got, test.state, test.code)
 			}
-			if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], fmt.Sprintf("finished with exit code %d", test.code)) || !strings.Contains(runner.prompts[0], "migration 42 applied") {
-				t.Fatalf("the CFO got %q, want the exit code and the output's end once", runner.prompts)
+			if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], fmt.Sprintf("finished with exit code %d", test.code)) || !strings.Contains(typed[0], "migration 42 applied") {
+				t.Fatalf("the CFO got %q, want the exit code and the output's end once", typed)
 			}
 			audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit"))
 			fields := strings.Fields(string(audit))
@@ -487,7 +485,7 @@ func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, h := testStore(t)
-			_, identity, runner, connection := primaryFixture(t, store)
+			_, identity, terminal, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: test.started(t)}}}
 			r := readyRun(t, store, identity, "install-driver", "powershell", true, time.Now().UTC())
 			pressRun(t, s, r, "press-driver")
@@ -503,8 +501,8 @@ func TestRunThatDoesNotFinishEndsWithItsReason(t *testing.T) {
 			if got.State != "failed" || got.ExitCode != nil || got.Reason != test.reason {
 				t.Fatalf("run = %+v, want failed with %q and no exit code", got, test.reason)
 			}
-			if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "did not finish") {
-				t.Fatalf("the CFO got %q, want to hear it did not finish", runner.prompts)
+			if typed := terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "did not finish") {
+				t.Fatalf("the CFO got %q, want to hear it did not finish", typed)
 			}
 			if audit, err := os.ReadFile(filepath.Join(h.State, "runs.audit")); err != nil || !strings.HasSuffix(strings.TrimSpace(string(audit)), r.ScriptSum+" none") {
 				t.Fatalf("audit = %q %v, want the run recorded with no exit code", audit, err)
