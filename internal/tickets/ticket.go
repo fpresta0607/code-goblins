@@ -26,7 +26,7 @@ const (
 var openStates = []State{Queued, InProgress, PROpen, Paused, Blocked}
 
 // harnesses are the harnesses a goblin can run on, each with its own label.
-var harnesses = []harness.Kind{harness.Claude, harness.Codex, harness.Pi, harness.Kimi}
+var harnesses = []harness.Kind{harness.Claude, harness.Codex, harness.Pi}
 
 // Reason says why a ticket is blocked or closed. It is one of these fixed
 // phrases, so a question's text or an internal note can never reach a

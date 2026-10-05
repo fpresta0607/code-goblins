@@ -1,17 +1,6 @@
 {
   "rules": [
     {
-      "harness": "kimi",
-      "fault": "rate-limit",
-      "switch": {
-        "harness": "claude",
-        "model": "opus",
-        "effort": "xhigh"
-      },
-      "auto": true,
-      "note": "standing Overlord rule: a kimi quota refusal moves that session to claude/opus/xhigh"
-    },
-    {
       "fault": "auth",
       "switch": {
         "harness": "claude"
