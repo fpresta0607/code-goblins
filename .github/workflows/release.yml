@@ -207,6 +207,13 @@ jobs:
           $preference = Get-MpPreference
           if ($preference.ExclusionPath) { Remove-MpPreference -ExclusionPath $preference.ExclusionPath }
           if ($preference.ExclusionExtension) { Remove-MpPreference -ExclusionExtension $preference.ExclusionExtension }
+          # Defender turns real-time protection on a few seconds after it is
+          # asked to, so its status is read once it reports protection on, or
+          # after a minute, when the check below stops the release.
+          $deadline = (Get-Date).AddMinutes(1)
+          while (-not (Get-MpComputerStatus).RealTimeProtectionEnabled -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
           $status = Get-MpComputerStatus
           $preference = Get-MpPreference
           $record = @(

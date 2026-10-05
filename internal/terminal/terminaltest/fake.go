@@ -31,13 +31,10 @@ type Fake struct {
 	Structure herdr.SessionSnapshot
 	Agents    []herdr.AgentRecord
 	Evidence  []byte
-	// CFO is what CFOTab returns, and CFORunning whether an agent runs in it.
-	CFO        herdr.Endpoint
-	CFORunning bool
-	Process    herdr.PaneProcessInfo
-	Running    bool
-	Dead       bool
-	Fail       map[string]error
+	Process   herdr.PaneProcessInfo
+	Running   bool
+	Dead      bool
+	Fail      map[string]error
 
 	mu      sync.Mutex
 	calls   []string
@@ -126,10 +123,6 @@ func (f *Fake) CheckSchema(context.Context) error {
 
 func (f *Fake) AgentList(context.Context) ([]herdr.AgentRecord, error) {
 	return f.Agents, f.record("AgentList")
-}
-
-func (f *Fake) CFOTab(_ context.Context, _ herdr.Container, cwd string) (herdr.Endpoint, bool, error) {
-	return f.CFO, f.CFORunning, f.record("CFOTab", cwd)
 }
 
 func (f *Fake) Focus(_ context.Context, endpoint herdr.Endpoint) error {

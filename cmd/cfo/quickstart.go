@@ -21,7 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-// runQuickstart is goblins with no command, with --native or --harness, and
+// runQuickstart is goblins with no command, with --harness, and
 // goblins setup. It finds the supervisor or starts one, which never opens the
 // board; one Enter at a time it makes the agent the CFO runs on ready; it
 // starts the CFO in the Code Goblins home when none runs; and it ends on one
@@ -30,13 +30,13 @@ import (
 // It asks for no project, since the CFO works across every
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
-// with --harness. native starts a new CFO in a native terminal rather than in
-// Herdr. restart, which goblins resume sets, first restarts a CFO running in
-// native terminal cfo on its conversation, as for a CFO whose screen froze.
-// What it finds running it says first and starts nothing beside, and each
-// step it finishes is one line with a tick, so the screen holds what was
-// answered and the one step that waits.
-func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, native, restart bool, harness string) int {
+// with --harness. A new CFO starts in a native terminal. restart, which
+// goblins resume sets, first restarts a CFO running in native terminal cfo on
+// its conversation, as for a CFO whose screen froze. What it finds running it
+// says first and starts nothing beside, and each step it finishes is one line
+// with a tick, so the screen holds what was answered and the one step that
+// waits.
+func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, restart bool, harness string) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -94,7 +94,7 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, nati
 				return 1
 			}
 		}
-		if session, started, err = ensureCFOSession(ctx, runtime, h, native, agent, list); err != nil {
+		if session, started, err = ensureCFOSession(ctx, runtime, h, agent, list); err != nil {
 			list.End()
 			fmt.Fprintf(stderr, "goblins: %v\n", err)
 			return 1
@@ -173,14 +173,14 @@ type cfoSession struct {
 }
 
 // ensureCFOSession finds the CFO's session, or starts the CFO as agent in the
-// home and reports whether it started one: in native terminal cfo when native
-// is set, or else in Herdr's cfo tab. A CFO registered in a native terminal
+// home, in native terminal cfo, and reports whether it started one. A CFO
+// registered in a native terminal
 // comes first, then one whose registration names a live process in Herdr,
 // which is brought to the front where it registered, then native terminal cfo
 // while its host answers, since the CFO started there may not have registered
 // yet. A CFO is never started beside one that runs. Either way list says so
 // in one line.
-func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, native bool, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
+func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, agent string, list *onboarding.Checklist) (cfoSession, bool, error) {
 	if id, live := runtime.nativeCFO(h.State); live {
 		list.Done("CFO", "already running in native terminal "+id)
 		return cfoSession{native: id}, false, nil
@@ -203,7 +203,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 			return cfoSession{}, false, err
 		}
 	}
-	resume, why, ranNatively := cfoResume(h, agent)
+	resume, why := cfoResume(h, agent)
 	// said is what the lines under the CFO's own say, starting with why it
 	// did not come back on its conversation, when it did not.
 	var said []string
@@ -211,10 +211,6 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if why != "" {
 		said = append(said, why+", so the CFO starts a new one.")
 	}
-	// A CFO that ran in its own terminal comes back in it, and a harness the
-	// supervisor wakes by typing is woken only in a native terminal, so its
-	// CFO starts in one.
-	native = native || ranNatively || supervisor.CFOWakeFor(agent) == supervisor.CFOWakeTyped
 	if len(resume) > 0 {
 		conversation := resume[len(resume)-1]
 		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
@@ -235,36 +231,21 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		left = &supervisor.CFOConversationLeft{Harness: agent, Session: conversation, Resume: resume}
 	}
 	list.Working("CFO", "starting as "+onboarding.Name(agent))
-	if native {
-		if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
-			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
-		}
-		if left != nil {
-			if err := supervisor.RecordCFOConversationLeft(h.State, *left); err != nil {
-				return cfoSession{}, false, fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
-			}
-		}
-		// Its startup dialogs are answered before the line says it started.
-		notes := runtime.settleCFO(ctx, h.State, agent)
-		list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
-		for _, note := range append(append(said, wakePath(agent)...), notes...) {
-			list.Note(note)
-		}
-		return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
+	if err := runtime.startNativeCFO(h, h.Root, agent, nil); err != nil {
+		return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 	}
-	started, err := runtime.startCFO(ctx, h.Root, agent)
-	if err != nil {
-		return cfoSession{}, false, fmt.Errorf("the CFO session could not be started in Herdr: %w", err)
+	if left != nil {
+		if err := supervisor.RecordCFOConversationLeft(h.State, *left); err != nil {
+			return cfoSession{}, false, fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
+		}
 	}
-	if !started {
-		list.Done("CFO", "already running in Herdr's cfo tab")
-		return cfoSession{herdr: herdrSession()}, false, nil
-	}
-	list.Done("CFO", fmt.Sprintf("started as %s in %s", onboarding.Name(agent), h.Root))
-	for _, note := range unreached(agent, nil) {
+	// Its startup dialogs are answered before the line says it started.
+	notes := runtime.settleCFO(ctx, h.State, agent)
+	list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
+	for _, note := range append(append(said, wakePath(agent)...), notes...) {
 		list.Note(note)
 	}
-	return cfoSession{herdr: herdrSession()}, true, nil
+	return cfoSession{native: supervisor.NativeCFOTerminal}, true, nil
 }
 
 // quickstartDetector reads how ready each agent is on this machine: PATH,

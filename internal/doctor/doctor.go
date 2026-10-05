@@ -24,8 +24,7 @@ import (
 // version when the tool has one. A Presentation check is reported but never
 // makes the environment unhealthy: without it, visual review falls back to
 // plain text and nonvisual work proceeds. An Installer check is reported the
-// same way: only install.ps1 uses the tool, and cfo never does. So is an
-// Optional one, which says who needs the tool.
+// same way: only install.ps1 uses the tool, and cfo never does.
 type Check struct {
 	Name         string
 	Version      string
@@ -34,7 +33,6 @@ type Check struct {
 	Floor        string
 	Presentation bool
 	Installer    bool
-	Optional     string
 }
 
 // LavishRelease is the Code Goblins build of lavish-axi, from the fork at
@@ -52,11 +50,9 @@ var tools = []struct {
 	build        string
 	presentation bool
 	installer    bool
-	optional     string
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
-	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex", optional: "only a goblin or CFO started in Herdr needs it"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
@@ -80,7 +76,6 @@ var harnessTools = []struct {
 	{name: "claude", hint: claudeInstall},
 	{name: "codex", hint: "npm install -g @openai/codex"},
 	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
-	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
@@ -88,7 +83,7 @@ var harnessTools = []struct {
 func Run() []Check {
 	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
-		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer, Optional: tool.optional}
+		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer}
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
 			check.Err = "not found on PATH"
@@ -334,11 +329,11 @@ func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 	return HarnessProbe{Name: name, Detail: strings.TrimSpace(version), OK: true}
 }
 
-// Healthy reports whether every check passed, ignoring presentation,
-// installer and optional checks.
+// Healthy reports whether every check passed, ignoring presentation and
+// installer checks.
 func Healthy(checks []Check) bool {
 	for _, c := range checks {
-		if c.Err != "" && !c.Presentation && !c.Installer && c.Optional == "" {
+		if c.Err != "" && !c.Presentation && !c.Installer {
 			return false
 		}
 	}
