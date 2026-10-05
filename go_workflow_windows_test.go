@@ -147,6 +147,54 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	}
 }
 
+// A newer commit on a pull request supersedes the run validating the older
+// one, so that run is cancelled. A run on main or started by hand is never
+// cancelled or held: in a shared group it would wait behind another, and a
+// waiting run is cancelled when a newer one joins, leaving its commit
+// unvalidated. A release is never cancelled halfway. Every workflow says
+// which it is, so a new one cannot join a group by accident.
+func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
+	// Arrange
+	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}"
+	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": ""}
+	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, file := range files {
+		names = append(names, filepath.Base(file))
+	}
+	if want := slices.Sorted(maps.Keys(groups)); !slices.Equal(names, want) {
+		t.Fatalf("workflows %v, want %v: say whether a new workflow's pull request runs are cancelled when superseded", names, want)
+	}
+
+	for name, group := range groups {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			var workflow struct {
+				Concurrency struct {
+					Group            string `yaml:"group"`
+					CancelInProgress bool   `yaml:"cancel-in-progress"`
+				} `yaml:"concurrency"`
+			}
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if workflow.Concurrency.Group != group || workflow.Concurrency.CancelInProgress != (group != "") {
+				t.Errorf("concurrency group %q, cancel-in-progress %t; want group %q, cancelling only when it is set", workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, group)
+			}
+		})
+	}
+}
+
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
