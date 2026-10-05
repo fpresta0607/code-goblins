@@ -147,6 +147,27 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	}
 }
 
+// internal/conpty times keystrokes through a real console against latency
+// bounds. Beside the rest job's other packages every core is busy, and one
+// key's echo waited 429 ms for one, so no other package shares its job.
+func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
+	// Arrange
+	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+
+	// Act
+	var jobs []goWorkflowShard
+	for _, shard := range shards {
+		if slices.Contains(strings.Fields(shard.Packages), "./internal/conpty") {
+			jobs = append(jobs, shard)
+		}
+	}
+
+	// Assert
+	if len(jobs) != 1 || jobs[0].Packages != "./internal/conpty" {
+		t.Errorf("internal/conpty is tested by %v, want one job that tests nothing else", jobs)
+	}
+}
+
 // A newer commit on a pull request supersedes the run validating the older
 // one, so that run is cancelled. A run on main or started by hand is never
 // cancelled or held: in a shared group it would wait behind another, and a
