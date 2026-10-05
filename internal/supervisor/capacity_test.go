@@ -82,7 +82,7 @@ func TestSchedulerDoesNotResumeIntoAnotherAllowancePause(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
-		return quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 2, ResetsAt: now.Add(time.Hour)}}}}}, ""
+		return quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Windows: []quota.Window{{ID: "week", Kind: "weekly", PercentUsed: 98, ResetsAt: now.Add(time.Hour)}}, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 2, ResetsAt: now.Add(time.Hour), BoundedBy: []string{"week"}}}}}}, ""
 	}
 
 	if err := handler.Service.checkFleet(t.Context(), now); err != nil {

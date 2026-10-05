@@ -147,6 +147,27 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 	}
 }
 
+// internal/conpty times keystrokes through a real console against latency
+// bounds. Beside the rest job's other packages every core is busy, and one
+// key's echo waited 429 ms for one, so no other package shares its job.
+func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
+	// Arrange
+	shards := goWorkflowJobs(t)["go"].Strategy.Matrix.Include
+
+	// Act
+	var jobs []goWorkflowShard
+	for _, shard := range shards {
+		if slices.Contains(strings.Fields(shard.Packages), "./internal/conpty") {
+			jobs = append(jobs, shard)
+		}
+	}
+
+	// Assert
+	if len(jobs) != 1 || jobs[0].Packages != "./internal/conpty" {
+		t.Errorf("internal/conpty is tested by %v, want one job that tests nothing else", jobs)
+	}
+}
+
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
