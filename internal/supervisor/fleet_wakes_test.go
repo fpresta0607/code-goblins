@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -210,6 +213,19 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			f.listCalls++
 		}
 		return answer(f.pulls)
+	case strings.HasPrefix(command, "gh api graphql"):
+		var pulls []ghPullRequest
+		if err := json.Unmarshal([]byte(f.pulls), &pulls); err != nil {
+			return execx.Result{}, err
+		}
+		comparisons := map[string]prComparison{}
+		for _, pull := range pulls {
+			comparison := prComparison{BehindBy: new(int)}
+			comparison.HeadTarget.Oid, comparison.BaseTarget.Oid = pull.HeadRefOid, "base"
+			comparisons[fmt.Sprintf("pr%d", pull.Number)] = comparison
+		}
+		body, err := json.Marshal(comparisons)
+		return execx.Result{Stdout: []byte(`{"data":{"repository":{"ref":` + string(body) + `}}}`)}, err
 	case strings.HasPrefix(command, "gh run list"):
 		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
 		return answer(f.runs)
@@ -682,6 +698,94 @@ func TestCIUnreadableShowsAtEveryRecoveryCycle(t *testing.T) {
 		if !strings.Contains(shown, "list the push runs of "+project) {
 			t.Fatalf("a recovery cycle showed %q, want the named error of %s", shown, project)
 		}
+	}
+}
+
+// The line stays up between recovery cycles too: a cycle an event started,
+// which publishes because the fleet changed, still shows it.
+func TestCIUnreadableStaysUpThroughAnEventCycle(t *testing.T) {
+	// Arrange
+	s, h, _, project := unreadableForge(t)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
+	s.cycle(context.Background(), true)
+	before := s.Store.Snapshot().Revision
+	if err := nativehook.Spool(h.State, event(t, h, "SessionStart", "native-start", "", time.Now())); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.cycle(context.Background(), false)
+
+	// Assert
+	if s.Store.Snapshot().Revision == before {
+		t.Fatal("the event cycle saw no change, so it published nothing and proves nothing")
+	}
+	if !strings.Contains(s.lastError, "list the push runs of "+project) {
+		t.Fatalf("an event cycle showed %q, want the named error of %s", s.lastError, project)
+	}
+}
+
+// The worker leaves the line up too: an action that succeeds has no error of
+// its own to publish, and the board still names the repository.
+func TestCIUnreadableStaysUpThroughASuccessfulAction(t *testing.T) {
+	// Arrange
+	s, h, _, project := unreadableForge(t)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	s.Options.Gate = fakeProgress{err: pipeline.ErrNoProgress}
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	_ = s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
+	stop := event(t, h, "Stop", "native-stop", "turn", time.Now().Add(time.Millisecond))
+	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "native-stop", "", time.Now()), stop} {
+		if err := nativehook.Spool(h.State, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.cycle(context.Background(), false)
+	select {
+	case <-s.work:
+	default:
+		t.Fatal("the cycle that queued the Stop event's evaluation did not wake the worker")
+	}
+
+	// Act
+	s.process(context.Background())
+
+	// Assert
+	actions := s.Store.Snapshot().Actions
+	if !slices.ContainsFunc(actions, func(a Action) bool { return a.ID == "eval-"+stop.ID && a.Status == "succeeded" }) {
+		t.Fatalf("the worker did not finish the Stop event's evaluation, so it published no success and proves nothing: %+v", actions)
+	}
+	if !strings.Contains(s.lastError, "list the push runs of "+project) {
+		t.Fatalf("a successful action left the board showing %q, want the named error of %s", s.lastError, project)
+	}
+}
+
+// The line leaves the board once a poll reads the repository again.
+func TestCIUnreadableLeavesTheBoardOnceCIReadsAgain(t *testing.T) {
+	// Arrange
+	s, h, forge, project := unreadableForge(t)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	_ = s.checkFleet(context.Background(), now)
+	s.cycle(context.Background(), true)
+	unread := s.lastError
+	forge.ghFailure = ""
+	pollForge(t, s, h, &now)
+
+	// Act
+	s.cycle(context.Background(), true)
+
+	// Assert
+	if !strings.Contains(unread, "list the push runs of "+project) {
+		t.Fatalf("while CI could not be read the board showed %q, so the line had nothing to clear", unread)
+	}
+	if strings.Contains(s.lastError, "list the push runs of "+project) {
+		t.Fatalf("after a poll read %s again the board still showed %q", project, s.lastError)
 	}
 }
 

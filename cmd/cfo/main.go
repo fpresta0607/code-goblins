@@ -33,7 +33,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -97,9 +96,10 @@ commands:
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip, and no --delete-branch, and it is logged with its evidence before it merges
-  cfo afk on | off | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his alone, refused in a goblin's or the CFO's terminal, and off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
+  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on
@@ -130,9 +130,9 @@ type commandRuntime struct {
 	spawn         func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
 	switchTask    func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
 	sendText      func(context.Context, home.Home, string, string) error
-	sendKey       func(context.Context, home.Home, string, string) error
+	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
-	peek          func(context.Context, home.Home, string, int) (string, error)
+	peek          func(home.Home, string, int) (string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -195,14 +195,15 @@ type commandRuntime struct {
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
-	switchAFK func(h home.Home, on bool) error
+	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
-	// availableMemory reads the memory a new process can have, in bytes, for
-	// the turn cfo gate test takes before its tests, gateBudget is how long
+	// availableMemory reads physical and commit availability for the turn
+	// cfo gate test takes before its checks, gateBudget is how long
 	// the tests of a level may run, and gateRun runs one of the step's
 	// commands in dir and returns its exit code, with an error unless it
 	// passed.
-	availableMemory func() (uint64, error)
+	availableMemory func() (supervisor.Memory, error)
+	gateWaitLimit   time.Duration
 	gateBudget      func(gatetest.Level) time.Duration
 	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 }
@@ -259,17 +260,12 @@ func defaultCommandRuntime() commandRuntime {
 			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)
-			send := func() error {
-				return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Text(ctx, target, text)
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				send = func() error {
-					return spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}.SendNative(ctx, meta, fleet.Stamp(text))
-				}
-			}
-			if err := send(); err != nil {
+			receipt := supervisor.PrepareSendActivity(h, target)
+			if err := (spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}).SendNative(ctx, meta, fleet.Stamp(text)); err != nil {
 				return err
 			}
 			if err := receipt(); err != nil {
@@ -277,12 +273,12 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return nil
 		},
-		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
+		sendKey: func(h home.Home, target, key string) error {
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Key(ctx, target, key)
+			return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
 		},
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
 			return spawn.AuthRefresher{
@@ -331,12 +327,10 @@ func defaultCommandRuntime() commandRuntime {
 		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
 		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		availableMemory: func() (uint64, error) {
-			memory, err := supervisor.MachineMemory()
-			return memory.Available, err
-		},
-		gateBudget: gateBudget,
-		gateRun:    runGateCommand,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
 	}
 }
 
@@ -448,6 +442,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSpawn(args[1:], stdout, stderr, runtime)
 	case "title":
 		return runTitle(args[1:], stdout, stderr, runtime)
+	case "backlog":
+		return runBacklog(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
 	case "pause", "resume":
