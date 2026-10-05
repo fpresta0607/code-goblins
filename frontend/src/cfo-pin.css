@@ -1,0 +1,18 @@
+/* The CFO's bar while something waits on the Overlord: Open Command Center
+   appears on it and glows in the colour of waiting, and that is the whole
+   signal. The bar itself stays the plain card it is at rest. The glow is the
+   board's amber at less strength, so a restyle of that token carries over. */
+.cfo-command { --glow: color-mix(in srgb, var(--amber) 40%, transparent); display: inline-flex; align-items: center; gap: 10px; flex: none; padding: 8px 10px 8px 18px; border-color: var(--amber); border-radius: 999px; background: #292116; color: #fff3d6; font-weight: 800; white-space: nowrap; box-shadow: 0 0 0 1px var(--glow), 0 0 18px var(--glow); animation: cfo-command-glow 1.6s ease-in-out infinite alternate; }
+.cfo-command:hover { background: #3a2c14; }
+.cfo-command-count { min-width: 26px; padding: 0 8px; border-radius: 999px; background: var(--amber); color: #2b1d02; text-align: center; }
+@keyframes cfo-command-glow {
+  from { box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 25%, transparent), 0 0 8px color-mix(in srgb, var(--amber) 25%, transparent); }
+  to { box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 75%, transparent), 0 0 26px color-mix(in srgb, var(--amber) 60%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .cfo-command { animation: none; } }
+/* A narrow bar gives its line the first row, and Open Command Center, or
+   Start the CFO, the second beside the terminal. */
+@container (max-width: 640px) {
+  .cfo-rest:has(> .cfo-command, > .labelled-button) > p { flex-basis: calc(100% - 120px); }
+  .cfo-rest > .cfo-command, .cfo-rest > .labelled-button { margin-left: auto; }
+}

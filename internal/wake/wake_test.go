@@ -180,17 +180,26 @@ func TestPendingEmptyWhenNoQueueFile(t *testing.T) {
 	}
 }
 
-// The supervisor's fleet wakes, memory come back for waiting work and CI
-// finished, go through the queue as kinds of their own.
+// The supervisor's fleet wakes go through the queue as kinds of their own.
 func TestAppendTakesTheFleetWakeKinds(t *testing.T) {
 	dir := t.TempDir()
-	for _, kind := range []string{"memory", "ci"} {
-		if _, err := Append(dir, kind, kind, "detail"); err != nil {
+	for _, kind := range []string{"memory", "ci", "pr"} {
+		if _, err := Append(dir, kind, kind, "detail of "+kind); err != nil {
 			t.Errorf("Append(%q) = %v, want it queued", kind, err)
 		}
 	}
-	if got, err := Pending(dir); err != nil || len(got) != 2 {
-		t.Errorf("pending = %+v (%v), want both fleet wakes", got, err)
+	pending, err := Pending(dir)
+	if err != nil || len(pending) != 3 {
+		t.Fatalf("pending = %+v (%v), want all three fleet wakes", pending, err)
+	}
+	var rendered bytes.Buffer
+	if err := Render(&rendered, pending, Episode{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range pending {
+		if !strings.Contains(rendered.String(), record.Detail) {
+			t.Errorf("render = %q, missing fleet wake %q", rendered.String(), record.Detail)
+		}
 	}
 }
 
@@ -200,7 +209,7 @@ func TestAppendRejectsUnknownKind(t *testing.T) {
 	if err == nil {
 		t.Fatal("Append with unknown kind must error")
 	}
-	for _, kind := range []string{"signal", "stale", "check", "heartbeat"} {
+	for _, kind := range []string{"signal", "stale", "check", "heartbeat", "pr"} {
 		if !strings.Contains(err.Error(), kind) {
 			t.Errorf("error %q does not name legal kind %q", err.Error(), kind)
 		}

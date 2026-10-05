@@ -470,7 +470,7 @@ func (s *Store) queueUnlessEvaluating(a Action) error {
 // never adopt it. The registration stays open, which denies its replacement,
 // until the pinned review is durable. The probe runs outside the store lock
 // and never sends.
-func (s *Store) QueueReview(ctx context.Context, a Action, cfo *CFOConnection) (Action, error) {
+func (s *Store) QueueReview(a Action, cfo *CFOConnection) (Action, error) {
 	s.mu.Lock()
 	existing, found, err := s.lookup(a)
 	s.mu.Unlock()
@@ -489,9 +489,7 @@ func (s *Store) QueueReview(ctx context.Context, a Action, cfo *CFOConnection) (
 	if err != nil {
 		return Action{}, err
 	}
-	probe, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	if err := cfo.verify(probe, primary); err != nil {
+	if err := cfo.verify(primary); err != nil {
 		return Action{}, fmt.Errorf("%v. No review was queued.", err)
 	}
 	a.CFOIdentity = identity
@@ -792,7 +790,7 @@ func (s *Store) updateQuestionOutcomes() {
 func (s *Store) Ingest() error {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
-		return err
+		return recoverNativeInbox(s.Home.State, err)
 	}
 	type record struct {
 		path  string

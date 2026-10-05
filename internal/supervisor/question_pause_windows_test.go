@@ -28,8 +28,8 @@ func TestBoardAnswerToPausedQuestionIsKeptForResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(runner.prompts) != 0 {
-		t.Fatalf("answer sent to paused terminal: %q", runner.prompts)
+	if typed := runner.exit(t); len(typed) != 0 {
+		t.Fatalf("answer sent to paused terminal: %q", typed)
 	}
 	record, err := state.ReadLifecycle(h.State, meta.ID)
 	if err != nil || record.ResumeNote == "" {

@@ -39,8 +39,8 @@ const (
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
 	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the proof and work for it, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
+	// runRequestTimeout the work that waits on the loop or the allowance,
+	// and runReplyTimeout how long cfo run-request waits for the answer.
 	runReadTimeout    = 10 * time.Second
 	runRequestTimeout = 20 * time.Second
 	runReplyTimeout   = 30 * time.Second
@@ -170,11 +170,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			s.runRequests.Lock()
 			switch req.Kind {
 			case "":
-				err = s.acceptRunRequest(ctx, int(pid), connected, req)
+				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
-				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
 			default:
-				err = s.acceptCFOItem(ctx, int(pid), connected, req)
+				err = s.acceptCFOItem(int(pid), connected, req)
 			}
 			s.runRequests.Unlock()
 		}
@@ -187,7 +187,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	_, _ = pipe.Write(append(data, '\n'))
+	// DisconnectNamedPipe discards an unread reply. Flush it before disconnecting,
+	// with the same I/O bound so a client that never reads holds no pipe forever.
+	timer.Reset(runReadTimeout)
+	if _, err := pipe.Write(append(data, '\n')); err == nil {
+		_ = pipe.Sync()
+	}
+	if !timer.Stop() {
+		<-expired
+	}
 }
 
 // lookNow has the supervisor's loop run a cycle now, which reads what a

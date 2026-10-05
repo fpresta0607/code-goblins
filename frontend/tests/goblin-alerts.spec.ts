@@ -10,49 +10,60 @@ async function open(page: Page) {
   await expect(page.getByRole("group", { name: "Alerts" }).or(page.locator(".toasts"))).toBeVisible();
   await expect(page.locator(".toasts .dialogue")).toHaveCount(3);
 }
-const box = (page: Page, text: string) => page.locator(".dialogue").filter({ hasText: text });
-const tab = (dialogue: Locator) => dialogue.locator(".dialogue-tab");
+// The fixture's two bars: one over a board column while a question waits on
+// the Overlord, and one at rest.
+const waiting = (page: Page) => page.locator(".task-board .cfo-rest");
+const resting = (page: Page) => page.locator("main > .cfo-pin .cfo-rest");
+const command = (page: Page) => waiting(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" });
 const filled = (button: Locator) => button.evaluate((element) => getComputedStyle(element, "::before").backgroundColor);
 
-test("the CFO's banner is a plain bar with only its terminal until something waits, and then the lantern box with Open Command Center", async ({ page }) => {
+test("the CFO's bar is the same plain card at rest and while something waits: only then it carries Open Command Center, which glows, counts what waits and says none of it", async ({ page }) => {
   await open(page);
-  const needs = box(page, "Waiting on you"), rest = page.locator(".cfo-rest");
-  await expect(tab(needs)).toHaveText("CFO");
-  await expect(tab(needs)).toHaveCSS("color", LANTERN);
-  expect(await filled(needs.getByRole("button", { name: "Open Command Center" }))).toBe(LANTERN);
-  await needs.locator(".dialogue-actions").getByRole("button", { name: "Open the CFO's terminal" }).click();
+  const needs = waiting(page), rest = resting(page);
+  // No lantern box and none of the alert's words: the line says only how many
+  // goblins the CFO supervises, and the button how many things wait.
+  await expect(page.locator(".cfo-pin .dialogue")).toHaveCount(0);
+  await expect(needs.locator("p")).toHaveText("The CFO supervises 3 goblins.");
+  await expect(page.locator(".task-board .cfo-pin")).not.toContainText("Which layout should I keep?");
+  await expect(command(page)).toHaveText("Open Command Center1");
+  await expect(command(page).locator(".cfo-command-count")).toHaveText("1");
+  await expect(command(page)).toHaveCSS("animation-name", "cfo-command-glow");
+  expect(await command(page).evaluate((button) => getComputedStyle(button).boxShadow)).not.toBe("none");
+  await needs.locator("button.icon-button").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
-  await needs.locator("button.dialogue-portrait").click();
+  await needs.locator("button.cfo-rest-portrait").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
-  // At rest: the same card as the column under it, no lantern box, no name
-  // tab and no Open Command Center; only its terminal, on the icon and the
+  // At rest: no Open Command Center; only its terminal, on the icon and the
   // portrait.
   await expect(rest).toContainText("All quiet. The CFO supervises 3 goblins.");
-  await expect(page.locator(".dialogue").filter({ hasText: "All quiet." })).toHaveCount(0);
   await expect(rest.getByRole("button")).toHaveCount(2);
-  await expect(rest.getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
+  await expect(rest.getByRole("button", { name: /Open Command Center/ })).toHaveCount(0);
+  // Both are the same card as the column under them.
   const look = (locator: Locator) => locator.evaluate((element) => { const style = getComputedStyle(element); return [style.backgroundColor, style.borderTopColor, style.borderRadius].join(" "); });
-  expect(await look(rest)).toBe(await look(page.locator(".board-column")));
+  for (const bar of [needs, rest]) expect(await look(bar)).toBe(await look(page.locator(".board-column")));
   await rest.locator("button.icon-button").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its icon");
   await rest.locator("button.cfo-rest-portrait").click();
   await expect(page.locator("output")).toHaveText("opened the CFO's terminal from its portrait");
 });
 
-test("the bar at rest keeps its line and its button inside it on a phone", async ({ page }) => {
+test("the bar keeps its line and its buttons inside it on a phone, at rest and while something waits", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
-  const inside = await page.locator(".cfo-rest").evaluate((bar) => {
-    const box = bar.getBoundingClientRect();
-    return [...bar.children].every((child) => { const part = child.getBoundingClientRect(); return part.left >= box.left && part.right <= box.right && part.top >= box.top && part.bottom <= box.bottom; });
-  });
-  expect(inside).toBe(true);
-  expect(await page.locator(".cfo-rest p").evaluate((line) => parseFloat(getComputedStyle(line).fontSize))).toBeGreaterThanOrEqual(16);
+  for (const bar of [resting(page), waiting(page)]) {
+    const inside = await bar.evaluate((bar) => {
+      const box = bar.getBoundingClientRect();
+      return [...bar.children].every((child) => { const part = child.getBoundingClientRect(); return part.left >= box.left && part.right <= box.right && part.top >= box.top && part.bottom <= box.bottom; });
+    });
+    expect(inside).toBe(true);
+    expect(await bar.locator("p").evaluate((line) => parseFloat(getComputedStyle(line).fontSize))).toBeGreaterThanOrEqual(16);
+  }
+  await expect(command(page)).toBeVisible();
 });
 
 test("Open Command Center opens the first item waiting", async ({ page }) => {
   await open(page);
-  await box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" }).click();
+  await command(page).click();
   await expect(page.locator("dialog.question-modal")).toBeVisible();
   await expect(page.locator("dialog.question-modal")).toContainText("Pick the waveform");
 });
@@ -72,8 +83,6 @@ test("each goblin's news opens its goblin, and its question for the CFO shows no
   await expect(page.locator(".toasts")).not.toContainText("Which layout should I keep?");
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
-  // No name tab repeats who speaks: the box's words already say it.
-  await expect(page.locator(".toasts .dialogue-tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
   await page.locator(".toasts .dialogue").filter({ hasText: "finished" }).getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.locator("output")).toHaveText("opened cg-board-kill");
@@ -94,7 +103,7 @@ test("boxes are stepped pixel frames with plain text of 16 px or more, and step 
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(16);
 });
 
-test("the stepped frames clip no focus ring or tooltip, and a focused Open Command Center shows its outline", async ({ page }) => {
+test("the stepped frames clip no focus ring or tooltip, and a focused Open Command Center on the bar shows its outline", async ({ page }) => {
   await open(page);
   const clipped = await page.locator(".dialogue").evaluateAll((boxes) => boxes.flatMap((dialogue) =>
     [...dialogue.querySelectorAll("button, a[href], input, select, textarea, [tabindex], [data-tip]")].flatMap((element) => {
@@ -103,10 +112,12 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
       return chain.filter((node) => getComputedStyle(node).clipPath !== "none").map((node) => node.className);
     })));
   expect(clipped).toEqual([]);
-  const button = box(page, "Waiting on you").getByRole("button", { name: "Open Command Center" });
-  await button.focus();
-  await expect(button).toHaveCSS("outline-style", "solid");
-  await expect(button).toHaveCSS("outline-width", "3px");
+  // The bar's button glows with a shadow, which is not its focus ring. No
+  // alert carries it: an item's one signal is the bar's button.
+  await expect(page.locator(".toasts").getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
+  await command(page).focus();
+  await expect(command(page)).toHaveCSS("outline-style", "solid");
+  await expect(command(page)).toHaveCSS("outline-width", "3px");
 });
 
 // Whether the tip showing is drawn over everything else where it lies: the
@@ -122,9 +133,9 @@ async function tipOnTop(page: Page) {
   });
 }
 
-test("the banner's portrait tooltip shows over the board column under it", async ({ page }) => {
+test("the bar's portrait tooltip shows over the board column under it", async ({ page }) => {
   await open(page);
-  const portrait = box(page, "Waiting on you").locator("button.dialogue-portrait");
+  const portrait = waiting(page).locator("button.cfo-rest-portrait");
   await portrait.hover();
   await expect(page.getByRole("tooltip")).toHaveText((await portrait.getAttribute("data-tip"))!);
   expect(await tipOnTop(page)).toBe(true);
@@ -150,17 +161,19 @@ test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) =>
   expect(await tipOnTop(page)).toBe(true);
 });
 
-test("with reduced motion the boxes just appear", async ({ page }) => {
+test("with reduced motion the boxes just appear and Open Command Center keeps its glow without breathing", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
-  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(4).fill("none"));
+  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(3).fill("none"));
+  await expect(command(page)).toHaveCSS("animation-name", "none");
+  expect(await command(page).evaluate((button) => getComputedStyle(button).boxShadow)).not.toBe("none");
 });
 
-test("the CFO's banner wears the mark of the harness the CFO runs, and no goblin's alert does", async ({ page }) => {
+test("the CFO's bar wears the mark of the harness the CFO runs, at rest and while something waits, and no goblin's alert does", async ({ page }) => {
   await open(page);
-  for (const mark of [box(page, "Waiting on you").locator(".dialogue-who [role=img]"), page.locator(".cfo-rest [role=img]")]) {
+  for (const mark of [waiting(page).locator(".mark"), resting(page).locator(".mark")]) {
     await expect(mark).toHaveAttribute("aria-label", "Claude Code · claude-opus-5-5");
     await expect(mark).toHaveAttribute("data-tip", "Claude Code · claude-opus-5-5");
   }
-  await expect(page.locator(".toasts .dialogue-who")).toHaveCount(0);
+  await expect(page.locator(".toasts .mark")).toHaveCount(0);
 });

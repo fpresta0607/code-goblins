@@ -168,7 +168,7 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 	if !readable {
 		return nil
 	}
-	if err := c.verify(ctx, primary); err != nil {
+	if err := c.verify(primary); err != nil {
 		return err
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)
