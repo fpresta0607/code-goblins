@@ -1,8 +1,10 @@
 // Command goblins-window is the Code Goblins desktop window: a Wails window
 // around the board cfo serve already serves, with a tray icon, notifications,
 // one instance and start at login. It holds no engine logic, so closing it
-// leaves the supervisor, the CFO and every goblin running. It is started with
-// the board's address and the fleet's state folder.
+// leaves the supervisor, the CFO and every goblin running. Started with the
+// board's address and the fleet's state folder it is the window; started with
+// neither, as the Start menu and Start at login start it, it opens the app by
+// running the goblins beside it, which starts it again on the board.
 package main
 
 import (
@@ -34,16 +36,28 @@ func main() {
 	background := flag.Bool("background", false, "start in the tray without showing the window")
 	profile := flag.String("profile", "", "the WebView2 profile folder, in place of the user's own; a window on a profile of its own is an instance of its own and raises no Windows notification")
 	browserArgs := flag.String("webview-args", "", "more arguments for the WebView2 browser, separated by spaces, as the window's tests need for its DevTools port")
+	// Windows starts the program with -Embedding when a notification is
+	// clicked while no window runs. It is then started alone, and opens the
+	// app as it does from the Start menu.
+	flag.Bool("Embedding", false, "given by Windows when a click on a notification starts the program")
 	flag.Parse()
-	if *board == "" || *stateDir == "" {
-		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state are required; goblins starts it")
-		os.Exit(2)
-	}
 	self, err := os.Executable()
 	if err != nil {
 		log.Fatal(err)
 	}
-	login := loginCommand(os.Getenv(launcherVariable), self, *board, *stateDir)
+	if *board == "" && *stateDir == "" {
+		if message := launch(self, *background); message != "" {
+			tell(message)
+			os.Exit(1)
+		}
+		return
+	}
+	if *board == "" || *stateDir == "" {
+		fmt.Fprintln(os.Stderr, "goblins-window: --board and --state go together; with neither, the window runs the goblins beside it")
+		os.Exit(2)
+	}
+	launcher := os.Getenv(launcherVariable)
+	login := loginCommand(launcher, self, *board, *stateDir)
 	// The window's tests run on a profile of their own, beside the user's
 	// window and never as its second instance.
 	instance := "dev.codegoblins.window"
@@ -159,6 +173,11 @@ func main() {
 
 	menu := app.NewMenu()
 	menu.Add("Open the board").OnClick(func(*application.Context) { show() })
+	if adopted, err := adoptEarlierLogin(launcher, self, login); err != nil {
+		log.Printf("start at login: %v", err)
+	} else if adopted {
+		log.Printf("start at login now runs %s", login)
+	}
 	atLogin := menu.AddCheckbox("Start at login", StartsAtLogin(login))
 	atLogin.OnClick(func(ctx *application.Context) {
 		if err := SetStartAtLogin(login, atLogin.Checked()); err != nil {

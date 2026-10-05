@@ -118,8 +118,9 @@ var (
 	snapshotTimeout = 3 * time.Second
 )
 
-// runWindowLauncher is goblins --window, which Windows runs at login with
-// --background: it finds or starts the supervisor as goblins does and shows
+// runWindowLauncher is goblins --window, which the desktop window runs when
+// it is started alone, with --background at login: it finds or starts the
+// supervisor as goblins does and shows
 // the desktop window, in the tray alone with background, and starts or shows
 // no CFO.
 func runWindowLauncher(stdout, stderr io.Writer, runtime commandRuntime, background bool) int {
@@ -486,8 +487,9 @@ var errNoWindow = errors.New("no desktop window beside goblins")
 const windowProgram = "goblins-window.exe"
 
 // windowLauncherVariable names this goblins to the window it starts, as
-// cmd/goblins-window reads it: Start at login then runs this goblins, which
-// starts the supervisor before the window.
+// cmd/goblins-window reads it: its Start at login then starts the window
+// alone, which runs the goblins beside it, so the supervisor starts before
+// the window and no terminal shows.
 const windowLauncherVariable = "CODE_GOBLINS_LAUNCHER"
 
 // openWindow starts the desktop window beside this binary on board, in the
