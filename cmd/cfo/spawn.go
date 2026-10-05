@@ -185,9 +185,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if skipped == "" {
 		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, time.Now().UTC()); isLow {
 			if reset.IsZero() {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; its reset time is unknown\n", *harnessName)
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; its reset time is unknown\n", *harnessName)
 			} else {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
 			}
 			return 1
 		}
@@ -344,7 +344,7 @@ func usableLane(report quota.Report, skipped string) routing.Usable {
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
 		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, time.Now().UTC()); isLow {
-			note := lane.Harness + " at the 3 percent allowance floor"
+			note := lane.Harness + " at the 5 percent weekly allowance floor"
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)
 			}
