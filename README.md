@@ -354,7 +354,7 @@ An open terminal follows its task into retired history instead of losing the pan
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
 After a failed resume it reads **Resume failed. See Task for details.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
-A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
@@ -380,7 +380,7 @@ The Open window draws on its own window's grid and takes the terminal's size bac
 Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch hands the keyboard to the terminal it shows.
-A terminal opened from the board opens maximized, over the whole window, and **Restore** brings the board back beside it; the Task view opens beside the board, and on the Orchestration view the panel opens beside the graph.
+A terminal and the Task view both open beside the board, **Maximize** gives the panel the whole window and **Restore** brings the board back beside it, and on the Orchestration view the panel opens beside the graph.
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
 The panel's top row stays on one line however narrow you drag the panel: what it has no room for goes into a **More** menu, and at its narrowest the Task and Terminal switch shows its icons alone.
