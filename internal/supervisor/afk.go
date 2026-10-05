@@ -44,9 +44,10 @@ import (
 const gateAgentVariable = "NO_MISTAKES_GATE"
 
 // agentHarnesses are the programs an agent runs as, by executable name: each
-// harness the fleet starts, and node, which runs the ones installed as npm
+// harness the fleet starts, kimi, which it no longer starts but which is still
+// an agent wherever it runs, and node, which runs the ones installed as npm
 // scripts.
-var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), string(harness.Pi), string(harness.Kimi), "node"}
+var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), string(harness.Pi), "kimi", "node"}
 
 // agentVariables are environment variables a harness sets for every command
 // it runs: Claude Code's own, and the one agents share to say a command is
