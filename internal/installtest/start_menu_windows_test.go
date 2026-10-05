@@ -144,7 +144,7 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stubs := map[string]string{"go": "@if not \"%7\"==\"./cmd/goblins-window\" copy /y \"" + built + "\" \"%4\" >nul & exit /b\r\n" +
+	stubs := map[string]string{"go": "@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + built + "\" \"%4\" >nul & exit /b\r\n" +
 		"@copy /y \"" + builtWindow + "\" \"%4\" >nul\r\n"}
 
 	// Act
