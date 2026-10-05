@@ -289,6 +289,8 @@ The head of **Tasks** shows how much memory is free, as a number and a bar marke
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
 A line also warns when the kernel's paged pool passes 4 GB, which means a driver is leaking memory and a reboot frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
+Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, with a tick at the 5 percent reserve.
+A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
