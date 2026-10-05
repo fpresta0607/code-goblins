@@ -551,7 +551,8 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The pauses at an allowance floor and at the memory floor are not built yet.
+AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
+Automatic pauses at the memory floor are not built yet.
 
 ### Open in VS Code
 
