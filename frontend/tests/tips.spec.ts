@@ -123,6 +123,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       await open(page);
       await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
       await expect(page.locator("#panel-title")).toHaveText("working-two");
+      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       const { shown, faults } = await walk(page.locator(".context-pane"));
       expect(shown).toBeGreaterThanOrEqual(3);
       expect(faults).toEqual([]);

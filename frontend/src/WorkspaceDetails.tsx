@@ -6,6 +6,7 @@ import { harnessMark, modelMark } from "./connectors";
 import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
 import { ConnectionsPanel } from "./connections-panel";
+import { EngineSelector } from "./engine-selector";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -18,28 +19,29 @@ function splitModel(model: string): { name: string; basis: string } {
   return name === undefined ? { name: model, basis: "" } : { name, basis };
 }
 
-export function WorkspaceDetails({ task, node, runs, onRepair }: { task?: Task; node?: Session; runs?: Run[]; onRepair?: (key: string) => void }) {
+export function WorkspaceDetails({ task, node, runs, instance, onRepair }: { task?: Task; node?: Session; runs?: Run[]; instance: string; onRepair?: (key: string) => void }) {
   const child = !!node && !ownsTaskSession(node, task);
   const queued = !!task && !task.generation;
+  const isArchived = !!task?.archived;
   const path = "/api/workspace" + (task ? "?task=" + encodeURIComponent(task.id) + "&generation=" + encodeURIComponent(task.generation) : "");
   const unlinked = !!node && !task;
-  const resource = useResource(!queued && !unlinked ? path : null, parse);
+  const resource = useResource(!queued && !unlinked && !isArchived ? path : null, parse);
   const details = resource.data;
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
   const model = details ? splitModel(child ? sessionModel(node, task) : details.model) : { name: "", basis: "" };
   const provider = modelMark(model.name);
   return <section className="workspace-details" aria-label="Workspace">
     <h3>Workspace</h3>
-    {unlinked ? <p className="muted">No working folder was reported for this session.</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <p role="alert">{resource.error}</p> : !details ? <p role="status">Reading workspace...</p> : <>
+    {unlinked ? <p className="muted">No working folder was reported for this session.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <><p className="workspace-project">{task.project || "Project not specified"}</p><p className="muted">Not started yet.</p></> : resource.error ? <p role="alert">{resource.error}</p> : !details ? <p role="status">Reading workspace...</p> : <>
       <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       {details.notes.map((note) => <p key={note}>{note}</p>)}
-      <Disclosure kind="connections" title="Connections">
-        <ul className="connection-list" aria-label="Harness and model">
-          {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details.harness)} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
-          {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
-        </ul>
-        {child ? <p>No separate connections were reported for this child.</p> : task ? <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} /> : <p>Choose a goblin to check its connections.</p>}
-      </Disclosure>
     </>}
+      <Disclosure kind="connections" title="Connections">
+        {task && !child ? <EngineSelector key={task.id + task.generation} task={task} instance={instance} /> : <ul className="connection-list" aria-label="Harness and model">
+          {harness && <li><ConnectorMark mark={harnessMark(child ? node.harness : details?.harness || "")} label={harness} /><span className="connection-name">{harness}<span className="chip">Harness</span></span></li>}
+          {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
+        </ul>}
+        {child ? <p>No separate connections were reported for this child.</p> : task ? !queued && !isArchived && <ConnectionsPanel key={task.id + task.generation} task={task} runs={runs} onRepair={onRepair} /> : <p>Choose a goblin to check its connections.</p>}
+      </Disclosure>
   </section>;
 }

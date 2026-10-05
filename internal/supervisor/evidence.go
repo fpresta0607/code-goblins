@@ -292,7 +292,7 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 		return evaluation
 	}
 	switch evaluation.Phase {
-	case "blocked", "ready", "merged", "done":
+	case "blocked", "failed", "ready", "merged", "done":
 		return evaluation
 	}
 	switch {
@@ -598,7 +598,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 					continue
 				}
 				generation = outcome.Generation
-				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
@@ -608,6 +608,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
+					task.Harness, task.Model, task.Effort = tasks[at].Harness, tasks[at].Model, tasks[at].Effort
 				}
 			}
 			if task.Title == "" {

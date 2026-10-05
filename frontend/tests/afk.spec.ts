@@ -418,7 +418,6 @@ test("in the desktop window the toggle sits on the header's first row, and on a 
   await openCfoPanel(small);
   for (const view of ["Task", "Terminal"]) {
     await small.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    if (view === "Terminal") await small.getByRole("button", { name: "Restore the panel", exact: true }).click();
     expect(Math.round((await small.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
     await expect(toggle(small)).toBeVisible();
     expect(await within(small, ".panel-header"), view + " view").toBe(true);

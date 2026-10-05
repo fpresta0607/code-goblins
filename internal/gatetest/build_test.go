@@ -111,3 +111,49 @@ func TestBuildFindsASlowPackageByItsDirectoryFromTheRoot(t *testing.T) {
 		t.Errorf("plan.Policy = %q; want %q", plan.Policy, want)
 	}
 }
+
+func TestBuildLevelsKeepTheTransitiveClosure(t *testing.T) {
+	all := []string{"example.com/repo/a", "example.com/repo/b", "example.com/repo/c"}
+	for _, test := range []struct {
+		name  string
+		level Level
+		vet   []string
+		tests []string
+		left  []string
+	}{
+		{
+			name:  "fast",
+			level: Fast,
+			vet:   all,
+			tests: []string{"example.com/repo/a"},
+			left: []string{
+				"tests of example.com/repo/b (imports example.com/repo/a)",
+				"tests of example.com/repo/c (imports example.com/repo/b)",
+			},
+		},
+		{name: "affected", level: Affected, vet: all, tests: all},
+		{name: "full", level: Full, vet: []string{"./..."}, tests: []string{"./..."}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			found := branch("a/a.go")
+			found.packages = []Package{pkg("a"), pkg("b", "example.com/repo/a"), pkg("c", "example.com/repo/b")}
+			found.policy, found.hasPolicy = `{"version": 1, "slow_packages": ["b"]}`, true
+
+			// Act
+			plan := build(found, test.level)
+
+			// Assert
+			wantChoices := []Choice{
+				{ImportPath: "example.com/repo/a"},
+				{ImportPath: "example.com/repo/b", Imports: "example.com/repo/a"},
+				{ImportPath: "example.com/repo/c", Imports: "example.com/repo/b"},
+			}
+			if plan.Level != test.level || plan.Required != Affected || !slices.Equal(plan.Choices, wantChoices) ||
+				!slices.Equal(plan.Vet, test.vet) || !slices.Equal(plan.Tests, test.tests) || !slices.Equal(deferred(plan.Left), test.left) {
+				t.Errorf("build = level %s, required %s, choices %v, vet %q, tests %q, left %q; want %s, affected, %v, %q, %q, %q",
+					plan.Level, plan.Required, plan.Choices, plan.Vet, plan.Tests, deferred(plan.Left), test.level, wantChoices, test.vet, test.tests, test.left)
+			}
+		})
+	}
+}
