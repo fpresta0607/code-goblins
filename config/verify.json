@@ -8,5 +8,85 @@
     "internal/spawn",
     "internal/supervisor",
     "internal/testguard"
+  ],
+  "contracts": [
+    {
+      "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
+      "packages": ["internal/doctor", "internal/installscript", "internal/installtest"],
+      "why": "tests run or read these scripts"
+    },
+    {
+      "paths": [".github/workflows/*.yml"],
+      "packages": ["."],
+      "why": "the workflow tests read the workflows"
+    },
+    {
+      "paths": [".github/workflows/release.yml"],
+      "packages": ["internal/installscript"],
+      "why": "an install test reads the release's signing step"
+    },
+    {
+      "paths": ["config/verify.json"],
+      "packages": ["internal/gatetest"],
+      "why": "a test reads the repository's own verification policy"
+    },
+    {
+      "paths": ["config/pipeline.json", ".no-mistakes.yaml"],
+      "packages": ["internal/pipeline", "cmd/cfo", "internal/spawn"],
+      "why": "the pipeline tests read the committed gate policy"
+    },
+    {
+      "paths": ["data/routing.json"],
+      "packages": ["internal/routing", "cmd/cfo"],
+      "why": "the lane tests read the shipped table"
+    },
+    {
+      "paths": ["cmd/cfo/winres.json"],
+      "packages": ["cmd/cfo"],
+      "why": "the Windows resource objects are built from it"
+    },
+    {
+      "paths": ["cmd/goblins-window/winres.json", "cmd/goblins-window/goblin.ico"],
+      "packages": ["cmd/goblins-window"],
+      "why": "the Windows resource objects are built from these"
+    },
+    {
+      "paths": ["cmd/goblins-setup/winres.json"],
+      "packages": ["cmd/goblins-setup"],
+      "why": "the Windows resource objects are built from it"
+    },
+    {
+      "paths": ["config/voice.json"],
+      "packages": ["internal/voice"],
+      "why": "the voice tests read the shipped settings"
+    },
+    {
+      "paths": ["tests/acceptance/plan3_windows.ps1"],
+      "packages": ["cmd/cfo"],
+      "why": "a test runs the acceptance script's self-tests"
+    },
+    {
+      "paths": ["**/*.go"],
+      "packages": ["internal/fsx", "internal/execx"],
+      "why": "the read and process-start guards scan every Go file"
+    }
+  ],
+  "outside": [
+    {
+      "paths": ["THIRD_PARTY_NOTICES"],
+      "why": "the licence notices, which CI's licence check reads, not a Go test"
+    },
+    {
+      "paths": ["README.md", "CONTRIBUTING.md", "LICENSE", "docs/**", ".gitignore", ".gitattributes", ".tasks.toml"],
+      "why": "documentation and housekeeping no Go check reads"
+    },
+    {
+      "paths": ["frontend/**"],
+      "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
+    },
+    {
+      "paths": ["tests/**"],
+      "why": "acceptance scripts and their fixtures that no Go test reads"
+    }
   ]
 }

@@ -155,14 +155,29 @@ cfo gate test --plan          # print the plan and run nothing
 
 | Level | `go vet` | `go test` |
 | --- | --- | --- |
-| `fast` | the changed packages and all their importers, including test imports | the changed packages the policy does not list as slow |
-| `affected` | the changed packages and all their importers, including test imports | the same packages |
+| `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow |
+| `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
-A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed or the policy cannot be read.
+A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
+A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
+
+A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed, the policy cannot be read, or a changed file is one the policy does not account for.
 With no `--level` the step runs the required level, which is what the gate runs.
 A level asked for runs instead: a broader one is always allowed, and a narrower one exits 0 when its checks pass while its last line and its report say which level the change still requires.
-The plan prints why each package is in it (`changed`, or `imports <package>`) and every test run the level left to a broader one, with why.
+The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
+It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
+
+```text
+cfo gate test: level affected: the default for a change
+cfo gate test: the change since 0123abcd reaches 3 package(s); CI runs every package
+- example.com/m/internal/doctor (tests run or read these scripts: install.ps1)
+- example.com/m/internal/installscript (tests run or read these scripts: install.ps1)
+- example.com/m/internal/installtest (tests run or read these scripts: install.ps1)
+changed files outside the Go checks:
+- README.md, docs/pipeline.md (documentation and housekeeping no Go check reads)
+```
+
 CI runs every package whatever the local level was.
 
 The policy is `config/verify.json`:
@@ -170,11 +185,40 @@ The policy is `config/verify.json`:
 ```json
 {
   "version": 1,
-  "slow_packages": ["cmd/cfo", "internal/installscript", "internal/supervisor"]
+  "slow_packages": ["cmd/cfo", "internal/installscript", "internal/supervisor"],
+  "contracts": [
+    {
+      "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
+      "packages": ["internal/doctor", "internal/installscript", "internal/installtest"],
+      "why": "tests run or read these scripts"
+    }
+  ],
+  "outside": [
+    {
+      "paths": ["README.md", "docs/**"],
+      "why": "documentation and housekeeping no Go check reads"
+    }
+  ]
 }
 ```
 
 `slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their tests to `affected`.
+
+`contracts` say what the import graph cannot see: the files a package's tests read by path, such as a script they run.
+A change to a file one of a contract's `paths` names selects the contract's `packages`, named as `slow_packages` names them, and the plan gives the contract's `why` with the file.
+A contract selects its own packages and not the packages that import them.
+
+`outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
+A change to one of them selects nothing, and the plan lists it under the rule's reason.
+
+A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
+A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
+
+A policy that has `contracts` or `outside` says what every file is.
+Under it a changed file that is in no package, under no contract and not listed as outside is one nobody has said anything about, so the change requires `full` and the plan names the file.
+`TestTheRepositoryPolicyAccountsForEveryTrackedFile` in `internal/gatetest` fails when a tracked file is in that state, so a new kind of file gets its line in the policy in the change that adds it; that change is itself planned by the default branch's policy, which does not know the file yet, and so requires `full` once.
+A policy with neither field keeps the earlier rule: a file no package owns selects nothing and nothing is listed.
+
 The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
 A change to the file therefore takes effect once it is on the default branch.
 A build ignores a field it does not know, so the build a gate has installed keeps reading a policy that a later build extended.
