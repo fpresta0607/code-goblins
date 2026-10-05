@@ -11,6 +11,13 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 ```
 
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
+
+Releases from v0.4.0 on also carry `CodeGoblinsSetup.exe`, the same install with no terminal: download it from the release's page and open it.
+It downloads the install script of its own release, runs it out of sight, shows each line the script prints in a window of its own, and opens the app when the script is done.
+When the script stops, the window says so with the script's own last lines and names the file that holds everything it printed, `CodeGoblinsSetup.log` in your temp folder; closing the window ends the install, and opening the setup again finishes it.
+With no terminal to ask in, it records no [projects folder](#your-projects-folder), and its quick start only starts the supervisor: the app's first-run page starts the CFO.
+
+Either way the steps are the script's.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
@@ -83,11 +90,17 @@ So when a Code Goblins release moves the pin forward, rerunning the install is h
 
 ## On a fresh PC
 
-`cfo.exe` is not code-signed yet, so Windows knows it only as an unknown program from an unknown publisher.
-Its file properties (right-click, Properties, Details) name the product Code Goblins and its version, and it asks for no administrator rights.
+A release says at the top of its notes whether its programs are code-signed, and by whom.
+Until Code Goblins has a signing identity they are not: such a release says that it is unsigned, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
+A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
+Windows knows an unsigned program only as an unknown program from an unknown publisher.
+Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
 
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
+- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
+  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for it, in any letter case.
+  Then **More info**, **Run anyway** runs it, and what it installs is checked against the same `SHA256SUMS` by the install script.
 - **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
   Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.
