@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // Item 3 of the review-flow brief: revisions sent from the editor update the
 // editor. His revision on the page leaves the card saying it was received and
