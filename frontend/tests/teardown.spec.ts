@@ -24,6 +24,7 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
     await expect(notice).toBeVisible();
     expect(await notice.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
     await card.click();
+    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
     const details = page.locator(".lifecycle-panel");
     await expect(details.getByText("Finishing Windows teardown: chrome.exe pid 42", { exact: true })).toBeVisible();
     if (phase === "working") {
