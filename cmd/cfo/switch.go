@@ -29,6 +29,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	harnessName := flags.String("harness", "", "claude, codex, pi, or kimi")
 	model := flags.String("model", "", "model for the new harness")
 	effort := flags.String("effort", "", "reasoning effort for the new harness")
+	generation := flags.String("generation", "", "switch only the selected task session")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
@@ -52,14 +53,20 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// The switch is pinned to the session the caller chose or, with none
+	// named, the one read here, so a task replaced in between is refused.
+	pinned := *generation
+	if pinned == "" {
+		pinned = meta.SpawnGen
+	}
 	request := spawn.SwitchRequest{
 		ID:         id,
 		Harness:    harness.Kind(*harnessName),
 		Model:      *model,
 		Effort:     *effort,
+		Generation: pinned,
 		ForceDirty: *forceDirty,
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
-		Generation: meta.SpawnGen,
 	}
 	if (request.Harness == "" || string(request.Harness) == meta.Harness) && (meta.Harness == "codex" || meta.Harness == "claude") {
 		data, readErr := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json"))

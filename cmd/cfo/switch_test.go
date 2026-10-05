@@ -159,3 +159,27 @@ func TestRunSwitchRefusesUnreadableSessionOwnershipBeforeLaunching(t *testing.T)
 		t.Fatalf("exit=%d called=%v stderr=%s, want refusal before switching", exit, isCalled, stderr.String())
 	}
 }
+
+func TestRunSwitchBindsABoardRequestToTheSelectedGeneration(t *testing.T) {
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "codex", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	deps := testCommandRuntimeForHome(h)
+	var got spawn.SwitchRequest
+	deps.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		got = request
+		return spawn.SwitchResult{Output: "switched g4"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+	var stdout, stderr bytes.Buffer
+
+	exit := runWithRuntime([]string{"switch", "g4", "--generation", "s1", "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--force-dirty"}, &stdout, &stderr, deps)
+
+	if exit != 0 || got.Generation != "s1" || !got.ForceDirty {
+		t.Fatalf("generation-bound switch = %d, %+v: %s", exit, got, stderr.String())
+	}
+}

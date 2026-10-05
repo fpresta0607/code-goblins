@@ -866,7 +866,7 @@ func TestGoblinsOpensTheBrowserWhenTheWindowFails(t *testing.T) {
 	}
 }
 
-// goblins --window --background, which Windows runs at login, finds or starts
+// goblins --window --background, which the window runs at login, finds or starts
 // the supervisor and keeps the window in the tray: it neither opens a browser
 // nor starts or shows a CFO. goblins --window alone shows the window.
 func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {

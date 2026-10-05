@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -191,12 +192,7 @@ func DefaultModel(kind Kind) string {
 }
 
 func validSharedEffort(effort string) bool {
-	switch effort {
-	case "low", "medium", "high", "xhigh", "max":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(Efforts(Claude), effort)
 }
 
 func validateExecutable(ctx context.Context, runner execx.Runner, executable string, args ...string) (execx.Result, error) {
