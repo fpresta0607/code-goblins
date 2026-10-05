@@ -1064,6 +1064,7 @@ The page and the text list what is held for him first, then what the CFO decided
 A decision names its kind (`merge`, `deploy`, `migration`, `install`, `answer` or `other`), what was decided and the evidence it stands on; one without evidence is refused.
 A merge word is logged before the merge and its outcome after it, as a second line for the same pull request, so the report never shows a merge word as a merge.
 Its evidence names the base tip `cfo pr merge` read a moment before merging; `gh pr merge --match-head-commit` holds only the head, so a commit that lands on the base between that reading and the merge is not seen.
+Where the base requires a merge queue the word adds the pull request to the queue instead, and its evidence says the queue tests the merge on the base's tip; its outcome is that the pull request joined the queue, not that it merged.
 
 While AFK mode is on, `POST /api/announce` records every key it is asked about and claims none, so the board shows no alert, sends no Windows notification and never opens the Command Center by itself.
 It claims none even when the record cannot be saved, as on a full disk: the board reads a refusal as leave to announce, so while he is away the endpoint answers with nothing claimed rather than with the failure.
