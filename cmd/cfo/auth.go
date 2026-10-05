@@ -15,12 +15,10 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -370,7 +368,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	filed, err := supervisor.FileCredentialRequest(ctx, h, terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}}), request)
+	filed, err := supervisor.FileCredentialRequest(h, request)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 1

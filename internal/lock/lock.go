@@ -118,7 +118,7 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
-	return acquire(dir, name, self, true)
+	return acquire(dir, name, self, true, false)
 }
 
 // AcquireExclusiveNamed takes dir/name for the current process without the
@@ -126,6 +126,16 @@ func AcquireNamedOwner(dir, name string, ownerPID int, session string) (*Info, e
 // stricter form because two concurrent Spawn calls run under one process but
 // must still contend for the task's creation lock.
 func AcquireExclusiveNamed(dir, name string) (*Info, error) {
+	return acquireExclusiveNamed(dir, name, false)
+}
+
+// AcquireExclusiveNamedStrict preserves unreadable custody and never reclaims
+// a live lease, including one from this process whose release is uncertain.
+func AcquireExclusiveNamedStrict(dir, name string) (*Info, error) {
+	return acquireExclusiveNamed(dir, name, true)
+}
+
+func acquireExclusiveNamed(dir, name string, isStrict bool) (*Info, error) {
 	key := exclusiveLeaseKey(dir, name)
 	exclusiveLeases.Lock()
 	defer exclusiveLeases.Unlock()
@@ -137,20 +147,29 @@ func AcquireExclusiveNamed(dir, name string) (*Info, error) {
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
 	}
-	if holder, readErr := ReadNamed(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
-		if holder.Session != exclusiveSpawnSession {
+	read := ReadNamed
+	if isStrict {
+		read = ReadNamedStrict
+		if !self.VerifiedAlive() {
+			return nil, fmt.Errorf("lock: cannot verify owner pid %d", self.PID)
+		}
+	}
+	if holder, readErr := read(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
+		if isStrict || holder.Session != exclusiveSpawnSession {
 			return nil, exclusiveHeldError(holder)
 		}
 		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
 			return nil, reclaimErr
 		}
+	} else if isStrict && readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return nil, readErr
 	}
-	info, err := acquire(dir, name, self, false)
-	if errors.Is(err, ErrHeld) {
+	info, err := acquire(dir, name, self, false, isStrict)
+	if errors.Is(err, ErrHeld) && !isStrict {
 		if reclaimErr := reclaimAbandonedExclusiveLease(dir, name, self); reclaimErr != nil {
 			return nil, reclaimErr
 		}
-		info, err = acquire(dir, name, self, false)
+		info, err = acquire(dir, name, self, false, false)
 	}
 	if err != nil {
 		return nil, err
@@ -186,8 +205,12 @@ func Acquire(dir string) (*Info, error) {
 // the new holder of dir/name if the lock is free or its dead holder can be
 // stolen. allowReacquire preserves the session-lock custody contract while
 // task-spawn locks require a same-process concurrent caller to contend.
-func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
+func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info, error) {
 	path := filepath.Join(dir, name)
+	read := ReadNamed
+	if isStrict {
+		read = ReadNamedStrict
+	}
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
@@ -195,7 +218,7 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 		err := writeInfo(path, self)
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := ReadNamed(dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := read(dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
@@ -212,8 +235,14 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 		}
 
 		// File exists; read the holder.
-		holder, herr := ReadNamed(dir, name)
+		holder, herr := read(dir, name)
 		if herr != nil {
+			if isStrict {
+				if errors.Is(herr, os.ErrNotExist) {
+					continue
+				}
+				return nil, herr
+			}
 			// File is unreadable, corrupt, or zero-byte (holder mid-write).
 			// Treat as transient: sleep and retry, but only after seeing
 			// 3+ consecutive unreadable reads spanning 150ms+.
@@ -253,8 +282,11 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 
 		// Holder is dead. Re-read immediately to check if it changed
 		// (another acquirer might have won the race and written a new holder).
-		holder2, herr2 := ReadNamed(dir, name)
+		holder2, herr2 := read(dir, name)
 		if herr2 != nil {
+			if isStrict {
+				return nil, herr2
+			}
 			// Re-read is unreadable (file mid-write). Never remove on an
 			// unreadable re-read, even though we already judged the first read
 			// dead; the increment here only seeds the first-read grace counter
@@ -267,7 +299,7 @@ func acquire(dir, name string, self *Info, allowReacquire bool) (*Info, error) {
 			continue
 		}
 
-		if holder2.PID != holder.PID || holder2.Start != holder.Start {
+		if holder2.PID != holder.PID || holder2.Start != holder.Start || (isStrict && *holder2 != *holder) {
 			// The file changed; continue without removing (let the race winner handle cleanup).
 			continue
 		}
@@ -323,6 +355,19 @@ func ReadNamed(dir, name string) (*Info, error) {
 		return nil, fmt.Errorf("lock: unreadable holder record: %w", err)
 	}
 	return &info, nil
+}
+
+// ReadNamedStrict requires the complete process identity before custody can
+// be treated as dead. A valid JSON object with missing fields is uncertain.
+func ReadNamedStrict(dir, name string) (*Info, error) {
+	info, err := ReadNamed(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	if info.PID <= 0 || info.OwnerPID != info.PID || info.Start.IsZero() || info.Acquired.IsZero() || info.Hostname == "" {
+		return nil, fmt.Errorf("lock: incomplete custody in %s", filepath.Join(dir, name))
+	}
+	return info, nil
 }
 
 // Read returns the current holder recorded in dir/.lock.
