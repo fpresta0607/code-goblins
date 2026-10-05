@@ -93,10 +93,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// model and folder ("gpt-6-astra low · ~\..."); a footer that
 			// counts the context left shows while text waits behind a turn. A
 			// turn in progress shows only in the status row, as in "• Working
-			// (5s • esc to interrupt)", whose glyph alternates with ◦: a reply
-			// may say "Working" anywhere else.
+			// (5s • esc to interrupt)", whose glyph alternates with ◦ and may
+			// be blank, and whose heading may name the step instead of
+			// Working. A reply, the composer or a shell may quote that text, so
+			// only a row of that shape counts: no prompt or quote before the
+			// elapsed time and the interrupt hint.
 			Ready:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)|context left`),
-			Working:         regexp.MustCompile(`esc to interrupt|^\s*• Working \(`),
+			Working:         regexp.MustCompile(`^\s*([•◦]\s+)?[^\s"'›>][^"'›>]*\([^()]*esc to interrupt\)|^\s*[•◦] Working \(`),
 			Pasted:          []string{"[Pasted Content"},
 			PasteTakesEnter: true,
 			Undrawn:         true,
