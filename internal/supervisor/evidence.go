@@ -292,7 +292,7 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 		return evaluation
 	}
 	switch evaluation.Phase {
-	case "blocked", "ready", "merged", "done":
+	case "blocked", "failed", "ready", "merged", "done":
 		return evaluation
 	}
 	switch {
