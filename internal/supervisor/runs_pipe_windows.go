@@ -23,7 +23,6 @@ var (
 	kernel32                        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateNamedPipeW            = kernel32.NewProc("CreateNamedPipeW")
 	procConnectNamedPipe            = kernel32.NewProc("ConnectNamedPipe")
-	procDisconnectNamedPipe         = kernel32.NewProc("DisconnectNamedPipe")
 	procGetNamedPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
 	procGetNamedPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
 	procConvertSDDL                 = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
@@ -136,10 +135,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
-	defer func() {
-		_, _, _ = procDisconnectNamedPipe.Call(uintptr(handle))
-		_ = pipe.Close()
-	}()
+	defer pipe.Close()
 	var reply struct {
 		Error string `json:"error,omitempty"`
 	}
@@ -187,15 +183,23 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
-	// DisconnectNamedPipe discards an unread reply. Flush it before disconnecting,
-	// with the same I/O bound so a client that never reads holds no pipe forever.
-	timer.Reset(runReadTimeout)
-	if _, err := pipe.Write(append(data, '\n')); err == nil {
-		_ = pipe.Sync()
-	}
-	if !timer.Stop() {
-		<-expired
-	}
+	// A written reply stays in the pipe for its client to read after this
+	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
+	// larger than the pipe's buffer waits in Write for its reader, so the write
+	// is bounded against a client that never reads.
+	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	defer cancel()
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(replyCtx, func() {
+		_ = pipe.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+	}()
+	_, _ = pipe.Write(append(data, '\n'))
 }
 
 // lookNow has the supervisor's loop run a cycle now, which reads what a

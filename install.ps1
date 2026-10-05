@@ -229,7 +229,9 @@
             go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
             # -H windowsgui: the window is a program with no console.
-            go build -trimpath -o $builtWindow -ldflags "-H windowsgui" ./cmd/goblins-window
+            # production: as a release builds it, with no developer tools and
+            # no browser menu on a right click.
+            go build -trimpath -o $builtWindow -ldflags "-H windowsgui" -tags production ./cmd/goblins-window
             if ($LASTEXITCODE -ne 0) { throw "go build of the desktop window failed" }
         }
         finally {
