@@ -47,6 +47,13 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main or started by hand, has a
+  # group of its own, so none is ever cancelled or held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
