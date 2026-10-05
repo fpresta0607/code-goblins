@@ -229,6 +229,9 @@ The card wears GitHub's icons and colors: the purple merge icon for Merged, the 
 A live task's pull request link wears the merge icon too once its gate shows the merge, in phase merged and after its landed content is verified.
 A task no native hook has reported takes its status from the fleet's own records: a question it is still waiting on in the wake queue, then what its gate proved, then what Herdr sees in its pane or, for a native task, what the monitor reads from its terminal, and it is evaluated once a minute like any other.
 Each card shows its short title, then a muted line with the task's repo and status, the status's dot between them, and its pull request, linked only when the reported value is an https URL; the task's own latest status line is in its panel.
+A title shows without the harness a backlog row names after a semicolon, such as "; Claude Code", on every card, panel, node and alert, since the harness mark shows it; the adjust form keeps the row's own title.
+A queued card's wait is one short line, such as Waits for a task, Waits for memory, Waits for its turn or Waits until later, ending in an ellipsis rather than wrapping on a card too narrow for it; its panel names the task it waits on by title, and the CFO's note on the wait is there behind More.
+A paused or finished card shows when, beside a clock, and its status says what; the Next up chip sizes to its label and never wraps it.
 The title shows up to three lines and the repo and the status wrap onto further lines; a title cut at three lines ends in an ellipsis and shows in full in the board's tip on hover or keyboard focus.
 Every tip on the board is one box that floats over the whole page (`frontend/src/tips.ts`), shown for whichever part carrying `data-tip` the pointer or the keyboard's focus is on, so no scrolling box cuts a tip off and a dimmed control does not dim its tip; a part inside the Command Center shows its tip inside that dialog, which is drawn over the page.
 The tip holds its whole text: it grows to its text up to 320 px, or the window's width less 16 px, then wraps, breaking a long word if it must, at 16 px on a solid surface a step lighter than the cards, with an edge.
@@ -269,10 +272,15 @@ The CFO's header carries the toggle of AFK mode beside its status, in the Task v
 Turning it on asks first, in a question whose Cancel has the focus, and turning it off asks nothing; a refusal is shown under the header in the supervisor's words, and a switch that cannot be read shows off and says that a press on the toggle resets it.
 The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
 While AFK mode is off and a report is kept, an icon button beside the toggle opens that report again.
-The Task view header also shows the goblin's own latest status line, up to 4,000 characters, cut to three lines with Show more while it runs past them and Show less once opened; the Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
-The Task view holds the workspace, connections, changes, activity and commit history; the Terminal view is that goblin's live native terminal, edge to edge.
+The header's status is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
+A pause, resume or stop whose lifecycle record failed reads Pause failed, Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
+The Task view header shows one plain sentence under the status: the goblin's latest report without its leading state word (working:, waiting on ...:, blocked:, failed:, done:), split where a semicolon chained it, in sentence case, with a pull request link as PR #n, other links as their site, a path as the name it ends with and a commit hash left out, kept to whole sentences up to 280 characters; a paused task's sentence says what resumes it, from its pause condition, and that its last saved notes are kept when no fresh one was saved; a failed action says what failed and what to do next, with Open the log, which opens and shows Activity.
+Details under the sentence shows the report or the supervisor's problems exactly as written; a read that fails says what could not be read in one sentence with the error behind Details.
+The Terminal view header is compact, showing only the goblin, its status and the icon buttons, since the live screen shows the latest output.
+The Task view holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened; the Terminal view is that goblin's live native terminal, edge to edge.
 The Task view opens with one action row under the header, the task's own controls as labelled buttons: Remove for a queued task, whose Start is on its card alone, and Pause or Resume, and Stop, for a task that has started.
 A queued task's Adjust this task form follows that row, always open, with Save changes under its text box; the Adjust pencil is on the card only, where it opens the panel.
+A pause or stop lists what it kept under What’s preserved, each as a short label without its path or hash, and what it ended under Stopped resources; it repeats neither the status nor its reason.
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust` and a snapshot's task notes still show under the form, but nothing on the board files one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its Terminal view, and an alert opens its task on the Task view, where the alert's reason is; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
@@ -312,6 +320,7 @@ When sender identity is unavailable, only target evidence is shown.
 Each effect expires independently; initial load, reconnect, hidden-tab return, instance replacement and replayed receipts never fabricate new activity.
 Reduced motion uses a short static outline instead of movement.
 
+Changes is closed when a panel opens and reads nothing until it is opened: then it reads the change set's file list and shows its summary first, with Files on GitHub linking a GitHub pull request's Files view, and each file is a closed disclosure whose diff is read only when it is opened; no diff is read in the background or on a timer.
 Changes presents stacked file disclosures with lazy syntax-highlighted unified, split and code previews.
 A file over 256 KiB shows its changed lines in unified and split views, with a note that the code preview is off; every Git read behind a preview is capped at 1 MiB.
 Select a visible old/new line or contiguous range, including unchanged context, by its line number, which shows a comment icon on hover and focus.
@@ -586,7 +595,7 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks.
+Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks; both are sections closed until opened, with the same header as Changes.
 The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
 `GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
 The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.

@@ -6,6 +6,8 @@ import { ConnectorMark } from "./ConnectorMark";
 import { harnessMark } from "./connectors";
 import { harnessName, taskColumn } from "./workflow";
 import { EngineSwitchDialog } from "./engine-switch-dialog";
+import { plainText } from "./task-words";
+import { RawDetails } from "./raw-details";
 
 export function EngineSelector({ task, instance }: { task: Task; instance: string }) {
   const label = useId();
@@ -39,7 +41,7 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
   };
   return <div className="engine-selector" role="group" aria-label="Task engine">
     {isCompleted ? task.harness || task.model ? <div className="engine-readonly"><ConnectorMark mark={harnessMark(task.harness)} label={harnessName(task.harness)} /><span>{harnessName(task.harness)}</span><span className="mono">{[task.model, task.effort].filter(Boolean).join(" ") || "Model not recorded"}</span></div> : <p className="muted">Engine not recorded</p> : <>
-      {catalog.error ? <p role="alert">{catalog.error} <button onClick={catalog.reload}>Retry</button></p> : !catalog.data ? <p role="status">Reading engines...</p> : <>
+      {catalog.error ? <div role="alert"><p>The engines could not be read. <button onClick={catalog.reload}>Retry</button></p><RawDetails lines={[catalog.error]} /></div> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
         <div className="engine-fields">
           <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={harnessName(choice.harness)} /><select id={label + "-harness"} aria-label="Harness" value={choice.harness} disabled={isDisabled} onChange={(event) => {
             const next = catalog.data?.find((item) => item.id === event.target.value), first = next?.models[0];
@@ -56,7 +58,7 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
       </>}
       {(isSending || task.switching || outcome) && <p role="status">{isSending ? "Saving..." : task.switching ? "Switching..." : outcome}</p>}
       {task.pending_engine?.when === "turn-end" && <p className="engine-pending">Pending: {task.pending_engine.model} {task.pending_engine.effort} <button disabled={isSending || task.switching} onClick={() => void send("cancel")}>Cancel pending</button></p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{plainText(error)}</p>}
       {!isQueued && !isPaused && task.backend !== "native" && <p className="muted">Only a task in a native terminal can switch.</p>}
       {isConfirming && <EngineSwitchDialog task={task} choice={choice} onSwitch={(when) => void send(when)} onClose={() => setConfirming(false)} />}
     </>}
