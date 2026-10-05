@@ -1,4 +1,4 @@
-package codegoblins
+package installscript
 
 import (
 	"crypto/sha256"
@@ -37,7 +37,7 @@ func runOneLineInstall(t *testing.T, shell, base string) (output, local, temp st
 
 func installScript(t *testing.T) string {
 	t.Helper()
-	script, err := filepath.Abs("install.ps1")
+	script, err := filepath.Abs(filepath.Join("..", "..", "install.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func serveFiles(t *testing.T, files map[string][]byte) string {
 // release names its publisher; an unsigned one passes none.
 func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (destination, output string, err error) {
 	t.Helper()
-	pin, err := filepath.Abs(filepath.Join("tools", "pin-installer.ps1"))
+	pin, err := filepath.Abs(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +602,7 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	checkout := fakeCheckout(t)
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 // PowerShell its own module path.
 func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	checkout := t.TempDir()
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
