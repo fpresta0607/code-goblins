@@ -325,7 +325,8 @@ The supervisor resumes memory pauses after two consecutive readings of at least 
 Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
-At 3 percent allowance remaining, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the provider resets.
+At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
@@ -362,7 +363,7 @@ An open terminal follows its task into retired history instead of losing the pan
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
 After a failed resume it reads **Resume failed. See Task for details.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects only once the resumed session is live.
-A pill at the top switches between the **Task** view and the **Terminal** view in one tap.
+A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
 A live goblin's card also carries a terminal button, shown on hover or keyboard focus, that opens its panel straight on the Terminal view.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Connections** with the harness, model, MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**.
@@ -561,7 +562,8 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The pauses at an allowance floor and at the memory floor are not built yet.
+AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
+Automatic pauses at the memory floor are not built yet.
 
 ### Open in VS Code
 

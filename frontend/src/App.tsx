@@ -68,8 +68,8 @@ export function App() {
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
-  // Board opens a goblin on its task view, Orchestration on its terminal.
-  const [panelView, setPanelView] = useState<PanelView>("task");
+  // A panel opens on its terminal, in either view.
+  const [panelView, setPanelView] = useState<PanelView>("terminal");
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   // The CFO chosen by name, which the Board shows in the panel too.
@@ -139,9 +139,9 @@ export function App() {
   const [now,setNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
-  // Board opens a goblin on its Task view and Orchestration on its Terminal
-  // view, unless the caller asks for a view (the card's terminal button).
-  const select = (next: Selection, source: HTMLElement, panel: PanelView = view === "Board" ? "task" : "terminal") => {
+  // A goblin opens on its Terminal view, unless the caller asks for a view
+  // (an alert opens the Task view, where its reason is).
+  const select = (next: Selection, source: HTMLElement, panel: PanelView = "terminal") => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
     const session = snapshot?.sessions.find((session) => session.id === next.session);
@@ -214,7 +214,7 @@ export function App() {
   // when that is out of sight behind it.
   const backShown = showsPanel && !!selected;
   const back = () => {
-    const target = cfoPanelView ?? (view === "Board" ? "task" : "terminal");
+    const target = cfoPanelView ?? "terminal";
     if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(view, target)]: "true" }));
     setSelected(null);
     setCfoOpen(true);
@@ -263,7 +263,7 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(name === "Board" ? "task" : "terminal"); }}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView("terminal"); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
         {/* A kanban board too narrow for columns side by side is stacked, so

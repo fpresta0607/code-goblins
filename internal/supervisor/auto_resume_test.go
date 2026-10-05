@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,8 +34,8 @@ func pausedGoblin(t *testing.T, h home.Home, id, reason, until string, at time.T
 }
 
 func TestAllowanceFloorRequestsPauseWithTheResetCondition(t *testing.T) {
-	for _, percentUsed := range []float64{96, 96.9, 97, 98} {
-		t.Run(time.Duration(percentUsed).String(), func(t *testing.T) {
+	for _, percentUsed := range []float64{94.99, 95, 95.01, 96, 96.9, 97, 98} {
+		t.Run(fmt.Sprintf("%.2f used", percentUsed), func(t *testing.T) {
 			spawner := &spawnRecorder{}
 			handler, h := startBoard(t, 3*gigabyte, spawner)
 			now := time.Now().UTC().Truncate(time.Second)
@@ -49,14 +50,14 @@ func TestAllowanceFloorRequestsPauseWithTheResetCondition(t *testing.T) {
 			writeFile(t, filepath.Join(h.State, "hosts", meta.ID+".json"), string(data))
 			reset := now.Add(time.Hour)
 			handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
-				return quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 100 - percentUsed, ResetsAt: reset}}}}}, ""
+				return quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Windows: []quota.Window{{ID: "week", Kind: "weekly", PercentUsed: percentUsed, ResetsAt: reset}}, Scopes: map[string]quota.Scope{"all_models": {Name: "all_models", Known: true, PercentRemaining: 100 - percentUsed, ResetsAt: reset, BoundedBy: []string{"week"}}}}}}, ""
 			}
 
 			if err := handler.Service.checkFleet(t.Context(), now); err != nil {
 				t.Fatal(err)
 			}
 
-			if percentUsed >= 97 {
+			if percentUsed >= 95 {
 				calls := awaitDispatch(t, handler.Service, spawner, 1)
 				if calls[0][0] != "pause" || calls[0][1] != meta.ID || !strings.Contains(strings.Join(calls[0], " "), "--reason allowance --until "+reset.Format(time.RFC3339)) {
 					t.Fatalf("allowance pause=%v", calls)
@@ -100,7 +101,7 @@ func TestFailedAllowancePauseIsHeldOnlyForItsGenerationAndReset(t *testing.T) {
 			}
 			pausedGoblin(t, h, "ready-task", "dependency", "date:"+now.Add(-time.Minute).Format(time.RFC3339), now.Add(-time.Hour))
 			handler.Service.Options.Quota = func(context.Context) (quota.Report, string) {
-				return quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Scopes: map[string]quota.Scope{"all_models": {Known: true, PercentRemaining: 2, ResetsAt: reset}}}}}, ""
+				return quota.Report{Providers: map[string]quota.Provider{"claude": {Known: true, Windows: []quota.Window{{ID: "week", Kind: "weekly", PercentUsed: 98, ResetsAt: reset}}, Scopes: map[string]quota.Scope{"all_models": {Known: true, PercentRemaining: 2, ResetsAt: reset, BoundedBy: []string{"week"}}}}}}, ""
 			}
 
 			if err := handler.Service.checkFleet(t.Context(), now); err != nil {

@@ -1,6 +1,6 @@
 // Package gatetest chooses what a no-mistakes gate's local test step runs in
 // this repository: the Go packages a branch changed and the packages that
-// import them directly. CI still runs every package; this bounds the local
+// import them directly or transitively. CI still runs every package; this bounds the local
 // step so that it fits the gate on a loaded machine.
 package gatetest
 
@@ -21,8 +21,8 @@ type Package struct {
 	EmbedPatterns []string
 }
 
-// Choice is one package the step tests and why: Imports names the changed
-// package it imports, and is empty when the package changed itself.
+// Choice is one package the step tests and why: Imports names the selected
+// package it imports directly, and is empty when the package changed itself.
 type Choice struct {
 	ImportPath string
 	Imports    string
@@ -40,15 +40,17 @@ var buildInputs = []string{".go", ".s", ".c", ".h", ".syso"}
 
 // Select returns the packages a change to files, given relative to root, the
 // directory of module, asks to test: every package that owns a changed file,
-// then every package that imports one of those directly, from its code or its
-// tests. A package owns a build input directly in its directory (.go, .s, .c,
+// then every package that imports one of those directly or transitively, from
+// its code or tests. A package owns a build input directly in its directory (.go, .s, .c,
 // .h or .syso), a file under its testdata directory, and a file one of its
 // embed patterns covers, present or deleted. A file no package owns this way,
 // such as README.md or a doc nothing embeds, chooses nothing. A changed build
 // input in a directory with no package names a deleted or moved package, the
 // module path joined with that directory: it is not tested, but every package
-// that still imports it directly is. The changed packages come first, each
-// group in import-path order. everything reports that go.mod or go.sum
+// that still imports it directly or transitively is. Reasons name the first
+// immediate import on a shortest path, with changed seeds before deleted seeds
+// and subsequent frontiers sorted. The changed packages come first, each group
+// in import-path order. everything reports that go.mod or go.sum
 // changed, which can change what every package builds against, so no package
 // list bounds it.
 func Select(root, module string, files []string, packages []Package) (choices []Choice, everything bool) {
@@ -88,17 +90,31 @@ func Select(root, module string, files []string, packages []Package) (choices []
 	slices.Sort(gonePaths)
 	imported := append(slices.Clip(changedPaths), gonePaths...)
 
-	var importers []Choice
+	reverseImports := map[string][]string{}
 	for _, p := range packages {
-		if changed[p.ImportPath] {
-			continue
+		for _, importedPath := range p.Imports {
+			reverseImports[importedPath] = append(reverseImports[importedPath], p.ImportPath)
 		}
-		for _, path := range imported {
-			if slices.Contains(p.Imports, path) {
-				importers = append(importers, Choice{ImportPath: p.ImportPath, Imports: path})
-				break
+	}
+	selected := map[string]bool{}
+	for _, importPath := range imported {
+		selected[importPath] = true
+	}
+	var importers []Choice
+	for len(imported) > 0 {
+		var next []string
+		for _, importedPath := range imported {
+			for _, importPath := range reverseImports[importedPath] {
+				if selected[importPath] {
+					continue
+				}
+				selected[importPath] = true
+				importers = append(importers, Choice{ImportPath: importPath, Imports: importedPath})
+				next = append(next, importPath)
 			}
 		}
+		slices.Sort(next)
+		imported = next
 	}
 	slices.SortFunc(importers, func(a, b Choice) int { return strings.Compare(a.ImportPath, b.ImportPath) })
 	return append(choices, importers...), false

@@ -182,8 +182,11 @@ func TestReadKeepsEachWindowsUseAndACreditBalance(t *testing.T) {
 	}
 
 	claude := report.Providers["claude"]
-	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
+	if len(claude.Windows) != 3 || claude.Windows[0] != (Window{ID: "five_hour", Label: "session", Kind: "session", WindowSeconds: 18000, PercentUsed: 88, ResetsAt: time.Date(2026, 9, 17, 17, 20, 0, 570646000, time.UTC)}) || claude.Windows[1].Label != "week" || claude.Windows[1].PercentUsed != 1 {
 		t.Errorf("claude windows = %+v, want its session, week and model windows with what each has used", claude.Windows)
+	}
+	if scope := claude.Scopes["model:fable"]; len(claude.Windows) != 3 || strings.Join(scope.BoundedBy, ",") != "five_hour,seven_day,model:fable" || claude.Windows[1].Kind != "weekly" || claude.Windows[2].Kind != "model" || claude.Windows[2].WindowSeconds != 604800 {
+		t.Errorf("weekly scope metadata lost: windows=%+v scope=%+v", claude.Windows, scope)
 	}
 	if claude.Credits != nil {
 		t.Errorf("claude credits = %+v, want none: quota-axi reported no balance", claude.Credits)

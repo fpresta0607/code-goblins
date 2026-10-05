@@ -62,6 +62,22 @@ test("Escape goes back from a task's panel, and closes the CFO's", async ({ page
   await expect(page.locator(".context-pane")).toBeHidden();
 });
 
+for (const id of ["working-one", "paused-one"]) {
+  test(`a card opens the panel of ${id} on its Terminal beside the board, with Task to its right`, async ({ page }) => {
+    await open(page);
+    await card(page, id).click();
+    await expect(title(page)).toHaveText(id);
+    await expect(pill(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+    await expect(pill(page, "Task")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("group", { name: "Panel view" }).getByRole("button")).toHaveText(["Terminal", "Task"]);
+    await expect(page.locator(".canvas-region")).toBeVisible();
+    // Back shows the CFO's panel on its terminal too, while it has shown no other view.
+    await back(page).click();
+    await expect(title(page)).toHaveText("CFO");
+    await expect(pill(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+  });
+}
+
 test("Back returns to the view the CFO's panel last showed, and a maximized panel stays maximized", async ({ page }) => {
   await open(page);
   // The CFO's panel opens on its terminal; its Task view shows beside the board.
@@ -75,9 +91,9 @@ test("Back returns to the view the CFO's panel last showed, and a maximized pane
   await expect(pill(page, "Task")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".canvas-region")).toBeVisible();
 
-  // Now he maximizes the CFO's terminal, which covers the board.
+  // Now the CFO's panel last showed its terminal, maximized over the board.
   await pill(page, "Terminal").click();
-  await page.getByRole("button", { name: "Maximize the panel" }).click();
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
   await expect(page.locator(".canvas-region")).toBeHidden();
   await page.keyboard.press("Control+Alt+2");
   await expect(title(page)).toHaveText("working-one");

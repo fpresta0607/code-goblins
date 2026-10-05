@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -26,8 +28,25 @@ func AllowanceReset(report quota.Report, provider, model string, now time.Time) 
 	if !ok || model == "" {
 		scope = reading.Scopes["all_models"]
 	}
-	isLow := scope.Known && scope.PercentRemaining <= 3 && (scope.ResetsAt.IsZero() || now.Before(scope.ResetsAt))
-	return scope.ResetsAt, isLow
+	var reset time.Time
+	isLow := false
+	for _, window := range reading.Windows {
+		isWeekly := window.Kind == "weekly" || window.Kind == "model" && window.WindowSeconds == 7*24*60*60
+		if !isWeekly || !slices.Contains(scope.BoundedBy, window.ID) || window.PercentUsed < 100-5 {
+			continue
+		}
+		if !window.ResetsAt.IsZero() && !now.Before(window.ResetsAt) {
+			continue
+		}
+		isLow = true
+		if window.ResetsAt.IsZero() {
+			return time.Time{}, true
+		}
+		if window.ResetsAt.After(reset) {
+			reset = window.ResetsAt
+		}
+	}
+	return reset, isLow
 }
 
 func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time) bool {
@@ -39,6 +58,7 @@ func allowanceBlocked(watched *fleetWakes, provider, model string, now time.Time
 }
 
 func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes, now time.Time) error {
+	watched.AllowanceFloors = map[string]allowanceFloor{}
 	if s.Options.Quota == nil || s.Options.Dispatch == nil || s.Options.Dispatch.Spawn == nil {
 		return nil
 	}
@@ -48,13 +68,17 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 	if skipped != "" {
 		return nil
 	}
-	watched.AllowanceFloors = map[string]allowanceFloor{}
 	for provider, reading := range report.Providers {
 		if reading.Stale || !reading.Known {
 			continue
 		}
-		for name, scope := range reading.Scopes {
-			watched.AllowanceFloors[provider+"/"+name] = allowanceFloor{IsLow: scope.Known && scope.PercentRemaining <= 3, Reset: scope.ResetsAt}
+		for name := range reading.Scopes {
+			model := strings.TrimPrefix(name, "model:")
+			if name == "all_models" {
+				model = ""
+			}
+			reset, isLow := AllowanceReset(report, provider, model, now)
+			watched.AllowanceFloors[provider+"/"+name] = allowanceFloor{IsLow: isLow, Reset: reset}
 		}
 	}
 	var problems error
@@ -64,7 +88,7 @@ func (s *Service) pauseAtAllowanceFloor(ctx context.Context, watched *fleetWakes
 			continue
 		}
 		if reset.IsZero() {
-			problems = errors.Join(problems, fmt.Errorf("%s allowance is at the 3 percent floor without a reset time; no pause condition can be recorded", meta.Harness))
+			problems = errors.Join(problems, fmt.Errorf("%s allowance is at the 5 percent weekly floor without a reset time; no pause condition can be recorded", meta.Harness))
 			continue
 		}
 		if meta.Backend != "native" {
