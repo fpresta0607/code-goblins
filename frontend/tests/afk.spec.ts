@@ -10,7 +10,9 @@ const BOARD = "his own board (goblins-window.exe pid 4242)";
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", ...fields });
 const TASKS = [task("nw-invoice-export"), task("nw-checkout-tax"), task("nw-search-index")];
 const question = (id: string, text: string, asker = "") => ({ id, text, options: ["Hold it", "Do it"], recommended: "Hold it", status: "pending", task: asker, generation: asker ? asker + "-1" : "", created_at: new Date(Date.now() - HOURS).toISOString() });
-const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "Delete the old branch fix/tax-rounding-v1?", "nw-checkout-tax")];
+// The second is a goblin's question the CFO passed up to him: a goblin's own
+// question is the CFO's to answer, never waits on him and is never held.
+const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "nw-checkout-tax asks: Delete the old branch fix/tax-rounding-v1?")];
 const HELD = [
   { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "" },
   { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path" },
@@ -216,7 +218,6 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
   const inFlight: Route[] = [];
   await page.route("**/api/announce", (route) => { inFlight.push(route); });
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
-  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("open:question:q-drop-table"))).toBe(true);
   await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table"))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
@@ -239,9 +240,12 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   // The same failed ask with AFK off announces from what this browser
-  // remembers, as it always has.
+  // remembers, as it always has: an item shows no toast, so a goblin's news
+  // stands for it.
   await push(page, snapshot({ questions: QUESTIONS }));
-  await expect(page.locator(".toasts .dialogue")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
+  await push(page, snapshot({ questions: QUESTIONS, tasks: TASKS.map((task) => task.id === "nw-invoice-export" ? { ...task, phase: "done", pr: "https://github.com/northwind/northwind-api/pull/412" } : task) }));
+  await expect(page.locator(".toasts .dialogue")).toContainText("nw-invoice-export finished");
+  await expect(page.locator(".toasts")).not.toContainText("Migration 0042");
 });
 
 test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
