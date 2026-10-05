@@ -26,7 +26,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	id := args[0]
 	flags := flag.NewFlagSet("switch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	harnessName := flags.String("harness", "", "claude, codex, pi, or kimi")
+	harnessName := flags.String("harness", "", "claude, codex, or pi")
 	model := flags.String("model", "", "model for the new harness")
 	effort := flags.String("effort", "", "reasoning effort for the new harness")
 	generation := flags.String("generation", "", "switch only the selected task session")
@@ -39,7 +39,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
-		fmt.Fprintln(stderr, "cfo switch: --harness must be claude, codex, pi, or kimi")
+		fmt.Fprintln(stderr, "cfo switch: --harness must be claude, codex, or pi")
 		return 2
 	}
 

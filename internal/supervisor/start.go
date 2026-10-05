@@ -39,7 +39,7 @@ const (
 )
 
 var (
-	spawnHarnesses = []string{"claude", "codex", "pi", "kimi"}
+	spawnHarnesses = []string{"claude", "codex", "pi"}
 	spawnModes     = []string{"no-mistakes", "direct-PR", "local-only"}
 	spawnValue     = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]~-]{1,200}$`)
 	briefSetting   = regexp.MustCompile(`(?i)^\s*(harness|model|effort|mode)\s*:\s*(\S+)\s*$`)

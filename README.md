@@ -4,7 +4,7 @@
 
 <p align="center">
   A Windows-native control plane for autonomous coding agents.<br/>
-  One CFO coordinates Claude Code, Codex, Pi, and Kimi workers in isolated git worktrees, supervises them to completion, validates the result, and hands you finished work.
+  One CFO coordinates Claude Code, Codex, and Pi workers in isolated git worktrees, supervises them to completion, validates the result, and hands you finished work.
 </p>
 
 <p align="center">
@@ -17,6 +17,10 @@
   <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with the question waiting on you, two queued tasks under the memory meter, goblins in progress, and beside them the selected goblin's panel with its status line and the diff of its change" width="900" />
   <br />
   <sub>Screenshots show the example workspace, <code>cfo serve --example</code> on an isolated home, staged with demo goblins.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe"><strong>Download for Windows</strong></a> (the CLI and the desktop app) or <a href="#install">install from PowerShell</a>
 </p>
 
 ## Why Code Goblins
@@ -44,7 +48,7 @@ The goal is not maximum agent count. The goal is **minimum human intervention pe
         ┌───────────┐   ┌───────────┐   ┌───────────┐
         │ Goblin A  │   │ Goblin B  │   │ Goblin C  │
         │ worktree  │   │ worktree  │   │ worktree  │
-        │ Claude    │   │ Codex     │   │ Pi / Kimi │
+        │ Claude    │   │ Codex     │   │ Pi        │
         └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
               └───────────────┼───────────────┘
                               ▼
@@ -62,7 +66,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions, each in a native terminal of its own (a pseudo console that outlives every window), avoiding a shell-script orchestration layer on the hot path; a kimi goblin waits until kimi's native screens are captured.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions, each in a native terminal of its own (a pseudo console that outlives every window), avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
@@ -70,7 +74,7 @@ Every goblin receives its own in-repository git worktree at `<project>/.worktree
 
 ### Harness-agnostic workers
 
-A task can run through Claude Code, Codex, Pi, or Kimi. `cfo switch` can change the harness, model, or effort level in-place while retaining the task identity and worktree, with a handoff when native session resumption is unavailable.
+A task can run through Claude Code, Codex, or Pi. `cfo switch` can change the harness, model, or effort level in-place while retaining the task identity and worktree, with a handoff when native session resumption is unavailable.
 
 ### Restart-proof supervision
 
@@ -113,7 +117,8 @@ A pane that shows a tool or a turn running, whichever harness drew it, keeps the
 
 There are two ways in.
 
-To use Code Goblins, run this one line in any PowerShell window; it needs no clone and no Go:
+To use Code Goblins, download [`CodeGoblinsSetup.exe`](https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe) from the latest release and open it: it installs the CLI and the desktop app with no terminal, puts Code Goblins in the Start menu and opens the app ([the install guide](docs/install.md#to-use-it) says what it does).
+Or run this one line in any PowerShell window, the same install in that window; it needs no clone and no Go:
 
 ```powershell
 irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
@@ -134,7 +139,7 @@ Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks t
 no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
 Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
 
-`cfo.exe` is not code-signed yet.
+A release says in its notes whether its programs are code-signed; until Code Goblins has a signing identity they are not, and the install checks each download against the release's `SHA256SUMS`.
 The one-line install runs it only when it matches the release's `SHA256SUMS`, and shows no SmartScreen prompt.
 A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
@@ -239,7 +244,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
-Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install puts it there from a release that ships it, which none does yet.
+Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install and `CodeGoblinsSetup.exe` put it there from a release that ships it, as releases from v0.4.0 on do.
 Where an install put it in the home, opening it is enough: Code Goblins in the Start menu starts the window alone, with no terminal, and it finds the supervisor or starts it and shows the board, where the first-run page starts the CFO while none runs.
 A window the home only kept from before, under an install that ships none, still opens from Code Goblins, which then runs `goblins --window`.
 When the board cannot open, the window says why in a message of its own, in the words `goblins` would use in a terminal.
@@ -597,7 +602,7 @@ cfo serve [--listen <loopback-address>]
 <candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
-cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]
