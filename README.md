@@ -4,7 +4,7 @@
 
 <p align="center">
   A Windows-native control plane for autonomous coding agents.<br/>
-  One CFO coordinates Claude Code, Codex, Pi, and Kimi workers in isolated git worktrees, supervises them to completion, validates the result, and hands you finished work.
+  One CFO coordinates Claude Code, Codex, and Pi workers in isolated git worktrees, supervises them to completion, validates the result, and hands you finished work.
 </p>
 
 <p align="center">
@@ -48,7 +48,7 @@ The goal is not maximum agent count. The goal is **minimum human intervention pe
         ┌───────────┐   ┌───────────┐   ┌───────────┐
         │ Goblin A  │   │ Goblin B  │   │ Goblin C  │
         │ worktree  │   │ worktree  │   │ worktree  │
-        │ Claude    │   │ Codex     │   │ Pi / Kimi │
+        │ Claude    │   │ Codex     │   │ Pi        │
         └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
               └───────────────┼───────────────┘
                               ▼
@@ -66,7 +66,7 @@ The CFO is the only human-facing control plane. Goblins report outcomes, questio
 
 ### Native Windows orchestration
 
-The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions, each in a native terminal of its own (a pseudo console that outlives every window), avoiding a shell-script orchestration layer on the hot path; a kimi goblin waits until kimi's native screens are captured.
+The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows sessions, each in a native terminal of its own (a pseudo console that outlives every window), avoiding a shell-script orchestration layer on the hot path.
 
 ### Isolated work by default
 
@@ -74,7 +74,7 @@ Every goblin receives its own in-repository git worktree at `<project>/.worktree
 
 ### Harness-agnostic workers
 
-A task can run through Claude Code, Codex, Pi, or Kimi. `cfo switch` can change the harness, model, or effort level in-place while retaining the task identity and worktree, with a handoff when native session resumption is unavailable.
+A task can run through Claude Code, Codex, or Pi. `cfo switch` can change the harness, model, or effort level in-place while retaining the task identity and worktree, with a handoff when native session resumption is unavailable.
 
 ### Restart-proof supervision
 
@@ -601,7 +601,7 @@ cfo serve [--listen <loopback-address>]
 <candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
-cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
+cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>
 cfo peek <target> [lines]

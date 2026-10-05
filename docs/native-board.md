@@ -57,7 +57,8 @@ Run `cfo hooks check claude`, `cfo hooks check codex`, or `cfo hooks check pi` t
 Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration.
 The verified minimum contracts are Claude Code 2.1.278, Codex 0.154.0, and Pi 0.85.1.
 The check reads the harness's version through PowerShell with the execution policy bypassed, so the script shim npm installs for Codex and Pi runs even where the policy is Restricted.
-Kimi remains supported by existing CFO runtime monitoring; this change does not claim Kimi native lifecycle hooks.
+Kimi Code is not a harness the fleet runs for now: it ran only in Herdr, and no native terminal knows its screens.
+Bringing it back needs its screens captured for a native terminal (its startup prompts, its composer and the marks of a turn, as `internal/harness/screens.go` holds them for Claude Code, Codex and pi), an adapter that builds its launch and says how it is stopped and resumed, a hook that reports each prompt it takes, which is how a delivery is confirmed, and its name back in what lists the harnesses: `cfo spawn` and `cfo switch`, `cfo doctor`, the installer, the ticket labels and the board's Start.
 
 Default destinations are `~/.claude/settings.json`, `~/.codex/hooks.json`, and `~/.pi/agent/extensions/cfo-native.ts`.
 Use `--config-dir <absolute-directory>` for a custom harness home or an isolated test configuration.
@@ -541,7 +542,7 @@ A host refuses to start for a terminal that already runs, so a second start neve
 A Herdr task's idle pane still shows unknown, since no Herdr answer proves the pane is the task's.
 For each read the host starts a process of its own that attaches to the terminal's console, reads its window and ends, so a Ctrl-C typed to the terminal, or its console closing, during a read can end only that read, never the host.
 A read that fails is an error naming the terminal, never an empty screen.
-`cfo spawn`, and the board's Start with it, starts every goblin in a native terminal of its own, named by its task id. Kimi, which has no native screens yet, is refused. A pi goblin starts with `--approve` where its pi advertises it, so it never asks to trust the folder's project files and saves no trust.
+`cfo spawn`, and the board's Start with it, starts every goblin in a native terminal of its own, named by its task id. A pi goblin starts with `--approve` where its pi advertises it, so it never asks to trust the folder's project files and saves no trust.
 The harness starts as its own program: claude.exe itself, and codex and pi through `cmd /c`, since their npm shims are scripts, and an argument cmd would read as more than text is refused.
 The terminal's environment starts from the one Windows gives a new process of the user, built from the user's and the machine's configured variables, never from the spawning process's own, so nothing the spawning session set reaches the goblin.
 The harness billing keys and every known session marker, such as `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` and the Herdr pane's variables, are dropped from it all the same, then the project's credentials and the launch's variables, `CFO_ROLE=goblin` among them, are added and win: a native task has no credentials script.
