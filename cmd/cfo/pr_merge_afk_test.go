@@ -30,6 +30,8 @@ type afkMergeRunner struct {
 	behind    int
 	mergeExit int
 	logErr    error
+	// queue says the base requires a merge queue.
+	queue bool
 }
 
 func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -44,6 +46,8 @@ func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			author = "fpresta0607"
 		}
 		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"%s","statusCheckRollup":[{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}],"author":{"login":"%s"},"baseRefName":"main","isCrossRepository":%t}`, prMergeHeadOID, author, r.cross))}, nil
+	case request.Args[0] == "api" && request.Args[1] == "graphql":
+		return execx.Result{Stdout: []byte(mergeQueueAnswer(r.queue, false))}, nil
 	case request.Args[0] == "api" && request.Args[1] == "user":
 		viewer := r.viewer
 		if viewer == "" {

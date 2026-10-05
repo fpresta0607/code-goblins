@@ -20,6 +20,8 @@ export interface Task extends Evaluation {
   queue_revision: string;
   notes: string[];
   action_error: string;
+  pending_engine?: { harness: string; model: string; effort: string; when: string };
+  switching?: boolean;
   branch: string;
   runtime?: RuntimeEvidence;
   id: string;
@@ -477,6 +479,8 @@ export function parseSnapshot(value: unknown): Snapshot {
       return {
         lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
+        pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
+        switching: t.switching === undefined ? false : boolean(t.switching),
         runtime: parseRuntime(t.runtime),
         id: string(t.id),
         title: string(t.title),

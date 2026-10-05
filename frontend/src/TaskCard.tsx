@@ -47,6 +47,8 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + task.phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
       {clockBadge}
       {queueBlock(task) && <span className="queue-block">{queueBlock(task)}</span>}
+      {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
+      {task.switching && <span className="card-secondary">Switching engine...</span>}
       {(column === "Paused" || column === "Completed") && task.at && <span className="card-clock">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })} at {new Date(task.at).toLocaleString()}</span>}
       {column === "Completed" && task.phase === "stopped" && <span className="card-secondary">{task.reason}</span>}
       {task.teardown.length > 0 && <span className="windows-teardown">Finishing Windows teardown: {task.teardown.join(", ")}</span>}

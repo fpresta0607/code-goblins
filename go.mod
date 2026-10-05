@@ -17,3 +17,8 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/wailsapp/wails/v3 v3.0.0-beta.26
 )
+
+// npm installs the frontend's packages here. One of them ships Go code, which
+// ./... would make a package of this module, and walking them all slowed every
+// go list ./... on a loaded machine.
+ignore ./frontend/node_modules
