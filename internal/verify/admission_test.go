@@ -858,7 +858,7 @@ func TestARunThatLostItsTurnSaysNothingOverTheNewHolder(t *testing.T) {
 	a := admission(t)
 	turn := within(t, take(t, a), "the run")
 	defer turn.Release()
-	other, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Acquired: time.Now()})
+	other, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Start: time.Now().Add(-time.Hour), Acquired: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
