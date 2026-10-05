@@ -155,8 +155,8 @@ cfo gate test --plan          # print the plan and run nothing
 
 | Level | `go vet` | `go test` |
 | --- | --- | --- |
-| `fast` | the changed packages and their direct importers | the changed packages the policy does not list as slow |
-| `affected` | the changed packages and their direct importers | the same packages |
+| `fast` | the changed packages and all their importers, including test imports | the changed packages the policy does not list as slow |
+| `affected` | the changed packages and all their importers, including test imports | the same packages |
 | `full` | every package | every package |
 
 A change requires `affected` before it merges, and `full` once `go.mod` or `go.sum` changed or the policy cannot be read.

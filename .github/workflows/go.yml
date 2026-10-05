@@ -74,7 +74,10 @@ jobs:
         # A package slow enough to hold a run back gets jobs of its own. These
         # three spend their time waiting on real terminals and supervisors,
         # which no faster runner shortens, so each gets two: one runs the
-        # tests whose names match run, the other skips exactly those. The
+        # tests whose names match run, the other skips exactly those.
+        # internal/conpty is fast but times keystrokes against bounds: beside
+        # the rest job's other packages, which keep all four cores busy, one
+        # key's echo spent 429 ms waiting for a core, so it runs alone. The
         # rest job runs every package that except does not name, so a new
         # package is tested with no change here.
         # TestGoWorkflowRunsEveryPackageOnce holds the matrix to that: except
@@ -99,8 +102,10 @@ jobs:
           - shard: supervisor-2
             packages: ./internal/supervisor
             skip: ^Test[A-M]
+          - shard: conpty
+            packages: ./internal/conpty
           - shard: rest
-            except: ./cmd/cfo ./internal/spawn ./internal/supervisor
+            except: ./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
