@@ -20,7 +20,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -33,7 +32,8 @@ const nativeSpawnHost = "native-spawn-host"
 
 // The fake harness records what it sees to the file fakeCodexRecord names, and
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
-// prompt and composer by default or its hook review prompt ("hooks"), nothing
+// prompt and composer by default, its composer at once ("ready"), or its hook
+// review prompt ("hooks"), nothing
 // a spawn would recognize ("silent"), or no console at all ("detached"). Half
 // drawn ("halfdrawn"), its update prompt shows its header alone at first, and
 // no focus for a moment after a move. At its composer, a prompt can open as
@@ -41,7 +41,8 @@ const nativeSpawnHost = "native-spawn-host"
 // ("unmoved"), each turn can end a moment after it starts ("turns"), typed
 // text can show only once its console is resized ("undrawn"), or the first
 // Enter can be taken as part of the text ("swallow"), where
-// by default a turn never ends.
+// by default a turn never ends. With "exitmenu", /exit opens the menu Claude
+// Code shows over background work before it exits.
 const (
 	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
@@ -70,7 +71,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "CFO_STATE_OVERRIDE", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING"}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -127,89 +128,11 @@ func fakeHarness() {
 		}
 		return
 	}
-	// Nothing may be typed before a screen asks for a key.
-	pause := time.Second
-	if mode == "halfdrawn" {
-		draw("", "  ✨ Update available! 0.154.0 -> 0.157.0")
-		pause = 1500 * time.Millisecond
-	}
-	time.Sleep(pause)
-	for waiting := true; waiting; {
-		select {
-		case key := <-keys:
-			record(codexEvent{Event: "typed blind", Text: key})
-		default:
-			waiting = false
-		}
-	}
-	options := []string{"1. Update now (runs `npm install -g @openai/codex`)", "2. Skip", "3. Skip until next version"}
-	update := func(focus int) {
-		rows := []string{"", "  ✨ Update available! 0.154.0 -> 0.157.0", "", "  Release notes: https://github.com/openai/codex/releases/latest", ""}
-		rows = append(rows, focusRows(options, focus)...)
-		draw(append(rows, "", "  Press enter to continue")...)
-	}
-	chosen := choose(keys, record, func(focus int) {
-		if mode == "halfdrawn" && focus > 0 {
-			update(-1)
-			time.Sleep(1500 * time.Millisecond)
-		}
-		update(focus)
-	})
-	record(codexEvent{Event: "update prompt", Text: options[chosen]})
-	if chosen == 0 {
-		return
-	}
-	// hookReview shows the hook review and reports whether it was answered
-	// with Continue without trusting.
-	hookReview := func() bool {
-		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
-		review := func(focus int) {
-			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
-			rows = append(rows, focusRows(hooks, focus)...)
-			draw(append(rows, "", "  Press enter to confirm or esc to go back")...)
-		}
-		if mode == "hooks-deaf" {
-			// As Codex 0.154 does, the review shows a moment before keys
-			// reach it, and a key sent meanwhile is lost.
-			review(0)
-			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
-				select {
-				case key := <-keys:
-					record(codexEvent{Event: "lost", Text: key})
-				case <-deaf:
-					deaf = nil
-				}
-			}
-		}
-		chosen := choose(keys, record, review)
-		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
-		return chosen == 2
-	}
-	if (mode == "hooks" || mode == "hooks-deaf") && !hookReview() {
-		return
-	}
-	trust := []string{"1. Yes, continue", "2. No, quit"}
-	chosen = choose(keys, record, func(focus int) {
-		rows := []string{"> You are in " + mustGetwd(), "", "  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
-			"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.", ""}
-		rows = append(rows, focusRows(trust, focus)...)
-		draw(append(rows, "", "  Press enter to continue")...)
-	})
-	record(codexEvent{Event: "trust prompt", Text: trust[chosen]})
-	if chosen != 0 {
-		return
-	}
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
 	}
-	if mode == "hooks-late" {
-		// As Codex 0.154 does, the composer shows a moment before the hook
-		// review is drawn over it, and keys typed meanwhile reach the review.
-		composer("Ask Codex to do anything")
-		time.Sleep(time.Second)
-		if !hookReview() {
-			return
-		}
+	if mode != "ready" && !codexStartup(mode, keys, record, draw, composer) {
+		return
 	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
@@ -263,6 +186,13 @@ func fakeHarness() {
 				record(codexEvent{Event: "submitted", Text: line.String()})
 				// Like codex, it ends at a submitted /exit.
 				if line.String() == "/exit" {
+					if mode == "exitmenu" {
+						exitOptions := []string{"1. Exit and stop tasks", "2. Move to background and exit", "3. Stay"}
+						chosen := choose(keys, record, func(focus int) {
+							draw(append([]string{"", "  Background work is running", "  The following will stop when you exit:", "    npm run dev (shell 1)", ""}, focusRows(exitOptions, focus)...)...)
+						})
+						record(codexEvent{Event: "exit menu", Text: exitOptions[chosen]})
+					}
 					return
 				}
 				// Unmoved, codex takes the line, which leaves its composer as a
@@ -277,7 +207,7 @@ func fakeHarness() {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
-			case key == "\x1b[A" || key == "\x1b[B":
+			case key == "\x1b[A" || key == "\x1b[B" || key == "\x1b[F":
 			default:
 				line.WriteString(key)
 				if mode == "trickle" {
@@ -295,6 +225,93 @@ func fakeHarness() {
 			composer(line.String())
 		}
 	}
+}
+
+// codexStartup shows codex's own startup screens, as captured on this
+// machine, and reports whether they ended at its composer.
+func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
+	// Nothing may be typed before a screen asks for a key.
+	pause := time.Second
+	if mode == "halfdrawn" {
+		draw("", "  ✨ Update available! 0.154.0 -> 0.157.0")
+		pause = 1500 * time.Millisecond
+	}
+	time.Sleep(pause)
+	for waiting := true; waiting; {
+		select {
+		case key := <-keys:
+			record(codexEvent{Event: "typed blind", Text: key})
+		default:
+			waiting = false
+		}
+	}
+	options := []string{"1. Update now (runs `npm install -g @openai/codex`)", "2. Skip", "3. Skip until next version"}
+	update := func(focus int) {
+		rows := []string{"", "  ✨ Update available! 0.154.0 -> 0.157.0", "", "  Release notes: https://github.com/openai/codex/releases/latest", ""}
+		rows = append(rows, focusRows(options, focus)...)
+		draw(append(rows, "", "  Press enter to continue")...)
+	}
+	chosen := choose(keys, record, func(focus int) {
+		if mode == "halfdrawn" && focus > 0 {
+			update(-1)
+			time.Sleep(1500 * time.Millisecond)
+		}
+		update(focus)
+	})
+	record(codexEvent{Event: "update prompt", Text: options[chosen]})
+	if chosen == 0 {
+		return false
+	}
+	// hookReview shows the hook review and reports whether it was answered
+	// with Continue without trusting.
+	hookReview := func() bool {
+		hooks := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
+		review := func(focus int) {
+			rows := []string{"", "  Hooks need review", "  2 hooks are new or changed.", "  Hooks can run outside the sandbox after you trust them.", ""}
+			rows = append(rows, focusRows(hooks, focus)...)
+			draw(append(rows, "", "  Press enter to confirm or esc to go back")...)
+		}
+		if mode == "hooks-deaf" {
+			// As Codex 0.154 does, the review shows a moment before keys
+			// reach it, and a key sent meanwhile is lost.
+			review(0)
+			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
+				select {
+				case key := <-keys:
+					record(codexEvent{Event: "lost", Text: key})
+				case <-deaf:
+					deaf = nil
+				}
+			}
+		}
+		chosen := choose(keys, record, review)
+		record(codexEvent{Event: "hook prompt", Text: hooks[chosen]})
+		return chosen == 2
+	}
+	if (mode == "hooks" || mode == "hooks-deaf") && !hookReview() {
+		return false
+	}
+	trust := []string{"1. Yes, continue", "2. No, quit"}
+	chosen = choose(keys, record, func(focus int) {
+		rows := []string{"> You are in " + mustGetwd(), "", "  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+			"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.", ""}
+		rows = append(rows, focusRows(trust, focus)...)
+		draw(append(rows, "", "  Press enter to continue")...)
+	})
+	record(codexEvent{Event: "trust prompt", Text: trust[chosen]})
+	if chosen != 0 {
+		return false
+	}
+	if mode == "hooks-late" {
+		// As Codex 0.154 does, the composer shows a moment before the hook
+		// review is drawn over it, and keys typed meanwhile reach the review.
+		composer("Ask Codex to do anything")
+		time.Sleep(time.Second)
+		if !hookReview() {
+			return false
+		}
+	}
+	return true
 }
 
 // watchWidth signals resized each time its console's width changes.
@@ -423,7 +440,6 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	f.request.Harness = kind
 	f.request.Model = ""
 	f.request.Effort = ""
-	f.request.Backend = "native"
 
 	// The host's record is gone once it ends, so its pid is kept while it runs.
 	var mu sync.Mutex
@@ -466,6 +482,17 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 		}
 	})
 	return native
+}
+
+// newQuickFixture readies a native spawn of task-7 whose fake codex shows its
+// composer at once, for a test about anything but how a spawn meets a
+// harness's startup screens, with the composer's settle cut to two reads.
+func newQuickFixture(t *testing.T) *nativeFixture {
+	t.Helper()
+	previous := nativeReadySettle
+	nativeReadySettle = 2 * nativePoll
+	t.Cleanup(func() { nativeReadySettle = previous })
+	return newNativeFixture(t, harness.Codex, "ready")
 }
 
 // events reads what the fake codex recorded.
@@ -806,7 +833,7 @@ func TestATeardownKeepsANativeTaskWhoseHostMayStillRun(t *testing.T) {
 			meta := filepath.Join(f.stateDir, "task-7.meta")
 			writeFile(t, meta, "{}")
 
-			err = f.service.teardownLaunch(context.Background(), nil, herdr.Endpoint{}, launched, f.project, f.worktree, "task-7")
+			err = f.service.teardownLaunch(context.Background(), launched, f.project, f.worktree, "task-7")
 
 			_, metaErr := os.Stat(meta)
 			if test.isKeptInPlace {
@@ -945,27 +972,27 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	if program, err := nativeProgram(harness.Claude, harness.Launch{Args: []string{"--x"}}); err == nil {
 		t.Errorf("claude as a script shim = %q, want refused", program)
 	}
-	program, err := nativeProgram(harness.Codex, harness.Launch{TypedLaunch: true, Executable: "codex", Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}})
+	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}})
 	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}) {
 		t.Errorf("codex = %q, %v; want it through cmd /c", program, err)
 	}
 	for _, arg := range []string{"a&b", `"quoted"`, "50%", "a|b"} {
-		if program, err := nativeProgram(harness.Pi, harness.Launch{TypedLaunch: true, Executable: "pi", Args: []string{arg}}); err == nil {
+		if program, err := nativeProgram(harness.Pi, harness.Launch{Executable: "pi", Args: []string{arg}}); err == nil {
 			t.Errorf("pi with %q = %q, want refused", arg, program)
 		}
 	}
 }
 
-// A typed launch leaves finding its program to cmd, in the user environment
-// the host runs with, so one not on this process's PATH still starts through
-// cmd /c.
-func TestATypedNativeLaunchIsNotLookedUpOnThisProcessPath(t *testing.T) {
+// A harness installed as a script shim leaves finding its program to cmd, in
+// the user environment the host runs with, so one not on this process's PATH
+// still starts through cmd /c.
+func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
 	// Arrange
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
 
 	// Act
-	program, err := nativeProgram(harness.Codex, harness.Launch{TypedLaunch: true, Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
+	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
 
 	// Assert
 	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra"}) {
@@ -980,11 +1007,15 @@ func (c fixtureCredentials) Preflight(context.Context, string) (auth.Result, err
 	return auth.Result{Env: c}, nil
 }
 
-// nativeAdapter builds kind's launch the way its adapter does: codex typed
-// through its shim, claude started as its own program.
+// nativeAdapter builds kind's launch the way its adapter does: codex through
+// its shim, claude started as its own program.
 type nativeAdapter struct {
 	kind    harness.Kind
 	control harness.Control
+	// specs, when set, records every launch spec built, and buildErr refuses
+	// the build.
+	specs    *[]harness.LaunchSpec
+	buildErr error
 }
 
 func (a nativeAdapter) Kind() harness.Kind { return a.kind }
@@ -994,13 +1025,19 @@ func (nativeAdapter) Validate(context.Context, execx.Runner) error { return nil 
 func (a nativeAdapter) Control() harness.Control { return a.control }
 
 func (a nativeAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	if a.specs != nil {
+		*a.specs = append(*a.specs, spec)
+	}
+	if a.buildErr != nil {
+		return harness.Launch{}, a.buildErr
+	}
 	launch := harness.Launch{
 		Args:       []string{"--dangerously-skip-permissions"},
 		Env:        map[string]string{"GOTMPDIR": spec.GoTmp, harness.RoleVariable: harness.RoleGoblin},
 		PromptFile: spec.BriefPath,
 	}
 	if a.kind == harness.Codex {
-		launch.Args, launch.TypedLaunch, launch.Executable = []string{"--dangerously-bypass-approvals-and-sandbox"}, true, "codex"
+		launch.Args, launch.Executable = []string{"--dangerously-bypass-approvals-and-sandbox"}, "codex"
 	}
 	return launch, nil
 }

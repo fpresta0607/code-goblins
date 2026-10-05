@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -92,21 +94,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return nil
 		},
 		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
-			if prior.GateRun != "" {
-				branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
-				if err != nil || branch.ExitCode != 0 {
-					return errors.New("cannot read the paused validation branch")
-				}
-				if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}); err != nil {
-					return err
-				}
-			}
-			handoff := ""
-			if prior.HandoffSaved {
-				handoff = prior.Handoff
-			}
-			_, err := runtime.switchTask(ctx, h, spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, Session: meta.HerdrSession, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff})
-			return err
+			return resumeTask(ctx, h, runtime, commands, gate, meta, prior)
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
 			if meta.Backend == "native" {
@@ -153,9 +141,60 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			memory, err := supervisor.MachineMemory()
 			return memory.Available, memory.CommitAvailable, err
 		},
+		Admit: func() error {
+			memory, err := supervisor.MachineMemory()
+			if err != nil {
+				return err
+			}
+			return supervisor.CheckLaunch(h, memory)
+		},
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
 		},
 	}}
 	return service.Run(ctx, request)
+}
+
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle) error {
+	if meta.Backend != "native" {
+		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with cfo cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
+	}
+	choice, choiceErr := state.ReadEngineChoice(h.State, meta.ID)
+	if choiceErr != nil && !errors.Is(choiceErr, os.ErrNotExist) {
+		return choiceErr
+	}
+	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen
+	if prior.GateRun != "" {
+		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
+		if err != nil || branch.ExitCode != 0 {
+			return errors.New("cannot read the paused validation branch")
+		}
+		if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: strings.TrimSpace(string(branch.Stdout)), Intent: prior.GateIntent}); err != nil {
+			return err
+		}
+	}
+	handoff := ""
+	if prior.HandoffSaved {
+		handoff = prior.Handoff
+	}
+	session := prior.Session
+	pausedAt := prior.Started
+	if prior.Pause != nil {
+		pausedAt = prior.Pause.At
+	}
+	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
+		session = ""
+	}
+	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote}
+	if hasChoice {
+		request.Harness, request.Model, request.Effort = harness.Kind(choice.Harness), choice.Model, choice.Effort
+		if choice.Harness != meta.Harness {
+			request.ResumeSession = ""
+		}
+	}
+	_, err := runtime.switchTask(ctx, h, request)
+	if err == nil && hasChoice {
+		return state.RemoveEngineChoice(h.State, meta.ID)
+	}
+	return err
 }

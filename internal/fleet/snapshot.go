@@ -89,17 +89,18 @@ type SecondmateRow struct{}
 
 // TaskRow is the complete typed projection of one local task metadata record.
 type TaskRow struct {
-	ID       string            `json:"id"`
-	Current  crewstate.Current `json:"current_state"`
-	Monitor  MonitorSummary    `json:"monitor"`
-	Kind     string            `json:"kind"`
-	Project  string            `json:"project"`
-	Backend  string            `json:"backend"`
-	Endpoint EndpointSummary   `json:"endpoint"`
-	Artifact string            `json:"artifact"`
-	Path     string            `json:"path"`
-	Actions  Actions           `json:"actions"`
-	Teardown []string          `json:"teardown,omitempty"`
+	ID       string                `json:"id"`
+	Current  crewstate.Current     `json:"current_state"`
+	Monitor  MonitorSummary        `json:"monitor"`
+	Kind     string                `json:"kind"`
+	Project  string                `json:"project"`
+	Backend  string                `json:"backend"`
+	Endpoint EndpointSummary       `json:"endpoint"`
+	Artifact string                `json:"artifact"`
+	Path     string                `json:"path"`
+	Actions  Actions               `json:"actions"`
+	Teardown []string              `json:"teardown,omitempty"`
+	Pause    *state.PauseCondition `json:"pause,omitempty"`
 }
 
 // MonitorSummary is the renderer-facing subset of the persisted Task 4
@@ -175,11 +176,15 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		}
 		monitorSummary, endpointExists := readMonitorSummary(h.State, id)
 		var teardown []string
+		var pause *state.PauseCondition
 		record, lifecycleErr := state.ReadLifecycle(h.State, id)
 		if lifecycleErr == nil {
 			teardown = record.TeardownLabels()
 		}
 		if lifecycleErr == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(h.State) {
+			if record.Phase == "paused" {
+				pause = record.Pause
+			}
 			monitorSummary = MonitorSummary{Health: monitor.HealthPaused}
 			if record.Phase == "resuming" {
 				monitorSummary.Health = monitor.HealthLaunching
@@ -208,6 +213,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Path:     taskPath(meta),
 			Actions:  Actions{Peek: "cfo peek gb-" + meta.ID},
 			Teardown: teardown,
+			Pause:    pause,
 		})
 	}
 	sort.Slice(snapshot.Tasks, func(i, j int) bool {
@@ -232,6 +238,9 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		outcome, err := state.ReadOutcome(h.State, id)
 		if err != nil {
 			return Snapshot{}, err
+		}
+		if outcome.Phase == "done" {
+			snapshot.Backlog.Queued = slices.DeleteFunc(snapshot.Backlog.Queued, func(row BacklogRow) bool { return row.Structured && row.ID == id })
 		}
 		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == outcome.Generation {
 			if status := record.TeardownStatus(); status != "" {

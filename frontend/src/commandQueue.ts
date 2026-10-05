@@ -15,7 +15,7 @@ export type Item = { kind: "question"; key: string; question: Question } | { kin
 const foldedIntoPage = (item: Item) => item.kind === "question" && !!item.question.page;
 
 // A terminal a credential card opened shows on that card, not as a run of its own.
-const asItems = (snapshot: Snapshot): Item[] => [
+export const asItems = (snapshot: Snapshot): Item[] => [
   ...(snapshot.questions || []).map((question): Item => ({ kind: "question", key: "question:" + question.id, question })),
   ...(snapshot.reviews || []).map((review): Item => ({ kind: "review", key: "review:" + review.id, review })),
   ...(snapshot.runs || []).filter((run) => !run.credential_request).map((run): Item => ({ kind: "run", key: "run:" + run.id, run })),
@@ -34,6 +34,17 @@ export const isOpen = (item: Item) => item.kind === "credential" ? item.request.
 // from it does.
 export const answeredElsewhere = (item: Item) => item.kind === "review" ? item.review.state === "answered" && !!item.review.answered_in
   : item.kind === "question" && item.question.status === "succeeded" && !!item.question.answered_in;
+
+// How the card of an item that closed without that card sending anything
+// finishes: Answered when he answered it somewhere else, such as on another
+// board, Closed when its asker or the CFO took it back. Empty while the item
+// is open, and for one whose answer did not arrive, whose card says what to
+// do. A run's card shows its result and a credential request's card what it
+// saved, so neither finishes this way.
+export function closedElsewhere(item: Item, actions: Action[]): "" | "Answered" | "Closed" {
+  if (item.kind === "run" || item.kind === "credential" || isOpen(item) || settledIcon(item, actions).icon === "warning") return "";
+  return (item.kind === "question" ? questionOutcome(item.question) === "answered" : item.review.state === "answered") ? "Answered" : "Closed";
+}
 
 // A goblin's wait on the Overlord himself, raised by notify --waiting-on
 // overlord: a status to see and dismiss, not a question to answer. It closes

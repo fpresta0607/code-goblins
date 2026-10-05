@@ -10,19 +10,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 	"gopkg.in/yaml.v3"
 )
@@ -32,9 +32,6 @@ type pipelineRunner struct {
 	native     []execx.Request
 	worktree   string
 	activeRuns int
-	// cfo is the pid Herdr reports in the registered CFO's pane w1:p1; zero
-	// means no Herdr call is expected.
-	cfo int
 }
 
 type pipelineStartRunner struct {
@@ -86,79 +83,25 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 	return execx.Result{}, fmt.Errorf("unexpected start command: %#v", q)
 }
 
+// pipelineSwitchRunner holds a switch at its worktree status read, inside
+// its metadata lock, until the test releases it.
 type pipelineSwitchRunner struct {
 	statusReady   chan struct{}
 	statusRelease chan struct{}
-	alive         bool
-	prompts       int
-	launched      bool
-	brief         string
-	briefs        int
-	briefEnters   int
 }
 
 func (r *pipelineSwitchRunner) Run(ctx context.Context, q execx.Request) (execx.Result, error) {
-	switch q.Name {
-	case "git":
-		if len(q.Args) > 0 && q.Args[0] == "status" {
-			close(r.statusReady)
-			select {
-			case <-r.statusRelease:
-				return execx.Result{}, nil
-			case <-ctx.Done():
-				return execx.Result{}, ctx.Err()
-			}
+	if q.Name == "git" && len(q.Args) > 0 && q.Args[0] == "status" {
+		close(r.statusReady)
+		select {
+		case <-r.statusRelease:
+			return execx.Result{}, nil
+		case <-ctx.Done():
+			return execx.Result{}, ctx.Err()
 		}
-	case "herdr":
-		if len(q.Args) >= 3 && q.Args[0] == "pane" && q.Args[1] == "get" {
-			return execx.Result{Stdout: []byte(`{"result":{"pane":{"pane_id":"pane-1"}}}`)}, nil
-		}
-		// The pane's shell is this test process, which waits on nothing, so a
-		// switch finds nothing left over from the stopped harness.
-		if len(q.Args) >= 2 && q.Args[0] == "pane" && q.Args[1] == "process-info" {
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":%d,"foreground_process_group_id":%d}}}`, os.Getpid(), os.Getpid()))}, nil
-		}
-		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "get" {
-			if r.alive {
-				return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"agent":{"agent":"codex","agent_status":"working","interactive_ready":false,"state_change_seq":%d,"revision":%d}}}`, r.prompts+1, r.prompts+1))}, nil
-			}
-			return execx.Result{Stdout: []byte(`{"error":{"code":"agent_not_found"}}`)}, nil
-		}
-		// The switched-to Codex shows its composer once it runs, the brief in
-		// it once typed, and a turn once Enter submits it.
-		if len(q.Args) >= 2 && q.Args[0] == "pane" && q.Args[1] == "read" {
-			switch {
-			case r.briefEnters > 0:
-				return execx.Result{Stdout: []byte("• Working (1s • esc to interrupt)\n  100% context left\n")}, nil
-			case r.brief != "":
-				return execx.Result{Stdout: []byte("› " + r.brief + "\n  100% context left\n")}, nil
-			}
-			return execx.Result{Stdout: []byte("› Ask Codex to do anything\n  100% context left\n")}, nil
-		}
-		if len(q.Args) >= 3 && q.Args[0] == "agent" && q.Args[1] == "prompt" {
-			r.prompts++
-			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
-		}
-		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-text" {
-			// The typed launch line starts Codex; the text typed after it is
-			// its brief.
-			if strings.Contains(q.Args[3], "& '") {
-				r.launched = true
-			} else if r.launched {
-				r.brief = q.Args[3]
-				r.briefs++
-			}
-			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
-		}
-		if len(q.Args) >= 4 && q.Args[0] == "pane" && q.Args[1] == "send-keys" {
-			if q.Args[3] == "enter" {
-				r.alive = true
-				if r.brief != "" {
-					r.briefEnters++
-				}
-			}
-			return execx.Result{Stdout: []byte(`{"result":{}}`)}, nil
-		}
+	}
+	if q.Name == "git" {
+		return execx.Result{}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected switch command: %#v", q)
 }
@@ -197,11 +140,10 @@ func (pipelineSwitchAdapter) Validate(context.Context, execx.Runner) error {
 
 func (a pipelineSwitchAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	return harness.Launch{
-		Args:        []string{"--test"},
-		Env:         map[string]string{"GOTMPDIR": spec.GoTmp},
-		PromptFile:  spec.BriefPath,
-		TypedLaunch: true,
-		Executable:  string(a.kind),
+		Args:       []string{"--test"},
+		Env:        map[string]string{"GOTMPDIR": spec.GoTmp},
+		PromptFile: spec.BriefPath,
+		Executable: string(a.kind),
 	}, nil
 }
 
@@ -227,14 +169,6 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 	case "no-mistakes":
 		r.native = append(r.native, q)
 		return execx.Result{Stdout: []byte("native decision output\n")}, nil
-	case "herdr":
-		switch {
-		case r.cfo == 0:
-		case q.Args[0] == "api" && q.Args[1] == "snapshot":
-			return execx.Result{Stdout: []byte(`{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"t-1"}],"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"codex","agent_status":"idle"}]}}}`)}, nil
-		case q.Args[0] == "pane" && q.Args[1] == "process-info":
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, r.cfo))}, nil
-		}
 	}
 	return execx.Result{}, errors.New("unexpected command")
 }
@@ -341,13 +275,16 @@ func TestPipelineMigrateRejectsConfigApplyBeforeIdleLock(t *testing.T) {
 
 func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		activeRuns int
-		useCurrent bool
+		name         string
+		activeRuns   int
+		useCurrent   bool
+		isVersionTwo bool
 	}{
 		{name: "active-legacy", activeRuns: 1},
 		{name: "active-current", activeRuns: 1, useCurrent: true},
 		{name: "idle"},
+		{name: "active-v2", activeRuns: 1, isVersionTwo: true},
+		{name: "idle-v2", isVersionTwo: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -373,6 +310,16 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := legacyPipelineSelection(t, "high-risk")
+			if test.isVersionTwo {
+				previous := old.Policy
+				previous.Version = 2
+				previous.Primary = pipeline.Reviewer{Harness: "codex", Model: "gpt-5.6-sol", Effort: "high"}
+				previous.Reviewer, previous.Fixer = previous.Primary, previous.Primary
+				old, err = previous.Select(old.Class)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			if test.useCurrent {
 				old, err = policy.Select("high-risk")
 				if err != nil {
@@ -428,7 +375,7 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if migrated.Policy.Version != 2 || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
+			if migrated.Policy.Version != 3 || migrated.Class != old.Class || migrated.ReviewCycles != old.ReviewCycles || updated.PipelineHash != migrated.Hash || updated.PipelineClass != old.Class {
 				t.Fatalf("snapshot=%+v meta=%+v", migrated, updated)
 			}
 			status, err := state.TailStatus(h.State, "task", 1)
@@ -906,39 +853,38 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta := state.TaskMeta{
-		ID:               "task",
-		Mode:             "no-mistakes",
-		Worktree:         wt,
-		Project:          project,
-		TaskTmp:          tmp,
-		Brief:            brief,
-		PipelineClass:    old.Class,
-		PipelineHash:     old.Hash,
-		Backend:          "herdr",
-		Harness:          string(harness.Claude),
-		HerdrSession:     "fleet",
-		HerdrWorkspaceID: "workspace-1",
-		HerdrTabID:       "tab-1",
-		HerdrPaneID:      "pane-1",
+		ID:            "task",
+		Mode:          "no-mistakes",
+		Worktree:      wt,
+		Project:       project,
+		TaskTmp:       tmp,
+		Brief:         brief,
+		PipelineClass: old.Class,
+		PipelineHash:  old.Hash,
+		Window:        "native",
+		Backend:       "native",
+		Harness:       string(harness.Claude),
 	}
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
 
 	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
+	// No host command is given, so the switch publishes the new harness and
+	// then cannot start it; starting it is not what this test is about.
 	switchService := spawn.Service{
-		Terminals: terminal.HerdrSessions(&herdr.Client{Commands: switchRunner, Session: "fleet"}),
 		Worktrees: worktree.Service{Commands: switchRunner, Git: pipelineSwitchGit{worktree: wt}, DataDir: h.Data},
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: pipelineSwitchAdapter{kind: harness.Claude},
 			harness.Codex:  pipelineSwitchAdapter{kind: harness.Codex},
 		}},
-		Commands: switchRunner,
-		StateDir: h.State,
+		Commands:        switchRunner,
+		StateDir:        h.State,
+		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
 	}
 	switchDone := make(chan error, 1)
 	go func() {
-		_, err := switchService.Switch(context.Background(), spawn.SwitchRequest{ID: meta.ID, Harness: harness.Codex, Session: "fleet"})
+		_, err := switchService.Switch(context.Background(), spawn.SwitchRequest{ID: meta.ID, Harness: harness.Codex})
 		switchDone <- err
 	}()
 	<-switchRunner.statusReady
@@ -957,11 +903,8 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	}
 
 	close(switchRunner.statusRelease)
-	if err := <-switchDone; err != nil {
-		t.Fatalf("switch: %v", err)
-	}
-	if switchRunner.briefs != 1 || switchRunner.prompts != 0 {
-		t.Fatalf("switch typed its brief %d times and prompted %d times, want the brief typed once", switchRunner.briefs, switchRunner.prompts)
+	if err := <-switchDone; err == nil || !strings.Contains(err.Error(), "the command that runs a native terminal's host is required") {
+		t.Fatalf("switch: %v, want it to publish the new harness and stop at its launch", err)
 	}
 	if err := pipelineCommand(context.Background(), h, nm, runner, []string{"migrate", meta.ID}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("retry migration: %v", err)
@@ -1245,21 +1188,30 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// The registration names native terminal cfo, whose host record
+			// names the registered process as the terminal's program.
 			data, err := json.Marshal(struct {
-				Target    herdr.Target `json:"target"`
-				Workspace string       `json:"workspace"`
-				Tab       string       `json:"tab"`
-				Agent     string       `json:"agent"`
-				Terminal  string       `json:"terminal"`
-				Process   lock.Info    `json:"process"`
-			}{herdr.Target{Session: "isolated", Pane: "w1:p1"}, "w1", "w1:t1", "codex", "t-1", *registered})
+				Host    string    `json:"host"`
+				Agent   string    `json:"agent"`
+				Process lock.Info `json:"process"`
+			}{"cfo", "codex", *registered})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			runner := &pipelineRunner{worktree: wt, cfo: registered.PID, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
+			record, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-test-` + strconv.Itoa(os.Getpid()), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: registered.PID, Started: time.Now().UTC()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), record, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
 			var out bytes.Buffer
 			err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
 			lines, _ := state.TailStatus(h.State, "task", 10)

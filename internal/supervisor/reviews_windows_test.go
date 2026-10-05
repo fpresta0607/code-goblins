@@ -21,20 +21,19 @@ import (
 // supervisor restart and after the goblin respawns.
 func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	paths := []string{filepath.Join(meta.Worktree, "grid.png"), filepath.Join(meta.Worktree, "list.png")}
 	var data [][]byte
 	for _, path := range paths {
 		data = append(data, writePNG(t, path))
 	}
-	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a task list layout", "http://127.0.0.1:4387/session/f26e", "", paths); err != nil {
 		t.Fatalf("an unchanged republish was refused: %v", err)
 	}
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Another title", "", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Another title", "", "", paths); err == nil || !strings.Contains(err.Error(), "already used") {
 		t.Fatalf("a republish with other content = %v, want refused", err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -92,9 +91,8 @@ func TestReviewItemOutlivesItsSourceTheSupervisorAndTheGoblin(t *testing.T) {
 // is kept.
 func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
-	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	meta, _, _, _ := goblinFixture(t, store)
+	if err := PublishReview(h, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := spoolReview(h.State, Review{ID: "plan-review-1", Identity: strings.Repeat("e", 64), Task: meta.ID, State: "withdrawn", Reason: "not mine", UpdatedAt: time.Now().UTC()}); err != nil {
@@ -106,7 +104,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	if got := store.Snapshot(); got.Reviews[0].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only the reporter") {
 		t.Fatalf("a stranger's withdrawal = %+v %q, want it refused", got.Reviews[0], got.Issues)
 	}
-	if err := WithdrawReview(ctx, h, connection.Terminals, meta.ID, "plan-review-1", "Replaced by plan-review-2"); err != nil {
+	if err := WithdrawReview(h, meta.ID, "plan-review-1", "Replaced by plan-review-2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -121,15 +119,14 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 // item already closed and an item another reporter published.
 func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
-	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "closed-review", "Read the plan", "", "", nil); err != nil {
+	meta, _, _, _ := goblinFixture(t, store)
+	if err := PublishReview(h, meta.ID, "closed-review", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.clearReview("closed-review", goblinIdentity(meta), ""); err != nil {
+	if _, err := store.Queue(Action{ID: "clear-closed-review", Kind: "review_clear", ReviewID: "closed-review", Generation: goblinIdentity(meta)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(openReview("stranger-review", meta.ID)); err != nil {
@@ -140,7 +137,7 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 		"closed-review":   "already cleared",
 		"stranger-review": "only the reporter",
 	} {
-		if err := WithdrawReview(ctx, h, connection.Terminals, meta.ID, id, "Replaced"); err == nil || !strings.Contains(err.Error(), says) {
+		if err := WithdrawReview(h, meta.ID, id, "Replaced"); err == nil || !strings.Contains(err.Error(), says) {
 			t.Errorf("withdrawing %s = %v, want refused naming %q", id, err, says)
 		}
 	}
@@ -153,14 +150,13 @@ func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 // never touches the recorded item's images, and leaves none of its own.
 func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	grid, list := filepath.Join(meta.Worktree, "grid.png"), filepath.Join(meta.Worktree, "list.gif")
 	want := writePNG(t, grid)
 	if err := os.WriteFile(list, []byte("GIF89a\x01\x00\x01\x00\x00\x00\x00;"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err != nil {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err != nil {
 		t.Fatal(err)
 	}
 	inbox := reviewInboxPath(h.State, "mockups-review-1", "open")
@@ -177,7 +173,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 	if err := os.Remove(inbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(ctx, h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{list}); err != nil {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{list}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(first); err != nil {
@@ -202,7 +198,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 // A publication refused because the inbox is full copies no image.
 func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	grid := filepath.Join(meta.Worktree, "grid.png")
 	writePNG(t, grid)
 	inbox := filepath.Join(h.State, "reviews-inbox")
@@ -214,7 +210,7 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := PublishReview(context.Background(), h, connection.Terminals, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
+	if err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid}); err == nil || !strings.Contains(err.Error(), "inbox is full") {
 		t.Fatalf("a publication into a full inbox = %v, want refused", err)
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews")); !os.IsNotExist(err) && len(entries) != 0 {
@@ -223,9 +219,10 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 }
 
 // The Overlord's answer reaches the item's reporter once: a live goblin in its
-// own pane, or the CFO that reported it, even inside a long turn, where it
-// waits in the input until the turn ends. An answer for a goblin that
-// restarted goes to the CFO instead, and the item reads undelivered.
+// own terminal, or the CFO that reported it. Inside a long turn it is typed
+// once and waits in the input, sent and not yet delivered, until the
+// reporter's hook reports taking it. An answer for a goblin that restarted
+// goes to the CFO instead, and the item reads undelivered.
 func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 	for _, c := range []struct {
 		name         string
@@ -234,26 +231,33 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 		isBusy       bool
 		wantText     string
 		wantDelivery bool
+		wantStatus   string
 	}{
-		{"a live goblin", true, false, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"a live goblin inside a long turn", true, false, true, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"a respawned goblin", true, true, false, "which came to you because task-1 restarted or ended: Go with the grid", false},
-		{"the CFO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true},
-		{"the CFO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true},
+		{"a live goblin", true, false, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
+		{"a live goblin inside a long turn", true, false, true, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
+		{"a respawned goblin", true, true, false, "which came to you because task-1 restarted or ended: Go with the grid", false, "succeeded"},
+		{"the CFO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
+		{"the CFO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			store, h := testStore(t)
-			_, _, runner, cfo := primaryFixture(t, store)
+			_, _, terminal, cfo := primaryFixture(t, store)
 			servePipe(t, store, cfo)
-			meta, _, _, _ := goblinFixture(t, store)
+			meta, _, goblin, _ := goblinFixture(t, store)
 			t.Setenv("CFO_SESSION_ID", "actual-primary")
 			t.Setenv("CFO_SESSION_HARNESS", "codex")
 			task := ""
 			if c.goblin {
 				task = meta.ID
 			}
+			// The answer is typed into the reporter's terminal, or the CFO's
+			// when the goblin that reported it restarted, and nowhere else.
+			recipient, other := terminal, goblin
+			if c.goblin && !c.respawn {
+				recipient, other = goblin, terminal
+			}
 			ctx := context.Background()
-			if err := PublishReview(ctx, h, cfo.Terminals, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+			if err := PublishReview(h, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -272,20 +276,22 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			runner.busy = c.isBusy
+			if c.isBusy {
+				recipient.startTurn(t)
+			}
 			s := &Service{Store: store, Options: Options{CFO: cfo}}
 			if err := store.ProcessOne(ctx, s.execute); err != nil {
 				t.Fatal(err)
 			}
 			got := store.Snapshot()
-			if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], c.wantText) {
-				t.Fatalf("prompts = %q, want exactly one carrying %q", runner.prompts, c.wantText)
+			if typed, elsewhere := recipient.lines(t), other.lines(t); len(typed) != 1 || !strings.Contains(typed[0], c.wantText) || len(elsewhere) != 0 {
+				t.Fatalf("the recipient received %q and the other terminal %q, want exactly one line carrying %q", typed, elsewhere, c.wantText)
 			}
 			if review := got.Reviews[0]; review.State != "answered" || review.Answer != "Go with the grid" || review.AnswerID != a.ID || review.Delivered != c.wantDelivery {
 				t.Fatalf("review = %+v, want answered with delivered=%v", review, c.wantDelivery)
 			}
-			if action := got.Actions[len(got.Actions)-1]; action.Status != "succeeded" {
-				t.Fatalf("answer action = %+v, want succeeded", action)
+			if action := got.Actions[len(got.Actions)-1]; action.Status != c.wantStatus || (action.Awaiting != nil) != c.isBusy {
+				t.Fatalf("answer action = %+v, want %s, awaiting its reporter's report only inside a long turn", action, c.wantStatus)
 			}
 			if _, err := store.Queue(Action{ID: "answer-review-2", Kind: "review_answer", ReviewID: r.ID, Generation: r.Identity, Text: "Actually the list"}); err == nil {
 				t.Fatal("an answered review took a second answer")
@@ -310,7 +316,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 				task = meta.ID
 			}
 			ctx := context.Background()
-			if err := PublishReview(ctx, h, cfo.Terminals, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+			if err := PublishReview(h, task, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestReviews(); err != nil {
@@ -353,12 +359,12 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 // room for the waiting one.
 func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	store, h := testStore(t)
-	_, _, runner, cfo := primaryFixture(t, store)
+	_, _, terminal, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
 	t.Setenv("CFO_SESSION_ID", "actual-primary")
 	t.Setenv("CFO_SESSION_HARNESS", "codex")
 	ctx := context.Background()
-	if err := PublishReview(ctx, h, cfo.Terminals, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	if err := PublishReview(h, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -385,8 +391,8 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Snapshot().Reviews[0]; len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Go with the grid") || got.ID != r.ID || !got.Delivered {
-		t.Fatalf("prompts = %q and review = %+v, want the answer delivered once", runner.prompts, got)
+	if got, typed := store.Snapshot().Reviews[0], terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Go with the grid") || got.ID != r.ID || !got.Delivered {
+		t.Fatalf("the CFO's terminal received %q and review = %+v, want the answer delivered once", typed, got)
 	}
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
@@ -400,11 +406,11 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 // next report withdraws.
 func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: log in to Stripe"); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, 7, "log in to Stripe", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -432,12 +438,12 @@ func TestWaitOnTheOverlordIsTheItemItsNextReportWithdraws(t *testing.T) {
 func TestAWaitKeepsItsLinesAndTheLinkItGave(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	meta, _, _, connection := goblinFixture(t, store)
+	meta, _, _, _ := goblinFixture(t, store)
 	why := "Add these DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |"
 	link := "https://dash.cloudflare.com/precisiondocs/dns"
 
 	// Act
-	err := PublishWait(context.Background(), h, connection.Terminals, meta.ID, 7, why, "", "", link)
+	err := PublishWait(h, meta.ID, 7, why, "", "", link)
 	if err == nil {
 		err = store.ingestReviews()
 	}
@@ -458,10 +464,9 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	meta, _, _, goblin := goblinFixture(t, store)
-	ctx := context.Background()
+	meta, _, _, _ := goblinFixture(t, store)
 	for _, id := range []string{"plan-review-1", "plan-review-2"} {
-		if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, id, "Read the plan", "", "", nil); err != nil {
+		if err := PublishReview(h, meta.ID, id, "Read the plan", "", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -472,10 +477,10 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClearReview(ctx, h, cfo.Terminals, "plan-review-1", "Decided: the plan is approved"); err != nil {
+	if err := ClearReview(h, "plan-review-1", "Decided: the plan is approved"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ClearReview(ctx, h, cfo.Terminals, "no-such-review", "stale"); err == nil {
+	if err := ClearReview(h, "no-such-review", "stale"); err == nil {
 		t.Error("clearing an item nobody published succeeded, want it refused")
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -501,9 +506,8 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	store, h := testStore(t)
 	_, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	meta, _, _, goblin := goblinFixture(t, store)
-	ctx := context.Background()
-	if err := PublishReview(ctx, h, goblin.Terminals, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
+	meta, _, _, _ := goblinFixture(t, store)
+	if err := PublishReview(h, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -513,7 +517,7 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ClearReview(ctx, h, cfo.Terminals, "plan-review-1", "Decided"); err != nil {
+	if err := ClearReview(h, "plan-review-1", "Decided"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -545,10 +549,10 @@ func TestAnsweringAGoblinClosesItsWaitsOnTheOverlord(t *testing.T) {
 	meta, record, _, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	ctx := context.Background()
-	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, earlier.Seq, "pick the store", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, earlier.Seq, "pick the store", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishWait(ctx, h, connection.Terminals, meta.ID, record.Seq+1, "log in to Stripe", "", "", ""); err != nil {
+	if err := PublishWait(h, meta.ID, record.Seq+1, "log in to Stripe", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {

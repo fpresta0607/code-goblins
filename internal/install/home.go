@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -72,6 +73,9 @@ func (s Service) writeHome(report *reporter) error {
 		return err
 	}
 	if err := s.copyBinary(report); err != nil {
+		return err
+	}
+	if err := s.copyWindow(report); err != nil {
 		return err
 	}
 	removed, err := s.removeUnshipped(previous, manifest)
@@ -235,27 +239,14 @@ func (s Service) copyBinary(report *reporter) error {
 	var copied []string
 	stillRunning := false
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
-		target := filepath.Join(s.Root, name)
-		aside := ""
-		if current, err := fsx.ReadFile(target); err == nil && !bytes.Equal(current, data) {
-			aside = target + "." + rand.Text() + ".old"
-			if err := os.Rename(target, aside); err != nil {
-				return fmt.Errorf("install: move %s aside: %w", target, err)
-			}
-		}
-		changed, err := writeIfDifferent(target, data)
+		changed, running, err := replaceProgram(filepath.Join(s.Root, name), data)
 		if err != nil {
-			if aside != "" {
-				err = errors.Join(err, os.Rename(aside, target))
-			}
-			return fmt.Errorf("install: replace %s: %w", target, err)
+			return err
 		}
 		if changed {
 			copied = append(copied, name)
 		}
-		if removeAsideCopies(target) > 0 {
-			stillRunning = true
-		}
+		stillRunning = stillRunning || running
 	}
 	if len(copied) == 0 {
 		report.same("binary", "cfo.exe and goblins.exe in "+s.Root+" are already this build")
@@ -266,6 +257,139 @@ func (s Service) copyBinary(report *reporter) error {
 		report.detail("the previous build still runs, such as the supervisor; goblins stop, then goblins --board, restarts it on this one")
 	}
 	return nil
+}
+
+// windowName is the desktop window a release ships beside cfo.exe, which
+// goblins starts where it sits beside goblins.exe.
+const windowName = "goblins-window.exe"
+
+// copyWindow puts the desktop window shipped beside the running binary in the
+// home beside goblins.exe. A window that is open is moved aside as the binary
+// is. A build with no window beside it, such as one built from source, leaves
+// the home as it is: goblins keeps a window the home already holds, and
+// otherwise shows the board in the browser.
+func (s Service) copyWindow(report *reporter) error {
+	source := filepath.Join(filepath.Dir(s.Binary), windowName)
+	target := filepath.Join(s.Root, windowName)
+	data, err := fsx.ReadFile(source)
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(target); err == nil {
+			report.same("window", "no desktop window beside "+s.Binary+"; the home keeps its existing "+target+", and goblins keeps using it")
+			return nil
+		}
+		report.same("window", "no desktop window beside "+s.Binary+"; goblins shows the board in the browser")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("install: read the desktop window %s: %w", source, err)
+	}
+	changed, running, err := replaceProgram(target, data)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		report.same("window", windowName+" in "+s.Root+" is already this build")
+		return nil
+	}
+	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, s.Root))
+	if running {
+		report.detail("the previous window still runs; quit it from its tray icon and goblins opens this one")
+	}
+	return nil
+}
+
+// CarryWindow puts the desktop window shipped beside binary in the home at
+// root, as an install does, and writes what it did to out. cfo update carries
+// it once the candidate serves: the window is a program of its own that shows
+// any build's board, so it follows an update and takes no part in it.
+func CarryWindow(root, binary string, out io.Writer) error {
+	return Service{Root: root, Binary: binary}.copyWindow(&reporter{out: out})
+}
+
+// windowPicture is the notifications' picture the desktop window writes
+// beside itself.
+const windowPicture = "goblins-window.png"
+
+// suppliesWindow reports whether this install puts its own window in the home:
+// a home install copies one shipped beside its binary, while a checkout must
+// have built its window for this install. An existing target is only retained.
+func (s Service) suppliesWindow() bool {
+	if s.BuiltWindow {
+		return true
+	}
+	if s.Contract == nil || s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.Root) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
+	return err == nil
+}
+
+// adoptEarlierWindow makes this home's desktop window the one the user has,
+// where an earlier install kept a copy in a folder of its own: Start at login
+// starts this home in that copy's place. Only an install that supplied its
+// window removes the earlier copy once it stops running; one that retained a
+// window keeps the earlier copy and its entry. A home with no window keeps it.
+func (s Service) adoptEarlierWindow(report *reporter) error {
+	if s.EarlierWindow == "" || sameDirectory(s.EarlierWindow, s.Root) {
+		return nil
+	}
+	if _, err := os.Stat(s.EarlierWindow); err != nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, windowName)); err != nil {
+		report.same("window", "kept the earlier desktop window in "+s.EarlierWindow+", since this home holds none")
+		return nil
+	}
+	if err := s.adoptStartAtLogin(report); err != nil {
+		return err
+	}
+	if !s.suppliesWindow() {
+		report.same("window", "kept the earlier desktop window in "+s.EarlierWindow+", since this install retained the home's window")
+		return nil
+	}
+	// An open window holds its program, which Windows cannot delete, so it is
+	// named rather than ended: quitting it is the user's.
+	program := filepath.Join(s.EarlierWindow, windowName)
+	err := os.Remove(program)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		report.same("window", fmt.Sprintf("the earlier desktop window %s is still open (%v); quit it from its tray icon, and the next install removes it", program, err))
+		return nil
+	}
+	removed := err == nil
+	if os.Remove(filepath.Join(s.EarlierWindow, windowPicture)) == nil {
+		removed = true
+	}
+	// Only an empty folder goes: what else it holds is not this install's.
+	switch err := os.Remove(s.EarlierWindow); {
+	case err == nil:
+		report.change("window", "removed the earlier desktop window in "+s.EarlierWindow+"; this home's window takes its place")
+	case removed:
+		report.change("window", "removed the earlier desktop window from "+s.EarlierWindow+" and left the folder, which holds other files")
+	}
+	return nil
+}
+
+// replaceProgram writes data to target unless target already holds it, and
+// reports whether it wrote and whether an older copy still runs. A running
+// program cannot be overwritten but can be renamed, so the old copy moves
+// aside under a name of its own and goes once nothing runs it, on this
+// install or a later one.
+func replaceProgram(target string, data []byte) (bool, bool, error) {
+	aside := ""
+	if current, err := fsx.ReadFile(target); err == nil && !bytes.Equal(current, data) {
+		aside = target + "." + rand.Text() + ".old"
+		if err := os.Rename(target, aside); err != nil {
+			return false, false, fmt.Errorf("install: move %s aside: %w", target, err)
+		}
+	}
+	changed, err := writeIfDifferent(target, data)
+	if err != nil {
+		if aside != "" {
+			err = errors.Join(err, os.Rename(aside, target))
+		}
+		return false, false, fmt.Errorf("install: replace %s: %w", target, err)
+	}
+	return changed, removeAsideCopies(target) > 0, nil
 }
 
 // removeAsideCopies removes the copies of target that an install moved aside

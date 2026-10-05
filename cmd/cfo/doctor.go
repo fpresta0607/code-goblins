@@ -7,12 +7,15 @@ import (
 	"os"
 	"sort"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
 // runDoctor prints the tool checks, then a per-harness spawn sanity verdict
@@ -27,8 +30,6 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 			fmt.Fprintf(stdout, "INSTALLER_UNAVAILABLE %s %s (install: %s) - only install.ps1 needs it, to add git and gh\n", c.Name, c.Err, c.Hint)
 		case c.Err != "" && c.Presentation:
 			fmt.Fprintf(stdout, "PRESENTATION_UNAVAILABLE %s %s (requires >=%s; install: %s) - nonvisual work proceeds in plain text\n", c.Name, c.Err, c.Floor, c.Hint)
-		case c.Err != "" && c.Optional != "":
-			fmt.Fprintf(stdout, "OPTIONAL %s %s (install: %s) - %s\n", c.Name, c.Err, c.Hint, c.Optional)
 		case c.Err != "":
 			fmt.Fprintf(stdout, "MISSING  %-10s %s (install: %s)\n", c.Name, c.Err, c.Hint)
 		case c.Floor != "":
@@ -64,12 +65,30 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 
 	reportRouting(stdout)
 	reportProjectsRoot(stdout, runtime)
+	reportDictation(stdout)
+	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
 
 	if !healthy {
 		return 1
 	}
 	return 0
+}
+
+// reportDictation prints the speech model dictation runs on, its version and
+// whether it is there yet. It never counts against the health verdict: the
+// first dictation fetches what is missing.
+func reportDictation(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	speech, err := voice.For(h.Root, codegoblins.Voice)
+	if err != nil {
+		fmt.Fprintf(stdout, "dictation: settings unreadable (%v)\n", err)
+		return
+	}
+	fmt.Fprintln(stdout, "dictation: "+speech.Summary())
 }
 
 // reportProjectsRoot prints where a bare `--project <name>` is looked up, or
@@ -93,6 +112,27 @@ func reportProjectsRoot(stdout io.Writer, runtime commandRuntime) {
 		return
 	}
 	fmt.Fprintf(stdout, "projects root: %s (--project <name> resolves to a checkout under it)\n", root)
+}
+
+// reportCFOHarness prints the harness this home starts the CFO as and what a
+// CFO in it gets, from the table the quick start and the board's first-run
+// page read, with each thing it goes without on a line of its own. It never
+// counts against the health verdict.
+func reportCFOHarness(stdout io.Writer) {
+	h, err := home.Resolve()
+	if err != nil {
+		return
+	}
+	agent, err := cfoHarness(h.State)
+	if err != nil {
+		fmt.Fprintf(stdout, "cfo harness: unreadable (%v)\n", err)
+		return
+	}
+	capability, _ := supervisor.CFOCapabilityFor(agent)
+	fmt.Fprintf(stdout, "cfo harness: %s (%s); %s\n", capability.Name, capability.Note, capability.Registers)
+	for _, lack := range capability.Lacks {
+		fmt.Fprintf(stdout, "  goes without: %s\n", lack)
+	}
 }
 
 // reportRouting prints the standing switch policy and the execution lane

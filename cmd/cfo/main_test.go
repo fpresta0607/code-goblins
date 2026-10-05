@@ -78,7 +78,7 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 		t.Fatalf("exit = %d, want 2", exit)
 	}
 	for _, command := range []string{
-		"cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>]",
+		"cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>]",
 		"cfo send <target> [--key <key>] <text...>",
 		"cfo peek <target> [lines]",
 		"cfo fleet-view [--json]",
@@ -132,6 +132,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == attachTestTerminal {
 		attachTestProgram()
 		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == nativeSendPasteComposer {
+		os.Exit(runNativeSendPasteComposer(os.Args[2:]))
 	}
 	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
 		os.Exit(attachTestView(os.Args[2], os.Args[3:]))

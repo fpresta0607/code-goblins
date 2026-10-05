@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // shippedRoutingJSON is the lane table that ships in data/routing.json, so a
@@ -69,6 +69,58 @@ func captureSpawn(deps *commandRuntime, output string) *spawn.Request {
 		return spawn.Result{Output: output}, nil
 	}
 	return &got
+}
+
+func TestRunSpawnHonorsFivePercentWeeklyReserve(t *testing.T) {
+	for _, isExplicit := range []bool{false, true} {
+		for _, testCase := range []struct {
+			name, kind, used, remaining string
+			isStale, shouldRefuse       bool
+		}{
+			{name: "weekly 4.99 remaining", kind: "weekly", used: "95.01", remaining: "4.99", shouldRefuse: true},
+			{name: "weekly 5 remaining", kind: "weekly", used: "95", remaining: "5", shouldRefuse: true},
+			{name: "weekly 5.01 remaining", kind: "weekly", used: "94.99", remaining: "5.01"},
+			{name: "session only", kind: "session", used: "98", remaining: "2"},
+			{name: "weekly use unknown", kind: "weekly", used: `"unknown"`, remaining: "2"},
+			{name: "stale provider", kind: "weekly", used: "98", remaining: "2", isStale: true},
+		} {
+			t.Run(fmt.Sprintf("%s explicit %v", testCase.name, isExplicit), func(t *testing.T) {
+				_, deps := routedRuntime(t, `{"rules":[],"default_lane":"build","lanes":{"build":{"harness":"codex","model":"weekly-model","effort":"high"}}}`)
+				got := captureSpawn(&deps, "spawned weekly-task")
+				now := time.Now().UTC().Truncate(time.Second)
+				reset := now.Add(7 * 24 * time.Hour)
+				seconds := 604800
+				if testCase.kind == "session" {
+					seconds = 18000
+				}
+				data := fmt.Sprintf(`{"generatedAt":%q,"providers":[{"provider":"codex","state":{"stale":%t},
+					"windows":[{"id":"window","kind":%q,"windowSeconds":%d,"percentUsed":%s,"resetsAt":%q}],
+					"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known",
+						"effectivePercentRemaining":%s,"boundedBy":["window"],"runway":{"limitingWindowId":"window"}}]}}]}`,
+					now.Format(time.RFC3339), testCase.isStale, testCase.kind, seconds, testCase.used, reset.Format(time.RFC3339), testCase.remaining)
+				report, err := quota.Parse([]byte(data), now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+				args := []string{"spawn", "weekly-task", "--project", `C:\project`, "--brief", briefWith(t, "Repair the weekly allowance reserve.")}
+				if isExplicit {
+					args = append(args, "--harness", "codex", "--model", "weekly-model")
+				}
+				var stdout, stderr bytes.Buffer
+
+				exit := runWithRuntime(args, &stdout, &stderr, deps)
+
+				if testCase.shouldRefuse {
+					if exit != 1 || got.ID != "" || !strings.Contains(stderr.String(), "5 percent weekly") || !strings.Contains(stderr.String(), reset.Format(time.RFC3339)) {
+						t.Fatalf("weekly reserve refusal exit=%d spawn=%+v stderr=%s", exit, *got, stderr.String())
+					}
+				} else if exit != 0 || got.ID != "weekly-task" {
+					t.Fatalf("usable or unknown quota prevented spawn: exit=%d spawn=%+v stderr=%s", exit, *got, stderr.String())
+				}
+			})
+		}
+	}
 }
 
 func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
@@ -223,11 +275,13 @@ func TestRunSpawnProjectManifestOverridesTheFleetTable(t *testing.T) {
 	}
 }
 
-// The reported failure, driven through the real spawn service: a routed spawn
-// for a project with a manifest wrote its capsule into state/tasktmp/<id>
-// before the service ran, and the service's alias check refuses any existing
-// directory of the id, so the spawn was refused and the directory it left
-// behind refused every retry too.
+// A routed spawn for a project with a manifest once wrote its capsule into
+// state/tasktmp/<id> before the service ran, and the service's alias check
+// refuses any existing directory of the id, so the spawn was refused and the
+// directory it left behind refused every retry too. The command now hands the
+// service a capsule to write once the id is proven free, which the spawn
+// package's capsule tests prove it does; here the capsule is written where
+// the service would, and holds the brief, the frozen class, lane and budget.
 func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 	fixture := newFleetE2EFixture(t)
 	manifestPath := filepath.Join(fixture.home.Data, "projects", filepath.Base(fixture.project), "project.json")
@@ -243,17 +297,23 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--backend", "herdr", "--mode", "local-only")
+	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "g-fresh1")
+	var capsuleBrief string
+	fixture.runtime.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		if request.Capsule == nil || request.Model != "open-model" {
+			return spawn.Result{}, fmt.Errorf("request = %+v, want a capsule on the project's lane", request)
+		}
+		var err error
+		capsuleBrief, err = request.Capsule(taskTmp)
+		return spawn.Result{Output: "spawned g-fresh1 window=native"}, err
+	}
+
+	stdout, _ := runFleetCommand(t, fixture.runtime, "spawn", "g-fresh1", "--project", fixture.project, "--brief", brief, "--mode", "local-only")
 	if !strings.Contains(stdout, "spawned g-fresh1 ") || !strings.Contains(stdout, "routed lane=open class=implementation risk=normal source=project override "+manifestPath) {
 		t.Errorf("stdout = %q, want the goblin spawned on the project's own lane", stdout)
 	}
-	taskTmp := filepath.Join(fixture.home.State, "tasktmp", "g-fresh1")
-	meta, err := state.ReadTaskMeta(fixture.home.State, "g-fresh1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.Brief != filepath.Join(taskTmp, "brief.md") || meta.Model != "open-model" {
-		t.Errorf("meta brief = %q model = %q, want the capsule-augmented brief on the project's lane", meta.Brief, meta.Model)
+	if capsuleBrief != filepath.Join(taskTmp, "brief.md") {
+		t.Errorf("capsule brief = %q, want the capsule-augmented brief in the task's own directory", capsuleBrief)
 	}
 	capsule, err := os.ReadFile(filepath.Join(taskTmp, "task-capsule.json"))
 	if err != nil {
@@ -405,34 +465,5 @@ func TestRunSpawnRefusesALaneNamingAnUnknownHarness(t *testing.T) {
 	exit := runWithRuntime([]string{"spawn", "g21", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
 	if exit != 1 || called || !strings.Contains(stderr.String(), `lane "build" names harness "gemini"`) {
 		t.Errorf("exit = %d called = %v stderr = %q", exit, called, stderr.String())
-	}
-}
-
-// A routed spawn that names no backend takes it from the harness the lane
-// table chose, so a lane that routes to kimi starts in Herdr while a Claude,
-// pi or codex lane starts natively.
-func TestRunSpawnTakesTheDefaultBackendFromTheRoutedHarness(t *testing.T) {
-	for harnessName, wantBackend := range map[string]string{
-		"claude": "native",
-		"codex":  "native",
-		"pi":     "native",
-		"kimi":   "herdr",
-	} {
-		t.Run(harnessName, func(t *testing.T) {
-			table := `{"rules":[],"default_lane":"only","escalate_to":"only","lanes":{"only":{"harness":"` + harnessName + `","model":"m","effort":"high"}}}`
-			_, deps := routedRuntime(t, table)
-			got := captureSpawn(&deps, "spawned g30")
-			brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
-
-			var stdout, stderr bytes.Buffer
-			exit := runWithRuntime([]string{"spawn", "g30", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps)
-
-			if exit != 0 {
-				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
-			}
-			if string(got.Harness) != harnessName || got.Backend != wantBackend {
-				t.Errorf("request harness %q backend %q, want %q in %q", got.Harness, got.Backend, harnessName, wantBackend)
-			}
-		})
 	}
 }

@@ -184,22 +184,18 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	// Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-	// execute the npm .cmd shim codex installs as; codex launches typed instead,
-	// the same way pi does.
-	launch.TypedLaunch = true
+	// Codex installs as an npm .cmd shim, which only cmd /c can start.
 	launch.Executable = "codex"
-	// Codex asks to trust a directory it has not seen; the trusting option is
-	// highlighted by default, so a bare Enter confirms it.
-	launch.ConfirmMarkers = []string{"Do you trust the contents of this directory?"}
-	launch.ConfirmKeys = []string{"enter"}
 	// Codex opens an "Update available!" prompt before its composer whenever
 	// a newer release is out, and a spawn's brief typed into that prompt
 	// leaves Codex. A goblin never needs the prompt, so it is never checked.
-	// Its animations are off: in a terminal that says it is an xterm, a Herdr
-	// pane's among them, idle Codex draws braille dots over every empty cell,
+	// Its animations are off: in a terminal that says it is an xterm, idle
+	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	// It draws inline rather than in the alternate screen, as a claude goblin
+	// does, so its history stays in the terminal's scrollback and a drag
+	// selects text.
+	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
@@ -213,14 +209,12 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
 	if hasValue(spec.Effort) {
-		switch spec.Effort {
-		case "low", "medium", "high", "xhigh", "max":
-			// Codex accepts a raw string when a config value is not TOML.
-			// Avoid embedded quotes on PowerShell 5.1's native argument path.
-			launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
-		default:
+		if !validSharedEffort(spec.Effort) {
 			return Launch{}, fmt.Errorf("harness: Codex does not support effort %q", spec.Effort)
 		}
+		// Codex accepts a raw string when a config value is not TOML.
+		// Avoid embedded quotes on PowerShell 5.1's native argument path.
+		launch.Args = append(launch.Args, "-c", "model_reasoning_effort="+spec.Effort)
 	}
 	return launch, nil
 }

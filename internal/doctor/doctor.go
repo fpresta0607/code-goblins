@@ -24,8 +24,7 @@ import (
 // version when the tool has one. A Presentation check is reported but never
 // makes the environment unhealthy: without it, visual review falls back to
 // plain text and nonvisual work proceeds. An Installer check is reported the
-// same way: only install.ps1 uses the tool, and cfo never does. So is an
-// Optional one, which says who needs the tool.
+// same way: only install.ps1 uses the tool, and cfo never does.
 type Check struct {
 	Name         string
 	Version      string
@@ -34,13 +33,13 @@ type Check struct {
 	Floor        string
 	Presentation bool
 	Installer    bool
-	Optional     string
 }
 
 // LavishRelease is the Code Goblins build of lavish-axi, from the fork at
-// github.com/fpresta0607/lavish-axi: upstream's review page named and styled
-// for Code Goblins, its server and CLI unchanged.
-const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.1/lavish-axi-0.1.79-codegoblins.1.tgz"
+// github.com/fpresta0607/lavish-axi: upstream's review page named Scrawl, in
+// the Code Goblins board's look, drawing the choices a page declares.
+// install.ps1 installs the same file, once it matches the SHA256 pinned there.
+const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"
 
 var tools = []struct {
 	name  string
@@ -51,17 +50,15 @@ var tools = []struct {
 	build        string
 	presentation bool
 	installer    bool
-	optional     string
 }{
 	{name: "git", hint: "winget install Git.Git"},
 	{name: "gh", hint: "winget install GitHub.cli, then gh auth login"},
-	{name: "herdr", hint: "irm https://herdr.dev/install.ps1 | iex", optional: "only a goblin or CFO started in Herdr needs it"},
 	{name: "tasks-axi", hint: "npm install -g tasks-axi"},
 	{name: "quota-axi", hint: "npm install -g quota-axi"},
 	{name: "no-mistakes", hint: "irm https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
-	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79", build: "codegoblins", presentation: true},
+	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.3", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
@@ -79,7 +76,6 @@ var harnessTools = []struct {
 	{name: "claude", hint: claudeInstall},
 	{name: "codex", hint: "npm install -g @openai/codex"},
 	{name: "pi", hint: "npm install -g @earendil-works/pi-coding-agent"},
-	{name: "kimi", hint: "install the Kimi Code CLI (kimi.com)"},
 }
 
 // Run checks every required tool in a fixed order, plus the turnend-guard /
@@ -87,7 +83,7 @@ var harnessTools = []struct {
 func Run() []Check {
 	checks := make([]Check, 0, len(tools)+1)
 	for _, tool := range tools {
-		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer, Optional: tool.optional}
+		check := Check{Name: tool.name, Hint: tool.hint, Floor: tool.floor, Presentation: tool.presentation, Installer: tool.installer}
 		path, err := exec.LookPath(tool.name)
 		if err != nil {
 			check.Err = "not found on PATH"
@@ -129,15 +125,18 @@ func checkConPTY() Check {
 // meetsFloor reports whether the last field of a --version line is a dotted
 // numeric version at or above floor, before any pre-release suffix such as a
 // fork's build name. A component the version does not carry counts as 0. An
-// unparseable version fails the floor.
+// unparseable version fails the floor. A floor that names a build, such as
+// 0.1.79-codegoblins.3, is met at its own numeric version only by that build
+// at that number or later; a higher numeric version meets it whatever its build.
 func meetsFloor(versionLine, floor string) bool {
 	fields := strings.Fields(versionLine)
 	if len(fields) == 0 {
 		return false
 	}
-	number, _, _ := strings.Cut(strings.TrimPrefix(fields[len(fields)-1], "v"), "-")
+	number, build, _ := strings.Cut(strings.TrimPrefix(fields[len(fields)-1], "v"), "-")
+	floorNumber, floorBuild, _ := strings.Cut(floor, "-")
 	have := strings.Split(number, ".")
-	for i, wantPart := range strings.Split(floor, ".") {
+	for i, wantPart := range strings.Split(floorNumber, ".") {
 		want, _ := strconv.Atoi(wantPart)
 		got := 0
 		if i < len(have) {
@@ -151,7 +150,14 @@ func meetsFloor(versionLine, floor string) bool {
 			return got > want
 		}
 	}
-	return true
+	if floorBuild == "" {
+		return true
+	}
+	wantName, wantNumber, _ := strings.Cut(floorBuild, ".")
+	haveName, haveNumber, _ := strings.Cut(build, ".")
+	want, _ := strconv.Atoi(wantNumber)
+	got, err := strconv.Atoi(haveNumber)
+	return haveName == wantName && err == nil && got >= want
 }
 
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.
@@ -323,11 +329,11 @@ func probeHarness(ctx context.Context, name, path string) HarnessProbe {
 	return HarnessProbe{Name: name, Detail: strings.TrimSpace(version), OK: true}
 }
 
-// Healthy reports whether every check passed, ignoring presentation,
-// installer and optional checks.
+// Healthy reports whether every check passed, ignoring presentation and
+// installer checks.
 func Healthy(checks []Check) bool {
 	for _, c := range checks {
-		if c.Err != "" && !c.Presentation && !c.Installer && c.Optional == "" {
+		if c.Err != "" && !c.Presentation && !c.Installer {
 			return false
 		}
 	}

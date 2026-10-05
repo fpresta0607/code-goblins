@@ -1,18 +1,22 @@
 import type { Setup } from "./types.ts";
 
-// startState is the project the first-run page's Start uses, the one picked
-// while the folder still holds it or else the folder's only one, and what
-// Start still needs, in plain words, or "" when it can start the CFO. Only
-// Claude Code can be the CFO today, so its reason blocks Start.
-export function startState(setup: Setup, picked: string): { project: string; blocked: string } {
-  const project = setup.checkouts.includes(picked) ? picked : setup.checkouts.length === 1 ? setup.checkouts[0] : "";
-  const claude = setup.agents.find((agent) => agent.id === "claude");
-  const blocked = !setup.projects_root ? "Enter the folder that holds your projects."
-    : setup.problem ? setup.problem
-      : !project ? "Pick the project the CFO starts in."
-        : !claude ? "This board cannot start Claude Code."
-          : claude.reason;
-  return { project, blocked };
+// startState is the agent the first-run page's Start uses and what Start
+// still needs, in plain words, or "" when it can start the CFO. The agent is
+// the tab he picked, or else the one the quick start remembered, or else the
+// one the supervisor recommends, so the board never asks again what the
+// terminal was told.
+// Start needs no project and no projects folder: the CFO starts in its home.
+// Only a folder he looked at that offers no project holds Start back, since
+// Start would record it.
+export function startState(setup: Setup, picked: string, lookedAtFolder: boolean): { agent: string; blocked: string } {
+  const known = (id: string) => setup.agents.some((agent) => agent.id === id);
+  const agent = known(picked) ? picked : known(setup.agent) ? setup.agent : setup.agents.find((each) => each.recommended)?.id ?? "";
+  const chosen = setup.agents.find((each) => each.id === agent);
+  const blocked = !chosen ? "This board offers no agent to start the CFO as."
+    : chosen.reason ? chosen.reason
+      : lookedAtFolder ? setup.problem
+        : "";
+  return { agent, blocked };
 }
 
 // FirstRunChoice is his last say on the first-run page: none, a CFO he

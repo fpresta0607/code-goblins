@@ -49,20 +49,15 @@ func (adapter *piAdapter) Build(spec LaunchSpec) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	// Herdr's Windows agent start uses Start-Process -FilePath, which cannot
-	// execute the npm .cmd shim pi installs as; pi launches typed instead.
-	launch.TypedLaunch = true
+	// Pi installs as an npm .cmd shim, which only cmd /c can start.
 	launch.Executable = "pi"
 	// Pi asks "Trust project folder?" in a folder with project files of its
 	// own (.pi settings, extensions, skills and the like). A Pi that can
 	// trust them for one run is told to, so it never asks and saves nothing
-	// to its trust store; an older one highlights "Trust" by default, so a
-	// bare Enter confirms it.
+	// to its trust store; an older one asks, and its native screens answer it
+	// for this session only.
 	if capabilities.approve {
 		launch.Args = append(launch.Args, "--approve")
-	} else {
-		launch.ConfirmMarkers = []string{"Trust project folder?"}
-		launch.ConfirmKeys = []string{"enter"}
 	}
 	if capabilities.tuiMode {
 		launch.Args = append(launch.Args, "--tui-mode", "regular")
@@ -116,7 +111,7 @@ func parsePiHelp(help string) piCapabilities {
 		return capabilities
 	}
 	lower := strings.ToLower(thinkingLine)
-	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+	for _, effort := range Efforts(Pi) {
 		capabilities.efforts[effort] = containsToken(lower, effort)
 	}
 	return capabilities

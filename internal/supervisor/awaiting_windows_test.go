@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // sentAnswer queues the Overlord's answer to a CFO question and delivers it
@@ -223,33 +221,26 @@ func TestASecondAnswerIsRefusedWhileTheFirstIsSent(t *testing.T) {
 	}
 }
 
-// A native goblin's harness reports taking what waited behind its turn, so
-// its delivery is sent and then delivered; a goblin in a Herdr pane reports
+// A goblin's harness reports taking what waited behind its turn, so its
+// delivery is sent and then delivered; a task whose record is gone names
 // nothing the board can wait on, so its delivery reads as it did.
-func TestOnlyANativeGoblinsDeliveryAwaitsItsHook(t *testing.T) {
+func TestAGoblinsDeliveryBehindItsTurnAwaitsItsHook(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	s := &Service{Store: store}
 	since := time.Now().UTC()
-	meta, err := state.ReadTaskMeta(h.State, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	meta := makeNative(t, h.State, "task-1")
 
 	// Act
-	pane := s.behindGoblinsTurn("task-1", since, "Submitted while it was working.")
-	meta.Backend = "native"
-	if err := state.WriteTaskMeta(h.State, meta); err != nil {
-		t.Fatal(err)
-	}
-	native := s.behindGoblinsTurn("task-1", since, "Submitted while it was working.")
+	sent := s.behindGoblinsTurn("task-1", since, "Submitted while it was working.")
+	gone := s.behindGoblinsTurn("task-9", since, "Submitted while it was working.")
 
 	// Assert
-	if pane.Awaiting != nil || pane.Reason != "Submitted while it was working." {
-		t.Errorf("a Herdr goblin's delivery = %+v, want it to read as before", pane)
+	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Reason != sentToGoblin {
+		t.Errorf("a goblin's delivery = %+v, want it sent and awaiting the goblin's hook", sent)
 	}
-	if native.Awaiting == nil || native.Awaiting.Task != "task-1" || native.Awaiting.Generation != meta.SpawnGen || native.Reason != sentToGoblin {
-		t.Errorf("a native goblin's delivery = %+v, want it sent and awaiting the goblin's hook", native)
+	if gone.Awaiting != nil || gone.Reason != "Submitted while it was working." {
+		t.Errorf("the delivery of a task with no record = %+v, want it to read as it did", gone)
 	}
 }
 
@@ -308,8 +299,9 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange
+			// Arrange: the CFO runs, since a delivery to a closed one waits.
 			store, _ := testStore(t)
+			writeRegistration(t, store.Home.State, thisProcess(t))
 			since := time.Now().UTC().Add(-time.Minute)
 			r := openReview("plan-review-1", test.task)
 			if err := store.acceptReview(r); err != nil {

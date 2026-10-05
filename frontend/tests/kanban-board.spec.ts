@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./site";
 
 // The board as the Overlord approved it: a kanban of Tasks, In progress and
 // Completed side by side, paused tasks inside In progress under a divider,
@@ -75,43 +75,81 @@ test.describe("on a wide screen", () => {
   });
 });
 
-test("a board too narrow for three columns stacks either way", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+// A window that cannot hold three columns beside a panel stacks the board
+// whatever the layout, so there the layout button changes nothing and says
+// why; with the panel closed the board has the room and the button works.
+test("a board too narrow for three columns stacks, and its layout button says why", async ({ page }) => {
+  await page.setViewportSize({ width: 1300, height: 900 });
   await open(page);
-  expect(await page.locator(".task-board").evaluate((board) => board.clientWidth)).toBeLessThan(960);
+  expect(await page.locator(".canvas-region").evaluate((canvas) => canvas.clientWidth)).toBeLessThanOrEqual(960);
   expect(await columns(page)).toBe(1);
+  const layout = page.getByRole("button", { name: /^Layout: stacked/ });
+  await expect(layout).toHaveAttribute("aria-disabled", "true");
+  await expect(layout).toHaveAttribute("data-tip", /^Too narrow for columns side by side, so the board is stacked\./);
+  // The button is marked disabled, so the press skips the wait for an enabled one.
+  await layout.click({ force: true });
+  expect(await columns(page)).toBe(1);
+  await page.getByRole("button", { name: "Close panel" }).click();
   await expect(page.getByRole("button", { name: "Stacked layout" })).toBeVisible();
+  expect(await columns(page)).toBe(3);
 });
 
-// In progress pages once it holds more than ten cards; its paused tasks under
-// the divider keep their room, so they show without scrolling the board.
-test("when In progress pages, its paused tasks still show on the board", async ({ page }) => {
+// The Overlord's window on 2026-10-02: 2560 by 1600 at 150 percent, so 1707
+// CSS pixels wide, each drawn on one and a half device pixels. The panel took half and left the board 835, under the 961
+// its columns need, and the layout button looked dead. By default the panel
+// yields to a kanban board, long enough here to scroll, since its scroll bar
+// takes room from its columns.
+test.describe("in a window 1707 px wide", () => {
+  test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+  test("the kanban keeps its three columns beside an open panel", async ({ page }) => {
+    await open(page, [...BOARD, ...Array.from({ length: 9 }, (_, index) => task("working-" + (index + 3), "working"))]);
+    expect(await page.locator(".canvas-region").evaluate((canvas) => canvas.scrollHeight > canvas.clientHeight)).toBe(true);
+    await expect(page.locator(".context-pane")).toBeVisible();
+    expect(await columns(page)).toBe(3);
+    // The CFO's own panel, on its Task view, beside the board.
+    await page.keyboard.press("Control+Alt+1");
+    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+    await expect(page.locator(".context-pane")).toBeVisible();
+    expect(await columns(page)).toBe(3);
+    expect(await page.locator(".canvas-region").evaluate((canvas) => canvas.clientWidth)).toBeGreaterThan(960);
+    expect(Math.round(await page.locator(".context-pane").evaluate((pane) => pane.getBoundingClientRect().width))).toBe(693);
+    await expect(page.getByRole("button", { name: "Stacked layout" })).toBeVisible();
+  });
+
+  test("a stacked board leaves the panel its half", async ({ page }) => {
+    await open(page);
+    await page.getByRole("button", { name: "Stacked layout" }).click();
+    expect(await columns(page)).toBe(1);
+    const board = await page.locator(".canvas-region").evaluate((canvas) => canvas.getBoundingClientRect().width);
+    const pane = await page.locator(".context-pane").evaluate((panel) => panel.getBoundingClientRect().width);
+    expect(Math.abs(board - pane)).toBeLessThanOrEqual(1);
+    // The board is now under 961 px, yet the way back to the kanban stays.
+    const kanban = page.getByRole("button", { name: "Kanban layout" });
+    await expect(kanban).toBeVisible();
+    await expect(kanban).not.toHaveAttribute("aria-disabled", "true");
+    await kanban.click();
+    expect(await columns(page)).toBe(3);
+  });
+
+  test("a panel width the Overlord dragged still wins", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "900"));
+    await open(page);
+    expect(Math.round(await page.locator(".context-pane").evaluate((pane) => pane.getBoundingClientRect().width))).toBe(900);
+    expect(await columns(page)).toBe(1);
+    await expect(page.getByRole("button", { name: /^Layout: stacked/ })).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+// In progress never pages, so past ten goblins the board scrolls and the
+// paused tasks follow the last working card.
+test("past ten goblins In progress still shows every card, with its paused tasks under the last", async ({ page }) => {
   await page.setViewportSize({ width: 2400, height: 1100 });
   const working = Array.from({ length: 12 }, (_, index) => task("working-" + (index + 1), "working"));
   await open(page, [...working, task("paused-one", "paused")]);
-  await expect(inProgress(page).locator(".pager")).toBeVisible();
-  const canvas = (await page.locator(".canvas-region").boundingBox())!;
+  await expect(inProgress(page).locator("[data-sort-id]")).toHaveCount(12);
+  await expect(inProgress(page).locator(".pager")).toHaveCount(0);
+  const last = (await inProgress(page).locator("[data-sort-id='working-12']").boundingBox())!;
   const paused = (await inProgress(page).getByRole("region", { name: "Paused", exact: true }).boundingBox())!;
-  expect(paused.y + paused.height).toBeLessThanOrEqual(canvas.y + canvas.height);
-});
-
-// A task paused from a page not shown brings the divider under the page
-// shown, and the page gives it room, so it shows without scrolling the board.
-test("a task paused from a page not shown still shows on the board", async ({ page }) => {
-  await page.setViewportSize({ width: 2400, height: 1100 });
-  const working = Array.from({ length: 12 }, (_, index) => task("working-" + (index + 1), "working"));
-  await open(page, working);
-  await expect(inProgress(page).locator(".pager")).toBeVisible();
-  await expect(inProgress(page).locator("[data-sort-id='working-1']")).toBeVisible();
-  await expect(inProgress(page).locator("[data-sort-id='working-12']")).toHaveCount(0);
-  const paused = { healthy: true, instance: "fixture", cfo_runs: true, revision: 2, attention: [], tasks: [...working.slice(0, 11), task("working-12", "paused")] };
-  await page.route("**/api/events", (route) => route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(paused)}\n\n` }));
-  const section = inProgress(page).getByRole("region", { name: "Paused", exact: true });
-  await expect(section.getByRole("button", { name: "Resume working-12" })).toBeVisible();
-  await expect(inProgress(page).locator("[data-sort-id='working-1']")).toBeVisible();
-  await expect.poll(async () => {
-    const canvas = (await page.locator(".canvas-region").boundingBox())!;
-    const box = (await section.boundingBox())!;
-    return box.y + box.height <= canvas.y + canvas.height;
-  }).toBe(true);
+  expect(paused.y).toBeGreaterThan(last.y + last.height);
 });

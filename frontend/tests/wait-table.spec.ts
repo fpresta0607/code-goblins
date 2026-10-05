@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // The Overlord, 2026-09-28, on a waiting card that listed three Cloudflare DNS
 // records as one paragraph with literal ** marks and offered Open the link

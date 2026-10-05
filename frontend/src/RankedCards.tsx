@@ -13,9 +13,11 @@ import { useSortable } from "./useSortable";
 // shows its place and turns into a grip on hover or focus. Dropping a card
 // saves the order with the supervisor, Tasks as backlog.md's Queued order and
 // In progress as the CFO's attention order, and shows it until the snapshot
-// agrees; a refused order goes back with the reason. A list longer than the
-// board shows a page at a time: a drag places a card within its page, and a
-// keyboard move past the page's edge carries the page with the card.
+// agrees; a refused order goes back with the reason. In progress shows every
+// goblin's card at once and the board scrolls; Tasks past ten cards shows a
+// page at a time: a drag places a card within its page, a card held over a
+// page arrow turns the page and goes with it, and a keyboard move past the
+// page's edge carries the page with the card.
 export function RankedCards({ list, tasks, instance, revision, empty, renderCard }: {
   list: "queued" | "progress"; tasks: Task[]; instance: string; revision: number; empty: ReactNode;
   renderCard: (task: Task, rank: string, index: number) => ReactNode;
@@ -31,7 +33,8 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const listed = orderShown(tasks, pending?.order || null);
   const frameRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef);
+  const pagerRef = useRef<HTMLDivElement>(null);
+  const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef, list === "queued");
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
     const title = listed[before]?.title || moved;
@@ -51,7 +54,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       fit.show(fitKey(moved, before));
     }
   };
-  const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef);
+  const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef, { pager: pagerRef, carry: fit.carry });
   const shown = order.map((id) => listed.find((task) => task.id === id)).filter((task): task is Task => !!task);
   const rank = (index: number) => <span className="rank" aria-hidden="true">
     <span className="rank-number">{index + 1}</span>
@@ -79,7 +82,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
         </div>)}
       </div>}
     </div>
-    <Pager start={fit.start} end={fit.end} count={shown.length} onTurn={fit.turn} />
+    <Pager ref={pagerRef} start={fit.start} end={fit.end} count={shown.length} onTurn={fit.turn} />
     {error && <p className="order-error" role="alert">{error}</p>}
     <p className="sr-only" role="status">{note}</p>
   </>;

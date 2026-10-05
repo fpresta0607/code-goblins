@@ -1,7 +1,6 @@
 import { useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
-import { CardTip } from "./CardTip";
 import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
 import { clockText } from "./cards";
@@ -26,17 +25,10 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
-  // A title still shortened shows in full in a tip on hover or focus.
+  // A title still shortened shows in full in a tip on hover or focus: the
+  // card carries data-tip only while its title is shortened.
   const [clipped, setClipped] = useState(false);
   const card = useRef<HTMLButtonElement>(null);
-  // The part of the card the pointer or the keyboard's focus is on; its tip
-  // says what the part's data-tip says, which the card itself carries only
-  // while its title is shortened.
-  const [pointed, setPointed] = useState<{ part: HTMLElement; shell: HTMLElement }>();
-  const point = (target: EventTarget, shell: HTMLElement) => {
-    const part = target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
-    setPointed(part && shell.contains(part) ? { part, shell } : undefined);
-  };
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
     setClipped(!!title && title.scrollHeight > title.clientHeight + 1);
@@ -55,15 +47,15 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + task.phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
       {clockBadge}
       {queueBlock(task) && <span className="queue-block">{queueBlock(task)}</span>}
+      {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
+      {task.switching && <span className="card-secondary">Switching engine...</span>}
       {(column === "Paused" || column === "Completed") && task.at && <span className="card-clock">{nodeStatus({ id: task.id, title: task.title, task, relation: "" })} at {new Date(task.at).toLocaleString()}</span>}
       {column === "Completed" && task.phase === "stopped" && <span className="card-secondary">{task.reason}</span>}
       {task.teardown.length > 0 && <span className="windows-teardown">Finishing Windows teardown: {task.teardown.join(", ")}</span>}
     </span>
   </>;
   const terminal = !!task.generation && column === "In progress" && <button className="icon-button raised card-terminal" aria-label={"Open the terminal of " + name} data-tip="Terminal" data-tip-align="end" onClick={(event) => onTerminal(task, event.currentTarget)}><Icon name="terminal" /></button>;
-  return <div className={"task-card-shell" + (selected ? " selected" : "")}
-    onPointerOver={(event) => point(event.target, event.currentTarget)} onPointerOut={() => setPointed(undefined)}
-    onFocus={(event) => { if (event.target instanceof Element && event.target.matches(":focus-visible")) point(event.target, event.currentTarget); }} onBlur={() => setPointed(undefined)}>
+  return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
     {(pr || column === "Completed") && <div className="card-links">
@@ -72,6 +64,5 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} leading={terminal} onAdjust={(source) => onSelect(task, source)} />
     {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} align="end" /></span>}
-    {pointed && <CardTip part={pointed.part} card={pointed.shell} />}
   </div>;
 }

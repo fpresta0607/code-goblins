@@ -10,50 +10,27 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
-// PaneLiveness reports whether a task's terminal, a Herdr pane or a native
-// terminal, is still live. It is a seam because the auth commands must decide
-// liveness without depending on a particular backend.
+// PaneLiveness reports whether a task's terminal is still live. It is a seam
+// so the auth commands' tests decide liveness without a running terminal.
 type PaneLiveness interface {
 	Live(ctx context.Context, meta state.TaskMeta) bool
 }
 
-// HerdrLiveness decides pane liveness through the Herdr endpoint: the exact
-// recorded pane must exist and carry a registered agent. A missing pane, a
-// missing agent, or an unreadable Herdr is not live - a notice no pane will
+// NativeLiveness decides liveness by a task's native terminal: it is live
+// while the terminal's host runs, since the host ends with its harness. A task
+// recorded in any other backend is not live: a notice no terminal will
 // receive must never be reported as delivered.
-type HerdrLiveness struct {
-	Client terminal.Backend
-}
-
-// Live implements PaneLiveness.
-func (h HerdrLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
-	if h.Client == nil || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
-		return false
-	}
-	status, err := h.Client.AgentStatus(ctx, herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID})
-	return err == nil && status == herdr.AgentAlive
-}
-
-// BackendLiveness decides liveness by a task's backend: a native task is live
-// while its terminal's host runs, since the host ends with its harness; any
-// other asks Herdr.
-type BackendLiveness struct {
+type NativeLiveness struct {
 	StateDir string
-	Herdr    HerdrLiveness
 }
 
 // Live implements PaneLiveness.
-func (b BackendLiveness) Live(ctx context.Context, meta state.TaskMeta) bool {
-	if meta.Backend == "native" {
-		return nativeTerminalRuns(b.StateDir, meta.ID)
-	}
-	return b.Herdr.Live(ctx, meta)
+func (n NativeLiveness) Live(_ context.Context, meta state.TaskMeta) bool {
+	return meta.Backend == "native" && nativeTerminalRuns(n.StateDir, meta.ID)
 }
 
 // Refreshed is one regenerated credential script. Live marks a pane the
@@ -66,10 +43,10 @@ type Refreshed struct {
 	Live bool
 }
 
-// ProjectRefresh summarizes one fleet-wide refresh pass. Unreachable is how
-// a Herdr outage hides from the refreshed count: task records whose worktree
-// and tasktmp are still present, but whose pane answered no liveness check,
-// so the caller can say the snapshot may still be stale instead of nothing.
+// ProjectRefresh summarizes one fleet-wide refresh pass. Unreachable counts
+// task records whose worktree and tasktmp are still present, but whose
+// terminal answered no liveness check, so the caller can say the snapshot may
+// still be stale instead of nothing.
 type ProjectRefresh struct {
 	// Refreshed holds every task whose auth.ps1 was regenerated.
 	Refreshed []Refreshed

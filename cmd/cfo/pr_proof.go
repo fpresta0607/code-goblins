@@ -13,6 +13,12 @@ import (
 type prProof struct {
 	HeadRefOID string
 	Checks     int
+	// Author is the login that opened the pull request, BaseRefName the branch
+	// it merges into, and CrossRepository whether its head is in another
+	// repository; a merge word given while AFK mode is on reads them.
+	Author          string
+	BaseRefName     string
+	CrossRepository bool
 }
 
 type prProofCheckView struct {
@@ -37,6 +43,11 @@ type prProofView struct {
 	ReviewDecision string             `json:"reviewDecision"`
 	HeadRefOID     string             `json:"headRefOid"`
 	Checks         []prProofCheckView `json:"statusCheckRollup"`
+	Author         struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	BaseRefName       string `json:"baseRefName"`
+	IsCrossRepository bool   `json:"isCrossRepository"`
 }
 
 // verifyPRReady turns a human convention ("make sure CI is green") into a
@@ -45,7 +56,7 @@ type prProofView struct {
 func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prProof, error) {
 	res, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{
 		"pr", "view", url,
-		"--json", "state,isDraft,mergeable,reviewDecision,headRefOid,statusCheckRollup",
+		"--json", "state,isDraft,mergeable,reviewDecision,headRefOid,statusCheckRollup,author,baseRefName,isCrossRepository",
 	}})
 	if err != nil {
 		return prProof{}, fmt.Errorf("production gate: inspect PR: %w", err)
@@ -105,7 +116,7 @@ func verifyPRReady(ctx context.Context, url string, commands execx.Runner) (prPr
 		}
 	}
 
-	return prProof{HeadRefOID: view.HeadRefOID, Checks: len(view.Checks)}, nil
+	return prProof{HeadRefOID: view.HeadRefOID, Checks: len(view.Checks), Author: view.Author.Login, BaseRefName: view.BaseRefName, CrossRepository: view.IsCrossRepository}, nil
 }
 
 func normalizePRCheck(check prProofCheckView) (prProofCheck, error) {

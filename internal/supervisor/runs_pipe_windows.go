@@ -23,7 +23,6 @@ var (
 	kernel32                        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateNamedPipeW            = kernel32.NewProc("CreateNamedPipeW")
 	procConnectNamedPipe            = kernel32.NewProc("ConnectNamedPipe")
-	procDisconnectNamedPipe         = kernel32.NewProc("DisconnectNamedPipe")
 	procGetNamedPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
 	procGetNamedPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
 	procConvertSDDL                 = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
@@ -39,8 +38,8 @@ const (
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
 	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the proof and work for it, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
+	// runRequestTimeout the work that waits on the loop or the allowance,
+	// and runReplyTimeout how long cfo run-request waits for the answer.
 	runReadTimeout    = 10 * time.Second
 	runRequestTimeout = 20 * time.Second
 	runReplyTimeout   = 30 * time.Second
@@ -136,10 +135,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
-	defer func() {
-		_, _, _ = procDisconnectNamedPipe.Call(uintptr(handle))
-		_ = pipe.Close()
-	}()
+	defer pipe.Close()
 	var reply struct {
 		Error string `json:"error,omitempty"`
 	}
@@ -163,22 +159,82 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		reply.Error = "the run request is not valid JSON"
 	default:
 		ctx, cancel := context.WithTimeout(ctx, runRequestTimeout)
-		s.runRequests.Lock()
-		if req.Kind == "" {
-			err = s.acceptRunRequest(ctx, int(pid), connected, req)
+		if req.Kind == "reported" {
+			// A look takes no item, so it waits behind nobody's request.
+			err = s.lookNow(ctx)
 		} else {
-			err = s.acceptCFOItem(ctx, int(pid), connected, req)
+			s.runRequests.Lock()
+			switch req.Kind {
+			case "":
+				err = s.acceptRunRequest(int(pid), connected, req)
+			case "afk-on", "afk-off":
+				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
+			default:
+				err = s.acceptCFOItem(int(pid), connected, req)
+			}
+			s.runRequests.Unlock()
 		}
-		s.runRequests.Unlock()
 		cancel()
-		if err != nil {
+		switch {
+		case err != nil:
 			reply.Error = err.Error()
-		} else {
+		case req.Kind != "reported":
 			s.publish(nil)
 		}
 	}
 	data, _ := json.Marshal(reply)
+	// A written reply stays in the pipe for its client to read after this
+	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
+	// larger than the pipe's buffer waits in Write for its reader, so the write
+	// is bounded against a client that never reads.
+	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	defer cancel()
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(replyCtx, func() {
+		_ = pipe.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+	}()
 	_, _ = pipe.Write(append(data, '\n'))
+}
+
+// lookNow has the supervisor's loop run a cycle now, which reads what a
+// goblin just reported and tells every board, and returns once it has.
+// Anyone who can open the pipe may ask: a look changes nothing.
+func (s *Service) lookNow(ctx context.Context) error {
+	looked := make(chan struct{})
+	select {
+	case s.looks <- looked:
+	case <-ctx.Done():
+		return errors.New("the supervisor's loop did not take the report in time")
+	}
+	select {
+	case <-looked:
+		return nil
+	case <-ctx.Done():
+		return errors.New("the supervisor's loop did not finish looking in time")
+	}
+}
+
+// Reported tells the supervisor of this home, if one runs, that a goblin
+// just reported, so the board shows the report at once instead of at its
+// next refresh. It waits for nothing: with no supervisor, or one that is
+// busy, the report shows at the next refresh as before.
+func Reported(stateDir string) {
+	pipe, err := os.OpenFile(runPipeName(stateDir), os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+	defer pipe.Close()
+	var server uint32
+	if ok, _, _ := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 || !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
+		return
+	}
+	_, _ = pipe.Write([]byte(`{"kind":"reported"}` + "\n"))
 }
 
 // sendPipeRequest hands one request to the supervisor and returns the reason

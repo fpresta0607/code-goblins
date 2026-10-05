@@ -1,33 +1,26 @@
 package main
 
 import (
-	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
-	"github.com/fpresta0607/code-goblins/internal/terminal/terminaltest"
 )
 
 // goblins --harness chooses the harness the CFO starts as, and the home
-// remembers it: a later goblins, in Herdr or native, starts that harness
-// until another is chosen. A CFO that is not Claude Code is told how it is
-// woken: in Herdr not at all, and in a native terminal by a typed line once
-// it has registered.
+// remembers it: a later goblins starts that harness until another is chosen.
+// A CFO that is not Claude Code is told how it is woken.
 func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	f := newSessionFixture(t)
 	harnessesOnPath(t, "codex", "pi")
 
 	chose, chooseOut, chooseErr := f.launch("--harness", "codex")
 	later, laterOut, _ := f.launch()
-	native, nativeOut, _ := f.launch("--native", "--harness", "pi")
+	native, nativeOut, _ := f.launch("--harness", "pi")
 
 	if chose != 0 || later != 0 || native != 0 {
 		t.Fatalf("exits %d, %d, %d (stderr %q), want 0", chose, later, native, chooseErr)
@@ -35,19 +28,21 @@ func TestGoblinsRemembersTheCFOHarnessForEveryLaterStart(t *testing.T) {
 	if want := []string{"codex", "codex", "pi"}; !slices.Equal(f.harnesses, want) {
 		t.Errorf("harnesses started = %q, want %q", f.harnesses, want)
 	}
-	if len(f.cfoStarts) != 2 || len(f.nativeStarts) != 1 {
-		t.Errorf("starts in Herdr %q and native %q, want two and one", f.cfoStarts, f.nativeStarts)
+	if len(f.nativeStarts) != 3 {
+		t.Errorf("native starts %q, want three", f.nativeStarts)
 	}
 	for _, out := range []string{chooseOut, laterOut} {
-		if !strings.Contains(out, "The CFO starts as codex in "+f.home.Root+".") || !strings.Contains(out, "A codex CFO has no wake path in Herdr") {
-			t.Errorf("stdout = %q, want the codex start and its missing wake path in Herdr", out)
+		if !strings.Contains(out, "CFO        started as Codex in "+f.home.Root+", in native terminal cfo\n") || !strings.Contains(out, "A Codex CFO is woken by one line typed into this terminal") {
+			t.Errorf("stdout = %q, want the codex start in a native terminal and how it is woken", out)
 		}
 	}
-	if !strings.Contains(nativeOut, "The CFO starts as pi in "+f.home.Root+", in native terminal cfo.") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once it has run cfo register in this terminal") {
+	if !strings.Contains(nativeOut, "CFO        started as pi in "+f.home.Root+", in native terminal cfo\n") || !strings.Contains(nativeOut, "A pi CFO is woken by one line typed into this terminal") || !strings.Contains(nativeOut, "once its first prompt has run cfo register") {
 		t.Errorf("stdout = %q, want the native pi start and how it is woken", nativeOut)
 	}
-	if strings.Contains(nativeOut, "no wake path") {
-		t.Errorf("stdout = %q, want no missing wake path for a native pi CFO", nativeOut)
+	for _, out := range []string{chooseOut, laterOut, nativeOut} {
+		if strings.Contains(out, "no wake path") {
+			t.Errorf("stdout = %q, want no CFO said to have no wake path", out)
+		}
 	}
 	if data, err := os.ReadFile(cfoHarnessPath(f.home.State)); err != nil || strings.TrimSpace(string(data)) != "pi" {
 		t.Errorf("remembered harness = %q, %v; want pi", data, err)
@@ -72,15 +67,14 @@ func TestGoblinsStartsTheCFOAsClaudeUnlessToldOtherwise(t *testing.T) {
 // nothing beside it, remembers the choice for the next start, and says so.
 func TestALiveCFOKeepsItsHarness(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		live func(f *launcherFixture)
+		name    string
+		harness string
+		named   string
+		live    func(f *launcherFixture)
 	}{
-		{"registered native", func(f *launcherFixture) { f.nativeCFO = supervisor.NativeCFOTerminal }},
-		{"registered in Herdr", func(f *launcherFixture) { f.withLiveCFO() }},
-		{"unregistered in native terminal cfo", func(f *launcherFixture) { f.cfoTerminalRuns = true }},
-		{"an agent already in the cfo tab", func(f *launcherFixture) {
-			f.runtime.startCFO = func(context.Context, string, string) (bool, error) { return false, nil }
-		}},
+		{"registered native", "codex", "Codex", func(f *launcherFixture) { f.nativeCFO = supervisor.NativeCFOTerminal }},
+		{"registered in Herdr", "codex", "Codex", func(f *launcherFixture) { f.withLiveCFO() }},
+		{"unregistered in native terminal cfo", "codex", "Codex", func(f *launcherFixture) { f.cfoTerminalRuns = true }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -89,26 +83,26 @@ func TestALiveCFOKeepsItsHarness(t *testing.T) {
 			c.live(f)
 
 			// Act
-			exit, stdout, stderr := f.launch("--harness", "codex")
+			exit, stdout, stderr := f.launch("--harness", c.harness)
 
 			// Assert
 			if exit != 0 || len(f.harnesses) != 0 || len(f.nativeStarts) != 0 {
 				t.Fatalf("exit=%d harnesses=%q nativeStarts=%q stderr=%q, want nothing started", exit, f.harnesses, f.nativeStarts, stderr)
 			}
-			if !strings.Contains(stdout, "The CFO already runs, and keeps its harness; codex is the harness goblins starts the next CFO as.") {
-				t.Errorf("stdout = %q, want it to say the live CFO keeps its harness", stdout)
+			if !strings.Contains(stdout, "It keeps its agent; "+c.named+" is the agent goblins starts the next CFO as.") {
+				t.Errorf("stdout = %q, want it to say the live CFO keeps its agent", stdout)
 			}
-			if harness, err := cfoHarness(f.home.State); err != nil || harness != "codex" {
-				t.Errorf("remembered harness = %q, %v; want codex", harness, err)
+			if harness, err := cfoHarness(f.home.State); err != nil || harness != c.harness {
+				t.Errorf("remembered harness = %q, %v; want %s", harness, err, c.harness)
 			}
 		})
 	}
 }
 
-// The board's first-run page offers only Claude Code, so the CFO it starts is
-// claude whatever harness goblins remembers. With claude found only as a
-// script and codex not on PATH, neither start can reach a host.
-func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
+// The board's first-run page starts the agent it is given, whatever harness
+// goblins remembers, and reads the remembered one. With claude found only as
+// a script and codex not on PATH, neither start can reach a host.
+func TestTheFirstRunStartsTheAgentItIsGivenWhateverHarnessIsRemembered(t *testing.T) {
 	// Arrange
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
@@ -122,11 +116,70 @@ func TestTheFirstRunStartsClaudeWhateverHarnessIsRemembered(t *testing.T) {
 	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
 
 	// Act
-	err := run.StartCFO(t.TempDir())
+	saved := run.SavedAgent()
+	err := run.StartCFO("claude")
 
 	// Assert
+	if saved != "codex" {
+		t.Errorf("the first-run page reads the remembered agent as %q, want codex", saved)
+	}
 	if err == nil || !strings.Contains(err.Error(), "the native build of Claude Code is claude.exe") {
 		t.Fatalf("first-run StartCFO error = %v, want claude looked up rather than codex", err)
+	}
+}
+
+// The first-run page and the quick start hold one answer for the agent: the
+// page reads what goblins remembered, none when nothing was chosen or the
+// file names no agent, and the agent the page starts is what goblins starts
+// the next CFO as.
+func TestTheFirstRunPageAndGoblinsRememberOneAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+
+	// Act
+	none := run.SavedAgent()
+	if err := os.WriteFile(cfoHarnessPath(h.State), []byte("kimi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := run.SavedAgent()
+	saveErr := run.SaveAgent("pi")
+	saved := run.SavedAgent()
+	started, startErr := cfoHarness(h.State)
+
+	// Assert
+	if none != "" || unknown != "" {
+		t.Errorf("with nothing chosen the page reads %q, and with a name that is no agent %q; want none both times", none, unknown)
+	}
+	if saveErr != nil || saved != "pi" || startErr != nil || started != "pi" {
+		t.Errorf("after the page remembers pi: saved %q (%v), goblins starts %q (%v); want pi for both", saved, saveErr, started, startErr)
+	}
+	if run.CFOHome != h.Root {
+		t.Errorf("the page names the home %q, want %q", run.CFOHome, h.Root)
+	}
+}
+
+// The page forgets the agent by remembering none: the file goes, so goblins
+// is back to having no answer, and a home that remembered none is no error.
+func TestTheFirstRunPageForgetsTheAgent(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir(), State: t.TempDir()}
+	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
+	if err := run.SaveAgent("codex"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	forgetErr := run.SaveAgent("")
+	_, statErr := os.Stat(cfoHarnessPath(h.State))
+	againErr := run.SaveAgent("")
+
+	// Assert
+	if forgetErr != nil || !os.IsNotExist(statErr) || run.SavedAgent() != "" {
+		t.Errorf("forgetting: err %v, the file's stat %v, the page reads %q; want the file gone and no agent", forgetErr, statErr, run.SavedAgent())
+	}
+	if againErr != nil {
+		t.Errorf("forgetting with none remembered: err %v, want none", againErr)
 	}
 }
 
@@ -162,7 +215,7 @@ func TestGoblinsRefusesAHarnessItCannotStartTheCFOAs(t *testing.T) {
 func TestGoblinsNamesAnArgumentItDoesNotTake(t *testing.T) {
 	f := newSessionFixture(t)
 
-	exit, _, stderr := f.launch("--native", "codex")
+	exit, _, stderr := f.launch("--harness", "pi", "codex")
 
 	if exit != 2 || !strings.Contains(stderr, `unexpected argument "codex"`) || len(f.harnesses) != 0 {
 		t.Fatalf("exit=%d stderr=%q harnesses=%q, want the argument named and nothing started", exit, stderr, f.harnesses)
@@ -185,91 +238,6 @@ func TestGoblinsRemembersNoHarnessThatNeverBecameReady(t *testing.T) {
 	}
 	if _, err := os.Stat(cfoHarnessPath(f.home.State)); !os.IsNotExist(err) {
 		t.Errorf("a harness not on PATH was remembered: %v", err)
-	}
-}
-
-// In Herdr Claude Code starts through herdr agent start, while codex and pi,
-// npm script shims Herdr's Windows agent start cannot run, are typed into the
-// cfo pane's shell and submitted, as a Herdr goblin's typed launch is.
-func TestStartingTheCFOInHerdrStartsEachHarnessAsHerdrCan(t *testing.T) {
-	for harness, want := range map[string][]string{
-		"claude": {"AgentStart fleet:w1:p1 cfo claude"},
-		"codex":  {"SendLiteral fleet:w1:p1 codex", "SendKey fleet:w1:p1 Enter"},
-		"pi":     {"SendLiteral fleet:w1:p1 pi", "SendKey fleet:w1:p1 Enter"},
-	} {
-		t.Run(harness, func(t *testing.T) {
-			// Arrange
-			fake := &terminaltest.Fake{
-				Session:   "fleet",
-				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
-				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
-			}
-			noLaunchWait(t)
-
-			// Act
-			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, harness, io.Discard)
-
-			// Assert
-			if err != nil || !started {
-				t.Fatalf("startCFOWith = %v, %v; want a CFO started", started, err)
-			}
-			var launch []string
-			for _, call := range fake.Calls() {
-				if strings.HasPrefix(call, "AgentStart ") || strings.HasPrefix(call, "SendLiteral ") || strings.HasPrefix(call, "SendKey ") {
-					launch = append(launch, call)
-				}
-			}
-			if !slices.Equal(launch, want) {
-				t.Errorf("launch calls = %q, want %q", launch, want)
-			}
-		})
-	}
-}
-
-// A typed CFO that Herdr does not detect, its pane dead with the harness
-// running, is reported to Herdr as agent cfo, so a later goblins finds an
-// agent in the cfo tab rather than starting a second CFO beside it. One Herdr
-// detects is left alone, and Claude Code, which herdr agent start registers,
-// is never reported.
-func TestStartingTheCFOInHerdrReportsATypedCFOHerdrDoesNotDetect(t *testing.T) {
-	for _, c := range []struct {
-		name       string
-		harness    string
-		status     herdr.AgentStatus
-		wantReport []string
-	}{
-		{"undetected codex", "codex", herdr.AgentDead, []string{"ReportAgent fleet:w1:p1 codex unknown"}},
-		{"undetected pi", "pi", herdr.AgentDead, []string{"ReportAgent fleet:w1:p1 pi unknown"}},
-		{"detected pi", "pi", herdr.AgentAlive, nil},
-		{"claude", "claude", herdr.AgentDead, nil},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			// Arrange
-			fake := &terminaltest.Fake{
-				Session:   "fleet",
-				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
-				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
-				Status:    c.status,
-				Running:   true,
-			}
-			noLaunchWait(t)
-
-			// Act
-			if _, err := startCFOWith(context.Background(), fake, `C:\dev\app`, c.harness, io.Discard); err != nil {
-				t.Fatal(err)
-			}
-
-			// Assert
-			var reports []string
-			for _, call := range fake.Calls() {
-				if strings.HasPrefix(call, "ReportAgent ") {
-					reports = append(reports, call)
-				}
-			}
-			if !slices.Equal(reports, c.wantReport) {
-				t.Errorf("reports = %q, want %q (calls %q)", reports, c.wantReport, fake.Calls())
-			}
-		})
 	}
 }
 
@@ -309,72 +277,4 @@ func TestANativeCFOStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 			t.Errorf("nativeCFOProgram(%s) = %q, %v; want %q", harness, program, err, want)
 		}
 	}
-}
-
-// laterHarness is a Herdr whose pane shows the typed harness running only
-// from the given HarnessRunning look on.
-type laterHarness struct {
-	*terminaltest.Fake
-	looks, from int
-}
-
-func (l *laterHarness) HarnessRunning(ctx context.Context, target herdr.Target) (bool, error) {
-	l.looks++
-	_, err := l.Fake.HarnessRunning(ctx, target)
-	return l.looks >= l.from, err
-}
-
-// A typed CFO that Herdr does not detect and that takes a while to start is
-// still reported once it shows running, on a later look; one that never shows
-// ends the looks with a line saying so, no error, and the tab in front.
-func TestATypedCFOIsLookedForUntilItShows(t *testing.T) {
-	for _, c := range []struct {
-		name        string
-		from        int
-		wantReports []string
-		wantLine    bool
-	}{
-		{"shows on a later look", 3, []string{"ReportAgent fleet:w1:p1 pi unknown"}, false},
-		{"never shows", cfoLaunchTries + 1, nil, true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			// Arrange
-			noLaunchWait(t)
-			fake := &laterHarness{Fake: &terminaltest.Fake{
-				Session:   "fleet",
-				Container: herdr.Container{Session: "fleet", WorkspaceID: "w1"},
-				CFO:       herdr.Endpoint{Target: herdr.Target{Session: "fleet", Pane: "w1:p1"}, WorkspaceID: "w1", TabID: "w1:t1", PaneID: "w1:p1"},
-				Status:    herdr.AgentDead,
-			}, from: c.from}
-			var stdout strings.Builder
-
-			// Act
-			started, err := startCFOWith(context.Background(), fake, `C:\dev\app`, "pi", &stdout)
-
-			// Assert
-			var reports []string
-			for _, call := range fake.Calls() {
-				if strings.HasPrefix(call, "ReportAgent ") {
-					reports = append(reports, call)
-				}
-			}
-			if err != nil || !started || !slices.Equal(reports, c.wantReports) {
-				t.Errorf("startCFOWith = %v, %v, reports %q; want %q", started, err, reports, c.wantReports)
-			}
-			if said := strings.Contains(stdout.String(), "Herdr never saw pi start in the cfo tab"); said != c.wantLine {
-				t.Errorf("stdout = %q, want the never-saw line %v", stdout.String(), c.wantLine)
-			}
-			if calls := fake.Calls(); calls[len(calls)-1] != "Focus w1 w1:t1" {
-				t.Errorf("calls = %q, want the cfo tab brought to the front last", calls)
-			}
-		})
-	}
-}
-
-// noLaunchWait makes a typed CFO start wait no real time.
-func noLaunchWait(t *testing.T) {
-	t.Helper()
-	sleep := cfoLaunchSleep
-	cfoLaunchSleep = func(time.Duration) {}
-	t.Cleanup(func() { cfoLaunchSleep = sleep })
 }

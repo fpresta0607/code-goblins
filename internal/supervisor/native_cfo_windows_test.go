@@ -45,12 +45,49 @@ func recordHost(t *testing.T, stateDir string, childPID int) {
 	}
 }
 
-// registerNatively is the environment of a program in native terminal cfo,
-// outside any Herdr pane.
+// registerNatively is the environment of a program in native terminal cfo.
 func registerNatively(t *testing.T) {
 	t.Helper()
 	t.Setenv(host.IDVariable, "cfo")
-	t.Setenv("HERDR_PANE_ID", "")
+}
+
+// primaryFixture registers this test process as the CFO in native terminal
+// cfo. The terminal's program records what the board types into it, and its
+// prompt hook reports each line taken, so a delivery is confirmed.
+func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, hostedTerminal, *CFOConnection) {
+	t.Helper()
+	cfo := hostTerminal(t, store.Home.State, "cfo")
+	cfo.typeLine(t, "hooked")
+	cfo.standIn(t)
+	process, err := lock.Acquire(store.Home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Release(store.Home.State) })
+	primary := primaryRegistration{Host: "cfo", Agent: "codex", Process: *process}
+	data, err := json.Marshal(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, identity, err := decodePrimary(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return primary, identity, cfo, &CFOConnection{State: store.Home.State}
+}
+
+// registerFixture is a home with no registration and native terminal cfo,
+// whose program this test process stands in for.
+func registerFixture(t *testing.T) (*Store, hostedTerminal, *CFOConnection) {
+	t.Helper()
+	store, _ := testStore(t)
+	cfo := hostTerminal(t, store.Home.State, "cfo")
+	cfo.standIn(t)
+	registerNatively(t)
+	return store, cfo, &CFOConnection{State: store.Home.State}
 }
 
 // nativePrimary registers this test process as a CFO in native terminal cfo.
@@ -105,7 +142,7 @@ func TestRegisterRefusesANativeTerminalWhoseHostDoesNotAnswer(t *testing.T) {
 	registerNatively(t)
 	recordHost(t, stateDir, os.Getpid())
 
-	_, err := Register(context.Background(), stateDir, nil, "claude", "session-1")
+	_, err := Register(stateDir, "claude", "session-1")
 
 	if err == nil || !strings.Contains(err.Error(), "does not answer") {
 		t.Fatalf("Register error = %v, want the host that does not answer", err)
@@ -123,7 +160,7 @@ func TestRegisterRefusesANativeTerminalItDoesNotRunUnder(t *testing.T) {
 	// The System process is no user process's ancestor.
 	recordHost(t, stateDir, 4)
 
-	_, err := Register(context.Background(), stateDir, nil, "claude", "session-1")
+	_, err := Register(stateDir, "claude", "session-1")
 
 	if err == nil || !strings.Contains(err.Error(), "does not run under it") {
 		t.Fatalf("Register error = %v, want this process refused for not running under the terminal", err)
@@ -138,17 +175,17 @@ func TestANativeRegistrationIsVerifiedOnlyWhileItsTerminalRunsIt(t *testing.T) {
 	c := &CFOConnection{State: stateDir}
 
 	recordHost(t, stateDir, os.Getpid())
-	if err := c.check(context.Background()); err != nil {
+	if err := c.check(); err != nil {
 		t.Fatalf("check with the terminal running the CFO = %v, want nil", err)
 	}
 	recordHost(t, stateDir, 4)
-	if err := c.check(context.Background()); err == nil || !strings.Contains(err.Error(), "ended or runs another program") {
+	if err := c.check(); err == nil || !strings.Contains(err.Error(), "ended or runs another program") {
 		t.Errorf("check with the terminal running another program = %v, want the registration refused", err)
 	}
 	if err := os.Remove(filepath.Join(stateDir, "hosts", "cfo.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.check(context.Background()); err == nil || !strings.Contains(err.Error(), "ended or runs another program") {
+	if err := c.check(); err == nil || !strings.Contains(err.Error(), "ended or runs another program") {
 		t.Errorf("check with the terminal ended = %v, want the registration refused", err)
 	}
 }
@@ -158,7 +195,6 @@ func TestANativeRegistrationIsVerifiedOnlyWhileItsTerminalRunsIt(t *testing.T) {
 // and the host answers.
 func TestAProgramInALiveNativeTerminalRegistersAsTheCFO(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
 	record, err := host.ReadRecord(stateDir, "cfo")
 	if err != nil {
@@ -193,23 +229,7 @@ func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			stateDir := t.TempDir()
-			t.Setenv("HERDR_PANE_ID", "")
-			program, err := os.Executable()
-			if err != nil {
-				t.Fatal(err)
-			}
-			shims := t.TempDir()
-			typed := filepath.Join(t.TempDir(), "typed.txt")
-			shim := fmt.Sprintf("@\"%s\" \"-test.run=^TestNativeTerminalProgram$\" -- native-terminal-program \"%s\" \"%s\"\r\n", program, typed, stateDir)
-			if err := os.WriteFile(filepath.Join(shims, name+".cmd"), []byte(shim), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-			cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
-			record, err := host.ReadRecord(stateDir, "cfo")
-			if err != nil {
-				t.Fatal(err)
-			}
+			cfo, record := shimTerminal(t, stateDir, name)
 
 			cfo.typeLine(t, "register by program")
 
@@ -223,12 +243,71 @@ func TestAHarnessRunThroughItsShimRegistersByTheNameCmdRuns(t *testing.T) {
 	}
 }
 
+// shimTerminal runs name, an npm script shim on PATH, in native terminal cfo
+// of stateDir through cmd /c, as a native terminal runs Codex and pi.
+func shimTerminal(t *testing.T, stateDir, name string) (hostedTerminal, host.Record) {
+	t.Helper()
+	t.Setenv("HERDR_PANE_ID", "")
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shims := t.TempDir()
+	typed := filepath.Join(t.TempDir(), "typed.txt")
+	shim := fmt.Sprintf("@\"%s\" \"-test.run=^TestNativeTerminalProgram$\" -- native-terminal-program \"%s\" \"%s\"\r\n", program, typed, stateDir)
+	if err := os.WriteFile(filepath.Join(shims, name+".cmd"), []byte(shim), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfo := hostProgram(t, stateDir, "cfo", typed, os.Getenv("ComSpec"), "/c", name)
+	record, err := host.ReadRecord(stateDir, "cfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfo, record
+}
+
+// Plain cfo register names no session, and it is how a Codex CFO that goblins
+// starts registers, by its first prompt. Codex gives every command it runs
+// its thread, so the registration records that as the CFO's conversation, and
+// a closed Codex CFO comes back on it. No other harness takes the thread for
+// its own: a pi CFO started from inside a Codex session inherits the variable.
+func TestACodexCFORegisteredByHandRecordsItsThreadAsItsConversation(t *testing.T) {
+	const thread = "019a2b3c-4d5e-7f60-8a9b-thread"
+	for name, want := range map[string]string{"codex": thread, "pi": ""} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			t.Setenv("CODEX_THREAD_ID", thread)
+			cfo, record := shimTerminal(t, stateDir, name)
+
+			// Act
+			cfo.typeLine(t, "register by hand")
+
+			// Assert
+			registered := fmt.Sprintf("registered %s pid %d in native terminal cfo", name, record.ChildPID)
+			if lines := cfo.waitForLines(t, 1); len(lines) != 1 || lines[0] != registered {
+				t.Fatalf("the program recorded %q, want %q", lines, registered)
+			}
+			conversation, err := ReadCFOConversation(stateDir)
+			if want == "" {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("a %s CFO recorded the conversation %+v, %v; want none, since the thread is Codex's", name, conversation, err)
+				}
+				return
+			}
+			if err != nil || conversation.Harness != name || conversation.Session != want || conversation.Host != "cfo" || conversation.PID != record.ChildPID {
+				t.Fatalf("conversation = %+v, %v; want the Codex thread %s recorded for native terminal cfo", conversation, err, want)
+			}
+		})
+	}
+}
+
 // A delivery to a native CFO is typed into its terminal and submitted once,
 // and reported delivered once the CFO's own prompt hook, naming the terminal
 // it runs in, reports taking it.
 func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
@@ -250,7 +329,6 @@ func TestADeliveryToANativeCFOIsTypedIntoItsTerminalOnce(t *testing.T) {
 // pipe holds is still typed into it and submitted once.
 func TestADeliveryToANativeCFOWithALongHistoryIsTypedIntoItsTerminalOnce(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "spill")
@@ -276,7 +354,6 @@ func TestANativeCFOPresentsWithoutATask(t *testing.T) {
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, h.State, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "present")
@@ -383,6 +460,7 @@ func TestATerminalProofProvesOnlyTheProgramItsHostStarted(t *testing.T) {
 func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
+	makeNative(t, h.State, "task-1")
 	if err := store.Accept(event(t, h, "SessionStart", "worker", "", time.Now().UTC())); err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +507,6 @@ func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // chosen a dialog's option instead: it waits for the hook's report.
 func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "harness")
@@ -452,7 +529,9 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 // reports it taken.
 func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
+	if err := os.WriteFile(filepath.Join(stateDir, NATIVE_EXIT_PHASES_FILE), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "harness")
@@ -477,7 +556,6 @@ func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 // submitted once and reported sent, awaiting the hook, never typed again.
 func TestADeliveryTheNativeCFOHasNotTakenYetIsSentNotAnError(t *testing.T) {
 	stateDir := t.TempDir()
-	t.Setenv("HERDR_PANE_ID", "")
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
@@ -667,17 +745,18 @@ func TestTheBoardShowsTheCFOsTerminalBeforeTheCFORegisters(t *testing.T) {
 	}
 }
 
-// A CFO started in native terminal cfo registers only after Claude Code's
-// own onboarding and sign-in, so until then the snapshot says it is starting
-// and carries no registration problem: the board opens its terminal for the
-// sign-in instead of telling the Overlord to run cfo register. With no
-// terminal cfo up, the problem stands.
+// A CFO started in native terminal cfo has not registered yet: Claude Code
+// registers through its SessionStart hook after its onboarding and sign-in, a
+// Codex or pi CFO when its first prompt runs cfo register. Until then the
+// snapshot says it is starting and carries no registration problem: the board
+// opens its terminal for whatever it asks there instead of telling the
+// Overlord to run cfo register. With no terminal cfo up, the problem stands.
 func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")
 	stateDir := h.Service.Store.Home.State
 	h.Service.Options.CFO = &CFOConnection{State: stateDir}
-	h.Service.checkRegistration(context.Background())
+	h.Service.checkRegistration()
 	absent, err := h.Service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -699,14 +778,14 @@ func TestAStartingCFOIsNotReportedAsUnregistered(t *testing.T) {
 	}
 }
 
-// A CFO that registers after sign-in is not reported as unregistered until
+// A CFO that registers after starting is not reported as unregistered until
 // the next registration check: the check that found none no longer stands.
 func TestACFOThatRegisteredIsNotReportedAsUnregisteredBeforeTheNextCheck(t *testing.T) {
 	// Arrange
 	h, _ := nativeBoard(t, "direct")
 	stateDir := h.Service.Store.Home.State
 	h.Service.Options.CFO = &CFOConnection{State: stateDir}
-	h.Service.checkRegistration(context.Background())
+	h.Service.checkRegistration()
 	nativePrimary(t, stateDir)
 	recordHost(t, stateDir, os.Getpid())
 
@@ -743,7 +822,7 @@ func TestAReopenedCFOIsNotReportedWithTheProblemOfTheOneItReplaced(t *testing.T)
 	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), exited, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.Service.checkRegistration(context.Background())
+	h.Service.checkRegistration()
 	closed, err := h.Service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -785,7 +864,7 @@ func TestAnExitedCFOIsReportedByTheReadThatFindsItGone(t *testing.T) {
 	h.Service.Options.CFO = &CFOConnection{State: stateDir}
 	nativePrimary(t, stateDir)
 	recordHost(t, stateDir, os.Getpid())
-	h.Service.checkRegistration(context.Background())
+	h.Service.checkRegistration()
 	hostname, err := os.Hostname()
 	if err != nil {
 		t.Fatal(err)

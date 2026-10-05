@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,54 @@ func TestWatcherHealthyLiveLockFreshBeat(t *testing.T) {
 	writeHeartbeat(t, dir, time.Now())
 	if !WatcherHealthy(dir, 300*time.Second) {
 		t.Error("WatcherHealthy = false, want true with a live lock and a fresh beat")
+	}
+}
+
+// WatcherProblem names the one thing that makes a watcher unhealthy, so a
+// failure banner says which it was, and says nothing for a healthy one.
+func TestWatcherProblemNamesWhatIsWrong(t *testing.T) {
+	live := func(t *testing.T, dir string) {
+		if _, err := lock.AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, test := range map[string]struct {
+		arrange func(t *testing.T, dir string)
+		want    string
+	}{
+		"no lock record":         {func(*testing.T, string) {}, "no process holds"},
+		"a record being written": {func(t *testing.T, dir string) { touchFile(t, filepath.Join(dir, ".watch.lock")) }, "cannot be read"},
+		"a holder that ended": {func(t *testing.T, dir string) {
+			writeDeadLock(t, dir, ".watch.lock", deadPID(t))
+			writeHeartbeat(t, dir, time.Now())
+		}, "is not running"},
+		"no heartbeat": {live, "heartbeat cannot be read"},
+		"a stale heartbeat": {func(t *testing.T, dir string) {
+			live(t, dir)
+			writeHeartbeat(t, dir, time.Now().Add(-10*time.Minute))
+		}, "last finished a cycle 10m0s ago"},
+		"a heartbeat from the future": {func(t *testing.T, dir string) {
+			live(t, dir)
+			writeHeartbeat(t, dir, time.Now().Add(time.Hour))
+		}, "in the future"},
+		"a live holder and a fresh heartbeat": {func(t *testing.T, dir string) {
+			live(t, dir)
+			writeHeartbeat(t, dir, time.Now())
+		}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			test.arrange(t, dir)
+
+			problem := WatcherProblem(dir, 300*time.Second)
+
+			if (test.want == "") != (problem == "") || !strings.Contains(problem, test.want) {
+				t.Errorf("WatcherProblem = %q, want it to say %q", problem, test.want)
+			}
+			if healthy := WatcherHealthy(dir, 300*time.Second); healthy != (test.want == "") {
+				t.Errorf("WatcherHealthy = %v beside WatcherProblem %q", healthy, problem)
+			}
+		})
 	}
 }
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 test("paused, resumed, stopped and restarted cards show Windows teardown at a readable size", async ({ page }) => {
@@ -24,6 +24,7 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
     await expect(notice).toBeVisible();
     expect(await notice.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
     await card.click();
+    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
     const details = page.locator(".lifecycle-panel");
     await expect(details.getByText("Finishing Windows teardown: chrome.exe pid 42", { exact: true })).toBeVisible();
     if (phase === "working") {
@@ -37,6 +38,6 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
       await expect(details.getByRole("region", { name: "Task lifecycle" })).toHaveCount(0);
       await expect(details.getByRole("button", { name: "Pause restarted teardown fixture", exact: true })).toBeEnabled();
     }
-    await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
   }
 });

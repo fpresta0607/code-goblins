@@ -25,7 +25,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -214,21 +213,21 @@ func validCredentialLink(link string) error {
 // through the inbox the supervisor reads; anyone else must be the registered
 // CFO, whom the supervisor proves over its pipe. It returns the request as
 // filed, with its ID.
-func FileCredentialRequest(ctx context.Context, h home.Home, terminals terminal.Opener, r CredentialRequest) (CredentialRequest, error) {
+func FileCredentialRequest(h home.Home, r CredentialRequest) (CredentialRequest, error) {
 	var random [8]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return r, err
 	}
 	r.ID = "cred-" + hex.EncodeToString(random[:])
 	if r.Task != "" {
-		if meta, goblinErr := goblinAsker(ctx, h.State, terminals, r.Task); goblinErr == nil {
+		if meta, goblinErr := goblinAsker(h.State, r.Task); goblinErr == nil {
 			r.Identity, r.By = goblinIdentity(meta), "goblin"
 			return r, spoolCredentialRequest(h.State, r)
 		} else if !RunsUnderRegisteredCFO(h.State) {
 			return r, fmt.Errorf("only the goblin of %s, from its own terminal, or the registered CFO can ask for credentials for it: %w", r.Task, goblinErr)
 		}
 	}
-	identity, release, err := (&CFOConnection{State: h.State, Terminals: terminals}).CallerIdentity(ctx)
+	identity, release, err := (&CFOConnection{State: h.State}).CallerIdentity()
 	if err != nil {
 		return r, fmt.Errorf("only the registered CFO, or a goblin naming its own task with --task, can ask for credentials: %w", err)
 	}
@@ -479,19 +478,32 @@ func proxyHeader(name string) bool {
 // shared through Tailscale serve reaches the same port on this machine, so the
 // proxy's headers are what tell it apart.
 func loopbackProblem(r *http.Request, board string) string {
-	refusal := "The board takes values only from its own page on this PC, at 127.0.0.1; use the terminal command on the card."
+	switch offMachine(r, board) {
+	case "":
+		return ""
+	case "proxy":
+		return "This save came through a proxy, and the board takes values only from its own page on this PC; use the terminal command on the card."
+	default:
+		return "The board takes values only from its own page on this PC, at 127.0.0.1; use the terminal command on the card."
+	}
+}
+
+// offMachine says how a request did not come from the board's own page on
+// this machine, or "" when it did: "remote" when its Host or its peer is not
+// this machine, "proxy" when a proxy handled it.
+func offMachine(r *http.Request, board string) string {
 	host, port, err := net.SplitHostPort(r.Host)
 	_, boardPort, boardErr := net.SplitHostPort(board)
 	if err != nil || boardErr != nil || port != boardPort || host != "127.0.0.1" && host != "localhost" && host != "::1" {
-		return refusal
+		return "remote"
 	}
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if ip := net.ParseIP(peer); err != nil || ip == nil || !ip.IsLoopback() {
-		return refusal
+		return "remote"
 	}
 	for name := range r.Header {
 		if proxyHeader(name) {
-			return "This save came through a proxy, and the board takes values only from its own page on this PC; use the terminal command on the card."
+			return "proxy"
 		}
 	}
 	return ""

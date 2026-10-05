@@ -4,23 +4,23 @@ This page maps every file the CFO, its goblins and the no-mistakes gate read for
 It exists because the same knowledge can reach an agent through several doors, and a rule placed behind the wrong door either never loads or loads twice.
 
 The facts below were read from the installed harnesses' own source and documentation and checked against live sessions.
-Versions checked: Claude Code 2.1.281, Codex CLI 0.154.0, Pi 0.85.1, Kimi Code 0.38.0 and no-mistakes v1.75.1.
+Versions checked: Claude Code 2.1.281, Codex CLI 0.154.0, Pi 0.85.1 and no-mistakes v1.75.1.
 Recheck a row when you upgrade a harness.
 
 ## At a glance
 
-| | Claude Code | Codex | Pi | Kimi Code |
-| --- | --- | --- | --- | --- |
-| Global instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.override.md`, else `~/.codex/AGENTS.md` | `~/.pi/agent/AGENTS.md` (or `CLAUDE.md`) | `~/.kimi-code/AGENTS.md`, then `~/.agents/AGENTS.md` |
-| Project instructions | `CLAUDE.md` (not `AGENTS.md`) | `AGENTS.md`, capped at 32 KiB | `AGENTS.md`, else `CLAUDE.md` | `AGENTS.md` (never `CLAUDE.md`) |
-| Where the project walk stops | the git root, including a worktree's own | the git root, including a worktree's own | the filesystem root | the git root, including a worktree's own |
-| Always-loaded rules | `~/.claude/rules/*.md`, `.claude/rules/*.md` | none | none | none |
-| Skills, user | `~/.claude/skills` | `~/.codex/skills`, `~/.agents/skills` | `~/.pi/agent/skills`, `~/.agents/skills` | `~/.kimi-code/skills`, `~/.agents/skills` |
-| Skills, project | `.claude/skills` | `.agents/skills`, `.codex/skills` | `.agents/skills`, `.pi/skills` | `.agents/skills`, `.kimi-code/skills` |
-| Same skill name in both | user copy wins, listed once | **both listed** | project copy wins | project copy wins |
-| Commands or prompts | `~/.claude/commands`, `.claude/commands` | none (`~/.codex/prompts` is not read) | `~/.pi/agent/prompts`, `.pi/prompts` | none |
-| Hooks | settings files, merged, plus plugins | `hooks.json` and `[hooks]`, per trusted layer, each hook hash-trusted | extensions | `[[hooks]]` in `~/.kimi-code/config.toml` |
-| MCP | `~/.claude.json`, `.mcp.json`, plugins | `config.toml` only | none | `~/.kimi-code/mcp.json`, `.mcp.json` when trusted |
+| | Claude Code | Codex | Pi |
+| --- | --- | --- | --- |
+| Global instructions | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.override.md`, else `~/.codex/AGENTS.md` | `~/.pi/agent/AGENTS.md` (or `CLAUDE.md`) |
+| Project instructions | `CLAUDE.md` (not `AGENTS.md`) | `AGENTS.md`, capped at 32 KiB | `AGENTS.md`, else `CLAUDE.md` |
+| Where the project walk stops | the git root, including a worktree's own | the git root, including a worktree's own | the filesystem root |
+| Always-loaded rules | `~/.claude/rules/*.md`, `.claude/rules/*.md` | none | none |
+| Skills, user | `~/.claude/skills` | `~/.codex/skills`, `~/.agents/skills` | `~/.pi/agent/skills`, `~/.agents/skills` |
+| Skills, project | `.claude/skills` | `.agents/skills`, `.codex/skills` | `.agents/skills`, `.pi/skills` |
+| Same skill name in both | user copy wins, listed once | **both listed** | project copy wins |
+| Commands or prompts | `~/.claude/commands`, `.claude/commands` | none (`~/.codex/prompts` is not read) | `~/.pi/agent/prompts`, `.pi/prompts` |
+| Hooks | settings files, merged, plus plugins | `hooks.json` and `[hooks]`, per trusted layer, each hook hash-trusted | extensions |
+| MCP | `~/.claude.json`, `.mcp.json`, plugins | `config.toml` only | none |
 
 ## Claude Code: the CFO and Claude goblins
 
@@ -51,7 +51,8 @@ Subagents come from `.claude/agents`, `~/.claude/agents` and plugins.
 
 **Hooks.**
 Hooks merge across every settings scope: managed settings, `--settings`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.claude/settings.json`, and enabled plugins.
-A `SessionStart` hook's output is injected into the session; output larger than about 10 KB is saved to a file and only a short preview is injected.
+A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
+The CFO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
 `cfo install` merges the CFO's hooks into `~/.claude/settings.json`.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
 
@@ -120,26 +121,6 @@ Pi has no MCP support.
 **Trust.**
 Pi asks only when the project has `.pi` resources or an `.agents/skills` directory in the working directory or an ancestor; a trusted parent directory covers its worktrees.
 
-## Kimi Code
-
-**Instructions.**
-Kimi reads `~/.kimi-code/AGENTS.md`, then `~/.agents/AGENTS.md`, then, in each directory from the git root (a worktree's own) down to the working directory, `.kimi-code/AGENTS.md` and `AGENTS.md`.
-It never reads `CLAUDE.md`.
-Above 32 KiB it warns but does not cut.
-
-**Skills.**
-Project skills come from the git root only: `.kimi-code/skills`, then `.agents/skills`.
-User skills come from `~/.kimi-code/skills`, then `~/.agents/skills`.
-A project skill replaces a user skill of the same name.
-
-**Hooks and MCP.**
-Hooks are the `[[hooks]]` entries in `~/.kimi-code/config.toml` only.
-MCP servers come from `~/.kimi-code/mcp.json`, then the git root's `.mcp.json` and `.kimi-code/mcp.json` when the folder is trusted.
-Kimi has no flag for an MCP file, so spawn copies the filtered configuration to the worktree's `.mcp.json` when that path is free.
-
-**Trust.**
-The trust dialog appears in every new working directory and gates only project MCP.
-
 ## What `cfo spawn` adds to a goblin
 
 Everything in the user rows above still loads for a goblin; spawn adds the following on top.
@@ -148,12 +129,12 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `GOTMPDIR`, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, so it draws in Claude's classic interface whatever the operator's `tui` setting and its history stays in the terminal's own scrollback.
-   Codex: `--dangerously-bypass-approvals-and-sandbox`.
+   Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
    Pi: `--tui-mode regular`.
-   Kimi: no extra flags.
    Model and effort flags follow the lane table in `data/routing.json`.
    Each harness's trust dialog is confirmed automatically.
-4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, Kimi reads the worktree copy, and Codex and Pi do not use it.
+4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, and Codex and Pi do not use it.
+   Spawn also leaves a copy at the worktree's `.mcp.json` when that path is free, which no harness the fleet runs now reads.
 5. **The first message.** "Read the brief at <path> and follow it exactly," followed by how to report with `cfo notify` and, in `no-mistakes` mode, the task's frozen pipeline policy.
 
 ## The no-mistakes gate
@@ -176,7 +157,14 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 ## The CFO's memory
 
-The `cfo session-start` digest prints the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full, and points the CFO at `data/memory/` for writing facts.
+The SessionStart hook prints a brief digest: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
+Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
+It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
+After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
+The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.
+Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
+The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
+Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.
 The `stow` skill keeps `data/overlord.md` and `data/memory/` inside a startup budget, and the backlog current: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
@@ -184,7 +172,7 @@ The `stow` skill keeps `data/overlord.md` and `data/memory/` inside a startup bu
 ## Third-party skills
 
 The tools the fleet drives publish their own skills, and this repository does not copy them.
-Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex, Pi and Kimi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; both installs in [install.md](install.md) add all three for you.
+Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex and Pi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; both installs in [install.md](install.md) add all three for you.
 
 A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
 `cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.

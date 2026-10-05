@@ -20,24 +20,20 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	id := args[0]
 	flags := flag.NewFlagSet("switch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	harnessName := flags.String("harness", "", "claude, codex, pi, or kimi")
+	harnessName := flags.String("harness", "", "claude, codex, or pi")
 	model := flags.String("model", "", "model for the new harness")
 	effort := flags.String("effort", "", "reasoning effort for the new harness")
+	generation := flags.String("generation", "", "switch only the selected task session")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
-	native := flags.Bool("native", false, "move a task running in Herdr into a native terminal of its own, resuming its session")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if *harnessName == "" && *model == "" && *effort == "" && !*native {
-		fmt.Fprintln(stderr, "cfo switch: one of --harness, --model, --effort, or --native is required")
-		return 2
-	}
-	if *native && (*harnessName != "" || *model != "" || *effort != "") {
-		fmt.Fprintln(stderr, "cfo switch: --native keeps the task's harness, model and effort; change them with a separate cfo switch after the move")
+	if *harnessName == "" && *model == "" && *effort == "" {
+		fmt.Fprintln(stderr, "cfo switch: one of --harness, --model, or --effort is required")
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
-		fmt.Fprintln(stderr, "cfo switch: --harness must be claude, codex, pi, or kimi")
+		fmt.Fprintln(stderr, "cfo switch: --harness must be claude, codex, or pi")
 		return 2
 	}
 
@@ -51,9 +47,8 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		Harness:    harness.Kind(*harnessName),
 		Model:      *model,
 		Effort:     *effort,
+		Generation: *generation,
 		ForceDirty: *forceDirty,
-		Native:     *native,
-		Session:    herdrSession(),
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	})
 	if err != nil {

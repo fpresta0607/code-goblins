@@ -23,13 +23,10 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
-		Args:           []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
-		Env:            map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
-		PromptFile:     `C:\briefs\task.md`,
-		TypedLaunch:    true,
-		Executable:     "codex",
-		ConfirmMarkers: []string{"Do you trust the contents of this directory?"},
-		ConfirmKeys:    []string{"enter"},
+		Args:       []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"},
+		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`},
+		PromptFile: `C:\briefs\task.md`,
+		Executable: "codex",
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{
@@ -44,7 +41,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build explicit: %v", err)
 	}
-	wantArgs := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort=high`}
+	wantArgs := []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-5.2-codex", "-c", `model_reasoning_effort=high`}
 	if !equalStrings(explicit.Args, wantArgs) {
 		t.Errorf("Args = %#v, want %#v", explicit.Args, wantArgs)
 	}
@@ -78,7 +75,7 @@ func TestCodexMaxEffortForAstra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"}
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=max"}
 	if !equalStrings(launch.Args, want) {
 		t.Fatalf("Args = %q, want %q", launch.Args, want)
 	}
@@ -117,6 +114,22 @@ func TestCodexStartsWithItsAnimationsOff(t *testing.T) {
 	}
 	if !slices.Contains(launch.Args, "tui.animations=false") {
 		t.Errorf("Args = %q, want Codex's animations off", launch.Args)
+	}
+}
+
+func TestCodexStartsInlineSoBoardTextCanBeSelected(t *testing.T) {
+	adapter, err := DefaultRegistry().Get(Codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(launch.Args, "--no-alt-screen") {
+		t.Fatalf("Args = %q, want Codex's inline screen for board text selection", launch.Args)
 	}
 }
 

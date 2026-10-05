@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -127,7 +128,13 @@ func (s *Service) wakeCFO(ctx context.Context, now time.Time) error {
 	if !live || primary.Host == "" || CFOWakeFor(primary.Agent) != CFOWakeTyped {
 		return nil
 	}
-	return connection.typeWake(ctx, primary, wakeLine(fresh), fresh[len(fresh)-1].Seq, now)
+	line := wakeLine(fresh)
+	// While AFK mode is on the line says so, since a CFO with no Stop hook
+	// is told nothing else at a wake.
+	if banner := afk.BannerFor(stateDir); banner != "" {
+		line += " " + banner
+	}
+	return connection.typeWake(ctx, primary, line, fresh[len(fresh)-1].Seq, now)
 }
 
 // wakeLine is the one line typed into the CFO: how many wakes wait, whose,
@@ -161,7 +168,7 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 	if !readable {
 		return nil
 	}
-	if err := c.verify(ctx, primary); err != nil {
+	if err := c.verify(primary); err != nil {
 		return err
 	}
 	record, err := host.ReadRecord(c.State, primary.Host)

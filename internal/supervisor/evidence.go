@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -291,7 +292,7 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 		return evaluation
 	}
 	switch evaluation.Phase {
-	case "blocked", "ready", "merged", "done":
+	case "blocked", "failed", "ready", "merged", "done":
 		return evaluation
 	}
 	switch {
@@ -365,11 +366,11 @@ func supersedesQuestion(report string) bool {
 }
 
 // reportedProgress is what a goblin last said it is doing: working on
-// something, or waiting on another task, the Overlord, CI or a deploy. A wait
+// something, or waiting on another task, the Overlord, CI, a deploy or memory. A wait
 // on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CFO; any other wait lasts until the goblin reports again.
-func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
+func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
 	if what, found := strings.CutPrefix(report, "working: "); found {
 		return "working", what, "", true
 	}
@@ -379,7 +380,7 @@ func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Tim
 		return "", "", "", false
 	}
 	switch target {
-	case "ci", "deploy":
+	case "ci", "deploy", "memory":
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.
@@ -392,7 +393,7 @@ func reportedProgress(stateDir, id string, reviews []Review, reportedAt time.Tim
 			return "", "", "", false
 		}
 	default:
-		lines, _ := state.TailStatus(stateDir, target, 200)
+		lines, _ := tail(target)
 		for i := len(lines) - 1; i >= 0; i-- {
 			stamp, event := state.SplitStatus(lines[i])
 			if stamp.Before(reportedAt) {
@@ -559,7 +560,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 					continue
 				}
 				generation = outcome.Generation
-				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
+				task = Task{ID: "finished:" + id, Title: outcome.Title, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Dependencies: []string{}, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
 				record, err := state.ReadLifecycle(stateDir, id)
 				if err != nil || record.Phase != "stopped" {
@@ -569,6 +570,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				task = Task{ID: "finished:" + id, Title: record.Title, Project: filepath.Base(record.Project), Archived: true, Dependencies: []string{}, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
 					task.PR, task.Branch = tasks[at].PR, tasks[at].Branch
+					task.Harness, task.Model, task.Effort = tasks[at].Harness, tasks[at].Model, tasks[at].Effort
 				}
 			}
 			if task.Title == "" {
@@ -700,21 +702,39 @@ func newestHistory(tasks []Task) []Task {
 	return tasks
 }
 
+// briefReader is how queuedBriefs asks the disk about a brief: stat as
+// os.Stat does, and project as briefProject does.
+type briefReader struct {
+	stat    func(path string) (fs.FileInfo, error)
+	project func(path string) string
+}
+
+// diskBriefs asks the disk itself, each time.
+var diskBriefs = briefReader{os.Stat, briefProject}
+
 // queuedBriefs are briefs nothing has started: no live task record, and no
 // status log or archive entry, which every dispatched task leaves.
-func queuedBriefs(h home.Home) []Task {
+func queuedBriefs(h home.Home, briefs briefReader) []Task {
 	entries, err := os.ReadDir(h.Data)
 	if err != nil {
 		return nil
 	}
 	archived, _ := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
+	// One listing of the task records says which briefs were dispatched,
+	// in place of two questions to the disk for every brief.
+	records, _ := os.ReadDir(h.State)
+	recorded := func(name string) bool {
+		return slices.ContainsFunc(records, func(record os.DirEntry) bool { return strings.EqualFold(record.Name(), name) })
+	}
 	tasks := []Task{}
 	for _, entry := range entries {
 		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil || !exists(filepath.Join(h.Data, id, "brief.md")) {
+		if !entry.IsDir() || state.ValidTaskID(id) != nil {
 			continue
 		}
-		if exists(filepath.Join(h.State, id+".meta")) || exists(filepath.Join(h.State, id+".status")) {
+		brief := filepath.Join(h.Data, id, "brief.md")
+		info, err := briefs.stat(brief)
+		if err != nil || recorded(id+".meta") || recorded(id+".status") {
 			continue
 		}
 		dispatched := false
@@ -725,30 +745,14 @@ func queuedBriefs(h home.Home) []Task {
 			}
 		}
 		if !dispatched {
-			project := briefProject(filepath.Join(h.Data, id, "brief.md"))
-			if project != "" {
-				project = filepath.Base(project)
+			checkout := briefs.project(brief)
+			if checkout != "" {
+				checkout = filepath.Base(checkout)
 			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: project, Dependencies: []string{}, Since: briefWritten(h, id), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
+			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Dependencies: []string{}, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 		}
 	}
 	return tasks
-}
-
-// sessionStarted is when a goblin started: its worktree is made fresh by cfo
-// spawn and kept across a switch, which writes a new spawn generation, so
-// the generation's time dates the session only when the folder cannot.
-func sessionStarted(meta state.TaskMeta) time.Time {
-	if created := fileCreated(meta.Worktree); !created.IsZero() {
-		return created
-	}
-	return spawnTime(meta.SpawnGen)
-}
-
-// briefWritten is when data/<id>/brief.md was written, which is when its
-// task was queued, or zero without one.
-func briefWritten(h home.Home, id string) time.Time {
-	return fileCreated(filepath.Join(h.Data, id, "brief.md"))
 }
 
 // briefProject is the checkout a brief's Project section names, without a

@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -31,7 +33,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -44,7 +45,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs: in Herdr, or in a native terminal shown here with goblins --native. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal.
+Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs, in a native terminal of its own that outlives every window. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background, which the window runs when Windows starts it at login, keeps it in the tray.
 
 commands:
   version   print the cfo version
@@ -61,7 +62,7 @@ commands:
   install   wire a CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: run from a checkout it wires that checkout, run anywhere else it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract and skills, the default policy, and the binary as cfo.exe and goblins.exe); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks and the Start-menu shortcut included, and keeps the home's files
   uninstall the same as install --uninstall
   home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes
-  doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
+  doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
@@ -78,25 +79,30 @@ commands:
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
-  cfo gate test         this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package
+  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
+  cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi|kimi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--backend <herdr|native>] [--yolo]   without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom
-  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--native]   change a running goblin's harness/model/effort in place, or with --native alone move a Herdr goblin into a native terminal
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, and with neither it is named by its id
+  cfo title <id> "<short title>"   give a running task its short title: the board shows it, and the supervisor writes it to the ticket it opened for the task
+  cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty]   change a running goblin's harness/model/effort in place
   cfo send <target> [--key <key>] <text...>
   cfo peek <target> [lines]
   cfo fleet-view [--json]
   cfo runtime [--json]   what is running on this machine and who owns it: containers by owner, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
+  cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
-  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch]
+  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip, and no --delete-branch, and it is logged with its evidence before it merges
+  cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>
+  cfo backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   cfo pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   cfo reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
-  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy> "<why>" [--lavish <html-file>] [--link <https-url>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link
+  cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link
   cfo question --id <stable-id> --text "<user question>" [--option "<choice>"]... [--recommend "<exact-choice>"]   registered CFO opens a user decision modal with Other; the answer returns as one normal native message, not a native prompt-tool response
   cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CFO answers a goblin's blocked question: delivered like cfo send (queued behind a working goblin's turn counts as delivered), the notify retired, and the choice, who and when recorded for the board
   cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CFO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CFO's own question needs, and the card reads as his answer there
@@ -124,9 +130,9 @@ type commandRuntime struct {
 	spawn         func(context.Context, home.Home, spawn.Request) (spawn.Result, error)
 	switchTask    func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error)
 	sendText      func(context.Context, home.Home, string, string) error
-	sendKey       func(context.Context, home.Home, string, string) error
+	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
-	peek          func(context.Context, home.Home, string, int) (string, error)
+	peek          func(home.Home, string, int) (string, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -141,19 +147,21 @@ type commandRuntime struct {
 	goblins    bool
 	startServe func(home.Home) (<-chan struct{}, error)
 	openURL    func(string) error
-	// nativeCFO, liveCFO, focusCFO, startCFO and attachHerdr are how the
-	// launcher finds a live registered CFO, in a native terminal or in Herdr,
-	// and brings it to the front, starts the CFO in Herdr and hands the
-	// terminal to herdr attached to a session.
+	// openWindow shows the board in the desktop window, and returns
+	// errNoWindow when none sits beside this binary.
+	openWindow func(board, stateDir string, background bool) error
+	// nativeCFO, liveCFO, focusCFO and attachHerdr are how the launcher
+	// finds a live registered CFO, in a native terminal or in Herdr, brings
+	// it to the front and hands the terminal to herdr attached to a live
+	// Herdr CFO's session.
 	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
-	startCFO    func(ctx context.Context, project, harness string) (bool, error)
 	attachHerdr func(string) int
 	// startNativeCFO and attachNative start the CFO in a native terminal and
-	// show a native terminal in this console, for goblins --native and a CFO
+	// show a native terminal in this console, for a new CFO and a CFO
 	// registered in one.
-	startNativeCFO func(h home.Home, project, harness string) error
+	startNativeCFO func(h home.Home, project, harness string, args []string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
 	// nativeTerminalRuns reports whether a native terminal's host answers,
 	// so a CFO started in terminal cfo is shown before it registers, never
@@ -165,8 +173,8 @@ type commandRuntime struct {
 	// setupAgent runs the quick start's agent steps and returns the agent
 	// the CFO starts as, and choose shows one of its screens and returns the
 	// choice the person accepts.
-	setupAgent func(ctx context.Context, stateDir, chosen string, rerun bool, stdout, stderr io.Writer) (string, error)
-	choose     func(output io.Writer, title string, choices []onboarding.Choice, selected int) (int, error)
+	setupAgent func(ctx context.Context, stateDir, chosen string, rerun bool, list *onboarding.Checklist, stdout, stderr io.Writer) (string, error)
+	choose     func(output io.Writer, step onboarding.Step) (int, error)
 	// killTree ends a process and everything it started, for goblins stop
 	// --force.
 	killTree func(int) error
@@ -178,6 +186,27 @@ type commandRuntime struct {
 	// repoActivity reads what GitHub says is happening in the repository a
 	// checkout's origin names, for cfo tickets.
 	repoActivity func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error)
+	// overlapTimeout bounds the repoActivity read cfo spawn makes. Zero, in
+	// every runtime but a test's, is the overlapTimeout constant.
+	overlapTimeout time.Duration
+	// repositoryOf names the GitHub repository a checkout's origin is, for
+	// cfo tickets --allow-public-tickets.
+	repositoryOf func(ctx context.Context, checkout string) (string, error)
+	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
+	// log a decision made under it; nil is the supervisor's pipe.
+	switchAFK func(h home.Home, on bool, asked string) error
+	logAFK    func(h home.Home, entry afk.Entry) error
+	// availableMemory reads physical and commit availability for the turn
+	// cfo gate test takes before its checks, gateBudget is how long
+	// the tests of a level may run, and gateRun runs one of the step's
+	// commands in dir and returns its exit code, with an error unless it
+	// passed. gateProgress is how often a run that holds a turn says beside
+	// it how far its tests are.
+	availableMemory func() (supervisor.Memory, error)
+	gateWaitLimit   time.Duration
+	gateBudget      func(gatetest.Level) time.Duration
+	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	gateProgress    time.Duration
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
@@ -191,13 +220,11 @@ func defaultCommandRuntime() commandRuntime {
 		resolveHome: home.Resolve,
 		spawn: func(ctx context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.Result{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -206,18 +233,23 @@ func defaultCommandRuntime() commandRuntime {
 				PolicyPath:  filepath.Join(h.Root, "config", "pipeline.json"),
 				HostCommand: []string{self, "host"},
 				PromptSince: nativePromptSince(h),
+				Admit: func() error {
+					memory, err := supervisor.MachineMemory()
+					if err != nil {
+						return err
+					}
+					return supervisor.CheckLaunch(h, memory)
+				},
 			}
 			return service.Spawn(ctx, request)
 		},
 		switchTask: func(ctx context.Context, h home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			commands := execx.OSRunner{}
-			client := &herdr.Client{Commands: commands, Session: request.Session}
 			self, err := os.Executable()
 			if err != nil {
 				return spawn.SwitchResult{}, err
 			}
 			service := spawn.Service{
-				Terminals:   terminal.HerdrSessions(client),
 				Worktrees:   worktree.Service{Commands: commands, DataDir: h.Data},
 				Harness:     harness.DefaultRegistry(),
 				Auth:        auth.SpawnPreflight{DataDir: h.Data, Home: h.Root, Runner: commands},
@@ -229,17 +261,12 @@ func defaultCommandRuntime() commandRuntime {
 			return service.Switch(ctx, request)
 		},
 		sendText: func(ctx context.Context, h home.Home, target, text string) error {
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			receipt := supervisor.PrepareSendActivity(ctx, h, terminal.HerdrSessions(client), target)
-			send := func() error {
-				return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Text(ctx, target, text)
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				send = func() error {
-					return spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}.SendNative(ctx, meta, fleet.Stamp(text))
-				}
-			}
-			if err := send(); err != nil {
+			receipt := supervisor.PrepareSendActivity(h, target)
+			if err := (spawn.Service{StateDir: h.State, PromptSince: nativePromptSince(h)}).SendNative(ctx, meta, fleet.Stamp(text)); err != nil {
 				return err
 			}
 			if err := receipt(); err != nil {
@@ -247,18 +274,18 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return nil
 		},
-		sendKey: func(ctx context.Context, h home.Home, target, key string) error {
-			if meta, native := fleet.NativeTask(h.State, target); native {
-				return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
+		sendKey: func(h home.Home, target, key string) error {
+			meta, err := nativeTask(h, target)
+			if err != nil {
+				return err
 			}
-			client := &herdr.Client{Commands: execx.OSRunner{}}
-			return fleet.Sender{Resolve: fleet.Resolver{StateDir: h.State}, Terminal: client}.Key(ctx, target, key)
+			return spawn.Service{StateDir: h.State}.SendNativeKey(meta, key)
 		},
 		authRefresher: func(h home.Home) spawn.AuthRefresher {
 			return spawn.AuthRefresher{
 				StateDir: h.State,
 				DataDir:  h.Data,
-				Panes:    spawn.BackendLiveness{StateDir: h.State, Herdr: spawn.HerdrLiveness{Client: &herdr.Client{Commands: execx.OSRunner{}}}},
+				Panes:    spawn.NativeLiveness{StateDir: h.State},
 			}
 		},
 		peek: peekTerminal,
@@ -284,10 +311,10 @@ func defaultCommandRuntime() commandRuntime {
 		goblins:      invokedAsGoblins(),
 		startServe:   startDetachedServe,
 		openURL:      openInBrowser,
+		openWindow:   openWindow,
 		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
-		startCFO:     startCFOInHerdr,
 		attachHerdr:  attachHerdr,
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
@@ -297,8 +324,14 @@ func defaultCommandRuntime() commandRuntime {
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
 		setupAgent:         setupAgent,
-		choose:             onboarding.ChooseConsole,
+		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
+		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
+		gateProgress:       5 * time.Second,
 	}
 }
 
@@ -313,30 +346,32 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)
 	}
+	if runtime.goblins && len(args) > 0 && args[0] == "--window" && (len(args) == 1 || len(args) == 2 && args[1] == "--background") {
+		return runWindowLauncher(stdout, stderr, runtime, len(args) == 2)
+	}
 	if runtime.goblins && len(args) > 0 && args[0] == "setup" {
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "usage: goblins setup")
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, true, false, "")
+		return runQuickstart(stdout, stderr, runtime, true, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
 		fs.SetOutput(stderr)
-		native := fs.Bool("native", false, "start a new CFO in a native terminal shown here instead of in Herdr")
 		harness := fs.String("harness", "", "the harness goblins starts the CFO as, remembered for later starts: claude, codex or pi")
 		if err := fs.Parse(args); err != nil {
 			return 2
 		}
 		if fs.NArg() != 0 {
-			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --native and --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
+			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
 			return 2
 		}
 		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, false, *native, *harness)
+		return runQuickstart(stdout, stderr, runtime, false, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
@@ -379,6 +414,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			return 1
 		}
 		return runDrain(h, args[1:], stdout, stderr)
+	case "afk":
+		return runAFK(args[1:], stdout, stderr, runtime)
 	case "auth":
 		return runAuth(args[1:], stdout, stderr, runtime)
 	case "connection-repair":
@@ -394,7 +431,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "hygiene":
 		return runHygiene(args[1:], stdout, stderr, runtime)
 	case "gate":
-		return runGate(args[1:], stdout, stderr)
+		return runGate(args[1:], stdout, stderr, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":
@@ -403,6 +440,10 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runSupersede(args[1:], stdout, stderr, runtime)
 	case "spawn":
 		return runSpawn(args[1:], stdout, stderr, runtime)
+	case "title":
+		return runTitle(args[1:], stdout, stderr, runtime)
+	case "backlog":
+		return runBacklog(args[1:], stdout, stderr, runtime)
 	case "switch":
 		return runSwitch(args[1:], stdout, stderr, runtime)
 	case "pause", "resume":
@@ -426,7 +467,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "cfo pr: check or merge subcommand is required")
 			return 2
 		}
-		return runPR(args[1], args[2:], stdout, stderr, execx.OSRunner{})
+		return runPR(args[1], args[2:], stdout, stderr, execx.OSRunner{}, runtime)
 	case "merge-local":
 		return runMergeLocal(args[1:], stdout, stderr)
 	case "cleanup":
