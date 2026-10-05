@@ -184,8 +184,8 @@ func TestPublishedHandoffCancelsUnconfirmedDeliveryBeforeStopping(t *testing.T) 
 
 	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
 
-	if err != nil || !record.HandoffSaved || record.Phase != "paused" || !isDeliveryFinished || time.Since(started) > time.Second {
-		t.Fatalf("handoff did not finish delivery before stopping: %+v, %v, delivery finished=%v", record, err, isDeliveryFinished)
+	if elapsed := time.Since(started); err != nil || !record.HandoffSaved || record.Phase != "paused" || !isDeliveryFinished || elapsed >= service.PrepareWait/2 {
+		t.Fatalf("handoff did not finish delivery before stopping after %s: %+v, %v, delivery finished=%v", elapsed, record, err, isDeliveryFinished)
 	}
 }
 
