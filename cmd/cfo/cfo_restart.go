@@ -51,7 +51,7 @@ func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
 	if err != nil || conversation.PID != record.ChildPID || conversation.Host != id {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("the CFO in native terminal %s registered no conversation it can come back on, so it is left running", id)
 	}
-	args, why, _ := cfoResume(h, conversation.Harness)
+	args, why := cfoResume(h, conversation.Harness)
 	if len(args) == 0 {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("%s, so the CFO is left running: close it and run goblins to start it on a new conversation", why)
 	}

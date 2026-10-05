@@ -41,7 +41,7 @@ func reopenCFO(h home.Home, start func(h home.Home, project, harness string, arg
 	if err != nil {
 		return err
 	}
-	resume, _, _ := cfoResume(h, agent)
+	resume, _ := cfoResume(h, agent)
 	if len(resume) > 0 {
 		held, err := comeBack(h, agent, resume, start, runs)
 		if err != nil {
@@ -70,30 +70,29 @@ func reopenCFO(h home.Home, start func(h home.Home, project, harness string, arg
 const cfoTranscriptLimit = 20 << 20
 
 // cfoResume is how a CFO starting as agent comes back after the home's CFO
-// was closed. native says the last CFO ran in a native terminal, which the
-// CFO comes back in. args are the harness's own arguments that resume the
+// was closed. args are the harness's own arguments that resume the
 // conversation it last registered with, or none, with why that conversation
 // cannot be resumed when it starts a new one instead; a CFO last run as
 // another harness, or in Herdr, starts a new conversation with nothing to
 // say.
-func cfoResume(h home.Home, agent string) (args []string, why string, native bool) {
+func cfoResume(h home.Home, agent string) (args []string, why string) {
 	conversation, err := supervisor.ReadCFOConversation(h.State)
 	if err != nil || conversation.Host == "" {
-		return nil, "", false
+		return nil, ""
 	}
 	if conversation.Harness != agent {
-		return nil, "", true
+		return nil, ""
 	}
 	switch agent {
 	case "claude":
 		if size := claudeTranscriptSize(h.Root, conversation.Session); size > cfoTranscriptLimit {
-			return nil, fmt.Sprintf("Its last conversation is %d MB, past the %d MB a CFO resumes", size>>20, cfoTranscriptLimit>>20), true
+			return nil, fmt.Sprintf("Its last conversation is %d MB, past the %d MB a CFO resumes", size>>20, cfoTranscriptLimit>>20)
 		}
-		return []string{"--resume", conversation.Session}, "", true
+		return []string{"--resume", conversation.Session}, ""
 	case "codex":
-		return []string{"resume", conversation.Session}, "", true
+		return []string{"resume", conversation.Session}, ""
 	}
-	return nil, fmt.Sprintf("%s has no way to resume a conversation", agent), true
+	return nil, fmt.Sprintf("%s has no way to resume a conversation", agent)
 }
 
 // claudeProjectFolder names the folder under ~\.claude\projects where Claude
