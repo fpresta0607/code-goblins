@@ -15,6 +15,9 @@ type Outcome struct {
 	Generation string    `json:"generation"`
 	Title      string    `json:"title"`
 	Project    string    `json:"project"`
+	Harness    string    `json:"harness,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Effort     string    `json:"effort,omitempty"`
 	Branch     string    `json:"branch,omitempty"`
 	Phase      string    `json:"phase"`
 	Reason     string    `json:"reason"`

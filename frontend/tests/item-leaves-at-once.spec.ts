@@ -208,7 +208,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
-    await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+    await expect(page.locator(".canvas-region")).toBeVisible();
     await send(page, "snapshot", asking({ questions: [question] }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
     await expect(toasts(page)).toContainText(ASKS);

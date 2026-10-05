@@ -263,7 +263,7 @@ A click or key on the board after five minutes with none, counted from when AFK 
 The offer says who turned it on, with his words when the CFO did at his ask, and takes the focus itself, so keys he was typing press neither button, and Escape stays.
 When AFK mode turns off while the page is open, the report of the stretch opens as one page over the board, read from `GET /api/afk/report`: who turned it on and off, how many of each thing there is, what was held with what became of it as it stands now, which he reads first, then each heading that holds something with its rows, each row linking to what it names when that is an https link and folding its evidence to two lines with Show more, then what each goblin finished and what was spent.
 An answer is named by its goblin, since the log keeps a question's id.
-Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Task view and a Terminal view one tap apart on a pill at its top.
+Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first.
 The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
 Turning it on asks first, in a question whose Cancel has the focus, and turning it off asks nothing; a refusal is shown under the header in the supervisor's words, and a switch that cannot be read shows off and says that a press on the toggle resets it.
 The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
@@ -274,7 +274,7 @@ The Task view opens with one action row under the header, the task's own control
 A queued task's Adjust this task form follows that row, always open, with Save changes under its text box; the Adjust pencil is on the card only, where it opens the panel.
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust` and a snapshot's task notes still show under the form, but nothing on the board files one.
 The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
-Board opens a goblin on its Task view, or on its Terminal view from the terminal button on its card, and Orchestration opens on the Terminal view, which defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
+Board and Orchestration both open a goblin, and the CFO, on its Terminal view, and an alert opens its task on the Task view, where the alert's reason is; Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 There is still no standalone message composer: typing happens in the terminal itself.
 Open in VS Code and Open folder require a deliberate click and resolve the selected goblin's fresh, isolated Git worktree.
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
@@ -426,8 +426,8 @@ Every native terminal the Overlord opens stays live while the board is open, one
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the terminal the keyboard, a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
-A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; a terminal opened from the Board opens maximized and the Task view beside the board, the Orchestration view follows the Task view's choice so its graph stays beside the panel, each view keeping the last choice, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
-The panel of anything but the CFO (a queued, running, paused or completed task, or a session on Orchestration) has Back in its corner where the CFO's own panel has Close: a button with a back arrow and its name, which returns the panel to the CFO's panel on the view that panel last showed, Task or Terminal (Task on the Board and Terminal on Orchestration when it has shown neither), keeps a maximized panel maximized, and hands the keyboard back to the card or node the panel was opened from, or to the panel when that is hidden behind it.
+A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; every view opens beside the board until it is maximized, the Board's terminal view and its Task view each keeping the last choice and the Orchestration view following the Task view's so its graph stays beside the panel, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden.
+The panel of anything but the CFO (a queued, running, paused or completed task, or a session on Orchestration) has Back in its corner where the CFO's own panel has Close: a button with a back arrow and its name, which returns the panel to the CFO's panel on the view that panel last showed, Task or Terminal (Terminal when it has shown neither), keeps a maximized panel maximized, and hands the keyboard back to the card or node the panel was opened from, or to the panel when that is hidden behind it.
 Escape outside a terminal does what the corner button does: back from a task's panel, close on the CFO's.
 The panel's top row is one line at every width the panel can take, 360 px at its narrowest: the Task and Terminal switch, when the panel has both views, then its controls (Open in terminal and Maximize or Restore today), then the corner button, Close or Back.
 Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
@@ -585,7 +585,22 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
+Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks.
+The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
+`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
+`POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
+A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
+A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart and no running, fixing or fix-review gate step.
+A task paused while that choice is still pending uses it on its next Resume, which removes it only after the launch succeeds.
+The catalog is read again as the choice applies: a selection that is no longer available is removed, with its reason on the task's card.
+An idle or gate reading that fails shows on that card until a later reading succeeds or the choice is cancelled; neither kind of failure becomes the board-wide error.
+Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty` and `--generation`, which refuses the switch when the task's session has changed; its confirmation says uncommitted work stays.
+The old native terminal closes, ending the processes it started, and there is no additional leftover-process refusal.
+The target launch is built before the old harness stops, so an invalid launch leaves the session untouched; a failure after the stop shows the CLI's recovery reason and preserves the worktree.
+The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
+The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
+Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
 Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
 Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
@@ -616,10 +631,16 @@ The PNG icons under `/assets/icons/` are rendered from `/favicon.svg`; render th
 ### The desktop window
 
 A desktop window for the board, `goblins-window.exe`, is the program in `cmd/goblins-window`: a Wails v3 window on Microsoft's WebView2 around the board root the supervisor serves, never linked into `cfo.exe`, which every hook runs.
-`go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
+`go build -trimpath -tags production -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it as a release and `-Dev` do, and it is started with `--board <the board's address> --state <the home's state folder>`.
+Without `-tags production` the window has WebView2's developer tools and the browser's menu on a right click, which is how to look into the board's page while working on the window.
 `goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window already running takes the start as its second instance and comes to the front.
 `goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
-`.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, which none does yet, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
+Started with neither `--board` nor `--state`, as the Start menu's Code Goblins and **Start at login** start it, the program is the app's launcher: it runs the `goblins.exe` beside it with `--window`, and `--background` when it was given that, in a console that is never shown, and exits once that has started the window on the board.
+So a supervisor is started in one way only, by `goblins`, whoever opens the app.
+A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
+When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
+Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
+`.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, as releases from v0.4.0 on do, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
@@ -629,7 +650,10 @@ Each notification carries the goblin from `goblins-window.png`, which every star
 A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
-For a window that `goblins` started, the value runs that `goblins.exe --window --background`, so the supervisor starts before the window; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+For a window that `goblins` started, the value runs the window alone with `--background`, which runs that `goblins` as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+The install writes the window alone only where it put the window in the home itself, from a release that ships it or, with `-Dev`, from the build it just made; where the home only kept a window it already held, the install writes that home's `goblins.exe --window --background`, which opens any window.
+An install that retained the home's window keeps the earlier standalone window, its picture, folder and Start-menu entry unchanged.
+A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
 The board's dictation works in it as in a browser tab, because the page records with the browser engine's own recorder and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
 
 ### Interface rules
@@ -871,6 +895,7 @@ cfo run-request --id fix-acl-1 --title "Grant the service account access" --shel
 For a CFO in a native terminal, a process whose chain stops short of the CFO is proven instead by the terminal's proof value, which the supervisor reads from that process's own environment.
 The sending process must also have started before it connected, so a process that later took its PID proves nothing.
 The supervisor drops a client that sends nothing within 10 seconds and gives each request 20 seconds for its proof, and `cfo run-request` waits 30 seconds for the answer.
+Every reply on this pipe stays readable after the supervisor has let go of the client, so a client that reads late still gets its whole answer; only a reply larger than the pipe's 64 KiB buffer waits for its reader, for at most 30 seconds or until shutdown, and a client that does not read holds up no other request.
 The pipe is the supervisor's own: it creates the first instance of its name, waiting up to two seconds for a stopping supervisor to let go, grants the current Windows user alone, and rejects remote clients.
 A supervisor that finds the name still taken serves nothing and lists that among the board's issues, and every command that uses the pipe sends only to the process holding this home's watch lock, so a squatter never receives a request.
 The supervisor thus proves the sending process runs under the process `state/primary.json` names: a request from a process outside the CFO's tree or terminal is refused before anything is written, and an item planted in the state directory never reaches the board; a request needs the supervisor (`cfo serve`) running.
