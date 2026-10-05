@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./site";
 
 // The Overlord, 2026-09-28, seeing "Pages: Browser walkthrough running" for
 // cg-board-kill's own test walkthroughs while Waiting on you said nothing:
