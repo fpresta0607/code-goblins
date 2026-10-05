@@ -46,3 +46,20 @@ func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 		})
 	}
 }
+
+func TestRunSwitchBindsABoardRequestToTheSelectedGeneration(t *testing.T) {
+	deps := testCommandRuntime(t)
+	var got spawn.SwitchRequest
+	deps.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		got = request
+		return spawn.SwitchResult{Output: "switched g4"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+	var stdout, stderr bytes.Buffer
+
+	exit := runWithRuntime([]string{"switch", "g4", "--generation", "s1", "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--force-dirty"}, &stdout, &stderr, deps)
+
+	if exit != 0 || got.Generation != "s1" || !got.ForceDirty {
+		t.Fatalf("generation-bound switch = %d, %+v: %s", exit, got, stderr.String())
+	}
+}

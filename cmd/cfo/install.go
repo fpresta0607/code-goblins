@@ -29,6 +29,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	uninstall := fs.Bool("uninstall", false, "remove what cfo install added")
 	projectsRoot := fs.String("projects-root", "", "the folder that holds your checkouts, so --project can take a bare name")
+	windowBuilt := fs.Bool("window-built", false, "the desktop window in this checkout was just built from it, as install.cmd -Dev builds it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -96,6 +97,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 
 	service.EarlierWindow = install.EarlierWindowDir()
+	service.BuiltWindow = *windowBuilt
 	fmt.Fprintf(stdout, "cfo install: wiring %s into this machine\n", root)
 	if err := service.Install(stdout); err != nil {
 		fmt.Fprintln(stderr, err)
