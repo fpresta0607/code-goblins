@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -47,7 +46,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 	}
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		registered, err := Register(context.Background(), stateDir, nil, "", "session-1")
+		registered, err := Register(stateDir, "", "session-1")
 		if err == nil {
 			record("registered " + registered)
 			break
@@ -99,6 +98,20 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 		switch key {
 		case '\x1b':
+			// A key sent as a control sequence, such as End before Codex's
+			// submit, moves the cursor and leaves the line as it is.
+			if next, err := reader.Peek(min(1, reader.Buffered())); err == nil && len(next) == 1 && next[0] == '[' {
+				for {
+					final, err := reader.ReadByte()
+					if err != nil {
+						return
+					}
+					if final >= 0x40 && final <= 0x7e && final != '[' {
+						break
+					}
+				}
+				continue
+			}
 			record("escape")
 			if mode != "daybreak-stuck" {
 				offer = false

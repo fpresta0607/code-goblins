@@ -28,7 +28,7 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 	}
 	path := filepath.Join(root, "data", "routing.json")
 	wants := []string{
-		"routing: 2 standing switch rule(s) from " + path,
+		"routing: 1 standing switch rule(s) from " + path,
 		"routing: 4 execution lane(s) from " + path + " (default build, escalate to deep)",
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "claude", "fable", "xhigh", "architecture, security, migration, rescue, anything high risk"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "claude", "opus", "high", "ordinary implementation; the default lane"),

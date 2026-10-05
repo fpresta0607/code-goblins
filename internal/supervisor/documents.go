@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,7 +16,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
 
 // maxDocument caps one delivered document.
@@ -71,8 +69,8 @@ func validDocument(d ReviewDocument) error {
 // process: a goblin's from its worktree, task scratch or data directory, the
 // registered CFO's from anywhere it can read. The file is copied under
 // state/reviews before the item is recorded, so it outlives the original.
-func DeliverDocument(ctx context.Context, h home.Home, terminals terminal.Opener, taskID, id, title, file, link string) error {
-	return publishItem(ctx, h, terminals, Review{ID: id, Task: taskID, Title: title}, func(r *Review, dir string) (bool, error) {
+func DeliverDocument(h home.Home, taskID, id, title, file, link string) error {
+	return publishItem(h, Review{ID: id, Task: taskID, Title: title}, func(r *Review, dir string) (bool, error) {
 		document, err := stageDocument(h, taskID, file, dir)
 		if err != nil {
 			return false, err

@@ -314,7 +314,10 @@ func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) 
 			// Arrange
 			stateDir := t.TempDir()
 			terminal := nativeCFOComposer(t, stateDir, mode)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			// A dialog's first key waits two seconds for it to settle, and a
+			// stuck offer is left only when this context ends, so the budget
+			// leaves a loaded machine time to send its one Escape.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			// Act

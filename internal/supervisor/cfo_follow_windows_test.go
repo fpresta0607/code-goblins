@@ -227,9 +227,9 @@ func TestARunThatEndedWhileTheCFOWasClosedIsToldToTheCFOThatReopens(t *testing.T
 // reregisterCFO registers the home's running CFO again under another
 // registration, as a CFO that was closed and opened again registers, and
 // returns the identity of that registration.
-func reregisterCFO(t *testing.T, store *Store, primary primaryRegistration, runner *cfoRunner) string {
+func reregisterCFO(t *testing.T, store *Store, primary primaryRegistration) string {
 	t.Helper()
-	primary.Terminal, runner.terminal = "reopened-terminal", "reopened-terminal"
+	primary.Process.Session = "reopened-session"
 	data, err := json.Marshal(primary)
 	if err != nil {
 		t.Fatal(err)
@@ -249,11 +249,11 @@ func reregisterCFO(t *testing.T, store *Store, primary primaryRegistration, runn
 func TestAReadyRunStartsAfterTheCFORestarted(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	primary, made, runner, connection := primaryFixture(t, store)
+	primary, made, _, connection := primaryFixture(t, store)
 	launcher := &fakeRunLauncher{started: liveStart(t)}
 	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: launcher}}
 	r := readyRun(t, store, made, "cfo-run-0002", "powershell", false, time.Now().UTC())
-	reopened := reregisterCFO(t, store, primary, runner)
+	reopened := reregisterCFO(t, store, primary)
 	s.cycle(context.Background(), false)
 	followed := store.Snapshot().Runs[0]
 
@@ -278,11 +278,11 @@ func TestAReadyRunStartsAfterTheCFORestarted(t *testing.T) {
 func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	primary, made, runner, connection := primaryFixture(t, store)
+	primary, made, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	r := readyRun(t, store, made, "cfo-run-0003", "powershell", false, time.Now().UTC())
 	pressRun(t, s, r, "run-cfo-run-0003")
-	reregisterCFO(t, store, primary, runner)
+	reregisterCFO(t, store, primary)
 	s.cycle(context.Background(), false)
 	dir := runDir(store.Home.State, r)
 	if err := os.WriteFile(filepath.Join(dir, "output.log"), []byte("migration 42 applied"), 0o600); err != nil {
@@ -300,8 +300,8 @@ func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
 		t.Errorf("the run item reads %s with output %q (%s), want it succeeded with what it printed", finished.State, finished.Output, finished.Reason)
 	}
 	want := "Run item cfo-run-0003 (Run cfo-run-0003) finished with exit code 0. The output ends: migration 42 applied"
-	if !slices.ContainsFunc(runner.prompts, func(prompt string) bool { return strings.Contains(prompt, want) }) {
-		t.Errorf("the reopened CFO received %q, want %q", runner.prompts, want)
+	if typed := cfo.lines(t); !slices.ContainsFunc(typed, func(line string) bool { return strings.Contains(line, want) }) {
+		t.Errorf("the reopened CFO received %q, want %q", typed, want)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
 func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	primary, _, runner, connection := primaryFixture(t, store)
+	primary, _, _, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
 	source := filepath.Join(t.TempDir(), "plan.pdf")
 	data := []byte("%PDF-1.7\n1 0 obj << >> endobj\n%%EOF\n")
@@ -318,7 +318,7 @@ func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := DeliverDocument(ctx, h, connection.Terminals, "", "cfo-document-1", "The plan", source, ""); err != nil {
+	if err := DeliverDocument(h, "", "cfo-document-1", "The plan", source, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestReviews(); err != nil {
@@ -326,7 +326,7 @@ func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
 	}
 	dir := reviewImageDir(h.State, store.Snapshot().Reviews[0])
 	s := &Service{Store: store, work: make(chan struct{}, 1), Options: Options{CFO: connection}}
-	reopened := reregisterCFO(t, store, primary, runner)
+	reopened := reregisterCFO(t, store, primary)
 	s.cycle(ctx, false)
 
 	// Act
@@ -358,7 +358,7 @@ func TestTheCFOsDocumentIsServedAndPrunedAfterTheCFORestarted(t *testing.T) {
 func TestARunTheBoardMadeDoesNotFollowTheCFO(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	primary, _, runner, connection := primaryFixture(t, store)
+	primary, _, _, connection := primaryFixture(t, store)
 	launcher := &fakeRunLauncher{started: liveStart(t)}
 	s := &Service{Store: store, Instance: "test-instance", work: make(chan struct{}, 1), Options: Options{CFO: connection, Runs: launcher}}
 	t.Cleanup(func() {
@@ -382,7 +382,7 @@ func TestARunTheBoardMadeDoesNotFollowTheCFO(t *testing.T) {
 	if _, err := store.Queue(Action{ID: "run-" + terminal.ID, Kind: "run", RunID: terminal.ID, Generation: terminal.Identity}); err != nil {
 		t.Fatal(err)
 	}
-	reregisterCFO(t, store, primary, runner)
+	reregisterCFO(t, store, primary)
 
 	// Act
 	s.cycle(context.Background(), false)
@@ -409,7 +409,7 @@ func TestARunTheBoardMadeDoesNotFollowTheCFO(t *testing.T) {
 func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	primary, closed, runner, connection := primaryFixture(t, store)
+	primary, closed, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: connection}}
 	question := Question{ID: "cfo-question-3", Identity: closed, Text: "Pick a layout", Options: []string{"Board", "Tree"}, CreatedAt: time.Now().UTC(), Status: "pending"}
 	if err := store.acceptQuestion(question); err != nil {
@@ -418,7 +418,7 @@ func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
 	if _, err := store.Queue(Action{ID: "answer-cfo-question-3", Kind: "cfo_answer", QuestionID: question.ID, Generation: closed, Text: "Board", AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
-	reregisterCFO(t, store, primary, runner)
+	reregisterCFO(t, store, primary)
 
 	// Act
 	err := store.ProcessOne(context.Background(), s.execute)
@@ -428,8 +428,8 @@ func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "User answer to CFO question cfo-question-3. Question: Pick a layout Answer: Board"
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], want) {
-		t.Errorf("the reopened CFO received %q, want %q once", runner.prompts, want)
+	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], want) {
+		t.Errorf("the reopened CFO received %q, want %q once", typed, want)
 	}
 	if answered := store.Snapshot().Questions[0]; answered.Status != "succeeded" {
 		t.Errorf("the question reads %q (%s), want it answered", answered.Status, answered.Message)
@@ -442,7 +442,7 @@ func TestAWaitingAnswerIsDeliveredToTheReopenedCFOBeforeAnyCycle(t *testing.T) {
 func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	primary, closed, runner, connection := primaryFixture(t, store)
+	primary, closed, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: connection}}
 	for _, id := range []string{"cfo-question-failed", "cfo-question-open"} {
 		if err := store.acceptQuestion(Question{ID: id, Identity: closed, Text: "Pick a layout", Options: []string{"Board", "Tree"}, CreatedAt: time.Now().UTC(), Status: "pending"}); err != nil {
@@ -455,7 +455,7 @@ func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
 	if _, err := store.Queue(Action{ID: "answer-cfo-question-open", Kind: "cfo_answer", QuestionID: "cfo-question-open", Generation: closed, Text: "Board", AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
-	reregisterCFO(t, store, primary, runner)
+	reregisterCFO(t, store, primary)
 	if _, err := store.Queue(Action{ID: "clear-cfo-question-failed", Kind: "question_clear", QuestionID: "cfo-question-failed", Generation: closed}); err != nil {
 		t.Fatal(err)
 	}
@@ -476,8 +476,8 @@ func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
 		t.Errorf("the clear reads %q (%s), want it succeeded", actions[1].Status, actions[1].Message)
 	}
 	want := "User answer to CFO question cfo-question-open. Question: Pick a layout Answer: Board"
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], want) {
-		t.Errorf("the reopened CFO received %q, want %q once", runner.prompts, want)
+	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], want) {
+		t.Errorf("the reopened CFO received %q, want %q once", typed, want)
 	}
 	if questions[1].Status != "succeeded" {
 		t.Errorf("the open question reads %q (%s), want it answered", questions[1].Status, questions[1].Message)
@@ -489,14 +489,14 @@ func TestAClearOfAQuestionThatDidNotFollowTheCFOStillClearsIt(t *testing.T) {
 func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, identity, runner, connection := primaryFixture(t, store)
+	_, identity, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	r := readyRun(t, store, identity, "cfo-run-0004", "powershell", false, time.Now().UTC())
 	pressRun(t, s, r, "run-cfo-run-0004")
 	if err := os.WriteFile(filepath.Join(runDir(store.Home.State, r), "exit.txt"), []byte("0"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner.busy = true
+	cfo.startTurn(t)
 	ctx := context.Background()
 
 	// Act
@@ -507,8 +507,8 @@ func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
 	if finishErr != nil || retellErr != nil {
 		t.Fatalf("finishing = %v, telling again = %v, want neither to fail", finishErr, retellErr)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0004") {
-		t.Errorf("the CFO in a turn was sent %q, want the result once", runner.prompts)
+	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Run item cfo-run-0004") {
+		t.Errorf("the CFO in a turn was sent %q, want the result once", typed)
 	}
 	if told := store.Snapshot().Runs[0]; told.Untold != "" || told.Reason != "" {
 		t.Errorf("the run item reads untold %q, reason %q, want it told with nothing noted", told.Untold, told.Reason)
@@ -531,23 +531,26 @@ func finishedRun(t *testing.T, s *Service, identity, id string) {
 func TestARunResultThatFailedAfterItWasTypedIsNotTypedAgain(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, identity, runner, connection := primaryFixture(t, store)
+	_, identity, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	finishedRun(t, s, identity, "cfo-run-0005")
-	runner.beforePrompt = func() { runner.offline = true }
+	// The send ends between the typing and Enter, so the result is in the
+	// CFO's composer and whether the CFO takes it is unknown.
+	interrupted, interrupt := context.WithCancel(context.Background())
+	interrupt()
 	ctx := context.Background()
 
 	// Act
-	finishErr := s.finishRuns(ctx)
-	runner.beforePrompt, runner.offline = nil, false
+	finishErr := s.finishRuns(interrupted)
 	retellErr := errors.Join(s.retellRuns(ctx), s.retellRuns(ctx))
+	cfo.typeLine(t, "")
 
 	// Assert
 	if finishErr != nil || retellErr != nil {
 		t.Fatalf("finishing = %v, telling again = %v, want neither to fail", finishErr, retellErr)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0005") {
-		t.Errorf("the CFO was sent %q, want the result typed once", runner.prompts)
+	if typed := cfo.waitForLines(t, 1); len(typed) != 1 || strings.Count(typed[0], "Run item cfo-run-0005") != 1 {
+		t.Errorf("the CFO's composer held %q, want the result typed once", typed)
 	}
 	if noted := store.Snapshot().Runs[0]; noted.Untold != "" || !strings.Contains(noted.Reason, "the CFO could not be told") {
 		t.Errorf("the run item reads untold %q, reason %q, want the uncertain delivery noted and nothing left to tell", noted.Untold, noted.Reason)
@@ -559,7 +562,7 @@ func TestARunResultThatFailedAfterItWasTypedIsNotTypedAgain(t *testing.T) {
 func TestARunResultRefusedBeforeItWasTypedIsToldOnceTheCFORuns(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	primary, identity, runner, connection := primaryFixture(t, store)
+	primary, identity, cfo, connection := primaryFixture(t, store)
 	s := &Service{Store: store, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 	finishedRun(t, s, identity, "cfo-run-0006")
 	registration := filepath.Join(store.Home.State, "primary.json")
@@ -590,8 +593,8 @@ func TestARunResultRefusedBeforeItWasTypedIsToldOnceTheCFORuns(t *testing.T) {
 	if retellErr != nil {
 		t.Fatal(retellErr)
 	}
-	if len(runner.prompts) != 1 || !strings.Contains(runner.prompts[0], "Run item cfo-run-0006") {
-		t.Errorf("the CFO that registered was sent %q, want the result once", runner.prompts)
+	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Run item cfo-run-0006") {
+		t.Errorf("the CFO that registered was sent %q, want the result once", typed)
 	}
 	if told := store.Snapshot().Runs[0]; told.Untold != "" || told.Reason != "" {
 		t.Errorf("the run item reads untold %q, reason %q, want it told with nothing noted", told.Untold, told.Reason)

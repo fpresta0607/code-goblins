@@ -388,7 +388,12 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := s.sleep(ctx, settle); err != nil {
 		return err
 	}
-	if err := client.Input([]byte("\r")); err != nil {
+	submit := "\r"
+	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
+		// End flushes Codex's paste burst so Enter submits instead of adding a newline.
+		submit = "\x1b[F\r"
+	}
+	if err := client.Input([]byte(submit)); err != nil {
 		return fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
 	return nil

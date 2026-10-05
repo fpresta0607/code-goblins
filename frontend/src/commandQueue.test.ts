@@ -301,24 +301,24 @@ test("a document item reads as its file: its type, its size and who sent it", ()
 const action = (id: string, kind: string, status: string) => ({ id, kind, status, question_id: "", answer_kind: "", task_id: "", generation: "", message: "", text: "", file: "", line: 0, side: "", updated_at: "" }) as Action;
 const submitted = (id: string, payload: Record<string, unknown>) => ({ id, payload: JSON.stringify(payload) });
 
-test("a send shows as done at once, confirmed once delivered, and failed only when refused or not delivered", () => {
+test("a send shows as done at once, Sent once delivered, and failed only when refused or not delivered", () => {
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
   const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
-    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sending", cleared: false }],
-    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, confirmed: false, heading: "Queued", cleared: false }],
-    ["delivered", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
-    ["the request refused", [{ submission: answer, sending: false, error: "that review is not open" }, []], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
+    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, heading: "Sending", cleared: false }],
+    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, heading: "Queued", cleared: false }],
+    ["delivered", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, heading: "Sent", cleared: false }],
+    ["the request refused", [{ submission: answer, sending: false, error: "that review is not open" }, []], { failed: true, heading: "Sent", cleared: false }],
     ["edited after a refusal", [{ submission: answer, sending: false, error: "" }, []], undefined],
-    ["an ambiguous error, then delivered", [{ submission: answer, sending: false, error: "network error" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
-    ["delivery failed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
-    ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
-    ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
-    ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
-    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
+    ["an ambiguous error, then delivered", [{ submission: answer, sending: false, error: "network error" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, heading: "Sent", cleared: false }],
+    ["delivery failed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, heading: "Sent", cleared: false }],
+    ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, heading: "Sent", cleared: false }],
+    ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, heading: "Downloaded", cleared: true }],
+    ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, heading: "Cleared", cleared: true }],
+    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
 });

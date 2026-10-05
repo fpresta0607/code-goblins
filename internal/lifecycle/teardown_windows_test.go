@@ -22,14 +22,17 @@ import (
 
 func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testing.T) {
 	for _, testCase := range []struct {
-		name       string
-		stopError  error
-		exitCode   uint32
-		shouldFail bool
+		name          string
+		stopError     error
+		exitCode      uint32
+		shouldFail    bool
+		hasHeldHandle bool
 	}{
 		{name: "successful termination pending teardown", exitCode: 1},
 		{name: "access denied already terminating", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 1},
 		{name: "access denied still active", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 259, shouldFail: true},
+		{name: "successful termination retained process object", exitCode: 1, hasHeldHandle: true},
+		{name: "access denied retained process object", stopError: windows.ERROR_ACCESS_DENIED, exitCode: 1, hasHeldHandle: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			service, meta := lifecycleFixture(t)
@@ -39,6 +42,15 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				t.Fatal("detached fixture did not start")
 			}
 			identity := Identity{PID: child.Process.Pid, Started: started}
+			var retained windows.Handle
+			if testCase.hasHeldHandle {
+				var err error
+				retained, err = windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(identity.PID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { windows.CloseHandle(retained) })
+			}
 			var wasTerminated atomic.Bool
 			service.Operations.Stop = func(ctx context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 				stopped, teardown, err := stopResources(ctx, Resources{Directories: []string{meta.TaskTmp}}, func(ctx context.Context, found Identity) (bool, error) {
@@ -110,7 +122,29 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 			if err := child.Process.Kill(); err != nil {
 				t.Fatal(err)
 			}
-			_ = child.Wait()
+			var exitError *exec.ExitError
+			if err := child.Wait(); !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
+				t.Fatalf("fixture did not complete termination: %v", err)
+			}
+			if testCase.hasHeldHandle {
+				var exitCode uint32
+				if err := windows.GetExitCodeProcess(retained, &exitCode); err != nil || exitCode != 1 {
+					t.Fatalf("fixture exit status: code=%d error=%v", exitCode, err)
+				}
+				wait, err := windows.WaitForSingleObject(retained, 0)
+				if err != nil || wait != uint32(windows.WAIT_OBJECT_0) {
+					t.Fatalf("terminated fixture is not signaled: wait=%d error=%v", wait, err)
+				}
+				var creation, exit, kernel, user windows.Filetime
+				if err := windows.GetProcessTimes(retained, &creation, &exit, &kernel, &user); err != nil || !time.Unix(0, creation.Nanoseconds()).Equal(identity.Started) {
+					t.Fatalf("terminated fixture lost its original birth: %v", err)
+				}
+				queryStarted, exists := proc.StartTime(identity.PID)
+				if !exists || !queryStarted.Equal(identity.Started) {
+					t.Fatalf("exited fixture object must remain queryable: birth=%s exists=%t", queryStarted, exists)
+				}
+				t.Logf("exited fixture remains queryable: pid=%d birth=%s exit=%d wait=%d", identity.PID, identity.Started.UTC().Format(time.RFC3339Nano), exitCode, wait)
+			}
 			fresh, err := state.ReadLifecycle(service.StateDir, meta.ID)
 			if err != nil || len(fresh.Teardown) != 0 {
 				t.Fatalf("fresh status retained vanished teardown: %+v %v", fresh, err)

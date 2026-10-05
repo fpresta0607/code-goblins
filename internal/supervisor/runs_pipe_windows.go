@@ -23,7 +23,6 @@ var (
 	kernel32                        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateNamedPipeW            = kernel32.NewProc("CreateNamedPipeW")
 	procConnectNamedPipe            = kernel32.NewProc("ConnectNamedPipe")
-	procDisconnectNamedPipe         = kernel32.NewProc("DisconnectNamedPipe")
 	procGetNamedPipeClientProcessID = kernel32.NewProc("GetNamedPipeClientProcessId")
 	procGetNamedPipeServerProcessID = kernel32.NewProc("GetNamedPipeServerProcessId")
 	procConvertSDDL                 = syscall.NewLazyDLL("advapi32.dll").NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
@@ -39,8 +38,8 @@ const (
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
 	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the proof and work for it, and runReplyTimeout how
-	// long cfo run-request waits for the answer.
+	// runRequestTimeout the work that waits on the loop or the allowance,
+	// and runReplyTimeout how long cfo run-request waits for the answer.
 	runReadTimeout    = 10 * time.Second
 	runRequestTimeout = 20 * time.Second
 	runReplyTimeout   = 30 * time.Second
@@ -136,10 +135,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	var pid uint32
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
-	defer func() {
-		_, _, _ = procDisconnectNamedPipe.Call(uintptr(handle))
-		_ = pipe.Close()
-	}()
+	defer pipe.Close()
 	var reply struct {
 		Error string `json:"error,omitempty"`
 	}
@@ -170,11 +166,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 			s.runRequests.Lock()
 			switch req.Kind {
 			case "":
-				err = s.acceptRunRequest(ctx, int(pid), connected, req)
+				err = s.acceptRunRequest(int(pid), connected, req)
 			case "afk-on", "afk-off":
-				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on")
+				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
 			default:
-				err = s.acceptCFOItem(ctx, int(pid), connected, req)
+				err = s.acceptCFOItem(int(pid), connected, req)
 			}
 			s.runRequests.Unlock()
 		}
@@ -187,6 +183,22 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		}
 	}
 	data, _ := json.Marshal(reply)
+	// A written reply stays in the pipe for its client to read after this
+	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
+	// larger than the pipe's buffer waits in Write for its reader, so the write
+	// is bounded against a client that never reads.
+	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	defer cancel()
+	closed := make(chan struct{})
+	stopClose := context.AfterFunc(replyCtx, func() {
+		_ = pipe.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stopClose() {
+			<-closed
+		}
+	}()
 	_, _ = pipe.Write(append(data, '\n'))
 }
 

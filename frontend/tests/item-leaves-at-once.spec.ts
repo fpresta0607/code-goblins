@@ -85,7 +85,8 @@ async function boardAsked(page: Page, item: { questions?: object[]; reviews?: ob
   await send(page, "snapshot", quiet);
   await expect(bar(page)).toContainText("All quiet");
   await send(page, "snapshot", asking(item));
-  await expect(bar(page)).toContainText(says);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
+  await expect(bar(page)).not.toContainText(says);
   await expect(toasts(page)).toContainText(says);
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
 }
@@ -102,7 +103,7 @@ const clickAndLook = (page: Page, selector: string) => page.evaluate(async (sele
   requestAnimationFrame(() => { painted = true; });
   document.querySelector<HTMLElement>(selector)!.click();
   for (let turn = 0; turn < 5; turn++) await Promise.resolve();
-  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
+  return { painted, toasts: document.querySelectorAll(".toasts .toast").length, badge: document.querySelector(".command-center-menu > summary")!.getAttribute("aria-label"), bar: document.querySelector(".cfo-pin")!.textContent, command: document.querySelector(".cfo-pin .cfo-command")?.getAttribute("aria-label") || "", card: document.querySelector("dialog.question-modal .done-card h3")?.textContent || "" };
 }, selector);
 // A card that finishes shows its check for three quarters of a second, so a
 // board's done cards are recorded as they pass, each as its heading and line.
@@ -120,6 +121,7 @@ async function expectGone(page: Page, says: string) {
   await expect(badge(page)).toHaveAccessibleName("Command Center");
   await expect(bar(page)).not.toContainText(says);
   await expect(bar(page)).toContainText("All quiet");
+  await expect(bar(page).getByRole("button", { name: /^Open Command Center/ })).toHaveCount(0);
   await expect(page).toHaveTitle("Code Goblins");
 }
 
@@ -164,9 +166,46 @@ for (const way of WAYS) {
     const shown = await clickAndLook(page, way.press);
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: way.heading });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: way.heading });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual([way.kind]);
     await expectGone(page, way.says);
+  });
+}
+
+for (const scenario of [
+  { name: "the Command Center opens when its dialogue finishes appearing during the click", review: wait, says: WAITS },
+  { name: "a review opens when its dialogue finishes appearing during the click", review: proof, says: proof.title },
+]) {
+  test(scenario.name, async ({ page, context }, testInfo) => {
+    // Arrange: pause the toast's entrance before pressing its real action.
+    await standInStream(context);
+    await announcer(context);
+    await actions(context);
+    await boardAsked(page, { reviews: [scenario.review] }, scenario.says);
+    const dialogue = toasts(page).filter({ hasText: scenario.says }).locator(".dialogue");
+    await dialogue.evaluate((element) => {
+      for (const animation of element.getAnimations()) {
+        animation.pause();
+        animation.currentTime = 0;
+      }
+    });
+    const button = dialogue.getByRole("button", { name: "Open Command Center", exact: true });
+    const bounds = await button.boundingBox();
+    if (!bounds) throw new Error("The Command Center button has no visible bounds.");
+    const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    await page.mouse.move(point.x, point.y);
+
+    // Act: the same pointer presses and releases while the entrance completes.
+    await page.mouse.down();
+    await dialogue.evaluate((element) => {
+      for (const animation of element.getAnimations()) animation.finish();
+    });
+    await page.mouse.up();
+    await testInfo.attach("the dialogue after the pointer click", { body: await page.screenshot(), contentType: "image/png" });
+
+    // Assert
+    await expect(card(page)).toBeVisible();
+    await expect(card(page)).toContainText(scenario.says);
   });
 }
 
@@ -189,8 +228,9 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await send(page, "snapshot", quiet);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
+    await expect(page.locator(".canvas-region")).toBeVisible();
     await send(page, "snapshot", asking({ questions: [question] }));
-    await expect(bar(page)).toContainText(ASKS);
+    await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
     await expect(toasts(page)).toContainText(ASKS);
     await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
     await openCard(page, ASKS);
@@ -201,7 +241,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     const shown = await clickAndLook(page, "dialog.question-modal .send-decision");
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), card: "Sending" });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sending" });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
     await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
     await expectGone(page, ASKS);
@@ -230,7 +270,7 @@ test("a snapshot taken before his answer and arriving after it does not bring th
   await expect(card(page)).toBeHidden();
 });
 
-test("an ID published again after its item closed shows its count and its CFO bar line", async ({ page, context }) => {
+test("an ID published again after its item closed shows its count and its CFO bar button", async ({ page, context }) => {
   // Arrange: he answers the question and the supervisor's snapshot shows it closed.
   await standInStream(context);
   await announcer(context);
@@ -250,7 +290,124 @@ test("an ID published again after its item closed shows its count and its CFO ba
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-  await expect(bar(page)).toContainText(again);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
+  await expect(bar(page)).not.toContainText(again);
+  await openCard(page, again);
+});
+
+for (const kind of ["question", "review"] as const) {
+  test(`a reused ${kind} clears its draft, while CFO registration keeps it`, async ({ page, context }) => {
+    // Arrange
+    await standInStream(context);
+    await announcer(context);
+    const original = kind === "question" ? question : proof;
+    const publish = (changes: object, revision: number) => asking(kind === "question" ? { questions: [{ ...original, ...changes }] } : { reviews: [{ ...original, ...changes }] }, revision);
+    await boardAsked(page, kind === "question" ? { questions: [question] } : { reviews: [proof] }, kind === "question" ? ASKS : proof.title);
+    await openCard(page, kind === "question" ? ASKS : proof.title);
+    if (kind === "question") await card(page).getByText("Other", { exact: true }).click();
+    await card(page).getByRole("textbox").fill("Keep this unfinished answer");
+
+    // Act: a new CFO adopts the same publication.
+    await send(page, "snapshot", publish({ identity: "e".repeat(64) }, 3));
+
+    // Assert
+    await expect(card(page).getByRole("textbox")).toHaveValue("Keep this unfinished answer");
+
+    // Act: the record goes away and its ID is published again.
+    await send(page, "snapshot", { ...quiet, revision: 4 });
+    await expect(card(page)).toBeHidden();
+    const again = "Please review the next release";
+    await send(page, "snapshot", publish({ created_at: "2026-10-12T09:00:00Z", text: again, title: again }, 5));
+    await openCard(page, again);
+
+    // Assert
+    if (kind === "question") {
+      await expect(card(page).locator("input[type=radio]:checked")).toHaveCount(0);
+      await card(page).getByText("Other", { exact: true }).click();
+    }
+    await expect(card(page).getByRole("textbox")).toHaveValue("");
+    await expect(card(page).getByRole("button", { name: kind === "question" ? "Send decision" : "Send answer" })).toBeDisabled();
+  });
+}
+
+test("a reused run does not keep the previous publication's pending send", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  const run = { id: "release-check", identity: "c".repeat(64), state: "ready", title: "Check the first release", shell: "powershell", command: "Write-Output ready", created_at: question.created_at };
+  await page.goto("/");
+  await send(page, "snapshot", { ...quiet, revision: 2, runs: [run] });
+  await openCard(page, run.title);
+  await card(page).getByRole("button", { name: "Run", exact: true }).click();
+  await expect.poll(() => supervisor.posted.length).toBe(1);
+  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeDisabled();
+
+  // Act
+  const again = { ...run, created_at: "2026-10-12T09:00:00Z", title: "Check the next release" };
+  await send(page, "snapshot", { ...quiet, revision: 3, runs: [again] });
+
+  // Assert
+  await expect(card(page)).toContainText(again.title);
+  await expect(card(page).getByRole("button", { name: "Run", exact: true })).toBeEnabled();
+  supervisor.accept();
+});
+
+test("a reused credential request clears its typed value, while CFO registration keeps it", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const request = { id: "cred-release", generation: "f".repeat(32), identity: "c".repeat(64), by: "cfo", project: "probe", repository: "C:/dev/probe", names: ["PROBE_VALUE"], why: "Configure the first release", state: "open", created_at: question.created_at, expires_at: "2026-10-13T09:00:00Z" };
+  await page.goto("/");
+  await send(page, "snapshot", { ...quiet, revision: 2, credentials: [request] });
+  await openCard(page, request.why);
+  const field = card(page).getByLabel("Value for PROBE_VALUE");
+  const value = crypto.randomUUID();
+  await field.fill(value);
+  await expect(field).toHaveValue("\u2022".repeat(value.length));
+
+  // Act: adoption keeps the same publication.
+  await send(page, "snapshot", { ...quiet, revision: 3, credentials: [{ ...request, identity: "e".repeat(64) }] });
+
+  // Assert
+  await expect(field).toHaveValue("\u2022".repeat(value.length));
+
+  // Act
+  const again = { ...request, created_at: "2026-10-12T09:00:00Z", why: "Configure the next release" };
+  await send(page, "snapshot", { ...quiet, revision: 4, credentials: [again] });
+
+  // Assert
+  await expect(card(page)).toContainText(again.why);
+  await expect(field).toHaveValue("");
+  await expect(card(page).getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+});
+
+test("a late refusal for an old publication does not mark the reused question's draft failed", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const supervisor = await actions(context);
+  await boardAsked(page, { questions: [question] }, ASKS);
+  await openCard(page, ASKS);
+  await card(page).getByText("Merge it", { exact: true }).click();
+  await card(page).getByRole("button", { name: "Send decision" }).click();
+  await expect.poll(() => supervisor.posted.length).toBe(1);
+  await card(page).getByRole("button", { name: "Close the Command Center" }).click();
+  const again = "May I merge the next release train?";
+  await send(page, "snapshot", asking({ questions: [{ ...question, created_at: "2026-10-12T09:00:00Z", text: again }] }, 3));
+  await openCard(page, again);
+  await card(page).getByText("Other", { exact: true }).click();
+  await card(page).getByRole("textbox").fill("This is the new answer");
+
+  // Act
+  const refused = page.waitForResponse((response) => response.url().endsWith("/api/actions") && response.status() === 409);
+  supervisor.refuse("the old question has closed");
+  await refused;
+
+  // Assert
+  await expect(card(page).getByRole("textbox")).toHaveValue("This is the new answer");
+  await expect(card(page).getByRole("alert")).toHaveCount(0);
+  await expect(card(page).getByRole("button", { name: "Send decision" })).toBeEnabled();
 });
 
 test("a send the board refuses puts the item back, with why", async ({ page, context }) => {
@@ -269,7 +426,7 @@ test("a send the board refuses puts the item back, with why", async ({ page, con
 
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
-  await expect(bar(page)).toContainText(ASKS);
+  await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await expect(card(page).getByRole("alert")).toContainText("the primary CFO changed; refresh before sending");
 });
 
@@ -307,7 +464,7 @@ test("a second board drops the item he answered on the first before any snapshot
   await other.goto("/");
   await send(other, "snapshot", quiet);
   await send(other, "snapshot", asking({ questions: [question] }));
-  await expect(bar(other)).toContainText(ASKS);
+  await expect(bar(other).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCard(other, ASKS);
   await recordDoneCards(other);
   await openCard(page, ASKS);

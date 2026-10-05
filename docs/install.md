@@ -11,6 +11,13 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 ```
 
 It needs no clone and no Go, and `goblins` works in the same window as soon as it finishes.
+
+Releases from v0.4.0 on also carry `CodeGoblinsSetup.exe`, the same install with no terminal: download it from the release's page and open it.
+It downloads the install script of its own release, runs it out of sight, shows each line the script prints in a window of its own, and opens the app when the script is done.
+When the script stops, the window says so with the script's own last lines and names the file that holds everything it printed, `CodeGoblinsSetup.log` in your temp folder; closing the window ends the install, and opening the setup again finishes it.
+With no terminal to ask in, it records no [projects folder](#your-projects-folder), and its quick start only starts the supervisor: the app's first-run page starts the CFO.
+
+Either way the steps are the script's.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
@@ -29,17 +36,21 @@ In order, it:
 6. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi.
 7. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
 8. Adds Code Goblins to your Start menu.
-   Where the home holds the desktop window it runs `goblins --window`, which finds or starts the supervisor and opens the board in that window; in a home with no window it runs `goblins`, the quick start, in a window of its own.
+   Where this install put the desktop window in the home it starts `goblins-window.exe` alone, which opens the app with no terminal: it runs `goblins --window` out of sight, which finds or starts the supervisor and opens the board in the window.
+   Where the home only kept a window it already held, as an install from a release that ships none leaves it, the entry runs `goblins --window` itself, with its console minimized: a window from before this may not open the app when started alone.
+   In a home with no window it runs `goblins`, the quick start, in a window of its own.
 9. Runs `goblins doctor`, prints what still needs a manual step, then runs the [quick start](#the-quick-start) in the same window.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
 A supervisor still running the previous build keeps running it, since a running program cannot be replaced; the install says so, and `goblins stop`, then `goblins`, restarts it on the new one.
 An open desktop window likewise keeps running the previous window until you quit it from its tray icon, and Code Goblins in the Start menu then opens the new one.
 
-An install whose home holds the desktop window takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
+An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
 That entry is removed, since Code Goblins opens the window now, and Start at login starts this home where it started that copy.
 The copy itself, the program and the picture of its notifications, is removed once no window runs from it: one that is open is named and left, and the next install removes it.
 Anything else in that folder is left where it is, and so is the window's WebView2 profile, `%APPDATA%\goblins-window.exe`, which both copies use, so the board keeps its layout.
+An install that only retains the home's existing window keeps the standalone program, picture, folder and Start-menu entry unchanged.
+When it adopts the standalone copy's existing Start at login entry, that entry runs the home's `goblins --window --background`.
 
 ## The quick start
 
@@ -80,11 +91,17 @@ So when a Code Goblins release moves the pin forward, rerunning the install is h
 
 ## On a fresh PC
 
-`cfo.exe` is not code-signed yet, so Windows knows it only as an unknown program from an unknown publisher.
-Its file properties (right-click, Properties, Details) name the product Code Goblins and its version, and it asks for no administrator rights.
+A release says at the top of its notes whether its programs are code-signed, and by whom.
+Until Code Goblins has a signing identity they are not: such a release says that it is unsigned, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
+A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
+Windows knows an unsigned program only as an unknown program from an unknown publisher.
+Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
 
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
+- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
+  Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for it, in any letter case.
+  Then **More info**, **Run anyway** runs it, and what it installs is checked against the same `SHA256SUMS` by the install script.
 - **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
   Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.

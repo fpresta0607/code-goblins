@@ -152,10 +152,11 @@ jobs:
           $shortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"
           if (-not (Test-Path -LiteralPath $shortcutPath)) { throw "the install made no $shortcutPath" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-          # Where the release carries the desktop window the entry opens the
-          # app; a release with none keeps the quick start.
-          $opens = if (Test-Path -LiteralPath (Join-Path $cfoHome "goblins-window.exe")) { "--window" } else { "" }
-          if ($shortcut.TargetPath -ne (Join-Path $cfoHome "goblins.exe") -or $shortcut.Arguments -ne $opens) { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's goblins.exe with '$opens'" }
+          # Where the release carries the desktop window the entry starts
+          # that program alone, which opens the app with no terminal; a
+          # release with none keeps the quick start.
+          $opens = if (Test-Path -LiteralPath (Join-Path $cfoHome "goblins-window.exe")) { "goblins-window.exe" } else { "goblins.exe" }
+          if ($shortcut.TargetPath -ne (Join-Path $cfoHome $opens) -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the home's $opens alone" }
           $global:LASTEXITCODE = 0
       - name: Install again
         env:
@@ -244,9 +245,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after -Dev's quick start" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))
           # -Dev builds the desktop window beside goblins, so Code Goblins in
-          # the Start menu opens the app, and it is the one entry.
+          # the Start menu starts that program alone, and it is the one entry.
           if (-not (Test-Path -LiteralPath (Join-Path $clone "goblins-window.exe"))) { throw "-Dev built no desktop window in the clone" }
-          if ($shortcut.TargetPath -ne (Join-Path $clone "goblins.exe") -or $shortcut.Arguments -ne "--window") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the clone's goblins.exe --window" }
+          if ($shortcut.TargetPath -ne (Join-Path $clone "goblins-window.exe") -or $shortcut.Arguments -ne "") { throw "the Start-menu shortcut runs '$($shortcut.TargetPath) $($shortcut.Arguments)', want the clone's goblins-window.exe alone" }
           if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins Window.lnk")) { throw "the install made a second Start-menu entry for the window" }
           $global:LASTEXITCODE = 0
       - name: Uninstall
