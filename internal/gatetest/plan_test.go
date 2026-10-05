@@ -300,3 +300,33 @@ func TestReadRecordsTheCommitTheUncommittedFilesAndTheToolchain(t *testing.T) {
 		t.Errorf("plan.Root = %q; want the repository's top directory %q", plan.Root, dir)
 	}
 }
+
+func TestReadReachesProductionAndExternalTestImportersTransitively(t *testing.T) {
+	// Arrange
+	dir := newModule(t)
+	write(t, filepath.Join(dir, "d", "d.go"), "package d\n\nimport _ \"example.com/m/b\"\n\nfunc D() int { return 1 }\n")
+	write(t, filepath.Join(dir, "e", "e.go"), "package e\n")
+	write(t, filepath.Join(dir, "e", "e_test.go"), "package e_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/m/d\"\n)\n\nfunc TestE(t *testing.T) { _ = d.D() }\n")
+	commitToMain(t, dir)
+	write(t, filepath.Join(dir, "a", "a.go"), "package a\n\nfunc A() int { return 2 }\n")
+
+	// Act
+	plan, err := Read(context.Background(), execx.OSRunner{}, dir, "")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantChoices := []Choice{
+		{ImportPath: "example.com/m/a"},
+		{ImportPath: "example.com/m/b", Imports: "example.com/m/a"},
+		{ImportPath: "example.com/m/d", Imports: "example.com/m/b"},
+		{ImportPath: "example.com/m/e", Imports: "example.com/m/d"},
+	}
+	wantPackages := []string{"example.com/m/a", "example.com/m/b", "example.com/m/d", "example.com/m/e"}
+	if plan.Everything || plan.Level != Affected || plan.Required != Affected || !slices.Equal(plan.Choices, wantChoices) ||
+		!slices.Equal(plan.Vet, wantPackages) || !slices.Equal(plan.Tests, wantPackages) || len(plan.Left) != 0 {
+		t.Errorf("Read = choices %v, everything %v, level %s, required %s, vet %q, tests %q, left %v; want %v, false, affected, affected, %q for vet and tests, nothing left",
+			plan.Choices, plan.Everything, plan.Level, plan.Required, plan.Vet, plan.Tests, plan.Left, wantChoices, wantPackages)
+	}
+}
