@@ -55,6 +55,9 @@ func restartCFO(h home.Home) (supervisor.CFOConversation, bool, error) {
 	if len(args) == 0 {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("%s, so the CFO is left running: close it and run goblins to start it on a new conversation", why)
 	}
+	if !conversation.MatchesRunningCFO(h.State, record) {
+		return supervisor.CFOConversation{}, false, fmt.Errorf("the CFO in native terminal %s registered no conversation it can come back on, so it is left running", id)
+	}
 	if err := host.Close(h.State, record, 5*time.Second); err != nil {
 		return supervisor.CFOConversation{}, false, fmt.Errorf("the CFO's terminal could not be closed, so nothing was restarted: %w", err)
 	}

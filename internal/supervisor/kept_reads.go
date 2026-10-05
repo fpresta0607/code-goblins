@@ -217,9 +217,26 @@ func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	return kept(&s.reads, "meta", []string{state.TaskMetaPath(directory, id)}, func() (state.TaskMeta, error) { return state.ReadTaskMeta(directory, id) })
 }
 
+// Lifecycle includes live teardown identities, so file signatures cannot cache it.
 func (s *Service) lifecycle(id string) (state.Lifecycle, error) {
+	if err := state.ValidTaskID(id); err != nil {
+		return state.Lifecycle{}, err
+	}
 	directory := s.Store.Home.State
-	return kept(&s.reads, "lifecycle", []string{state.LifecyclePath(directory, id)}, func() (state.Lifecycle, error) { return state.ReadLifecycle(directory, id) })
+	path := state.LifecyclePath(directory, id)
+	if _, err := s.reads.look(path); errors.Is(err, fs.ErrNotExist) {
+		var record state.Lifecycle
+		// The parent distinguishes a missing folder from a missing file.
+		_, err := kept(&s.reads, "lifecycle-absence", []string{path, filepath.Dir(path)}, func() (struct{}, error) {
+			var err error
+			record, err = state.ReadLifecycle(directory, id)
+			return struct{}{}, err
+		})
+		if err != nil {
+			return record, err
+		}
+	}
+	return state.ReadLifecycle(directory, id)
 }
 
 func (s *Service) observation(id string) (monitor.Observation, error) {
@@ -248,7 +265,7 @@ func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
 		notQueued bool
 	}
 	h := s.Store.Home
-	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName)}
+	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json")}
 	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
 		backlog, err := s.backlog()
 		if err != nil {

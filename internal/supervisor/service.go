@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,6 +95,8 @@ type Service struct {
 	Started              time.Time
 	mu                   sync.Mutex
 	lastError            string
+	isNativeInboxFailing bool
+	nativeInboxRepair    error
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
@@ -115,8 +118,8 @@ type Service struct {
 	// fleetErr what every typed CFO wake and every fleet wake reading met
 	// since the last recovery cycle; the loop reports them with its next
 	// recovery cycle. ciUnreadable is why each watched repository's CI
-	// cannot be read, as of the last fleet reading; every recovery cycle
-	// reports it for as long as the failure lasts.
+	// cannot be read, as of the last fleet reading; publish joins it into
+	// whatever it publishes for as long as the failure lasts.
 	historyErr      error
 	cfoWakeErr      error
 	fleetErr        error
@@ -151,11 +154,14 @@ type Service struct {
 	afkChange   sync.Mutex
 	held        map[string]bool
 	heldSession string
-	// inspectCaller reads the ancestry and environment of the process a pipe
-	// request came from; nil reads the process itself.
+	// inspectCaller reads the ancestry and environment of the process a
+	// request for the switch came from; nil reads the process itself.
 	inspectCaller func(pid int) ([]proc.Entry, []string, error)
-	done          chan struct{}
-	work          chan struct{}
+	// peerOf names the process at the other end of a connection to the board;
+	// nil asks Windows.
+	peerOf func(peer, board netip.AddrPort) (int, error)
+	done   chan struct{}
+	work   chan struct{}
 	// looks takes each request to look at the fleet now, which the loop
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
@@ -232,6 +238,7 @@ func (s *Service) publish(err error) {
 		}
 	}
 	s.mu.Lock()
+	err = errors.Join(err, s.ciUnreadable)
 	if err != nil {
 		s.lastError = bounded(err.Error(), 1000)
 	} else {
@@ -343,7 +350,7 @@ func (s *Service) run(ctx context.Context) {
 		for ctx.Err() == nil {
 			before := time.Now()
 			if waiter != nil {
-				waiter.Wait(2 * time.Second)
+				waiter.Wait(ctx, 2*time.Second)
 			} else {
 				time.Sleep(2 * time.Second)
 			}
@@ -408,12 +415,20 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
-	if err := s.Store.Ingest(); err != nil {
-		s.publish(err)
+	ingestErr := s.Store.Ingest()
+	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
+		s.publish(ingestErr)
 		return
 	}
+	wasNativeInboxFailing := s.isNativeInboxFailing
+	s.isNativeInboxFailing = ingestErr != nil && !errors.Is(ingestErr, errNativeInboxRecreated)
+	s.mu.Lock()
+	isNativeInboxProblemNew := s.isNativeInboxFailing && !strings.Contains(s.lastError, ingestErr.Error())
+	ingestErr = errors.Join(ingestErr, s.nativeInboxRepair)
+	s.nativeInboxRepair = nil
+	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
@@ -428,15 +443,15 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
-	s.reconcilePresentations(ctx)
+	s.reconcilePresentations()
 	s.watchPages(ctx)
 	if recover {
 		if s.Options.Reconcile != nil {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
-		s.checkRegistration(ctx)
+		s.checkRegistration()
 		s.mu.Lock()
-		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr, s.ciUnreadable)
+		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.cfoWakeErr, s.fleetErr)
 		s.cfoWakeErr, s.fleetErr = nil, nil
 		s.mu.Unlock()
 		reconcileErr = errors.Join(reconcileErr, s.Store.pruneReviews(time.Now()))
@@ -451,7 +466,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	case s.work <- struct{}{}:
 	default:
 	}
-	if recover || before != s.Store.Snapshot().Revision {
+	if recover || wasNativeInboxFailing != s.isNativeInboxFailing || isNativeInboxProblemNew || errors.Is(ingestErr, errNativeInboxRecreated) || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
 }
@@ -554,14 +569,12 @@ func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
 // terminal backend what Snapshot's own read of the registration cannot, so a
 // CFO that moved shows as one state on the board before anyone tries to
 // deliver to it.
-func (s *Service) checkRegistration(ctx context.Context) {
+func (s *Service) checkRegistration() {
 	if s.Options.CFO == nil {
 		return
 	}
-	check, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
 	problem := ""
-	identity, err := s.Options.CFO.examine(check)
+	identity, err := s.Options.CFO.examine()
 	if err != nil {
 		problem = err.Error()
 	}
@@ -714,11 +727,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		if !found {
 			return Evaluation{}, fmt.Errorf("%w: user question context changed", ErrRejected)
 		}
-		result, err := s.Options.CFO.Send(ctx, a.Generation, text)
-		if errors.Is(err, fleet.ErrQueuedBehindTurn) {
-			return Evaluation{Reason: "Submitted to the registered CFO while it was working; it takes the answer when its current turn ends."}, nil
-		}
-		return result, err
+		return s.Options.CFO.Send(ctx, a.Generation, text)
 	}
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, a.TaskID)
 	if err != nil {
@@ -944,6 +953,9 @@ type Snapshot struct {
 	// board that cannot start goblins or cannot read it.
 	Memory      *Memory      `json:"memory,omitempty"`
 	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	// AFK is AFK mode, the Overlord's switch for running the fleet while he
+	// is away, as the board shows it.
+	AFK AFKView `json:"afk"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -990,6 +1002,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.setItems(boardItems(d))
 	out.Activity = d.Activity
+	// A log of AFK mode that could not be read is said where the board says
+	// the supervisor's other troubles, unless one is already there.
+	var afkErr error
+	if out.AFK, afkErr = s.afkView(d); afkErr != nil && out.Error == "" {
+		out.Error = bounded(afkErr.Error(), 1000)
+	}
 	out.Healthy = supervise.WatcherHealthy(s.Store.Home.State, 30*time.Second)
 	for _, node := range d.Sessions {
 		if node.Role == "goblin" && d.TaskSessions[node.TaskID] == node.ID {
@@ -1118,6 +1136,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		if !found && len(out.Tasks) < maxSessions {
+			if _, err := s.queuedTask(row.ID); errors.Is(err, fleet.ErrNotQueued) {
+				continue
+			} else if err != nil {
+				return out, err
+			}
 			out.Tasks = append(out.Tasks, Task{ID: row.ID, Title: row.Title, Project: row.Repo, Dependencies: row.BlockedByIDs, Since: s.created(filepath.Join(s.Store.Home.Data, row.ID, "brief.md")), Evaluation: Evaluation{Phase: "queued", Reason: row.BlockedReason}})
 		}
 	}

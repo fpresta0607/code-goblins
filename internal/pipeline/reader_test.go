@@ -115,7 +115,7 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 		}
 		for _, role := range []string{"reviewer", "fixer"} {
 			profile := config.ReviewAgents[role]
-			if profile.Agent != "codex" || profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+			if profile.Agent != "codex" || profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 				t.Fatalf("repository %q changed global %s profile: %+v", source, role, profile)
 			}
 		}
@@ -282,8 +282,11 @@ func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
 		{"completed", false},
 		{"failed", false},
 		{"cancelled", false},
+		{"ci_monitor_interrupted", false},
 		{"running", true},
+		{"pending", true},
 		{"awaiting_approval", true},
+		{"unknown", true},
 	} {
 		t.Run(c.status, func(t *testing.T) {
 			dir := t.TempDir()

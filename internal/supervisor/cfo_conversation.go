@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
 // CFOConversation is the conversation the home's CFO last registered with,
@@ -63,6 +64,16 @@ func ReadCFOConversation(stateDir string) (CFOConversation, error) {
 		return CFOConversation{}, fmt.Errorf("%s names no conversation a harness can resume", cfoConversationPath(stateDir))
 	}
 	return conversation, nil
+}
+
+// MatchesRunningCFO reports whether the conversation belongs to the live
+// registered harness and the exact program the native terminal currently runs.
+func (conversation CFOConversation) MatchesRunningCFO(stateDir string, record host.Record) bool {
+	primary, isLive := livePrimary(stateDir)
+	return isLive && primary.Host == record.ID &&
+		primary.Process.PID == record.ChildPID && primary.Process.Start.Equal(record.ChildStart) &&
+		conversation.Host == primary.Host && conversation.PID == primary.Process.PID &&
+		conversation.Harness == primary.Agent && !conversation.Updated.Before(record.ChildStart)
 }
 
 // CFOConversationLeft is a conversation a CFO coming back could not resume,
