@@ -248,7 +248,27 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	queue, err := readMergeQueue(ctx, url, commands)
+	if err != nil {
+		fmt.Fprintln(stderr, "cfo pr merge: "+err.Error())
+		return 1
+	}
+	base := emptyAs(proof.BaseRefName, "the base")
+	if queue.IsRequired && *deleteBranch {
+		fmt.Fprintf(stderr, "cfo pr merge: %s merges through its merge queue, which lands the pull request later: run it again without --delete-branch, and delete the branch once it has merged\n", base)
+		return 2
+	}
+	if queue.IsQueued {
+		fmt.Fprintf(stdout, "cfo pr merge: %s is already in %s's merge queue\n", url, base)
+		return 0
+	}
 	merge := []string{"pr", "merge", url, "--" + *method, "--match-head-commit", proof.HeadRefOID}
+	if queue.IsRequired {
+		// The queue merges with the method its rule names, and gh adds a pull
+		// request whose required checks passed to it. --admin, which would
+		// merge around the queue, is never passed.
+		merge = []string{"pr", "merge", url, "--match-head-commit", proof.HeadRefOID}
+	}
 	// outcome logs how a merge word given under AFK mode ended. The merge is
 	// decided by then, so a log that does not take the line is reported and
 	// changes nothing.
@@ -261,7 +281,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		}
 	}
 	if away != nil {
-		evidence, err := afkMergeEvidence(ctx, url, strings.TrimSpace(*verified), proof, commands)
+		evidence, err := afkMergeEvidence(ctx, url, strings.TrimSpace(*verified), proof, queue, commands)
 		if err != nil {
 			fmt.Fprintln(stderr, "cfo pr merge: AFK mode is on, and "+err.Error())
 			return 1
@@ -281,6 +301,12 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		outcome(fmt.Sprintf("not merged: gh exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr))))
 		fmt.Fprintf(stderr, "cfo pr merge: gh exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 		return 1
+	}
+	if queue.IsRequired {
+		outcome("added to the merge queue")
+		fmt.Fprintln(stdout, strings.TrimSpace(string(res.Stdout)))
+		fmt.Fprintf(stdout, "cfo pr merge: added to %s's merge queue: GitHub tests it on %s's tip with the pull requests ahead of it, and merges it when that passes\n", base, base)
+		return 0
 	}
 	outcome(afk.OutcomeMerged)
 	fmt.Fprintln(stdout, strings.TrimSpace(string(res.Stdout)))
