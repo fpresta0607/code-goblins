@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Code Goblins Setup</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #0b1118;
+    color: #d7e0ea;
+    font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 28px;
+    box-sizing: border-box;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  #now { color: #9fb0c3; min-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #bar { height: 4px; margin: 16px 0; border-radius: 2px; background: #1b2633; overflow: hidden; }
+  #bar i { display: block; width: 30%; height: 100%; background: #5fd38d; animation: run 1.6s linear infinite; }
+  body.ended #bar i { animation: none; width: 100%; }
+  body.failed #bar i { background: #e5674f; }
+  @keyframes run { from { margin-left: -30%; } to { margin-left: 100%; } }
+  #lines {
+    flex: 1;
+    overflow: auto;
+    margin: 0;
+    padding: 12px 14px;
+    background: #070b10;
+    border: 1px solid #1b2633;
+    border-radius: 6px;
+    font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #end { display: none; margin-top: 14px; }
+  body.ended #end { display: block; }
+  #why { white-space: pre-wrap; margin: 0 0 6px; }
+  #log { color: #9fb0c3; font-size: 13px; margin: 0; }
+</style>
+</head>
+<body>
+<h1 id="title">Installing Code Goblins</h1>
+<div id="now" role="status">Starting ...</div>
+<div id="bar"><i></i></div>
+<pre id="lines" aria-label="What the install has done"></pre>
+<div id="end">
+  <p id="why"></p>
+  <p id="log"></p>
+</div>
+<script>
+  // The setup program calls these as the install goes: each line the install
+  // prints, then how it ended.
+  const lines = document.getElementById("lines");
+  function setupLine(text) {
+    document.getElementById("now").textContent = text;
+    lines.textContent += text + "\n";
+    lines.scrollTop = lines.scrollHeight;
+  }
+  function setupDone(text) {
+    document.body.classList.add("ended");
+    document.getElementById("title").textContent = "Code Goblins is installed";
+    document.getElementById("now").textContent = text;
+  }
+  function setupFailed(why, log) {
+    document.body.classList.add("ended", "failed");
+    document.getElementById("title").textContent = "Code Goblins was not installed";
+    document.getElementById("now").textContent = "Close this window, fix what it names, and run the setup again.";
+    document.getElementById("why").textContent = why;
+    document.getElementById("log").textContent = "Everything the install printed is in " + log;
+  }
+</script>
+</body>
+</html>
