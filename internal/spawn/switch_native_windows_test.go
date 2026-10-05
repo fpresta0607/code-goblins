@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -17,6 +19,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -254,6 +258,73 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	}
 	if submitted := submittedLines(t, f, 2); !strings.Contains(delivered(t, submitted[len(submitted)-1]), "Your session was restarted") {
 		t.Errorf("submitted = %q, want the resumed harness told to continue", submitted)
+	}
+}
+
+func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "resumed-working")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	closeCurrentTerminal(t, f)
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatal(err)
+	}
+	first, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+	if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
+		t.Fatal(err)
+	}
+	previous := nativeStartup
+	nativeStartup = 10 * time.Second
+	t.Cleanup(func() { nativeStartup = previous })
+	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+		Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
+			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
+			return err
+		},
+		Notify: func(state.Lifecycle) error { return nil },
+	}}
+
+	// Act
+	result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+
+	// Assert
+	if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
+		t.Fatalf("resume=%+v, %v; want the already-working owned session running", result, err)
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, before.ID)
+	if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
+		t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
+	}
+	launches := named(f.events(t), "env")
+	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
+		t.Fatalf("launches=%+v, want the exact owned conversation", launches)
+	}
+	if input := named(f.events(t), "typed into resumed turn"); len(input) != 0 {
+		t.Fatalf("startup typed into a turn already in progress: %+v", input)
+	}
+	status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
+	if err != nil || strings.Contains(string(status), "failed:") {
+		t.Fatalf("resume published a failure: %s, %v", status, err)
+	}
+	for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
+		if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
+			t.Fatalf("resume retained %s: %v", name, err)
+		}
+		if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

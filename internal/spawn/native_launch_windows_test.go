@@ -131,6 +131,16 @@ func fakeHarness() {
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
 	}
+	if mode == "resumed-working" {
+		if len(os.Args) > 1 && os.Args[1] == "resume" {
+			draw("    +151 lines (ctrl+t to view transcript)", "", "Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", "", "› Ask Codex to do anything", "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
+			for key := range keys {
+				record(codexEvent{Event: "typed into resumed turn", Text: key})
+			}
+			return
+		}
+		mode = "ready"
+	}
 	if mode != "ready" && !codexStartup(mode, keys, record, draw, composer) {
 		return
 	}
