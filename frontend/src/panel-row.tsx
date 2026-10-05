@@ -17,7 +17,7 @@ export interface PanelControl { id: string; name: string; label: string; icon: I
 // they always show. A control that joins the row takes its place here.
 export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
 
-const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "task", name: "Task", icon: "task" }, { id: "terminal", name: "Terminal", icon: "terminal" }];
+const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "terminal", name: "Terminal", icon: "terminal" }, { id: "task", name: "Task", icon: "task" }];
 // A control's width, an icon button's in styles.css, and the row's gap there.
 const CONTROL = 44;
 const GAP = 8;
