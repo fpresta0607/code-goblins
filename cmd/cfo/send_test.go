@@ -33,7 +33,7 @@ func TestRunSendStreamsConfirmedTextResult(t *testing.T) {
 func TestRunSendRoutesKeyWithoutText(t *testing.T) {
 	deps := testCommandRuntime(t)
 	var gotTarget, gotKey string
-	deps.sendKey = func(_ context.Context, _ home.Home, target, key string) error {
+	deps.sendKey = func(_ home.Home, target, key string) error {
 		gotTarget, gotKey = target, key
 		return nil
 	}
@@ -59,7 +59,7 @@ func TestRunSendRejectsMixedKeyAndTextWithoutState(t *testing.T) {
 	h := testHome(t)
 	deps := testCommandRuntimeForHome(h)
 	called := false
-	deps.sendKey = func(context.Context, home.Home, string, string) error { called = true; return nil }
+	deps.sendKey = func(home.Home, string, string) error { called = true; return nil }
 	deps.sendText = func(context.Context, home.Home, string, string) error { called = true; return nil }
 
 	var stdout, stderr bytes.Buffer

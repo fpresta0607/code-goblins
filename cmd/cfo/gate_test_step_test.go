@@ -19,7 +19,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
-	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -715,7 +715,9 @@ func TestGateTestKeepsItsVerdictWhenItCanLeaveNoReport(t *testing.T) {
 }
 
 // plenty is the memory of a machine with memory to spare.
-func plenty() (uint64, error) { return 64 << 30, nil }
+func plenty() (supervisor.Memory, error) {
+	return supervisor.Memory{Available: 64 << 30, CommitAvailable: 64 << 30}, nil
+}
 
 // gateTest runs cfo gate test on a machine with memory to spare, so that a
 // run's turn never waits on what this machine happens to have free.
@@ -743,7 +745,7 @@ func standIn() commandRuntime {
 }
 
 // gateTurns runs cfo gate turns on a machine with the memory available says.
-func gateTurns(available func() (uint64, error), stdout, stderr io.Writer) int {
+func gateTurns(available func() (supervisor.Memory, error), stdout, stderr io.Writer) int {
 	runtime := defaultCommandRuntime()
 	runtime.availableMemory = available
 	return runWithRuntime([]string{"gate", "turns"}, stdout, stderr, runtime)
@@ -771,7 +773,7 @@ func (b *lockedBuffer) String() string {
 // verification run on the machine would.
 func holdTheTurn(t *testing.T) verify.Turn {
 	t.Helper()
-	turn, err := verify.Admission{Dir: filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots"), Slots: 1, Who: "another run", Budget: 90 * time.Minute, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+	turn, err := verify.Admission{Dir: filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Who: "another run", Budget: 90 * time.Minute, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
 	if err != nil {
 		t.Fatalf("the test could not hold the turn: %v", err)
 	}
@@ -808,9 +810,9 @@ func waitInLine(t *testing.T, waiting verify.Admission) {
 }
 
 // A run at the level a change requires waits for its turn before it starts
-// its tests, one run at a time on the machine: while another run holds the
-// turn it vets, says which run holds the turn and where it stands in line,
-// and runs no test, and once the turn is free it runs and reports how long it
+// its checks, one run at a time on the machine: while another run holds the
+// turn it says which run holds the turn and where it stands in line,
+// and runs no command, and once the turn is free it runs and reports how long it
 // waited, which its verdict tells apart from the time its checks took.
 func TestGateTestWaitsForItsTurnBeforeItRunsItsTests(t *testing.T) {
 	// Arrange
@@ -842,8 +844,8 @@ func TestGateTestWaitsForItsTurnBeforeItRunsItsTests(t *testing.T) {
 		t.Fatalf("the run exited %d while another run held the turn; stdout=%s", exit, stdout.String())
 	default:
 	}
-	if before := stdout.String(); !strings.Contains(before, "ran go vet") || strings.Contains(before, "ran go test") {
-		t.Fatalf("while another run held the turn the run printed %q; want its vet run and its tests not", before)
+	if before := stdout.String(); strings.Contains(before, "ran go ") {
+		t.Fatalf("while another run held the turn the run printed %q; want no commands started", before)
 	}
 	for _, said := range []string{"cfo gate test: waiting for its turn (", " of its 1h30m0s budget; this run is next in line"} {
 		if !strings.Contains(stdout.String(), said) {
@@ -869,8 +871,8 @@ func TestGateTestWaitsForItsTurnBeforeItRunsItsTests(t *testing.T) {
 	if report.QueueSeconds < 1 || report.QueueNote != "" || report.Status != "passed" {
 		t.Errorf("the report says the run waited %v seconds for its turn, notes %q and has status %q; want a second or more, no note and passed", report.QueueSeconds, report.QueueNote, report.Status)
 	}
-	if len(report.Checks) != 2 || report.Checks[1].Start.Before(released) {
-		t.Errorf("the report's checks are %+v; want the tests to have started only once the turn was given up at %s, so the wait is no part of their time", report.Checks, released)
+	if len(report.Checks) != 2 || report.Checks[0].Start.Before(released) || report.Checks[1].Start.Before(released) {
+		t.Errorf("the report's checks are %+v; want every check to have started only once the turn was given up at %s", report.Checks, released)
 	}
 }
 
@@ -949,7 +951,9 @@ func TestGateTestDoesNotPassARunWhoseTestsRanPastTheirBudget(t *testing.T) {
 	runtime.gateBudget = func(gatetest.Level) time.Duration { return time.Millisecond }
 	runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
 		// Longer than the budget, by more than a clock's coarsest step.
-		time.Sleep(20 * time.Millisecond)
+		if command[1] == "test" {
+			time.Sleep(20 * time.Millisecond)
+		}
 		fmt.Fprintf(stdout, "ran go %s\n", command[1])
 		return 0, nil
 	}
@@ -972,76 +976,88 @@ func TestGateTestDoesNotPassARunWhoseTestsRanPastTheirBudget(t *testing.T) {
 	}
 	report, _ := lastReport(t)
 	if report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "passed" || report.Checks[1].Status != "over_budget" || report.Checks[1].ExitCode != 0 {
-		t.Errorf("the report has status %q and checks %+v; want failed, with vet passed, which has no budget, and the tests over_budget on exit code 0", report.Status, report.Checks)
+		t.Errorf("the report has status %q and checks %+v; want failed, with vet passed and the tests over_budget on exit code 0", report.Status, report.Checks)
 	}
 }
 
-// A run takes the turn of a run that has held it past its own budget, so a
-// run that hangs cannot stop every run behind it, and says whose turn it took
-// in its output and in its report.
-func TestGateTestTakesTheTurnOfARunPastItsBudgetAndSaysSo(t *testing.T) {
+// An overdue holder keeps its turn until its command actually ends.
+func TestGateTestWaitsForAnOverdueHolder(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
-	slots := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots")
-	if err := os.MkdirAll(slots, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// A holder recorded from another machine cannot be checked, so it counts
-	// as still running, as a run that hangs does.
-	hung, err := json.Marshal(lock.Info{PID: 4242, OwnerPID: 4242, Hostname: "another-machine", Acquired: time.Now().Add(-2 * time.Hour)})
+	turn, err := verify.Admission{Dir: filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Who: "an overdue run", Budget: time.Millisecond, Limit: time.Minute, Poll: 5 * time.Millisecond}.Wait(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, data := range map[string][]byte{"slot-1": hung, "slot-1.run": []byte(`{"who":"a run that hangs","budget_seconds":5400}`)} {
-		if err := os.WriteFile(filepath.Join(slots, name), data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	defer turn.Release()
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
 
 	// Act
-	var stdout, stderr bytes.Buffer
-	exit := gateTestWith(standIn(), &stdout, &stderr)
-
-	// Assert
-	if exit != 0 || !strings.Contains(stdout.String(), "ran go test") {
-		t.Fatalf("exit = %d, want 0 with the tests run; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
-	}
-	took := "it took the turn from a run that hangs (pid 4242), which had held it for 2h0m"
-	for _, want := range []string{"cfo gate test: took its turn after ", took, " against a budget of 1h30m0s and still runs"} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+	go func() { exited <- gateTestWith(standIn(), &stdout, &stderr) }()
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(stdout.String(), "the turn is held by an overdue run"); time.Sleep(10 * time.Millisecond) {
+		select {
+		case exit := <-exited:
+			t.Fatalf("exited %d before owner release: %s %s", exit, stdout.String(), stderr.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run did not join the line")
 		}
 	}
-	if report, _ := lastReport(t); !strings.HasPrefix(report.QueueNote, took) {
-		t.Errorf("the report notes %q of the run's turn; want it to start %q", report.QueueNote, took)
+
+	// Assert
+	if strings.Contains(stdout.String(), "ran go ") {
+		t.Fatalf("overdue custody allowed commands: %s", stdout.String())
+	}
+	turn.Release()
+	select {
+	case exit := <-exited:
+		if exit != 0 {
+			t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the run did not finish after owner release")
+	}
+	if report, _ := lastReport(t); report.QueueNote != "" || report.Status != "passed" {
+		t.Fatalf("ordinary released turn reported %+v", report)
 	}
 }
 
-// The fast level takes no turn: it is seconds of static checks and quick
-// tests, and it runs while another run holds the machine's turn.
-func TestGateTestAtFastTakesNoTurn(t *testing.T) {
+// The fast level shares the ordinary line before either command starts.
+func TestGateTestAtFastWaitsForTheSharedTurn(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
-	holdTheTurn(t)
-
-	// Act
+	turn := holdTheTurn(t)
 	var stdout, stderr lockedBuffer
 	exited := make(chan int, 1)
+
+	// Act
 	go func() { exited <- gateTestWith(standIn(), &stdout, &stderr, "--level", "fast") }()
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(stdout.String(), "waiting for its turn"); time.Sleep(10 * time.Millisecond) {
+		select {
+		case exit := <-exited:
+			t.Fatalf("fast run exited %d before admission: %s %s", exit, stdout.String(), stderr.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the fast run did not join the line")
+		}
+	}
 
 	// Assert
+	if strings.Contains(stdout.String(), "ran go ") {
+		t.Fatalf("fast level bypassed custody: %s", stdout.String())
+	}
+	turn.Release()
 	select {
 	case exit := <-exited:
-		if exit != 0 || strings.Contains(stdout.String(), "waiting for its turn") || !strings.Contains(stdout.String(), "ran go test") {
-			t.Fatalf("exit=%d stdout=%q stderr=%q, want 0 with the tests run and no wait", exit, stdout.String(), stderr.String())
+		if exit != 0 || !strings.Contains(stdout.String(), "ran go test") {
+			t.Fatalf("exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 		}
-	case <-time.After(time.Minute):
-		t.Fatalf("the fast run had not finished after a minute behind a held turn; stdout=%s", stdout.String())
-	}
-	if report, _ := lastReport(t); report.QueueSeconds != 0 {
-		t.Errorf("the report says the fast run waited %v seconds; want 0", report.QueueSeconds)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the fast run did not finish after release")
 	}
 }
 
@@ -1053,11 +1069,11 @@ func TestGateTestWaitsForTheMemoryFloorBeforeItRunsItsTests(t *testing.T) {
 	t.Chdir(dir)
 	var readings atomic.Int32
 	runtime := standIn()
-	runtime.availableMemory = func() (uint64, error) {
+	runtime.availableMemory = func() (supervisor.Memory, error) {
 		if readings.Add(1) <= 2 {
-			return 1 << 30, nil
+			return supervisor.Memory{Available: 1 << 30, CommitAvailable: 16 << 30}, nil
 		}
-		return 16 << 30, nil
+		return supervisor.Memory{Available: 16 << 30, CommitAvailable: 16 << 30}, nil
 	}
 
 	// Act
@@ -1075,28 +1091,27 @@ func TestGateTestWaitsForTheMemoryFloorBeforeItRunsItsTests(t *testing.T) {
 	}
 }
 
-// The machine's setting lets more than one run test at once: with
-// CFO_VERIFY_SLOTS at 2, a run starts its tests while another holds a turn.
-func TestGateTestTakesASecondTurnWhenTheMachineAllowsTwo(t *testing.T) {
+// A process cannot request a second pool while another owner holds the turn.
+func TestGateTestRejectsAProcessCapacityOverride(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
 	holdTheTurn(t)
+	slots := filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "slots")
+	before, err := os.ReadFile(filepath.Join(slots, "slot-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CFO_VERIFY_SLOTS", "2")
 
 	// Act
-	var stdout, stderr lockedBuffer
-	exited := make(chan int, 1)
-	go func() { exited <- gateTestWith(standIn(), &stdout, &stderr) }()
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(standIn(), &stdout, &stderr)
 
 	// Assert
-	select {
-	case exit := <-exited:
-		if exit != 0 || strings.Contains(stdout.String(), "waiting for its turn") || !strings.Contains(stdout.String(), "ran go test") {
-			t.Fatalf("exit=%d stdout=%q stderr=%q, want 0 with the tests run and no wait", exit, stdout.String(), stderr.String())
-		}
-	case <-time.After(time.Minute):
-		t.Fatalf("the run had not finished after a minute with a second turn free; stdout=%s", stdout.String())
+	after, readErr := os.ReadFile(filepath.Join(slots, "slot-1"))
+	if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "CFO_VERIFY_SLOTS is unsupported") || readErr != nil || !bytes.Equal(before, after) {
+		t.Fatalf("override displaced custody or started commands: exit=%d stdout=%s stderr=%s read=%v", exit, &stdout, &stderr, readErr)
 	}
 }
 
@@ -1138,8 +1153,8 @@ func TestGateTestsTakeTurnsOneAtATimeWhateverTheMachineSets(t *testing.T) {
 	}
 }
 
-// A run whose wait fails says that it takes no turn and runs its tests, and
-// the time it had waited stays on record apart from its checks' own: in the
+// A run whose wait fails starts no command, and the time it had waited stays
+// on record apart from its checks' own: in the
 // verdict line and in the report's queue_seconds.
 func TestGateTestRecordsTheWaitOfATurnItCouldNotTake(t *testing.T) {
 	// Arrange
@@ -1170,8 +1185,8 @@ func TestGateTestRecordsTheWaitOfATurnItCouldNotTake(t *testing.T) {
 	// Assert
 	select {
 	case exit := <-exited:
-		if exit != 0 || !strings.Contains(stdout.String(), "ran go test") || !strings.Contains(stderr.String(), "cfo gate test: this run takes no turn") {
-			t.Fatalf("exit=%d stdout=%q stderr=%q, want 0 with the tests run and a line saying the run takes no turn", exit, stdout.String(), stderr.String())
+		if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "cfo gate test: this run takes no turn") {
+			t.Fatalf("exit=%d stdout=%q stderr=%q, want 1 with no commands run and the admission error", exit, stdout.String(), stderr.String())
 		}
 	case <-time.After(time.Minute):
 		t.Fatalf("the run did not go on within a minute of its line being gone; stdout=%s", stdout.String())
@@ -1179,8 +1194,8 @@ func TestGateTestRecordsTheWaitOfATurnItCouldNotTake(t *testing.T) {
 	if said := "s of it waiting for its turn; report "; !strings.Contains(stdout.String(), said) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), said)
 	}
-	if report, _ := lastReport(t); report.QueueSeconds < 1 || report.Status != "passed" {
-		t.Errorf("the report says the run waited %v seconds for its turn and has status %q; want a second or more and passed", report.QueueSeconds, report.Status)
+	if report, _ := lastReport(t); report.QueueSeconds < 1 || report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "not_run" || report.Checks[1].Status != "not_run" {
+		t.Errorf("the report lost its failed wait or unstarted scope: %+v", report)
 	}
 }
 
@@ -1191,7 +1206,7 @@ func TestGateTurnsShowsWhoHoldsTheTurnAndWhoWaits(t *testing.T) {
 	store := t.TempDir()
 	t.Setenv("CFO_VERIFY_DIR", store)
 	holdTheTurn(t)
-	waitInLine(t, verify.Admission{Dir: filepath.Join(store, "slots"), Slots: 1, Who: "a run that waits", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond})
+	waitInLine(t, verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Who: "a run that waits", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond})
 
 	// Act
 	var stdout, stderr bytes.Buffer
@@ -1254,11 +1269,13 @@ func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	store := t.TempDir()
 	t.Setenv("CFO_VERIFY_DIR", store)
 	short := func() (uint64, error) { return 1 << 30, nil }
-	waitInLine(t, verify.Admission{Dir: filepath.Join(store, "slots"), Slots: 1, Floor: 4 << 30, Available: short, Who: "a run that waits", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond})
+	waitInLine(t, verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: short, Who: "a run that waits", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond})
 
 	// Act
 	var stdout, stderr bytes.Buffer
-	exit := gateTurns(short, &stdout, &stderr)
+	exit := gateTurns(func() (supervisor.Memory, error) {
+		return supervisor.Memory{Available: 1 << 30, CommitAvailable: 16 << 30}, nil
+	}, &stdout, &stderr)
 
 	// Assert
 	if exit != 0 {
@@ -1266,36 +1283,34 @@ func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	waiter := fmt.Sprintf("1. a run that waits (pid %d), for ", os.Getpid())
-	if len(lines) != 4 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB is available, under the 4.0 GB floor a run waits for" {
+	if len(lines) != 4 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB physical and 16.0 GB commit are available; both require the 4.0 GB floor" {
 		t.Errorf("cfo gate turns printed %q; want the turn free, the one waiting run, then the memory the machine is short of", lines)
 	}
 }
 
-// CFO_VERIFY_SLOTS sets how many runs test at once on the machine, one when
-// it is not set, and a setting that is not a number above 0 is said, never
-// read silently as some number.
-func TestGateSlotsReadsTheMachinesSetting(t *testing.T) {
-	for setting, want := range map[string]struct {
-		slots   int
-		problem string
-	}{
-		"":    {1, ""},
-		"1":   {1, ""},
-		"3":   {3, ""},
-		"0":   {1, `CFO_VERIFY_SLOTS is "0", not a number above 0, so one run tests at a time`},
-		"-2":  {1, `CFO_VERIFY_SLOTS is "-2", not a number above 0, so one run tests at a time`},
-		"two": {1, `CFO_VERIFY_SLOTS is "two", not a number above 0, so one run tests at a time`},
-	} {
-		if slots, problem := gateSlots(setting); slots != want.slots || problem != want.problem {
-			t.Errorf("gateSlots(%q) = %d, %q; want %d, %q", setting, slots, problem, want.slots, want.problem)
-		}
+// Every nonempty legacy process setting is refused instead of falling back.
+func TestGateTestRejectsLegacySlotSettings(t *testing.T) {
+	for _, setting := range []string{"1", "3", "0", "-2", "two"} {
+		t.Run(setting, func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			t.Setenv("CFO_VERIFY_SLOTS", setting)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := gateTestWith(standIn(), &stdout, &stderr)
+
+			// Assert
+			if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "CFO_VERIFY_SLOTS is unsupported") {
+				t.Fatalf("setting %q: exit=%d stdout=%s stderr=%s", setting, exit, &stdout, &stderr)
+			}
+		})
 	}
 }
 
-// A run that cannot take turns, because the store's folder cannot be made,
-// says so and still runs its tests, whose failure is the run's: the store
-// never decides the verdict.
-func TestGateTestRunsItsTestsWhenItCanTakeNoTurn(t *testing.T) {
+// A store failure prevents both commands from starting.
+func TestGateTestStartsNothingWhenItCanTakeNoTurn(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
@@ -1318,7 +1333,7 @@ func TestGateTestRunsItsTestsWhenItCanTakeNoTurn(t *testing.T) {
 	exit := gateTestWith(runtime, &stdout, &stderr)
 
 	// Assert
-	if exit != 1 || !strings.Contains(stdout.String(), "ran go test") || !strings.Contains(stderr.String(), "cfo gate test: this run takes no turn") {
-		t.Fatalf("exit=%d stdout=%q stderr=%q, want 1 from the failing tests and a line saying the run takes no turn", exit, stdout.String(), stderr.String())
+	if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "cfo gate test: this run takes no turn") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want failed admission before any command", exit, stdout.String(), stderr.String())
 	}
 }

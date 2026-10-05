@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,21 +28,15 @@ type Admission struct {
 	// for each, naming its process, and beside it a card saying which run
 	// that is.
 	Dir string
-	// Slots is how many runs may hold a turn at once.
-	Slots int
-	// Floor is the available memory, in bytes, a run waits for, and Available
-	// reads it. A reading that fails holds no run back: the slots still do.
+	// Floor may raise the shared minimum available memory, in bytes, a run
+	// waits for, and Available reads it. An unavailable reading refuses admission.
 	Floor     uint64
 	Available func() (uint64, error)
 	// Who names this run to the runs behind it, and Budget is how long its
-	// turn may last: a run still holding its turn after that loses it to the
-	// next in line, so a run that hangs cannot stop the line for ever. A
-	// holder that named no budget is held to the waiting run's, and with none
-	// on either side a holder is never past one.
+	// checks may run. Expiry does not release a live or uncertain owner.
 	Who    string
 	Budget time.Duration
-	// Limit is how long a run at the head of the line waits for memory before
-	// it goes on under the floor, which its Turn then notes.
+	// Limit bounds the floor wait at the head of the line. Expiry refuses a turn.
 	Limit time.Duration
 	// Poll is how often a waiting run looks again.
 	Poll time.Duration
@@ -57,7 +52,7 @@ type Turn struct {
 	// failed.
 	Waited time.Duration
 	// Note says what was out of the ordinary about how the turn was taken,
-	// when anything was: a holder past its budget, or memory under the floor.
+	// when anything was, including an admission failure.
 	Note    string
 	release func()
 	say     func(now string)
@@ -72,7 +67,7 @@ func (t Turn) Release() {
 
 // Say records what the run is doing now beside its turn, for whoever reads
 // the line: a gate shows a step's output only once the step has ended. A run
-// whose turn was taken from it no longer speaks for the slot and says
+// that released its turn, or no longer holds its slot's custody, says
 // nothing.
 func (t Turn) Say(now string) {
 	if t.say != nil {
@@ -94,20 +89,40 @@ var arrivals atomic.Int64
 
 // Wait joins the line and returns once the run has its turn: no run that
 // asked earlier still waits, the machine has the memory, and a slot is free,
-// was left by a process that is gone, or is held by a run past its budget. A
+// or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
 // wait is on record even though no turn came of it.
 func (a Admission) Wait(ctx context.Context) (Turn, error) {
+	if err := ctx.Err(); err != nil {
+		return Turn{}, err
+	}
+	if os.Getenv("CFO_VERIFY_SLOTS") != "" {
+		return Turn{}, errors.New("verify: CFO_VERIFY_SLOTS is unsupported; capacity is shared in the canonical admission store")
+	}
+	var err error
+	a.Dir, err = admissionDir(a.Dir, isTestBinary())
+	if err != nil {
+		return Turn{}, err
+	}
+	if _, _, err := AdmissionLimits(a.Dir); err != nil {
+		return Turn{}, err
+	}
+	if a.Available == nil {
+		return Turn{}, errors.New("verify: available memory cannot be read")
+	}
 	line := filepath.Join(a.Dir, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
 		return Turn{}, err
 	}
 	place := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
-	if _, err := lock.AcquireExclusiveNamed(line, place); err != nil {
+	owner, err := lock.AcquireExclusiveNamedStrict(line, place)
+	if err != nil {
 		return Turn{}, err
 	}
-	a.leave(line, place, card{Who: a.Who})
-	defer a.remove(line, place)
+	defer a.remove(line, place, owner)
+	if err := a.leave(line, place, card{Who: a.Who}); err != nil {
+		return Turn{}, err
+	}
 
 	start := time.Now()
 	var told time.Time
@@ -117,6 +132,13 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	// short: the limit is on the wait for memory, not on the time in line.
 	var shortSince time.Time
 	for {
+		if err := ctx.Err(); err != nil {
+			return Turn{Waited: time.Since(start)}, err
+		}
+		capacity, floor, err := AdmissionLimits(a.Dir)
+		if err != nil {
+			return Turn{Waited: time.Since(start)}, err
+		}
 		waited := time.Since(start)
 		ahead, err := inFront(line, place)
 		if err != nil {
@@ -125,7 +147,10 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		why := a.heldBy()
 		short := ""
 		if ahead == 0 {
-			short = a.short()
+			short, err = a.short(max(a.Floor, floor))
+			if err != nil {
+				return Turn{Waited: time.Since(start)}, err
+			}
 		}
 		if short == "" {
 			shortSince = time.Time{}
@@ -133,26 +158,25 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			shortSince = time.Now()
 		}
 		if ahead == 0 {
-			// The note is worked out on every pass, so that it says how this
-			// turn was taken and not how an earlier pass would have taken it.
-			note := ""
 			if short != "" && time.Since(shortSince) >= a.Limit {
-				note, short = fmt.Sprintf("it runs although %s, after waiting %s for it", short, time.Since(shortSince).Round(time.Second)), ""
+				return Turn{Waited: time.Since(start)}, fmt.Errorf("verify: memory floor wait expired: %s", short)
 			}
 			if short != "" {
 				why = join(why, short)
 			} else {
-				slot, took, err := a.take()
+				if err := ctx.Err(); err != nil {
+					return Turn{Waited: time.Since(start)}, err
+				}
+				release, say, err := a.take(capacity)
 				if err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				if slot != "" {
-					return Turn{
-						Waited:  time.Since(start),
-						Note:    join(note, took),
-						release: func() { a.remove(a.Dir, slot) },
-						say:     func(now string) { a.say(slot, now) },
-					}, nil
+				if release != nil {
+					if err := ctx.Err(); err != nil {
+						release()
+						return Turn{Waited: time.Since(start)}, err
+					}
+					return Turn{Waited: time.Since(start), release: release, say: say}, nil
 				}
 			}
 		}
@@ -187,10 +211,6 @@ func standing(ahead int) string {
 	return fmt.Sprintf("%d runs are ahead of this one in line", ahead)
 }
 
-// unreadableGrace is how long a record in the line may stay unreadable and
-// keep its place: a record is written in far less.
-const unreadableGrace = 10 * time.Second
-
 // inFront counts the runs that joined the line before place and still wait.
 // A run whose process is gone is taken out of the line.
 func inFront(line, place string) (int, error) {
@@ -204,18 +224,26 @@ func inFront(line, place string) (int, error) {
 		if strings.HasSuffix(name, ".run") || name >= place {
 			continue
 		}
-		waiter, err := lock.ReadNamed(line, name)
+		waiter, err := lock.ReadNamedStrict(line, name)
 		gone := err == nil && !waiter.Alive()
-		if err != nil {
-			// A record that cannot be read is being written or removed this
-			// moment and keeps its place, unless it has been unreadable for
-			// longer than a write takes: then its run died writing it.
-			info, statErr := entry.Info()
-			gone = statErr == nil && time.Since(info.ModTime()) > unreadableGrace
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
 		if gone {
-			os.Remove(filepath.Join(line, name))
-			os.Remove(filepath.Join(line, name+".run"))
+			current, err := lock.ReadNamedStrict(line, name)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil || *current != *waiter {
+				ahead++
+				continue
+			}
+			if err := os.Remove(filepath.Join(line, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return 0, err
+			}
+			if err := os.Remove(filepath.Join(line, name+".run")); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return 0, err
+			}
 			continue
 		}
 		ahead++
@@ -224,15 +252,15 @@ func inFront(line, place string) (int, error) {
 }
 
 // short says how the machine is short of memory, or nothing when it is not.
-func (a Admission) short() string {
-	if a.Available == nil {
-		return ""
-	}
+func (a Admission) short(floor uint64) (string, error) {
 	available, err := a.Available()
-	if err != nil || available >= a.Floor {
-		return ""
+	if err != nil {
+		return "", fmt.Errorf("verify: available memory cannot be read: %w", err)
 	}
-	return fmt.Sprintf("%.1f GB of memory is available and the floor is %.1f GB", Gigabytes(available), Gigabytes(a.Floor))
+	if available >= floor {
+		return "", nil
+	}
+	return fmt.Sprintf("%.1f GB of memory is available and the floor is %.1f GB", Gigabytes(available), Gigabytes(floor)), nil
 }
 
 // Gigabytes is bytes in gigabytes, rounded down to a tenth, so memory just
@@ -245,15 +273,25 @@ func Gigabytes(bytes uint64) float64 {
 // what budget, or nothing when no slot is held.
 func (a Admission) heldBy() string {
 	var holders []string
-	for slot := 1; slot <= a.Slots; slot++ {
-		name := fmt.Sprintf("slot-%d", slot)
-		if holder, err := lock.ReadNamed(a.Dir, name); err == nil {
-			who, budget := a.holder(name)
+	entries, err := os.ReadDir(a.Dir)
+	if err != nil {
+		return "turn custody cannot be read: " + err.Error()
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "slot-") || strings.HasSuffix(name, ".run") {
+			continue
+		}
+		if holder, err := lock.ReadNamedStrict(a.Dir, name); err == nil && holder.Alive() {
+			says := readCard(filepath.Join(a.Dir, name))
+			who, budget := says.Who, time.Duration(says.BudgetSeconds*float64(time.Second))
 			held := fmt.Sprintf("%s (pid %d), for %s", who, holder.PID, time.Since(holder.Acquired).Round(time.Second))
 			if budget > 0 {
 				held += fmt.Sprintf(" of its %s budget", budget)
 			}
 			holders = append(holders, held)
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			holders = append(holders, name+" with unreadable custody")
 		}
 	}
 	if len(holders) == 0 {
@@ -262,96 +300,104 @@ func (a Admission) heldBy() string {
 	return "the turn is held by " + strings.Join(holders, ", and by ")
 }
 
-// take takes a free slot, or the slot of a run past its budget, which took
-// then says, and returns the slot's name. With every slot held within its
-// budget it takes none.
-func (a Admission) take() (slot, took string, err error) {
-	for slot := 1; slot <= a.Slots; slot++ {
-		name := fmt.Sprintf("slot-%d", slot)
-		_, err = lock.AcquireExclusiveNamed(a.Dir, name)
-		if errors.Is(err, lock.ErrHeld) {
-			holder, readErr := lock.ReadNamed(a.Dir, name)
-			if readErr != nil {
-				continue
-			}
-			who, budget := a.holder(name)
-			has := time.Since(holder.Acquired)
-			if budget <= 0 || has <= budget || !a.evict(name, holder) {
-				continue
-			}
-			took = fmt.Sprintf("it took the turn from %s (pid %d), which had held it for %s against a budget of %s and still runs", who, holder.PID, has.Round(time.Second), budget)
-			if _, err = lock.AcquireExclusiveNamed(a.Dir, name); errors.Is(err, lock.ErrHeld) {
-				// Another run took the freed slot first.
-				took = ""
-				continue
-			}
+// take takes a free slot or reclaims verifiably dead custody. A live or
+// uncertain holder keeps the slot regardless of its elapsed budget. Once
+// release has run, say writes nothing, so a progress note can never land
+// beside a slot the run has given back.
+func (a Admission) take(capacity int) (release func(), say func(now string), err error) {
+	entries, err := os.ReadDir(a.Dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" && (capacity != 2 || name != "slot-2") {
+			return nil, nil, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
+		}
+	}
+	// Inspect every configured slot before choosing a free one: uncertain
+	// custody in another slot cannot be bypassed by an earlier empty slot.
+	for slot := 1; slot <= capacity; slot++ {
+		holder, err := lock.ReadNamedStrict(a.Dir, fmt.Sprintf("slot-%d", slot))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
 		if err != nil {
-			return "", "", err
+			return nil, nil, err
 		}
-		a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds()})
-		return name, took, nil
+		if holder.Alive() && !holder.VerifiedAlive() {
+			return nil, nil, nil
+		}
 	}
-	return "", "", nil
+	for slot := 1; slot <= capacity; slot++ {
+		name := fmt.Sprintf("slot-%d", slot)
+		owner, err := lock.AcquireExclusiveNamedStrict(a.Dir, name)
+		if errors.Is(err, lock.ErrHeld) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds()}); err != nil {
+			lock.ReleaseExclusiveNamed(a.Dir, name)
+			return nil, nil, err
+		}
+		var mu sync.Mutex
+		isReleased := false
+		release = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if !isReleased {
+				isReleased = true
+				a.remove(a.Dir, name, owner)
+			}
+		}
+		say = func(now string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !isReleased {
+				a.say(name, owner, now)
+			}
+		}
+		return release, say, nil
+	}
+	return nil, nil, nil
 }
 
 // say rewrites the card of the slot this run holds with what the run is doing
-// now. The card is replaced whole, so a run reading it never finds it half
-// written and takes its holder for one that named no budget.
-func (a Admission) say(slot, now string) {
-	if _, err := lock.AcquireExclusiveNamed(a.Dir, "takeover"); err != nil {
-		return
-	}
-	defer lock.ReleaseExclusiveNamed(a.Dir, "takeover")
-	if !lock.HeldByNamed(a.Dir, slot, os.Getpid()) {
+// now, while the slot's custody is still owner's. The card is replaced whole,
+// so a run reading it never finds it half written and takes its holder for
+// one that named no budget.
+func (a Admission) say(name string, owner *lock.Info, now string) {
+	current, err := lock.ReadNamedStrict(a.Dir, name)
+	if err != nil || *current != *owner || !current.VerifiedAlive() {
 		return
 	}
 	if data, err := json.Marshal(card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), Now: now}); err == nil {
-		fsx.AtomicWriteFile(filepath.Join(a.Dir, slot+".run"), data)
+		fsx.AtomicWriteFile(filepath.Join(a.Dir, name+".run"), data)
 	}
-}
-
-// evict frees a slot whose holder is past its budget. One waiting run does
-// so at a time, and it frees the slot only while the slot still names the
-// holder it judged, so a run that has just taken the slot keeps it.
-func (a Admission) evict(name string, judged *lock.Info) bool {
-	if _, err := lock.AcquireExclusiveNamed(a.Dir, "takeover"); err != nil {
-		return false
-	}
-	defer lock.ReleaseExclusiveNamed(a.Dir, "takeover")
-	holder, err := lock.ReadNamed(a.Dir, name)
-	if err != nil || holder.PID != judged.PID || !holder.Acquired.Equal(judged.Acquired) {
-		return false
-	}
-	return os.Remove(filepath.Join(a.Dir, name)) == nil
 }
 
 // leave writes a run's card beside its lock file dir/name.
-func (a Admission) leave(dir, name string, says card) {
-	if data, err := json.Marshal(says); err == nil {
-		os.WriteFile(filepath.Join(dir, name+".run"), data, 0o644)
+func (a Admission) leave(dir, name string, says card) error {
+	data, err := json.Marshal(says)
+	if err != nil {
+		return err
 	}
+	return os.WriteFile(filepath.Join(dir, name+".run"), data, 0o644)
 }
 
 // remove gives up the lock file dir/name, and its card with it when this
 // process still holds the lock: a run whose turn was taken from it leaves the
 // new holder's card alone. The card goes first, while the lock still keeps
 // every other run out.
-func (a Admission) remove(dir, name string) {
-	if lock.HeldByNamed(dir, name, os.Getpid()) {
-		os.Remove(filepath.Join(dir, name+".run"))
+func (a Admission) remove(dir, name string, owner *lock.Info) {
+	current, err := lock.ReadNamedStrict(dir, name)
+	if err != nil || *current != *owner || !current.VerifiedAlive() {
+		return
 	}
+	os.Remove(filepath.Join(dir, name+".run"))
 	lock.ReleaseExclusiveNamed(dir, name)
-}
-
-// holder reads who holds the slot name and under what budget. A holder that
-// left no card is held to this run's own budget.
-func (a Admission) holder(name string) (who string, budget time.Duration) {
-	says := readCard(filepath.Join(a.Dir, name))
-	if says.BudgetSeconds <= 0 {
-		return says.Who, a.Budget
-	}
-	return says.Who, time.Duration(says.BudgetSeconds * float64(time.Second))
 }
 
 // readCard reads what the run holding lockFile says of itself. A run whose
@@ -395,10 +441,17 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 		var runs []Standing
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() || strings.HasSuffix(name, ".run") || !keep(name) {
+			if strings.HasSuffix(name, ".run") || !keep(name) {
 				continue
 			}
-			if record, err := lock.ReadNamed(dir, name); err == nil && record.Alive() {
+			record, err := lock.ReadNamedStrict(dir, name)
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("verify: unreadable custody in %s: %w", filepath.Join(dir, name), err)
+			}
+			if record.Alive() {
 				says := readCard(filepath.Join(dir, name))
 				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now})
 			}

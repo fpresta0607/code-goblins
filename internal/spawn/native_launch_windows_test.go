@@ -207,7 +207,7 @@ func fakeHarness() {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
-			case key == "\x1b[A" || key == "\x1b[B":
+			case key == "\x1b[A" || key == "\x1b[B" || key == "\x1b[F":
 			default:
 				line.WriteString(key)
 				if mode == "trickle" {

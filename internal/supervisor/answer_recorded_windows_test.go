@@ -21,10 +21,10 @@ func TestCFOAnswerToABusyGoblinIsRecordedSoTheBoardRefusesAnother(t *testing.T) 
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	meta, record, runner, connection := goblinFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
-	runner.busy = true
+	goblin.startTurn(t)
 
 	// Act
 	chosen, queued, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "")
@@ -33,8 +33,8 @@ func TestCFOAnswerToABusyGoblinIsRecordedSoTheBoardRefusesAnother(t *testing.T) 
 	if err != nil || chosen != "SQLite" || !queued {
 		t.Fatalf("answer = %q, queued %v, %v; want SQLite recorded as queued behind the goblin's turn", chosen, queued, err)
 	}
-	if len(runner.prompts) != 1 {
-		t.Fatalf("goblin prompts = %q, want the answer submitted once", runner.prompts)
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want the answer submitted once", typed)
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCFO {
@@ -50,8 +50,8 @@ func TestCFOAnswerToABusyGoblinIsRecordedSoTheBoardRefusesAnother(t *testing.T) 
 	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
 		t.Fatal("the board queued a second answer to a question the CFO had answered")
 	}
-	if len(runner.prompts) != 1 {
-		t.Fatalf("goblin prompts = %q, want only the CFO's answer", runner.prompts)
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want only the CFO's answer", typed)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestCFORecordsAnAnswerGivenOutOfBandWithoutSendingIt(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
-	meta, record, runner, connection := goblinFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
 	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	if err := wake.AckThrough(h.State, record.Seq); err != nil {
@@ -73,14 +73,14 @@ func TestCFORecordsAnAnswerGivenOutOfBandWithoutSendingIt(t *testing.T) {
 	}
 
 	// Act
-	chosen, err := connection.RecordAnswer(context.Background(), q.ID, "sqlite", "decided out of band", "")
+	chosen, err := connection.RecordAnswer(q.ID, "sqlite", "decided out of band", "")
 
 	// Assert
 	if err != nil || chosen != "SQLite" {
 		t.Fatalf("record = %q, %v; want SQLite recorded", chosen, err)
 	}
-	if len(runner.prompts) != 0 {
-		t.Fatalf("goblin prompts = %q, want nothing sent", runner.prompts)
+	if typed := goblin.lines(t); len(typed) != 0 {
+		t.Fatalf("the goblin received %q, want nothing sent", typed)
 	}
 	if err := os.MkdirAll(nativehook.SpoolDir(h.State), 0700); err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestCFORecordOnlyRefusesAQuestionItMustNotClose(t *testing.T) {
 			if c.register {
 				primaryFixture(t, store)
 			}
-			meta, record, runner, connection := goblinFixture(t, store)
+			meta, record, goblin, connection := goblinFixture(t, store)
 			q := surfaced(t, store, meta, record, connection)
 			if c.before != nil {
 				c.before(t, store, record, q)
@@ -145,11 +145,11 @@ func TestCFORecordOnlyRefusesAQuestionItMustNotClose(t *testing.T) {
 			}
 
 			// Act
-			_, err := connection.RecordAnswer(context.Background(), ref, "SQLite", "", "")
+			_, err := connection.RecordAnswer(ref, "SQLite", "", "")
 
 			// Assert
-			if err == nil || !strings.Contains(err.Error(), c.refusal) || len(runner.prompts) != 0 {
-				t.Fatalf("record = %v with %d prompts, want refused (%q) with nothing sent", err, len(runner.prompts), c.refusal)
+			if typed := goblin.lines(t); err == nil || !strings.Contains(err.Error(), c.refusal) || len(typed) != 0 {
+				t.Fatalf("record = %v with the goblin receiving %q, want refused (%q) with nothing sent", err, typed, c.refusal)
 			}
 			if got := store.Snapshot().Questions[0]; got.AnsweredBy == "cfo" {
 				t.Fatalf("question = %+v, want no CFO answer recorded", got)
@@ -167,12 +167,12 @@ func TestCFORecordOnlyRefusesAQuestionItMustNotClose(t *testing.T) {
 func TestCFORecordsAnAnswerTheOverlordGaveElsewhere(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		ask  func(t *testing.T, store *Store, connection *CFOConnection) (Question, *cfoRunner)
+		ask  func(t *testing.T, store *Store, connection *CFOConnection) (Question, *hostedTerminal)
 		pick string
 		want string
 	}{
-		{name: "the CFO's own question", pick: "stop", want: "Stop them", ask: func(t *testing.T, store *Store, connection *CFOConnection) (Question, *cfoRunner) {
-			if err := connection.PublishQuestion(context.Background(), "herdr-strays-20260929", "May I stop the 4 stray Herdr panes left from yesterday?", []string{"Stop them", "Leave them"}, "Stop them"); err != nil {
+		{name: "the CFO's own question", pick: "stop", want: "Stop them", ask: func(t *testing.T, store *Store, connection *CFOConnection) (Question, *hostedTerminal) {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the 4 stray Herdr panes left from yesterday?", []string{"Stop them", "Leave them"}, "Stop them"); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {
@@ -180,13 +180,13 @@ func TestCFORecordsAnAnswerTheOverlordGaveElsewhere(t *testing.T) {
 			}
 			return store.Snapshot().Questions[0], nil
 		}},
-		{name: "a goblin's question the CFO relayed", pick: "sqlite", want: "SQLite", ask: func(t *testing.T, store *Store, _ *CFOConnection) (Question, *cfoRunner) {
-			meta, record, runner, goblin := goblinFixture(t, store)
-			q := surfaced(t, store, meta, record, goblin)
+		{name: "a goblin's question the CFO relayed", pick: "sqlite", want: "SQLite", ask: func(t *testing.T, store *Store, _ *CFOConnection) (Question, *hostedTerminal) {
+			meta, record, goblin, connection := goblinFixture(t, store)
+			q := surfaced(t, store, meta, record, connection)
 			if err := wake.AckThrough(store.Home.State, record.Seq); err != nil {
 				t.Fatal(err)
 			}
-			return q, runner
+			return q, &goblin
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestCFORecordsAnAnswerTheOverlordGaveElsewhere(t *testing.T) {
 			q, goblin := c.ask(t, store, connection)
 
 			// Act
-			chosen, err := connection.RecordAnswer(context.Background(), q.ID, c.pick, "", "chat")
+			chosen, err := connection.RecordAnswer(q.ID, c.pick, "", "chat")
 
 			// Assert
 			if err != nil || chosen != c.want {
@@ -211,8 +211,12 @@ func TestCFORecordsAnAnswerTheOverlordGaveElsewhere(t *testing.T) {
 			if got.Status != "succeeded" || got.AnsweredBy != "overlord" || got.AnsweredIn != "chat" || got.AnsweredOption != c.want {
 				t.Fatalf("question = %+v, want it closed as the Overlord's answer in chat", got)
 			}
-			if len(cfo.prompts) != 0 || goblin != nil && len(goblin.prompts) != 0 {
-				t.Fatalf("prompts = %q to the CFO and %v to the goblin, want nothing sent", cfo.prompts, goblin)
+			typed := cfo.lines(t)
+			if goblin != nil {
+				typed = append(typed, goblin.lines(t)...)
+			}
+			if len(typed) != 0 {
+				t.Fatalf("the CFO and the goblin received %q, want nothing sent", typed)
 			}
 		})
 	}
@@ -232,7 +236,7 @@ func TestCFORecordOfItsOwnQuestionNamesWhereTheOverlordAnswered(t *testing.T) {
 			store, _ := testStore(t)
 			_, _, _, connection := primaryFixture(t, store)
 			servePipe(t, store, connection)
-			if err := connection.PublishQuestion(context.Background(), "herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {
@@ -240,7 +244,7 @@ func TestCFORecordOfItsOwnQuestionNamesWhereTheOverlordAnswered(t *testing.T) {
 			}
 
 			// Act
-			_, err := connection.RecordAnswer(context.Background(), "herdr-strays-20260929", "Stop them", "", c.in)
+			_, err := connection.RecordAnswer("herdr-strays-20260929", "Stop them", "", c.in)
 
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), c.refusal) {
@@ -263,7 +267,7 @@ func TestTheOverlordDismissesAQuestionHeNoLongerNeeds(t *testing.T) {
 		names string
 	}{
 		{name: "the CFO's own question", names: "your question herdr-strays-20260929", ask: func(t *testing.T, store *Store, connection *CFOConnection) Question {
-			if err := connection.PublishQuestion(context.Background(), "herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
+			if err := connection.PublishQuestion("herdr-strays-20260929", "May I stop the stray panes?", []string{"Stop them", "Leave them"}, ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ingestQuestions(); err != nil {
@@ -272,8 +276,8 @@ func TestTheOverlordDismissesAQuestionHeNoLongerNeeds(t *testing.T) {
 			return store.Snapshot().Questions[0]
 		}},
 		{name: "a goblin's question", names: "task-1's question", ask: func(t *testing.T, store *Store, _ *CFOConnection) Question {
-			meta, record, _, goblin := goblinFixture(t, store)
-			return surfaced(t, store, meta, record, goblin)
+			meta, record, _, connection := goblinFixture(t, store)
+			return surfaced(t, store, meta, record, connection)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -297,8 +301,8 @@ func TestTheOverlordDismissesAQuestionHeNoLongerNeeds(t *testing.T) {
 			if got := store.Snapshot().Questions[0]; got.Status != "cleared" || got.Message != "You dismissed it: answered elsewhere or no longer needed." {
 				t.Fatalf("question = %+v, want it dismissed", got)
 			}
-			if len(cfo.prompts) != 1 || !strings.Contains(cfo.prompts[0], c.names) || !strings.Contains(cfo.prompts[0], "dismissed") {
-				t.Fatalf("the CFO got %q, want one message naming %s as dismissed", cfo.prompts, c.names)
+			if typed := cfo.waitForLines(t, 1); len(typed) != 1 || !strings.Contains(typed[0], c.names) || !strings.Contains(typed[0], "dismissed") {
+				t.Fatalf("the CFO got %q, want one message naming %s as dismissed", typed, c.names)
 			}
 		})
 	}

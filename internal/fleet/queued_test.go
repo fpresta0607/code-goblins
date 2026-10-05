@@ -8,6 +8,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 func TestQueuedTasksReuseOneParsedBacklogWithoutReadingTheFileAgain(t *testing.T) {
@@ -92,6 +93,9 @@ func TestSaveQueuedTaskChangesItsTextAndBriefButPreservesSettings(t *testing.T) 
 		t.Fatalf("saved=%+v %v", after, err)
 	}
 	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "- [ ] first - New title") {
+		t.Errorf("saved queue row is not canonical: %s", data)
+	}
 	if !strings.Contains(string(data), "priority: high") || !strings.Contains(string(data), "- **second** - Keep me") {
 		t.Fatalf("unrelated data changed: %s", data)
 	}
@@ -170,5 +174,74 @@ func TestAnArchivedBriefIsNotAnUndispatchedTask(t *testing.T) {
 	}
 	if _, err := ReadQueuedTask(h, "task"); err != ErrNotQueued {
 		t.Fatalf("archived brief became queued: %v", err)
+	}
+}
+
+func TestCompletedOutcomeRefusesAQueuedRow(t *testing.T) {
+	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
+		t.Run(row, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+			path := filepath.Join(h.Data, "backlog.md")
+			text := "## Queued\n" + row + " (repo: project)\n  Preserved evidence.\n"
+			if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			backlog, err := ReadBacklog(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Generation: "old", Phase: "done", Evidence: "reported pull request"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			_, err = backlog.ReadQueuedTask(h, "delivered")
+
+			// Assert
+			if err != ErrNotQueued {
+				t.Errorf("completed task is dispatchable: %v", err)
+			}
+			if got := readFile(t, path); got != text {
+				t.Fatal("reading the task changed its source")
+			}
+		})
+	}
+}
+
+func TestStoppedOutcomeAllowsExplicitlyRequeuedWork(t *testing.T) {
+	// Arrange
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	writeBacklog(t, h.Data, "## Queued\n- [ ] stopped - Try again (repo: project)\n")
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "stopped", Phase: "stopped", Reason: "Earlier work cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	queued, err := ReadQueuedTask(h, "stopped")
+
+	// Assert
+	if err != nil || queued.Row.ID != "stopped" {
+		t.Fatalf("explicit stopped-task requeue refused: %+v %v", queued, err)
+	}
+}
+
+func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
+	// Arrange
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	writeBacklog(t, h.Data, "## Queued\n- [ ] delivered - Ship it (repo: project)\n")
+	if err := os.MkdirAll(filepath.Join(h.State, "outcomes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "outcomes", "delivered.json"), []byte("invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := ReadQueuedTask(h, "delivered")
+
+	// Assert
+	if err == nil {
+		t.Fatal("unreadable completion evidence allowed dispatch")
 	}
 }
