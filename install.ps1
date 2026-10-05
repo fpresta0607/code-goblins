@@ -320,7 +320,7 @@
     $ErrorActionPreference = "Continue"
 
     # Claude reads project skills only from .claude/skills, so a junction points it
-    # at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
+    # at .agents/skills; codex and pi read .agents/skills directly, and a
     # .codex/skills link would only give codex a second route to the same skills,
     # so one an earlier install made is removed.
     # A junction keeps one copy tracked in git (no developer-mode symlinks).
@@ -537,15 +537,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #                Defender blocks as Trojan:Win32/Commando.A!ml.
     #   release    - the release pinned above, which Install-NoMistakes
     #                installs, and updates when an older one is present
-    #   manual     - no scriptable installer; print the manual step instead
     $tools = @(
         @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
         @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
         @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
-        @{ Name = "herdr";               Kind = "powershell"; Cmd = "https://herdr.dev/install.ps1" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent" },
-        @{ Name = "kimi";                Kind = "manual";     Cmd = "install the Kimi Code CLI from https://www.kimi.com (no scriptable installer; sign in after)" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
@@ -557,7 +554,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
     $wingetPresent = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 
-    $manualSteps = @()
     $failedInstalls = @()
     $installedAny = $false
     foreach ($tool in $tools) {
@@ -596,11 +592,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
         if ($found) {
             Write-Host ("ok       {0,-20} present" -f $tool.Name)
-            continue
-        }
-        if ($tool.Kind -eq "manual") {
-            Write-Host ("MANUAL   {0,-20} {1}" -f $tool.Name, $tool.Cmd)
-            $manualSteps += $tool.Name
             continue
         }
         if (($tool.Kind -in "npm", "npm-file") -and -not $npmPresent) {
@@ -785,19 +776,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     & $dest doctor
     $doctorExit = $LASTEXITCODE
 
-    if ($manualSteps.Count -gt 0 -or $failedInstalls.Count -gt 0) {
+    if ($failedInstalls.Count -gt 0) {
         Write-Host ""
-        if ($manualSteps.Count -gt 0) {
-            Write-Host "Still needs a manual step:"
-            foreach ($m in $manualSteps) {
-                Write-Host "  - $m"
-            }
-        }
-        if ($failedInstalls.Count -gt 0) {
-            Write-Host "These installs did not complete; see the lines above:"
-            foreach ($m in $failedInstalls) {
-                Write-Host "  - $m"
-            }
+        Write-Host "These installs did not complete; see the lines above:"
+        foreach ($m in $failedInstalls) {
+            Write-Host "  - $m"
         }
     }
 
