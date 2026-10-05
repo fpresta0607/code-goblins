@@ -338,6 +338,8 @@ A queued task's panel holds **Adjust this task** under its Remove, with its titl
 **Save changes**, under the text, updates the task and any existing brief with an adjustment record.
 
 Each card's goblin is chosen from the task's work, and the crowned goblin is the CFO.
+If the native-inbox state folder disappears or becomes unreadable, the board names that problem while other updates continue.
+A missing folder is recreated, and hook ingestion resumes once the folder is available without restarting the supervisor.
 The whole crew:
 
 <p align="center">

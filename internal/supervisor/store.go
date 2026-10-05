@@ -789,7 +789,7 @@ func (s *Store) updateQuestionOutcomes() {
 func (s *Store) Ingest() error {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
-		return err
+		return recoverNativeInbox(s.Home.State, err)
 	}
 	type record struct {
 		path  string
