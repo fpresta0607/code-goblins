@@ -315,7 +315,7 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 	return herdr.Endpoint{Target: primary.Target, WorkspaceID: primary.Workspace, TabID: primary.Tab, PaneID: primary.Target.Pane}, true
 }
 
-// NativeCFOTerminal is the native terminal goblins --native and the board's
+// NativeCFOTerminal is the native terminal goblins and the board's
 // first-run page start the CFO in.
 const NativeCFOTerminal = "cfo"
 
