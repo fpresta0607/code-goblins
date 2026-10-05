@@ -543,6 +543,33 @@ func (c Collector) placeHarnesses(processes []Process) {
 	}
 }
 
+// WorktreeOwner reads the task that owns the directory at path under project's
+// .worktrees/, by the rule ownerOf states, from the records in stateDir.
+func WorktreeOwner(stateDir, project, path string) (Task, bool, error) {
+	scan, err := state.ScanIDs(stateDir)
+	if err != nil {
+		return Task{}, false, err
+	}
+	tasks := make(map[string]Task, len(scan.MetaIDs))
+	unreadable := make(map[string]bool)
+	worktrees := make([]WorktreeDir, 0, len(scan.MetaIDs))
+	for _, id := range scan.MetaIDs {
+		if state.ValidTaskID(id) != nil {
+			continue
+		}
+		meta, err := state.ReadTaskMeta(stateDir, id)
+		if err != nil {
+			unreadable[id] = true
+			continue
+		}
+		tasks[id] = Task{ID: id, Meta: meta}
+		worktrees = append(worktrees, WorktreeDir{Path: meta.Worktree, Created: createdAt(meta.Worktree)})
+	}
+	dir := WorktreeDir{Path: path, Project: project, TaskID: strings.TrimPrefix(filepath.Base(path), "gb-"), Created: createdAt(path)}
+	task, known := ownerOf(dir, tasks, worktrees, unreadable)
+	return task, known, nil
+}
+
 // createdAt is when a directory was made, zero when that cannot be read.
 func createdAt(path string) time.Time {
 	info, err := os.Stat(path)
