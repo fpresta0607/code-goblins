@@ -17,6 +17,8 @@ func TestDetectIgnoresQuotedReviewerFaults(t *testing.T) {
 		{"removed historical refusal", "-Error: 429 rate limit reached"},
 		{"source search result", `internal/routing/detect_quoted_test.go:38: refusal := "API Error: 429 rate_limit_error"`},
 		{"read review log", "• Ran Get-Content review.log\n  └ " + weekly + "\n    Error: 503 Service Unavailable\n\n• Working (8s • esc to interrupt)"},
+		{"tool output after an empty row", "• Ran Get-Content review.log\n  └ earlier output\n\n    " + weekly + "\n\n• Working (8s • esc to interrupt)"},
+		{"tool output after a whitespace row", "• Ran Get-Content review.log\n  └ earlier output\n    \n    " + weekly + "\n\n• Working (8s • esc to interrupt)"},
 		{"tool test output", "• Ran go test ./internal/routing\n  └ --- FAIL: TestQuotedFailure\n    fixture: API Error: 429 rate_limit_error\n    fixture: 401 Unauthorized: invalid api key\n\n• Working (8s • esc to interrupt)"},
 		{"own historical failure in code fence", "Earlier output:\n```text\nError: 429 rate limit reached\n```\nContinuing the repair."},
 		{"CRLF review diff", "    64 +The review log states: " + weekly + "\r\n• Working (8s • esc to interrupt)"},

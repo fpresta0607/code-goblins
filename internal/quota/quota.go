@@ -46,10 +46,12 @@ type Provider struct {
 
 // Window is one of a provider's allowance windows and how much of it is used.
 type Window struct {
-	ID          string
-	Label       string
-	PercentUsed float64
-	ResetsAt    time.Time
+	ID            string
+	Label         string
+	Kind          string
+	WindowSeconds float64
+	PercentUsed   float64
+	ResetsAt      time.Time
 }
 
 // Credits is a provider's credit balance.
@@ -61,7 +63,8 @@ type Credits struct {
 
 // Scope is the effective headroom for one scope of a provider.
 type Scope struct {
-	Name string
+	Name      string
+	BoundedBy []string
 	// Known is whether the percentage is measured; an unknown percentage
 	// never reads as zero.
 	Known            bool
@@ -93,9 +96,9 @@ type Headroom struct {
 }
 
 // Headroom reads the evidence for a harness and model. The harness name is
-// the provider name for every harness quota-axi measures (claude, codex,
-// kimi); a model-scoped window is preferred when quota-axi reports one for
-// the model, otherwise the all-models scope bounds it.
+// the provider name for every harness quota-axi measures (claude and codex);
+// a model-scoped window is preferred when quota-axi reports one for the
+// model, otherwise the all-models scope bounds it.
 func (r Report) Headroom(harness, model string) Headroom {
 	h := Headroom{Provider: harness}
 	p, ok := r.Providers[harness]
@@ -173,10 +176,12 @@ type payload struct {
 	Providers   []struct {
 		Provider string `json:"provider"`
 		Windows  []struct {
-			ID          string          `json:"id"`
-			Label       string          `json:"label"`
-			PercentUsed json.RawMessage `json:"percentUsed"`
-			ResetsAt    string          `json:"resetsAt"`
+			ID            string          `json:"id"`
+			Label         string          `json:"label"`
+			Kind          string          `json:"kind"`
+			WindowSeconds json.RawMessage `json:"windowSeconds"`
+			PercentUsed   json.RawMessage `json:"percentUsed"`
+			ResetsAt      string          `json:"resetsAt"`
 		} `json:"windows"`
 		Credits *struct {
 			Remaining json.RawMessage `json:"remaining"`
@@ -190,6 +195,7 @@ type payload struct {
 			Status                string `json:"status"`
 			EffectiveAvailability []struct {
 				Scope                     string          `json:"scope"`
+				BoundedBy                 []string        `json:"boundedBy"`
 				Status                    string          `json:"status"`
 				EffectivePercentRemaining json.RawMessage `json:"effectivePercentRemaining"`
 				Runway                    struct {
@@ -228,7 +234,8 @@ func Parse(data []byte, now time.Time) (Report, error) {
 			}
 			// A window whose use quota-axi could not measure is no reading.
 			if used, ok := number(w.PercentUsed); ok {
-				provider.Windows = append(provider.Windows, Window{ID: w.ID, Label: w.Label, PercentUsed: used, ResetsAt: at.UTC()})
+				seconds, _ := number(w.WindowSeconds)
+				provider.Windows = append(provider.Windows, Window{ID: w.ID, Label: w.Label, Kind: w.Kind, WindowSeconds: seconds, PercentUsed: used, ResetsAt: at.UTC()})
 			}
 		}
 		if p.Credits != nil {
@@ -237,7 +244,7 @@ func Parse(data []byte, now time.Time) (Report, error) {
 			}
 		}
 		for _, e := range p.QuotaSemantics.EffectiveAvailability {
-			scope := Scope{Name: e.Scope, Runway: e.Runway.Status, ResetsAt: provider.Resets[e.Runway.LimitingWindowID]}
+			scope := Scope{Name: e.Scope, BoundedBy: e.BoundedBy, Runway: e.Runway.Status, ResetsAt: provider.Resets[e.Runway.LimitingWindowID]}
 			if percent, ok := number(e.EffectivePercentRemaining); ok && e.Status == "known" {
 				scope.Known, scope.PercentRemaining = true, percent
 			}

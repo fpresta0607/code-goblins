@@ -48,7 +48,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout")
 	brief := fs.String("brief", "", "absolute brief file")
-	harnessName := fs.String("harness", "", "claude, codex, pi, or kimi; omitted, the lane table in data/routing.json picks it")
+	harnessName := fs.String("harness", "", "claude, codex, or pi; omitted, the lane table in data/routing.json picks it")
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	model := fs.String("model", "", "harness model")
 	effort := fs.String("effort", "", "harness effort")
@@ -69,7 +69,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
-		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, pi, or kimi")
+		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, or pi")
 		return 2
 	}
 	if !validSpawnMode(*mode) {
@@ -165,7 +165,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			return 1
 		}
 		if !validSpawnHarness(choice.Harness) {
-			fmt.Fprintf(stderr, "cfo spawn: lane %q names harness %q, which is not claude, codex, pi, or kimi\n", choice.Name, choice.Harness)
+			fmt.Fprintf(stderr, "cfo spawn: lane %q names harness %q, which is not claude, codex, or pi\n", choice.Name, choice.Harness)
 			return 1
 		}
 		*harnessName, *model, *effort = choice.Harness, choice.Model, choice.Effort
@@ -185,9 +185,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if skipped == "" {
 		if reset, isLow := supervisor.AllowanceReset(report, *harnessName, *model, time.Now().UTC()); isLow {
 			if reset.IsZero() {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; its reset time is unknown\n", *harnessName)
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; its reset time is unknown\n", *harnessName)
 			} else {
-				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 3 percent floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
+				fmt.Fprintf(stderr, "cfo spawn: %s allowance is at the 5 percent weekly floor; resumes at %s\n", *harnessName, reset.UTC().Format(time.RFC3339))
 			}
 			return 1
 		}
@@ -344,7 +344,7 @@ func usableLane(report quota.Report, skipped string) routing.Usable {
 	return func(lane routing.ExecutionLane) (bool, string) {
 		headroom := report.Headroom(lane.Harness, lane.Model)
 		if reset, isLow := supervisor.AllowanceReset(report, lane.Harness, lane.Model, time.Now().UTC()); isLow {
-			note := lane.Harness + " at the 3 percent allowance floor"
+			note := lane.Harness + " at the 5 percent weekly allowance floor"
 			if !reset.IsZero() {
 				note += ", resets " + reset.UTC().Format(time.RFC3339)
 			}
@@ -382,7 +382,7 @@ func herdrSession() string {
 
 func validSpawnHarness(name string) bool {
 	switch harness.Kind(name) {
-	case harness.Claude, harness.Codex, harness.Pi, harness.Kimi:
+	case harness.Claude, harness.Codex, harness.Pi:
 		return true
 	default:
 		return false
