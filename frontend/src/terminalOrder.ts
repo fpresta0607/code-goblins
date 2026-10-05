@@ -72,19 +72,18 @@ export function keepLive(open: string[], key: string, herdr: (key: string) => bo
   return [key, ...open.filter((other) => other !== key)].filter((entry) => !herdr(entry) || ++kept <= HERDR_LIVE);
 }
 
-// The panel is maximized per view: a goblin's terminal on the Board opens
-// maximized, where its fitted screen is large enough to read, and the task
-// view beside the board. Orchestration follows the task view's choice, so its
-// graph, where goblins are picked, stays beside the panel. Each view keeps the
-// Overlord's last choice.
+// The panel opens beside the board and is maximized per view: the Board's
+// terminal view and its task view each keep the Overlord's last choice.
+// Orchestration follows the task view's choice, so its graph, where goblins
+// are picked, stays beside the panel.
 export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
 
 export function maximizedView(workspace: "Board" | "Orchestration", panel: "task" | "terminal"): "task" | "terminal" {
   return workspace === "Board" ? panel : "task";
 }
 
-export function maximizedFor(view: "task" | "terminal", stored: string | null): boolean {
-  return stored === null ? view === "terminal" : stored === "true";
+export function maximizedFor(stored: string | null): boolean {
+  return stored === "true";
 }
 
 export function paneWidth(requested: number, workspace: number): number {
