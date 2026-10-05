@@ -1065,16 +1065,23 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		// A goblin's own newer report says what it is doing, unless a question
-		// or the gate holds it or its work already merged. A question it asked
-		// since replaces no such report: once answered, the goblin stands on
-		// it again.
+		// or the gate holds it or its work already merged. A question asked
+		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
-		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && !isGateHeld {
+		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && (reportKind(standing) == "working" || reportKind(standing) == "done") && !runtime.At.Before(standingAt) {
+		// Answering or acknowledging a report does not resume its task. A
+		// standing dependency wait still survives a question asked beside it.
+		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
+		}
+		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
 				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "idle", runtime.Reason, ""
+			} else if runtime.State == "unavailable" {
+				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "unavailable", runtime.Reason, ""
 			} else if runtime.working() && evaluation.Phase == "review" {
 				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
 			}
