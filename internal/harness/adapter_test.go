@@ -25,7 +25,7 @@ func (r *fakeRunner) Run(_ context.Context, request execx.Request) (execx.Result
 func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 	registry := DefaultRegistry()
 
-	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
+	for _, kind := range []Kind{Claude, Codex, Pi} {
 		adapter, err := registry.Get(kind)
 		if err != nil {
 			t.Fatalf("Get(%q): %v", kind, err)
@@ -35,7 +35,7 @@ func TestDefaultRegistryAcceptsOnlyPlan3Harnesses(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []Kind{"grok", "opencode", "raw command", "unknown"} {
+	for _, kind := range []Kind{"kimi", "grok", "opencode", "raw command", "unknown"} {
 		if _, err := registry.Get(kind); err == nil {
 			t.Errorf("Get(%q) returned nil error", kind)
 		}
@@ -58,7 +58,6 @@ func TestControlContractForSwitch(t *testing.T) {
 		{Claude, []string{"escape"}, "/exit", []string{"--continue"}},
 		{Codex, []string{"escape"}, "/quit", []string{"resume", "--last"}},
 		{Pi, []string{"escape"}, "/quit", nil},
-		{Kimi, []string{"escape"}, "/quit", []string{"--continue"}},
 	}
 	registry := DefaultRegistry()
 	for _, test := range cases {
@@ -119,7 +118,7 @@ func equalStrings(left, right []string) bool {
 // and its goblin would start unstamped.
 func TestEveryAdapterStampsTheGoblinRole(t *testing.T) {
 	registry := DefaultRegistry()
-	for _, kind := range []Kind{Claude, Codex, Pi, Kimi} {
+	for _, kind := range []Kind{Claude, Codex, Pi} {
 		adapter, err := registry.Get(kind)
 		if err != nil {
 			t.Fatalf("Get(%s): %v", kind, err)

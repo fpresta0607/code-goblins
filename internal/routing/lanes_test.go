@@ -93,7 +93,7 @@ func TestLoadKeepsAcceptingARulesOnlyPolicy(t *testing.T) {
 }
 
 // The table that ships in data/routing.json is the Overlord's direction of
-// 2026-09-17; this pins it, with the fault rules untouched beside it.
+// 2026-09-17; this pins it, with the fault rule beside it.
 func TestShippedRoutingTableMatchesTheDirection(t *testing.T) {
 	policy, err := Load(filepath.Join("..", "..", "data"))
 	if err != nil {
@@ -120,7 +120,7 @@ func TestShippedRoutingTableMatchesTheDirection(t *testing.T) {
 			t.Errorf("lane %s has no note saying what it is for", name)
 		}
 	}
-	if len(policy.Rules) != 2 || policy.Rules[0].Harness != "kimi" || policy.Rules[0].Fault != RateLimit || policy.Rules[1].Fault != Auth {
-		t.Errorf("rules = %+v, want the two standing switch rules unchanged", policy.Rules)
+	if len(policy.Rules) != 1 || policy.Rules[0].Harness != "" || policy.Rules[0].Fault != Auth {
+		t.Errorf("rules = %+v, want the one standing switch rule, a rejected credential on any harness", policy.Rules)
 	}
 }

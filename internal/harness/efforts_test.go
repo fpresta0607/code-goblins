@@ -24,7 +24,7 @@ func TestCatalogEffortsBuildInTheNativeAdapters(t *testing.T) {
 			}
 		})
 	}
-	if len(Efforts(Kimi)) != 0 || len(Efforts(Kind("unknown"))) != 0 {
+	if len(Efforts(Kind("kimi"))) != 0 || len(Efforts(Kind("unknown"))) != 0 {
 		t.Fatal("efforts advertised for an adapter with no effort flag")
 	}
 }
