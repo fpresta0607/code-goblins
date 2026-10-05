@@ -20,7 +20,7 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
   const attempt = useRef<{ payload: string; operation: string } | null>(null);
   if (pending?.revision != null && snapshot.revision >= pending.revision) setPending(null);
   if (confirmation && (confirmation.generation !== task.generation || confirmation.revision !== task.queue_revision)) setConfirmation(null);
-  const isChanging = !!pending || task.starting || ["pausing", "stopping", "resuming"].includes(task.phase);
+  const isChanging = !!pending || task.starting || task.switching || ["pausing", "stopping", "resuming"].includes(task.phase);
   const isQueued = task.phase === "queued";
   const isResumeRetry = task.lifecycle?.action === "resume" && ["failed", "resuming"].includes(task.lifecycle.phase);
   const canResume = task.phase === "paused" || isResumeRetry;
@@ -61,7 +61,7 @@ export function TaskControls({ task, snapshot, start, leading, labelled = false,
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" />{text(end)}</button>
     </div>
     {(isChanging || problemText) && <div className="task-notes">
-      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
+      {isChanging && <p className="task-action-progress" role="status">{pending ? { pause: "Pausing", resume: "Resuming", stop: ending }[pending.action] : task.switching ? "Switching engine" : task.starting ? "Starting" : task.phase === "pausing" ? "Pausing" : task.phase === "resuming" ? "Resuming" : ending}...</p>}
       {problemText && <p className="task-action-problem" role="alert">{problemText}</p>}
     </div>}
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}

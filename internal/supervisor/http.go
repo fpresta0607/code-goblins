@@ -172,8 +172,19 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.lifecycleTask(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
+	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":
+		h.selectTaskEngine(w, r)
 	case r.URL.Path == "/api/setup" && r.Method == "GET":
 		h.setup(w, r)
+	case r.URL.Path == "/api/engines" && r.Method == "GET":
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		catalog, err := h.Service.engineCatalog(ctx, execx.OSRunner{})
+		if err != nil {
+			apiError(w, 500, err.Error())
+			return
+		}
+		respond(w, 200, catalog)
 	case r.URL.Path == "/api/setup/start" && r.Method == "POST":
 		h.startCFO(w, r)
 	case r.URL.Path == "/api/cfo/reopen" && r.Method == "POST":

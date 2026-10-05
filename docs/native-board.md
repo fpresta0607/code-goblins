@@ -599,7 +599,22 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
+Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks.
+The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
+`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
+`POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
+A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
+A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart and no running, fixing or fix-review gate step.
+A task paused while that choice is still pending uses it on its next Resume, which removes it only after the launch succeeds.
+The catalog is read again as the choice applies: a selection that is no longer available is removed, with its reason on the task's card.
+An idle or gate reading that fails shows on that card until a later reading succeeds or the choice is cancelled; neither kind of failure becomes the board-wide error.
+Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty` and `--generation`, which refuses the switch when the task's session has changed; its confirmation says uncommitted work stays.
+The old native terminal closes, ending the processes it started, and there is no additional leftover-process refusal.
+The target launch is built before the old harness stops, so an invalid launch leaves the session untouched; a failure after the stop shows the CLI's recovery reason and preserves the worktree.
+The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
+The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
+Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
 Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
 Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.
@@ -633,6 +648,11 @@ A desktop window for the board, `goblins-window.exe`, is the program in `cmd/gob
 `go build -trimpath -ldflags "-H windowsgui" -o goblins-window.exe ./cmd/goblins-window` builds it, and it is started with `--board <the board's address> --state <the home's state folder>`.
 `goblins --window` starts it that way where it sits beside `goblins.exe`, after finding or starting the supervisor as `goblins --board` does, with its output appended to `state\window.log`; a window already running takes the start as its second instance and comes to the front.
 `goblins --window --background` starts it in its tray, and where no window sits beside `goblins.exe` either exits 1 and says so.
+Started with neither `--board` nor `--state`, as the Start menu's Code Goblins and **Start at login** start it, the program is the app's launcher: it runs the `goblins.exe` beside it with `--window`, and `--background` when it was given that, in a console that is never shown, and exits once that has started the window on the board.
+So a supervisor is started in one way only, by `goblins`, whoever opens the app.
+A click on a notification while no window runs opens the app the same way: Windows then starts the program alone, with `-Embedding`.
+When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
+Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
 `.\install.cmd -Dev` builds it into the clone, the one-line install puts it in the home from a release whose `SHA256SUMS` lists it, which none does yet, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
@@ -643,7 +663,10 @@ Each notification carries the goblin from `goblins-window.png`, which every star
 A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
-For a window that `goblins` started, the value runs that `goblins.exe --window --background`, so the supervisor starts before the window; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+For a window that `goblins` started, the value runs the window alone with `--background`, which runs that `goblins` as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
+The install writes the window alone only where it put the window in the home itself, from a release that ships it or, with `-Dev`, from the build it just made; where the home only kept a window it already held, the install writes that home's `goblins.exe --window --background`, which opens any window.
+An install that retained the home's window keeps the earlier standalone window, its picture, folder and Start-menu entry unchanged.
+A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
 The board's dictation works in it as in a browser tab, because the page records with the browser engine's own recorder and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
 
 ### Interface rules
