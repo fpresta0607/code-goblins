@@ -170,7 +170,7 @@ The policy is `config/verify.json`:
 ```json
 {
   "version": 1,
-  "slow_packages": [".", "cmd/cfo", "internal/supervisor"]
+  "slow_packages": ["cmd/cfo", "internal/installscript", "internal/supervisor"]
 }
 ```
 

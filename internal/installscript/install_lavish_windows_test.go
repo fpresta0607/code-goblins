@@ -1,4 +1,4 @@
-package codegoblins
+package installscript
 
 import (
 	"crypto/sha256"
