@@ -135,6 +135,63 @@ test("aborting drops the recording, and an answer that arrives later is not deli
   assert.equal(lateEvents.ended(), 1, "the end is told once");
 });
 
+test("aborting during decode never asks the supervisor", async () => {
+  const sound = { samples: new Float32Array([0, .5, -.5]), rate: 16000 };
+  const posts: Uint8Array<ArrayBuffer>[] = [];
+  const Recognition = localRecognizer(
+    () => ({ stop: async () => sound, cancel: () => {} }),
+    async (bytes) => { posts.push(bytes); return "too late"; },
+  );
+  const recognizer = new Recognition();
+  const events = listen(recognizer);
+  recognizer.start(track);
+  recognizer.stop();
+  recognizer.abort();
+  await settle();
+  assert.equal(posts.length, 0, "a decode that completes after cancellation must never POST");
+  assert.deepEqual(events.heard, []);
+  assert.deepEqual(events.errors, [{ error: "aborted" }]);
+  assert.equal(events.ended(), 1);
+});
+
+test("aborting a pending recognition cancels its HTTP request and ignores late words", async (context) => {
+  let requests = 0;
+  let is_request_aborted = false;
+  let answer: () => void = () => { throw new Error("No request arrived"); };
+  context.mock.method(globalThis, "fetch", (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    assert.equal(input, "http://127.0.0.1:1/api/dictation");
+    assert.equal(init?.method, "POST");
+    requests++;
+    return new Promise<Response>((resolve, reject) => {
+      answer = () => resolve(new Response("too late"));
+      init?.signal?.addEventListener("abort", () => {
+        is_request_aborted = true;
+        reject(new DOMException("The request was aborted", "AbortError"));
+      }, { once: true });
+    });
+  });
+  const sound = { samples: new Float32Array([0, .5, -.5]), rate: 16000 };
+  const Recognition = localRecognizer(
+    () => ({ stop: async () => sound, cancel: () => {} }),
+    (bytes, signal?: AbortSignal) => fetch("http://127.0.0.1:1/api/dictation", { method: "POST", body: bytes, signal }).then((response) => response.text()),
+  );
+  const recognizer = new Recognition();
+  const events = listen(recognizer);
+  recognizer.start(track);
+  recognizer.stop();
+  await settle();
+  assert.equal(requests, 1);
+  recognizer.abort();
+  answer();
+  await settle();
+  assert.equal(is_request_aborted, true, "abort must reach the in-flight HTTP request");
+  assert.deepEqual(events.heard, []);
+  assert.deepEqual(events.errors, [{ error: "aborted" }]);
+  assert.equal(events.ended(), 1);
+  recognizer.stop();
+  assert.equal(requests, 1, "cancellation never posts the sound again");
+});
+
 test("without a track there is nothing to record", () => {
   const { Recognition, recorded } = engine();
   const recognizer = new Recognition();
