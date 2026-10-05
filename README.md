@@ -318,7 +318,8 @@ The supervisor resumes memory pauses after two consecutive readings of at least 
 Answers to paused goblins are retained for their resume prompt.
 Resume requires the same 5 GB of free memory and of free commit, and continues a saved session less than a day after pausing where supported, otherwise using the saved handoff.
 The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
-At 3 percent allowance remaining, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the provider resets.
+At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
+Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
@@ -552,7 +553,8 @@ Spent
 - claude week: 40% used when it turned on, 47% when it turned off (7 points)
 ```
 
-The pauses at an allowance floor and at the memory floor are not built yet.
+AFK mode shares the supervisor's allowance pause at 5 percent weekly remaining and its automatic resume at the reset.
+Automatic pauses at the memory floor are not built yet.
 
 ### Open in VS Code
 
