@@ -50,6 +50,9 @@ var (
 type Dispatch struct {
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
+	// Disk reads the free space of the home's drive and the disk floor; nil
+	// reads the machine's.
+	Disk func() (Disk, error)
 	// CommitHolders names the apps holding the most commit.
 	CommitHolders func() ([]CommitHolder, error)
 	// Spawn runs cfo with args and returns what it printed.
@@ -210,7 +213,11 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
-	if err := CheckLaunch(s.Store.Home, memory); err != nil {
+	disk, err := s.machineDisk()
+	if err != nil {
+		return StartRefusal{Reason: "Free disk cannot be read, so nothing starts: " + err.Error()}
+	}
+	if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
 		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {

@@ -1,21 +1,26 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // runInstall wires a CFO home into the machine so a Claude Code session
-// opened in any repository is supervised by it: this checkout, or outside
-// one a per-user home the binary sets up itself.
+// opened in any repository is supervised by it: the per-user home the binary
+// sets up itself, the same one wherever it runs, a code-goblins checkout
+// included.
 //
 // It is deliberately separate from `cfo doctor`: doctor reports, install
 // repairs, and a command that silently changes a machine while claiming to
@@ -41,7 +46,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, checkout, err := installRoot()
+	root, err := installRoot()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -51,21 +56,34 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo install: find the user's profile folder: %v\n", err)
+		return 1
+	}
+	skills, err := iofs.Sub(codegoblins.Skills, ".agents/skills")
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo install: read the skills this build ships: %v\n", err)
+		return 1
+	}
+	commands := execx.OSRunner{}
 	service := install.Service{
 		Root:         root,
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
-		Env:          install.NewEnvStore(execx.OSRunner{}),
+		Env:          install.NewEnvStore(commands),
+		Contract:     codegoblins.Contract,
+		Policy:       codegoblins.Policy,
+		Skills:       skills,
+		Harnesses:    harnessmap.Find(os.Getenv, userHome),
+		Link:         junction(commands),
 		// The desktop window's Start at login entry, which an uninstall
 		// removes and an install takes over from an earlier copy.
 		StartAtLoginKey: install.StartAtLoginKey,
 	}
-	if !checkout {
-		service.Contract, service.Policy = codegoblins.Contract, codegoblins.Policy
-		if service.Binary, err = os.Executable(); err != nil {
-			fmt.Fprintf(stderr, "cfo install: find the running binary: %v\n", err)
-			return 1
-		}
+	if service.Binary, err = os.Executable(); err != nil {
+		fmt.Fprintf(stderr, "cfo install: find the running binary: %v\n", err)
+		return 1
 	}
 	if *projectsRoot != "" {
 		if service.ProjectsRoot, err = fsx.AbsClean(*projectsRoot); err != nil {
@@ -105,36 +123,35 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// installRoot is the home install wires in, decided by the working
-// directory and never by whatever CFO_HOME already says: honoring a stale
-// CFO_HOME here would make the one command that is supposed to repair the
-// machine quietly confirm the broken value. Run from a code-goblins checkout
-// it is that checkout; run anywhere else it is the per-user home under
-// LOCALAPPDATA, which install sets up in full, so CFO_HOME never names a
-// directory with no fleet in it and the hooks never go silently inert.
-func installRoot() (root string, checkout bool, err error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", false, fmt.Errorf("cfo install: resolve the working directory: %w", err)
-	}
-	if root, err = fsx.AbsClean(wd); err != nil {
-		return "", false, fmt.Errorf("cfo install: resolve the working directory: %w", err)
-	}
-	checkout = true
-	for _, marker := range []string{"AGENTS.md", filepath.Join("cmd", "cfo")} {
-		if _, err := os.Stat(filepath.Join(root, marker)); err != nil {
-			checkout = false
-		}
-	}
-	if checkout {
-		return root, true, nil
-	}
+// installRoot is the home install wires in: CFO_HOME's own value is never
+// consulted, because honoring a stale CFO_HOME here would make the one command
+// that is supposed to repair the machine quietly confirm the broken value, and
+// the working directory never decides it either: a code-goblins checkout is
+// source, never a home, so an install run from one sets up the same per-user
+// home the desktop installer does.
+func installRoot() (string, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
-		return "", false, fmt.Errorf("cfo install: %s is not a code-goblins checkout and LOCALAPPDATA is not set, so there is no per-user folder for a CFO home", root)
+		return "", fmt.Errorf("cfo install: LOCALAPPDATA is not set, so there is no per-user folder for a CFO home")
 	}
-	if root, err = fsx.AbsClean(filepath.Join(local, "CodeGoblins")); err != nil {
-		return "", false, fmt.Errorf("cfo install: resolve the per-user home: %w", err)
+	root, err := fsx.AbsClean(filepath.Join(local, "CodeGoblins"))
+	if err != nil {
+		return "", fmt.Errorf("cfo install: resolve the per-user home: %w", err)
 	}
-	return root, false, nil
+	return root, nil
+}
+
+// junction links a directory through cmd's mklink /J, which needs no
+// privilege where a symbolic link would.
+func junction(commands execx.Runner) harnessmap.Linker {
+	return func(link, target string) error {
+		result, err := commands.Run(context.Background(), execx.Request{Name: "cmd", Args: []string{"/c", "mklink", "/J", link, target}})
+		if err != nil {
+			return err
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("mklink /J exited with code %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))
+		}
+		return nil
+	}
 }

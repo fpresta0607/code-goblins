@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -35,7 +37,7 @@ func TestTaskResourcesContinuesAfterConfirmedLegacyPaneAbsence(t *testing.T) {
 			directory := t.TempDir()
 			stateDir := filepath.Join(directory, "state")
 			meta := state.TaskMeta{ID: "fixture", Backend: "herdr", HerdrSession: "missing-lifecycle-fixture", HerdrPaneID: "w1:p2", Project: directory, Worktree: filepath.Join(directory, ".worktrees", "gb-fixture"), TaskTmp: filepath.Join(stateDir, "tasktmp", "fixture")}
-			resources, err := TaskResources(t.Context(), stateDir, meta, pipeline.Reader{Root: filepath.Join(directory, "gate"), Commands: missingPaneRunner{code: code}})
+			resources, err := TaskResources(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: filepath.Join(directory, "gate"), Commands: missingPaneRunner{code: code}})
 			if (err == nil) != (code == "pane_not_found") {
 				t.Fatalf("pane evidence=%s resources=%+v error=%v", code, resources, err)
 			}
@@ -72,7 +74,7 @@ func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := state.TaskMeta{ID: "fixture", Backend: "native", Project: directory, Worktree: filepath.Join(directory, ".worktrees", "gb-fixture"), TaskTmp: filepath.Join(stateDir, "tasktmp", "fixture")}
-			resources, err := TaskResources(t.Context(), stateDir, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: status}})
+			resources, err := TaskResources(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: status}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,7 +121,7 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	}
 	otherGateTest := start(otherTestBinary, otherWorktree)
 	taskProcess := start(os.Args[0], meta.Worktree)
-	resources, err := TaskResources(t.Context(), stateDir, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}})
+	resources, err := TaskResources(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +148,45 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	}
 	if hasExited(otherGateTest, 0) {
 		t.Errorf("another task's gate test was stopped only because it runs from this task's Go temp directory: stopped=%v", stopped)
+	}
+}
+
+// A task spawned into the home names its worktree, its extra worktrees and
+// its scratch folder there, and every one of them is a directory its stop
+// covers; a record naming anything else stops nothing.
+func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	project := filepath.Join(t.TempDir(), "app")
+	meta := state.TaskMeta{
+		ID: "g1", Backend: "native", Project: project,
+		Worktree: filepath.Join(root, "worktrees", "app", "g1"),
+		Extras:   []string{filepath.Join(root, "worktrees", "app", "g1-proof")},
+		Scratch:  filepath.Join(root, "scratch", "g1"),
+		TaskTmp:  filepath.Join(h.State, "tasktmp", "g1"),
+	}
+	gate := pipeline.Reader{Root: filepath.Join(root, "gate"), Commands: execx.OSRunner{}}
+
+	resources, err := TaskResources(t.Context(), h, meta, gate)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{meta.Worktree, meta.Extras[0], meta.Scratch, meta.TaskTmp} {
+		if !slices.Contains(resources.Directories, want) {
+			t.Errorf("directories = %v, want %s among them", resources.Directories, want)
+		}
+	}
+	for name, change := range map[string]func(*state.TaskMeta){
+		"a worktree outside the home":     func(m *state.TaskMeta) { m.Worktree = filepath.Join(root, "elsewhere", "g1") },
+		"an extra of another task":        func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "app", "g2-proof")} },
+		"an extra in another project":     func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "web", "g1-proof")} },
+		"a scratch folder of another task": func(m *state.TaskMeta) { m.Scratch = filepath.Join(root, "scratch", "g2") },
+	} {
+		changed := meta
+		change(&changed)
+		if _, err := TaskResources(t.Context(), h, changed, gate); err == nil {
+			t.Errorf("%s: TaskResources = nil, want a refusal", name)
+		}
 	}
 }

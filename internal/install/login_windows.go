@@ -60,7 +60,7 @@ func (s Service) removeStartAtLogin(report *reporter) error {
 		return err
 	}
 	defer key.Close()
-	if !startsIn(command, s.Root) {
+	if !startsIn(command, s.bin()) && !startsIn(command, s.Root) {
 		return nil
 	}
 	if err := key.DeleteValue(startAtLoginValue); err != nil {
@@ -70,8 +70,9 @@ func (s Service) removeStartAtLogin(report *reporter) error {
 	return nil
 }
 
-// adoptStartAtLogin makes Start at login start this home where it started the
-// earlier copy of the desktop window. The entry becomes the one the window
+// adoptStartAtLogin makes Start at login start this home's bin where it
+// started the earlier copy of the desktop window, or this home's root, where
+// an older install put the binaries. The entry becomes the one the window
 // writes when this home's goblins starts it, so the window still shows its
 // Start at login as on.
 func (s Service) adoptStartAtLogin(report *reporter) error {
@@ -80,10 +81,10 @@ func (s Service) adoptStartAtLogin(report *reporter) error {
 		return err
 	}
 	defer key.Close()
-	if !startsIn(command, s.EarlierWindow) {
+	if !(s.EarlierWindow != "" && startsIn(command, s.EarlierWindow)) && !startsIn(command, s.Root) {
 		return nil
 	}
-	adopted := `"` + filepath.Join(s.Root, "goblins.exe") + `" --window --background`
+	adopted := `"` + filepath.Join(s.bin(), "goblins.exe") + `" --window --background`
 	if err := key.SetStringValue(startAtLoginValue, adopted); err != nil {
 		return fmt.Errorf("install: make Start at login start this home: %w", err)
 	}

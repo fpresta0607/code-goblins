@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -198,6 +199,7 @@ func renderHeadroom(out *writer, report Report) {
 		" of the machine). Every container runs inside it, so this is the figure that starves the fleet without any Windows-side process appearing to grow.")
 	out.line("")
 	out.line(text(report.Dispatch.Line))
+	renderStorage(out, report)
 
 	out.line("")
 	out.line("### Declared memory limits of running stacks")
@@ -345,4 +347,49 @@ func dash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+// renderStorage is what the CFO home holds on disk, by bucket, beside
+// Docker's share, and what the janitor last did.
+func renderStorage(out *writer, report Report) {
+	storage := report.Storage
+	out.line("")
+	out.line("### The home's disk by bucket")
+	out.line("")
+	out.line("| Bucket | Size |")
+	out.line("| --- | --- |")
+	for _, id := range sortedKeys(storage.Worktrees) {
+		out.row("task "+id+" worktrees", Bytes(storage.Worktrees[id]))
+	}
+	for _, id := range sortedKeys(storage.Scratch) {
+		out.row("task "+id+" scratch", Bytes(storage.Scratch[id]))
+	}
+	for _, tool := range sortedKeys(storage.Caches) {
+		out.row("caches\\"+tool, Bytes(storage.Caches[tool]))
+	}
+	out.row("bin", Bytes(storage.Bin))
+	out.row("state", Bytes(storage.State))
+	out.row("data", Bytes(storage.Data))
+	out.row("the home in all", Bytes(storage.Total()))
+	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
+	out.line("")
+	if report.Janitor == nil {
+		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")
+		return
+	}
+	record := report.Janitor
+	out.line(fmt.Sprintf("The janitor last swept at %s: removed %d item(s), freeing %s; kept %d it must not touch; %d stray item(s) reported.",
+		record.Time.Format(time.RFC3339), len(record.Removed), Bytes(record.Freed()), len(record.Kept), len(record.Strays)))
+	for _, stray := range record.Strays {
+		out.line("- stray: " + text(stray.Path) + " (" + text(stray.Detail) + ")")
+	}
+}
+
+func sortedKeys(group map[string]int64) []string {
+	keys := make([]string, 0, len(group))
+	for key := range group {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

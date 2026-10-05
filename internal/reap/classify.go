@@ -76,6 +76,9 @@ type Finding struct {
 	TaskID string `json:"task_id,omitempty"`
 	PID    int    `json:"pid,omitempty"`
 	Path   string `json:"path,omitempty"`
+	// Project is the checkout a worktree finding belongs to, the repository
+	// its return and its prune run in.
+	Project string `json:"project,omitempty"`
 	Detail string `json:"detail"`
 	Action string `json:"action"`
 	// Registered says the project answered git worktree list and listed this
@@ -466,6 +469,59 @@ func Classify(inv Inventory) []Finding {
 	return findings
 }
 
+// Unowned lists the fleet worktrees in inv that no task owns, by its record
+// or by its name, and that nothing live works in: no agent's pane, no live
+// terminal host, and no process naming the folder on its command line. Each
+// is a worktree its project registers, or a folder its project answered
+// about and does not register. These are the janitor's to tidy; a worktree a
+// task still owns is that task's, left to cfo cleanup. A task whose record
+// cannot be read owns what its name could name, so nothing is listed for it.
+func Unowned(inv Inventory) []WorktreeDir {
+	tasks := make(map[string]Task, len(inv.Tasks))
+	for _, task := range inv.Tasks {
+		tasks[task.ID] = task
+	}
+	panes := make(map[string]Pane, len(inv.Panes))
+	for _, pane := range inv.Panes {
+		panes[pane.ID] = pane
+	}
+	unreadable := make(map[string]bool, len(inv.UnreadableTasks))
+	for _, id := range inv.UnreadableTasks {
+		unreadable[id] = true
+	}
+	var unowned []WorktreeDir
+	for _, worktree := range inv.Worktrees {
+		if worktree.Registration == RegistrationUnknown || len(inv.UnreadableTasks) > 0 {
+			continue
+		}
+		if _, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable); known {
+			continue
+		}
+		if goblinIsAlive(Task{}, false, panes, worktree.Path) {
+			continue
+		}
+		if _, named := processNaming(worktree.Path, inv, nil); named {
+			continue
+		}
+		unowned = append(unowned, worktree)
+	}
+	return unowned
+}
+
+// Recorded reports whether a task record in inv names path as its worktree or
+// as an extra one. A fleet worktree no record names is a stray.
+func Recorded(inv Inventory, path string) bool {
+	key := normalizePath(filepath.Clean(path))
+	for _, task := range inv.Tasks {
+		for _, recorded := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if recorded != "" && normalizePath(filepath.Clean(recorded)) == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[string]Task, panes map[string]Pane, unreadable map[string]bool) []Finding {
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateSupervisor))
@@ -626,6 +682,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			Class:      OrphanWorktree,
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
+			Project:    worktree.Project,
 			Registered: worktree.Registration == RegistrationListed,
 			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree),
 			Action:     "return the worktree through cfo cleanup",
@@ -641,15 +698,27 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 	return findings
 }
 
-// ownerOf returns the task a directory under .worktrees/ belongs to. That is
-// the task its gb-<id> name records. A goblin also makes extra worktrees for
-// other branches, named gb-<id>-<suffix>, and one no record names belongs to
-// the task it extends: the longest such id, in the same project, whose own
-// worktree was made before it. The age check keeps an older directory that
-// merely shares the start of a live task's name from being read as that
-// task's, and a directory whose own record could not be read is never handed
-// to another task.
+// ownerOf returns the task a fleet worktree belongs to. That is the task whose
+// record names it, as its worktree or as an extra one `cfo worktree add` made,
+// else the task its name records, <id> in the home or gb-<id> where an older
+// build put it. A goblin also made extra worktrees for itself, <id>-<suffix>,
+// and one no record names belongs to the task it extends: the longest such
+// id, in the same project, whose own worktree was made before it. The age
+// check keeps an older directory that merely shares the start of a live
+// task's name from being read as that task's, and a directory whose own
+// record could not be read is never handed to another task.
 func ownerOf(dir WorktreeDir, tasks map[string]Task, worktrees []WorktreeDir, unreadable map[string]bool) (Task, bool) {
+	key := normalizePath(filepath.Clean(dir.Path))
+	for _, task := range tasks {
+		for _, path := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
+			if path != "" && normalizePath(filepath.Clean(path)) == key {
+				return task, true
+			}
+		}
+	}
+	if dir.TaskID == "" {
+		return Task{}, false
+	}
 	if task, ok := tasks[dir.TaskID]; ok {
 		return task, true
 	}
@@ -740,10 +809,11 @@ const unreadableHostText = "its native terminal's host record could not be read,
 // nothing names the path the finding says that rather than guessing.
 func classifyDirectory(inv Inventory, supervised map[int]bool, dir WorktreeDir, task Task, known, unreadable bool) Finding {
 	finding := Finding{
-		Class:  OrphanDirectory,
-		TaskID: dir.TaskID,
-		Path:   dir.Path,
-		Detail: dir.Project + " answered git worktree list and does not list this path, so it is not one of that project's worktrees",
+		Class:   OrphanDirectory,
+		TaskID:  dir.TaskID,
+		Path:    dir.Path,
+		Project: dir.Project,
+		Detail:  dir.Project + " answered git worktree list and does not list this path, so it is not one of that project's worktrees",
 		Action: "remove the empty directory",
 	}
 	if pid, ok := processNaming(dir.Path, inv, supervised); ok {

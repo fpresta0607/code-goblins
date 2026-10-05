@@ -20,22 +20,42 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
-func TestResolveDefaultsToCwd(t *testing.T) {
-	dir := t.TempDir()
+func TestResolveDefaultsToThePerUserHome(t *testing.T) {
+	// Arrange: a goblin pane exports CFO_STATE_OVERRIDE, so the defaults this
+	// test asserts only hold once that inherited value is cleared too.
+	local := t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
 	t.Setenv("CFO_HOME", "")
-	// A goblin pane exports CFO_STATE_OVERRIDE, so the defaults this test
-	// asserts only hold once that inherited value is cleared too.
 	t.Setenv("CFO_STATE_OVERRIDE", "")
-	t.Chdir(dir)
+	t.Chdir(t.TempDir())
+
+	// Act
 	h, err := Resolve()
+
+	// Assert: the working directory names no home; the per-user one does.
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if !strings.EqualFold(filepath.Clean(h.Root), filepath.Clean(dir)) {
-		t.Errorf("Root = %q, want the cwd %q", h.Root, dir)
+	want := filepath.Join(local, "CodeGoblins")
+	if !strings.EqualFold(h.Root, want) {
+		t.Errorf("Root = %q, want the per-user home %q", h.Root, want)
 	}
 	if h.State != filepath.Join(h.Root, "state") || h.Data != filepath.Join(h.Root, "data") {
 		t.Errorf("derived dirs wrong: %+v", h)
+	}
+	for got, want := range map[string]string{h.Bin(): "bin", h.Worktrees(): "worktrees", h.Scratch(): "scratch", h.Caches(): "caches"} {
+		if got != filepath.Join(h.Root, want) {
+			t.Errorf("layout folder %q, want %q under the root", got, want)
+		}
+	}
+}
+
+func TestResolveWithoutLocalAppDataOrCFOHomeIsRefused(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	t.Setenv("CFO_HOME", "")
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if h, err := Resolve(); err == nil {
+		t.Fatalf("Resolve = %+v, want a refusal naming CFO_HOME", h)
 	}
 }
 
@@ -55,10 +75,9 @@ func TestResolveHonorsEnvOverrides(t *testing.T) {
 
 func TestIsPrimaryRequiresAllThree(t *testing.T) {
 	dir := t.TempDir()
-	gitInit(t, dir)
 	h := Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
 	if IsPrimary(h) {
-		t.Error("primary without AGENTS.md or state/")
+		t.Error("primary without AGENTS.md, state/ or the marker")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -69,8 +88,31 @@ func TestIsPrimaryRequiresAllThree(t *testing.T) {
 	if err := os.Mkdir(h.State, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if IsPrimary(h) {
+		t.Error("primary without the marker cfo install writes")
+	}
+	if err := os.WriteFile(filepath.Join(dir, InstalledMarker), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if !IsPrimary(h) {
-		t.Error("not primary with AGENTS.md + state/ + plain checkout")
+		t.Error("not primary with AGENTS.md + state/ + the marker")
+	}
+}
+
+// A source checkout is never a home: one that holds AGENTS.md and a state
+// folder, which is what a checkout an older install wired looks like, is
+// refused until a home's marker says otherwise.
+func TestIsPrimaryRefusesACheckoutWithoutTheMarker(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsPrimary(Home{Root: dir, State: filepath.Join(dir, "state")}) {
+		t.Error("a plain checkout with AGENTS.md and state/ but no marker is primary")
 	}
 }
 
@@ -96,9 +138,6 @@ func TestIsPrimaryFalseInLinkedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := Home{Root: wt, State: filepath.Join(wt, "state")}
-	if IsPrimary(h) {
-		t.Error("a linked worktree must never be primary")
-	}
 	if err := os.WriteFile(filepath.Join(wt, InstalledMarker), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -164,8 +203,10 @@ func TestIsPrimaryReadsTheCheckoutWithoutStartingGit(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
+		for _, name := range []string{"AGENTS.md", InstalledMarker} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 		return Home{Root: root, State: filepath.Join(root, "state")}
 	}
@@ -186,11 +227,7 @@ func TestIsPrimaryReadsTheCheckoutWithoutStartingGit(t *testing.T) {
 	}
 	worktree := home(worktreeRoot)
 	inside := home(filepath.Join(checkout, "nested", "home"))
-	outside := home(filepath.Join(ceiling, "outside"))
 	installed := home(filepath.Join(ceiling, "installed"))
-	if err := os.WriteFile(filepath.Join(installed.Root, InstalledMarker), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("PATH", t.TempDir())
 
 	cases := []struct {
@@ -201,7 +238,6 @@ func TestIsPrimaryReadsTheCheckoutWithoutStartingGit(t *testing.T) {
 		{"plain checkout", plain, true},
 		{"folder inside a plain checkout", inside, true},
 		{"linked worktree", worktree, false},
-		{"outside any repository", outside, false},
 		{"installed home outside any repository", installed, true},
 	}
 	for _, c := range cases {
@@ -259,6 +295,20 @@ func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 		}
 	})
 
+	// With CFO_HOME cleared a home resolves to the per-user one, which on an
+	// installed machine is the running fleet.
+	t.Run("a test that clears CFO_HOME and keeps the machine's LOCALAPPDATA", func(t *testing.T) {
+		defer restoreInheritedDefault(inheritedDefault)
+		local := t.TempDir()
+		t.Setenv("LOCALAPPDATA", local)
+		inheritedDefault = filepath.Join(local, "CodeGoblins")
+		t.Setenv("CFO_HOME", "")
+		t.Setenv("CFO_STATE_OVERRIDE", "")
+		if h, err := Resolve(); err == nil {
+			t.Fatalf("Resolve = %+v, want a refusal rather than the inherited per-user home", h)
+		}
+	})
+
 	// A test may legitimately build a home that looks primary - the hook
 	// guards are tested against exactly that - and GOTMPDIR can place it
 	// inside the checkout, so neither primaryness nor location may condemn it.
@@ -281,4 +331,31 @@ func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 
 func restoreInherited(root, state string) {
 	inheritedRoot, inheritedState = root, state
+}
+
+func restoreInheritedDefault(root string) {
+	inheritedDefault = root
+}
+
+func TestLocateWorktreeReadsBothLayouts(t *testing.T) {
+	root := `C:\Users\op\AppData\Local\CodeGoblins\worktrees`
+	cases := map[string]WorktreePlace{
+		root + `\app\task-1`:                              {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
+		root + `\app\task-1\web\src`:                      {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
+		root + `\app\task-1-proof`:                        {Root: root + `\app\task-1-proof`, Project: "app", Name: "task-1-proof"},
+		`C:\dev\app\.worktrees\gb-task-2`:                 {Root: `C:\dev\app\.worktrees\gb-task-2`, Project: "app", Name: "task-2"},
+		`c:\DEV\app\.WORKTREES\GB-Task-3\internal`:        {Root: `c:\DEV\app\.WORKTREES\GB-Task-3`, Project: "app", Name: "Task-3"},
+		`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`: {Root: `C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`, Project: "x", Name: "inner"},
+	}
+	for dir, want := range cases {
+		got, ok := LocateWorktree(root, dir)
+		if !ok || got != want {
+			t.Errorf("LocateWorktree(%q) = %+v, %v; want %+v", dir, got, ok, want)
+		}
+	}
+	for _, dir := range []string{root, root + `\app`, `C:\dev\app`, `C:\dev\app\.worktrees\feature`, `C:\dev\app\.worktrees\gb-`, `C:\Users\op\AppData\Local\CodeGoblins\scratch\task-1`} {
+		if got, ok := LocateWorktree(root, dir); ok {
+			t.Errorf("LocateWorktree(%q) = %+v, want no fleet worktree", dir, got)
+		}
+	}
 }

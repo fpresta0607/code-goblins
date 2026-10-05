@@ -23,9 +23,12 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -176,6 +179,7 @@ func composeLong(h home.Home, ew *werr) {
 	writeReadOnceContract(append(files, metas...), statusTail, queuedLimit, ew)
 	ew.write(fleetState.Bytes())
 	writeOrphans(h.State, ew)
+	writeStorage(h, time.Now(), ew)
 	ew.write(context.Bytes())
 	writeNextStep(ew)
 }
@@ -217,8 +221,9 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 		}
 	}
 
-	var afkMode, instructions bytes.Buffer
+	var afkMode, instructions, storage bytes.Buffer
 	writeAFKMode(h.State, &werr{w: &afkMode})
+	writeStorage(h, time.Now(), &werr{w: &storage})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	checkpoint := ""
 	if isAfterCompact {
@@ -243,7 +248,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
-	room := Budget - lockSection.Len() - afkMode.Len() - instructions.Len() - len(tail(false, false))
+	room := Budget - lockSection.Len() - afkMode.Len() - storage.Len() - instructions.Len() - len(tail(false, false))
 	fleetTable, isWholeFleet := briefFleet(h.State, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
@@ -257,6 +262,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 	ew.write(wakeQueue.Bytes())
 	ew.write(instructions.Bytes())
 	ew.write(fleetTable)
+	ew.write(storage.Bytes())
 	ew.write(tail(isWholeQueue, isWholeFleet))
 
 	if heldLock && ew.err == nil {
@@ -397,6 +403,43 @@ func writeSessionLock(stateDir string, ownerPID int, session string, ew *werr) b
 	ew.println(readOnlyBannerFooter)
 	ew.println(readOnlyBannerTop)
 	return false
+}
+
+// writeStorage prints one line on the home's disk: the drive's free space
+// against the floor and the mark, what the home holds by bucket, and what the
+// janitor last did. It reads one system call and the janitor's record, and
+// runs nothing.
+func writeStorage(h home.Home, now time.Time, ew *werr) {
+	line := "STORAGE: "
+	settings, settingsErr := fleetconfig.Read(h.Root)
+	reading, err := disk.Read(h.Root)
+	switch {
+	case err != nil:
+		line += "free disk UNREADABLE (" + err.Error() + ")"
+	case settingsErr != nil:
+		line += fmt.Sprintf("%s %.1f GB free of %.0f GB; config/fleet.json UNREADABLE (%s), so the floor is unknown", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Total), settingsErr)
+	default:
+		line += fmt.Sprintf("%s %.1f GB free of %.0f GB (floor %.0f GB, wake %.0f GB)", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Total), settings.DiskFloorGB, settings.DiskWakeGB)
+		if reading.Free < fleetconfig.Bytes(settings.DiskFloorGB) {
+			line += ", UNDER THE FLOOR: nothing starts"
+		}
+	}
+	record, err := janitor.ReadRecord(h.State)
+	if err != nil {
+		ew.println(line + "; the janitor has not swept yet")
+		return
+	}
+	b := record.Buckets
+	gb := func(bytes int64) float64 { return disk.GB(uint64(max(bytes, 0))) }
+	line += fmt.Sprintf("; the home holds %.1f GB (worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f); the janitor swept %s ago, removed %d item(s), freed %.1f GB",
+		gb(b.Total()), gb(janitor.Sum(b.Worktrees)), gb(janitor.Sum(b.Scratch)), gb(janitor.Sum(b.Caches)), gb(b.State), gb(b.Data), gb(b.Bin), now.Sub(record.Time).Round(time.Minute), len(record.Removed), gb(record.Freed()))
+	if len(record.Kept) > 0 {
+		line += fmt.Sprintf(", kept %d it must not touch", len(record.Kept))
+	}
+	if len(record.Strays) > 0 {
+		line += fmt.Sprintf(", reports %d stray item(s) (cfo runtime names them)", len(record.Strays))
+	}
+	ew.println(line)
 }
 
 // writeAFKMode prints AFK mode's notice while it is on, ahead of the wake

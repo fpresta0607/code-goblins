@@ -173,7 +173,7 @@ func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 			}
 			started := named(f.events(t), "env")[0].Env
 			for variable, want := range map[string]string{
-				"GOTMPDIR":           goTmpDir(t, f.stateDir, result.Meta.ID),
+				"GOTMPDIR":           taskScratch(f.stateDir, result.Meta.ID),
 				"CFO_STATE_OVERRIDE": f.stateDir,
 				"CFO_ROLE":           harness.RoleGoblin,
 				"CFO_TASK_ID":        "task-7",
@@ -275,7 +275,7 @@ func TestSpawnCarriesTheSharedCachesInTheGoblinsEnvironment(t *testing.T) {
 	if got := started["UV_CACHE_DIR"]; got == nil || *got != `C:\cfo\caches\uv` {
 		t.Errorf("the goblin started with UV_CACHE_DIR = %v, want the shared uv cache", got)
 	}
-	if got := started["GOTMPDIR"]; got == nil || *got != goTmpDir(t, f.stateDir, result.Meta.ID) {
+	if got := started["GOTMPDIR"]; got == nil || *got != taskScratch(f.stateDir, result.Meta.ID) {
 		t.Errorf("the goblin started with GOTMPDIR = %v, want the task's own", got)
 	}
 }

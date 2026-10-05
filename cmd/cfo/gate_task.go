@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 )
@@ -24,6 +25,15 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	if !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
 		return taskID(os.Getenv), nil
 	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return "", err
+	}
+	// A goblin's own worktree in the home has the gate's shape too,
+	// <root>\worktrees\<project>\<task>, and is no gate run.
+	if fsx.SamePath(worktrees, h.Worktrees()) {
+		return taskID(os.Getenv), nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: execx.OSRunner{}}
@@ -35,10 +45,6 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	if err != nil || result.ExitCode != 0 {
 		return "", errors.New("cannot inspect the gate's source worktrees")
 	}
-	h, err := runtime.resolveHome()
-	if err != nil {
-		return "", err
-	}
 	var worktree string
 	for _, field := range strings.Split(string(result.Stdout), "\x00") {
 		if field == "" {
@@ -46,27 +52,21 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 		} else if dir, ok := strings.CutPrefix(field, "worktree "); ok {
 			worktree = filepath.FromSlash(dir)
 		} else if field == "branch refs/heads/"+source.Branch {
-			return gateWorktreeTask(h.State, source.Project, worktree)
+			return gateWorktreeTask(h, source.Project, worktree)
 		}
 	}
 	return "", fmt.Errorf("no source worktree holds the gate's branch %q", source.Branch)
 }
 
-func gateWorktreeTask(stateDir, project, worktree string) (string, error) {
-	if !fsx.SamePath(filepath.Dir(worktree), filepath.Join(project, ".worktrees")) {
-		return "", errors.New("the gate's source worktree belongs to no fleet task")
-	}
-	if !strings.HasPrefix(filepath.Base(worktree), "gb-") {
-		return "", errors.New("the gate's source worktree names no fleet task")
-	}
-	owner, known, err := reap.WorktreeOwner(stateDir, project, worktree)
+func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
+	owner, known, err := reap.WorktreeOwner(h.State, h.Worktrees(), project, worktree)
 	if err != nil {
 		return "", err
 	}
 	if !known {
-		return "", errors.New("the gate's source worktree has no readable task record or owner")
+		return "", errors.New("the gate's source worktree belongs to no fleet task")
 	}
-	if !fsx.SamePath(owner.Meta.Project, project) || !fsx.SamePath(owner.Meta.Worktree, filepath.Join(project, ".worktrees", "gb-"+owner.ID)) {
+	if !fsx.SamePath(owner.Meta.Project, project) {
 		return "", errors.New("task metadata does not match the gate's source project and worktree")
 	}
 	return owner.ID, nil

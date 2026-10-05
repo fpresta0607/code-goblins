@@ -5,7 +5,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,8 +14,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// installedFixture is a machine with no checkout: install sets up the home at
-// f.root from contract and policy and copies a stand-in binary into it. The
+// installedFixture is a machine where install sets up the home at f.root
+// from contract and policy and copies a stand-in binary into its bin. The
 // home is kept out of any git repository, as the per-user home is.
 func installedFixture(t *testing.T, env map[string]string, contract, policy fs.FS) *fixture {
 	t.Helper()
@@ -47,14 +46,12 @@ func readFile(t *testing.T, path string) string {
 	return string(data)
 }
 
-// makePrimaryCheckout makes root a primary home the way a clone is one: a git
-// checkout holding the contract and a state folder.
-func makePrimaryCheckout(t *testing.T, root string) {
+// makePrimaryHome makes root a primary home the way an install does: the
+// contract, a state folder and the marker.
+func makePrimaryHome(t *testing.T, root string) {
 	t.Helper()
-	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
 	writeFile(t, filepath.Join(root, "AGENTS.md"), "contract")
+	writeFile(t, filepath.Join(root, home.InstalledMarker), "marker")
 	if err := os.MkdirAll(filepath.Join(root, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +77,8 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			targets := []string{name}
-			if rest, ok := strings.CutPrefix(name, agentSkills); ok {
-				targets = append(targets, claudeSkills+rest)
-			}
-			for _, target := range targets {
-				if got := readFile(t, filepath.Join(f.root, filepath.FromSlash(target))); got != string(want) {
-					t.Errorf("%s in the home differs from the binary's copy", target)
-				}
+			if got := readFile(t, filepath.Join(f.root, filepath.FromSlash(name))); got != string(want) {
+				t.Errorf("%s in the home differs from the binary's copy", name)
 			}
 			return nil
 		})
@@ -95,16 +86,30 @@ func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"cfo.exe", "goblins.exe"} {
-		if got := readFile(t, filepath.Join(f.root, name)); got != "build 1" {
-			t.Errorf("%s = %q, want the running binary", name, got)
+	for _, folder := range []string{"bin", "state", "worktrees", "scratch", "caches", "data"} {
+		if info, err := os.Stat(filepath.Join(f.root, folder)); err != nil || !info.IsDir() {
+			t.Errorf("the home has no %s folder: %v", folder, err)
 		}
+	}
+	for _, name := range []string{"cfo.exe", "goblins.exe"} {
+		if got := readFile(t, filepath.Join(f.bin, name)); got != "build 1" {
+			t.Errorf("bin\\%s = %q, want the running binary", name, got)
+		}
+		if _, err := os.Stat(filepath.Join(f.root, name)); !os.IsNotExist(err) {
+			t.Errorf("%s sits at the home's root: %v", name, err)
+		}
+	}
+	if got := readFile(t, filepath.Join(f.profile, ".agents", "skills", "stow", "SKILL.md")); got != "stow" {
+		t.Errorf("the shipped skill in the shared skills folder = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, ".agents")); !os.IsNotExist(err) {
+		t.Errorf("the home holds a second copy of the skills: %v", err)
 	}
 	if got := f.env.values["CFO_HOME"]; got != f.root {
 		t.Errorf("CFO_HOME = %q, want the home %q", got, f.root)
 	}
-	if got := f.env.values["Path"]; got != `C:\Windows;`+f.root {
-		t.Errorf("PATH = %q, want the home appended", got)
+	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
+		t.Errorf("PATH = %q, want the home's bin appended", got)
 	}
 	commands := hookCommands(t, f.user)
 	for _, hook := range Hooks(f.root) {
@@ -123,7 +128,7 @@ func TestInstallPutsTheDesktopWindowBesideGoblins(t *testing.T) {
 
 	output := f.install()
 
-	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 1" {
+	if got := readFile(t, filepath.Join(f.bin, "goblins-window.exe")); got != "window 1" {
 		t.Errorf("goblins-window.exe in the home = %q, want the window beside the binary", got)
 	}
 	if !strings.Contains(output, "goblins-window.exe") {
@@ -133,7 +138,7 @@ func TestInstallPutsTheDesktopWindowBesideGoblins(t *testing.T) {
 	writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), "goblins-window.exe"), "window 2")
 	f.install()
 
-	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 2" {
+	if got := readFile(t, filepath.Join(f.bin, "goblins-window.exe")); got != "window 2" {
 		t.Errorf("after an update goblins-window.exe = %q, want the new window", got)
 	}
 }
@@ -145,7 +150,7 @@ func TestInstallWithoutAWindowLeavesTheBrowser(t *testing.T) {
 
 	output := f.install()
 
-	if _, err := os.Stat(filepath.Join(f.root, "goblins-window.exe")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(f.bin, "goblins-window.exe")); !os.IsNotExist(err) {
 		t.Errorf("the home holds a window no release shipped: %v", err)
 	}
 	if !strings.Contains(output, "no desktop window beside") {
@@ -157,7 +162,7 @@ func TestInstallWithoutAWindowLeavesTheBrowser(t *testing.T) {
 // the home, and says goblins keeps using it rather than the browser.
 func TestInstallWithoutAWindowKeepsTheHomesWindow(t *testing.T) {
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
-	window := filepath.Join(f.root, "goblins-window.exe")
+	window := filepath.Join(f.bin, "goblins-window.exe")
 	writeFile(t, window, "window 1")
 
 	output := f.install()
@@ -193,28 +198,30 @@ func TestInstallOutsideACheckoutTwiceChangesNothingTheSecondTime(t *testing.T) {
 // A newer binary brings the contract, the skills and itself up to date, and
 // adds a policy file the home lacks, but a policy file the operator has tuned
 // is theirs.
-func TestReinstallOutsideACheckoutUpdatesTheContractAndKeepsTunedPolicy(t *testing.T) {
+func TestReinstallUpdatesTheContractAndTheSkillsAndKeepsTunedPolicy(t *testing.T) {
 	f := installedFixture(t, nil,
-		fstest.MapFS{"AGENTS.md": {Data: []byte("contract 1")}, ".agents/skills/stow/SKILL.md": {Data: []byte("skill 1")}},
+		fstest.MapFS{"AGENTS.md": {Data: []byte("contract 1")}},
 		fstest.MapFS{"config/pipeline.json": {Data: []byte("policy 1")}})
+	f.service.Skills = fstest.MapFS{"stow/SKILL.md": {Data: []byte("skill 1")}}
 	f.install()
 	writeFile(t, filepath.Join(f.root, "config", "pipeline.json"), "tuned")
 	writeFile(t, f.service.Binary, "build 2")
-	f.service.Contract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract 2")}, ".agents/skills/stow/SKILL.md": {Data: []byte("skill 2")}}
+	f.service.Contract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract 2")}}
+	f.service.Skills = fstest.MapFS{"stow/SKILL.md": {Data: []byte("skill 2")}}
 	f.service.Policy = fstest.MapFS{"config/pipeline.json": {Data: []byte("policy 2")}, "data/routing.json": {Data: []byte("lanes 2")}}
 
 	output := f.install()
 
 	for path, want := range map[string]string{
-		"AGENTS.md":                    "contract 2",
-		".agents/skills/stow/SKILL.md": "skill 2",
-		".claude/skills/stow/SKILL.md": "skill 2",
-		"config/pipeline.json":         "tuned",
-		"data/routing.json":            "lanes 2",
-		"cfo.exe":                      "build 2",
-		"goblins.exe":                  "build 2",
+		filepath.Join(f.root, "AGENTS.md"):                                   "contract 2",
+		filepath.Join(f.profile, ".agents", "skills", "stow", "SKILL.md"):    "skill 2",
+		filepath.Join(f.profile, ".claude", "skills", "stow", "SKILL.md"):    "skill 2",
+		filepath.Join(f.root, "config", "pipeline.json"):                     "tuned",
+		filepath.Join(f.root, "data", "routing.json"):                        "lanes 2",
+		filepath.Join(f.bin, "cfo.exe"):                                      "build 2",
+		filepath.Join(f.bin, "goblins.exe"):                                  "build 2",
 	} {
-		if got := readFile(t, filepath.Join(f.root, filepath.FromSlash(path))); got != want {
+		if got := readFile(t, path); got != want {
 			t.Errorf("%s = %q, want %q", path, got, want)
 		}
 	}
@@ -230,7 +237,7 @@ func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 	for name, act := range map[string]func(Service, io.Writer) error{"install": Service.Install, "uninstall": Service.Uninstall} {
 		t.Run(name, func(t *testing.T) {
 			inUse := t.TempDir()
-			makePrimaryCheckout(t, inUse)
+			makePrimaryHome(t, inUse)
 			f := installedFixture(t, map[string]string{"CFO_HOME": inUse}, codegoblins.Contract, codegoblins.Policy)
 
 			var out strings.Builder
@@ -260,14 +267,12 @@ func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 	})
 }
 
-// A checkout install, which is what install.cmd -Dev runs, refuses while
-// CFO_HOME names another home in use, as an install outside a checkout does:
-// moving CFO_HOME would leave that home's binaries first on PATH, running
-// against the checkout, and its fleet's state unreachable. A re-run from the
-// home CFO_HOME names goes through.
-func TestInstallFromACheckoutRefusesWhileAnotherHomeIsInUse(t *testing.T) {
+// An install refuses while CFO_HOME names another home in use: moving
+// CFO_HOME would leave that home's binaries first on PATH and its fleet's
+// state unreachable.
+func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 	inUse := t.TempDir()
-	makePrimaryCheckout(t, inUse)
+	makePrimaryHome(t, inUse)
 	f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": inUse, "Path": `C:\Windows;` + inUse})
 
 	var out strings.Builder
@@ -284,56 +289,65 @@ func TestInstallFromACheckoutRefusesWhileAnotherHomeIsInUse(t *testing.T) {
 	}
 }
 
-// A clone install.cmd -Dev has just made the home, before any fleet has run
-// there, is already a home in use: the one-liner run next must refuse rather
-// than move CFO_HOME and leave the clone's binaries first on PATH.
-func TestAFreshCheckoutInstallIsAHomeInUse(t *testing.T) {
-	checkout := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
-	if out, err := exec.Command("git", "-C", checkout.root, "init").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	writeFile(t, filepath.Join(checkout.root, "AGENTS.md"), "contract")
-	checkout.install()
-	f := installedFixture(t, map[string]string{"CFO_HOME": checkout.root}, codegoblins.Contract, codegoblins.Policy)
+// A home an install has just made, before any fleet has run there, is already
+// a home in use: an install into another folder must refuse rather than move
+// CFO_HOME away from it.
+func TestAFreshInstallIsAHomeInUse(t *testing.T) {
+	first := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
+	first.install()
+	f := installedFixture(t, map[string]string{"CFO_HOME": first.root}, codegoblins.Contract, codegoblins.Policy)
 
 	var out strings.Builder
 	err := f.service.Install(&out)
 
-	if err == nil || !strings.Contains(err.Error(), checkout.root) || !strings.Contains(err.Error(), "goblins uninstall") {
-		t.Fatalf("Install = %v, want a refusal naming the fresh checkout and goblins uninstall\n%s", err, out.String())
+	if err == nil || !strings.Contains(err.Error(), first.root) || !strings.Contains(err.Error(), "goblins uninstall") {
+		t.Fatalf("Install = %v, want a refusal naming the fresh home and goblins uninstall\n%s", err, out.String())
 	}
 	if len(f.env.setCalls) != 0 {
 		t.Errorf("the refused install changed the environment: %v", f.env.setCalls)
 	}
 }
 
-func TestInstallFromACheckoutRerunFromTheSameHomeSucceeds(t *testing.T) {
-	f := newFixture(t, adopterSettings, map[string]string{"Path": `C:\Windows`})
-	makePrimaryCheckout(t, f.root)
-	f.install()
+// A home an older install set up kept its binaries at its root, on PATH
+// there; a reinstall moves them into bin and PATH with them.
+func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
+	makePrimaryHome(t, f.root)
+	f.env.values["CFO_HOME"] = f.root
+	f.env.values["Path"] = `C:\Windows;` + f.root
+	older := []string{"cfo.exe", "goblins.exe", "goblins-window.exe", "goblins-window.png", "cfo.exe.1790989608292912900.update-old", "goblins.exe.abc.old", "cfo.exe.held-66714dea"}
+	for _, name := range older {
+		writeFile(t, filepath.Join(f.root, name), "older build")
+	}
 
+	// Act
 	output := f.install()
 
-	if got := f.env.values["CFO_HOME"]; got != f.root {
-		t.Errorf("CFO_HOME = %q, want the checkout %q", got, f.root)
+	// Assert
+	for _, name := range older {
+		if _, err := os.Stat(filepath.Join(f.root, name)); !os.IsNotExist(err) {
+			t.Errorf("%s survived at the home's root: %v", name, err)
+		}
 	}
-	if !strings.Contains(output, "already installed - nothing changed") {
-		t.Errorf("a re-run from the same home reported a change:\n%s", output)
+	if got := readFile(t, filepath.Join(f.bin, "cfo.exe")); got != "build 1" {
+		t.Errorf("bin\\cfo.exe = %q, want this build", got)
+	}
+	if got := f.env.values["Path"]; got != `C:\Windows;`+f.bin {
+		t.Errorf("PATH = %q, want the root swapped for bin:\n%s", got, output)
 	}
 }
 
-// The marker is written last, so an install that fails partway leaves no home
-// the hooks would act in, and the environment as it was.
 func TestInstallOutsideACheckoutThatFailsPartwayLeavesNoPrimaryHome(t *testing.T) {
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
-	if err := os.MkdirAll(filepath.Join(f.root, "goblins.exe"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(f.bin, "goblins.exe"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	var out strings.Builder
 	err := f.service.Install(&out)
 
-	if err == nil || !strings.Contains(err.Error(), "replace "+filepath.Join(f.root, "goblins.exe")) {
+	if err == nil || !strings.Contains(err.Error(), "replace "+filepath.Join(f.bin, "goblins.exe")) {
 		t.Fatalf("Install = %v, want the copy's failure\n%s", err, out.String())
 	}
 	if primary(f.root) {
@@ -351,7 +365,7 @@ func TestUpdateOutsideACheckoutThatCannotWriteTheNewBuildKeepsTheOldOne(t *testi
 	f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 	f.install()
 	writeFile(t, f.service.Binary, "build 2")
-	goblins := filepath.Join(f.root, "goblins.exe")
+	goblins := filepath.Join(f.bin, "goblins.exe")
 	original := atomicWriteFile
 	t.Cleanup(func() { atomicWriteFile = original })
 	atomicWriteFile = func(path string, data []byte) error {
@@ -370,7 +384,7 @@ func TestUpdateOutsideACheckoutThatCannotWriteTheNewBuildKeepsTheOldOne(t *testi
 	if got := readFile(t, goblins); got != "build 1" {
 		t.Errorf("goblins.exe = %q, want the old build back", got)
 	}
-	if aside, _ := filepath.Glob(filepath.Join(f.root, "*.old")); len(aside) != 0 {
+	if aside, _ := filepath.Glob(filepath.Join(f.bin, "*.old")); len(aside) != 0 {
 		t.Errorf("copies left aside: %v", aside)
 	}
 }
@@ -401,15 +415,17 @@ func TestUninstallOutsideACheckoutUnwiresTheHomeAndKeepsIt(t *testing.T) {
 	}
 }
 
-// A newer binary that no longer ships a skill removes both copies of the
-// files an older one wrote, and leaves a skill the operator added.
-func TestReinstallOutsideACheckoutRemovesFilesTheBinaryNoLongerShips(t *testing.T) {
+// A newer binary that no longer ships a file removes the copy an older one
+// wrote, and leaves a file the operator added. That is also how a home an
+// older install set up loses the second copy of the skills it kept in the
+// home, now that they live once in the shared skills folder.
+func TestReinstallRemovesFilesTheBinaryNoLongerShips(t *testing.T) {
 	f := installedFixture(t, nil,
-		fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}, ".agents/skills/stow/SKILL.md": {Data: []byte("stow")}, ".agents/skills/stash/SKILL.md": {Data: []byte("stash")}},
+		fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}, ".agents/skills/stow/SKILL.md": {Data: []byte("stow")}, ".claude/skills/stow/SKILL.md": {Data: []byte("stow")}},
 		fstest.MapFS{})
 	f.install()
 	writeFile(t, filepath.Join(f.root, ".agents", "skills", "mine", "SKILL.md"), "operator")
-	f.service.Contract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}, ".agents/skills/stash/SKILL.md": {Data: []byte("stash")}}
+	f.service.Contract = fstest.MapFS{"AGENTS.md": {Data: []byte("contract")}}
 
 	output := f.install()
 
@@ -418,14 +434,8 @@ func TestReinstallOutsideACheckoutRemovesFilesTheBinaryNoLongerShips(t *testing.
 			t.Errorf("%s survived an install whose binary no longer ships it", gone)
 		}
 	}
-	for path, want := range map[string]string{
-		".agents/skills/stash/SKILL.md": "stash",
-		".claude/skills/stash/SKILL.md": "stash",
-		".agents/skills/mine/SKILL.md":  "operator",
-	} {
-		if got := readFile(t, filepath.Join(f.root, filepath.FromSlash(path))); got != want {
-			t.Errorf("%s = %q, want %q", path, got, want)
-		}
+	if got := readFile(t, filepath.Join(f.root, ".agents", "skills", "mine", "SKILL.md")); got != "operator" {
+		t.Errorf("the operator's own file = %q, want it kept", got)
 	}
 	if !strings.Contains(output, "removed 2 files the binary no longer ships") {
 		t.Errorf("the output does not report the removals:\n%s", output)
@@ -474,7 +484,7 @@ func TestCarryWindowBringsTheWindowBesideTheBuildIntoTheHome(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			root, release := t.TempDir(), t.TempDir()
-			window := filepath.Join(root, "goblins-window.exe")
+			window := filepath.Join(root, "bin", "goblins-window.exe")
 			writeFile(t, window, "window 1")
 			if test.beside != "" {
 				writeFile(t, filepath.Join(release, "goblins-window.exe"), test.beside)
@@ -503,7 +513,7 @@ func TestCarryWindowBringsTheWindowBesideTheBuildIntoTheHome(t *testing.T) {
 func TestCarryWindowReportsAWindowItCannotReplace(t *testing.T) {
 	// Arrange: a folder where the window goes cannot be replaced by a file.
 	root, release := t.TempDir(), t.TempDir()
-	writeFile(t, filepath.Join(root, "goblins-window.exe", "held"), "not a program")
+	writeFile(t, filepath.Join(root, "bin", "goblins-window.exe", "held"), "not a program")
 	writeFile(t, filepath.Join(release, "goblins-window.exe"), "window 2")
 
 	// Act
@@ -513,7 +523,7 @@ func TestCarryWindowReportsAWindowItCannotReplace(t *testing.T) {
 	if err == nil {
 		t.Fatal("CarryWindow reports no error for a window it could not put in the home")
 	}
-	if got := readFile(t, filepath.Join(root, "goblins-window.exe", "held")); got != "not a program" {
+	if got := readFile(t, filepath.Join(root, "bin", "goblins-window.exe", "held")); got != "not a program" {
 		t.Errorf("what the home held in the window's place is now %q", got)
 	}
 }
@@ -546,7 +556,7 @@ func TestInstallRemovesTheEarlierCopyOfTheDesktopWindow(t *testing.T) {
 	if _, err := os.Stat(earlier); !os.IsNotExist(err) {
 		t.Errorf("the earlier copy's folder %s is still there: %v", earlier, err)
 	}
-	if got := readFile(t, filepath.Join(f.root, "goblins-window.exe")); got != "window 1" {
+	if got := readFile(t, filepath.Join(f.bin, "goblins-window.exe")); got != "window 1" {
 		t.Errorf("goblins-window.exe in the home = %q, want the window beside the binary", got)
 	}
 	if !strings.Contains(output, "removed the earlier desktop window in "+earlier) {

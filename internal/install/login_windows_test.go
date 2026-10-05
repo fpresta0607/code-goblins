@@ -131,7 +131,7 @@ func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testin
 			// Assert
 			want := command
 			if test.adopted {
-				want = `"` + filepath.Join(f.root, "goblins.exe") + `" --window --background`
+				want = `"` + filepath.Join(f.bin, "goblins.exe") + `" --window --background`
 			}
 			got, _, err := key.GetStringValue(startAtLoginValue)
 			if want == "" && !errors.Is(err, registry.ErrNotExist) {

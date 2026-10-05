@@ -62,10 +62,24 @@ type cleanupGit struct {
 	top       string
 	returnErr error
 	returned  [][2]string
+	// unlanded names the worktrees whose HEAD is not on the default branch,
+	// and tagged the archive tags made for them.
+	unlanded map[string]bool
+	tagged   []string
 }
 
-func (g *cleanupGit) Acquire(context.Context, string, string) (string, error) {
+func (g *cleanupGit) Acquire(context.Context, string, string, string) (string, error) {
 	return "", errors.New("cleanup tests never acquire")
+}
+
+func (g *cleanupGit) Landing(_ context.Context, dir string) (worktree.Landing, error) {
+	return worktree.Landing{Head: "0123456789abcdef", Landed: !g.unlanded[filepath.Base(dir)]}, nil
+}
+
+func (g *cleanupGit) ArchiveTag(_ context.Context, dir string, _ worktree.Landing, name string) (string, error) {
+	tag := "archive/" + name
+	g.tagged = append(g.tagged, tag)
+	return tag, nil
 }
 
 func (g *cleanupGit) WorktreeTop(_ context.Context, dir string) (string, error) {
@@ -536,8 +550,8 @@ func TestCleanupArchivesEvenWhenTheGoTemporaryDirectoryIsPinned(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(archived, entries[0].Name(), "auth.ps1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a pinned go temporary directory skipped the credential scrub: %v", err)
 	}
-	if !strings.Contains(result.Output, "go temporary directory") {
-		t.Errorf("Output = %q, want the go temporary directory warning", result.Output)
+	if !strings.Contains(result.Output, "scratch folder") {
+		t.Errorf("Output = %q, want the scratch folder warning", result.Output)
 	}
 }
 

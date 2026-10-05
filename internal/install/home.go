@@ -12,15 +12,8 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
-)
-
-// Claude Code reads a project's skills from .claude/skills and the other
-// harnesses from .agents/skills. A checkout makes the one a junction to the
-// other; a home set up here gets the files in both.
-const (
-	agentSkills  = ".agents/skills/"
-	claudeSkills = ".claude/skills/"
 )
 
 // markerText explains home.InstalledMarker to whoever finds it. After it,
@@ -47,23 +40,31 @@ func (s Service) refuseAnotherHome() error {
 	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run this from that home to keep it, or run goblins uninstall there first, then run this again to move to %s", current, s.Root)
 }
 
-// writeHome sets up a home outside a checkout: state, the contract, the
-// policy files where they are missing, the binary under both its names, and
-// last the marker, so a home that failed partway is never taken for a
-// primary one. Its data folder is laid out after it, as a checkout's is.
+// homeFolders are the folders every home holds beside data\, which the
+// install lays out separately; AGENTS.md's CFO home section describes each.
+var homeFolders = []string{home.BinDir, "state", home.WorktreesDir, home.ScratchDir, home.CachesDir}
+
+// writeHome sets up the home: its folders, the contract, the policy files
+// where they are missing, the binary under both its names in bin, the skills
+// in the shared skills folder, the map of where each harness keeps its
+// configuration, and last the marker, so a home that failed partway is never
+// taken for a primary one. Its data folder is laid out after it.
 func (s Service) writeHome(report *reporter) error {
 	markerPath := filepath.Join(s.Root, home.InstalledMarker)
 	previous, hadMarker, err := readManifest(markerPath)
 	if err != nil {
 		return fmt.Errorf("install: read %s: %w", markerPath, err)
 	}
-	stateDir := filepath.Join(s.Root, "state")
-	createdState := false
-	if info, err := os.Stat(stateDir); err != nil || !info.IsDir() {
-		if err := os.MkdirAll(stateDir, 0o755); err != nil {
-			return fmt.Errorf("install: create %s: %w", stateDir, err)
+	var created []string
+	for _, folder := range homeFolders {
+		path := filepath.Join(s.Root, folder)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			continue
 		}
-		createdState = true
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return fmt.Errorf("install: create %s: %w", path, err)
+		}
+		created = append(created, folder)
 	}
 	manifest, written, err := s.writeContract()
 	if err != nil {
@@ -76,6 +77,12 @@ func (s Service) writeHome(report *reporter) error {
 		return err
 	}
 	if err := s.copyWindow(report); err != nil {
+		return err
+	}
+	if err := s.retireRootBinaries(report); err != nil {
+		return err
+	}
+	if err := s.installSkills(report); err != nil {
 		return err
 	}
 	removed, err := s.removeUnshipped(previous, manifest)
@@ -98,8 +105,8 @@ func (s Service) writeHome(report *reporter) error {
 		return fmt.Errorf("install: mark %s as a CFO home: %w", s.Root, err)
 	}
 	switch {
-	case createdState:
-		report.change("home", "set up "+s.Root+" with its state folder")
+	case len(created) > 0:
+		report.change("home", "set up "+s.Root+" with "+strings.Join(created, ", "))
 	case !hadMarker:
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
@@ -121,19 +128,13 @@ func (s Service) writeContract() ([]string, int, error) {
 		if err != nil {
 			return err
 		}
-		targets := []string{name}
-		if rest, ok := strings.CutPrefix(name, agentSkills); ok {
-			targets = append(targets, claudeSkills+rest)
+		changed, err := writeIfDifferent(filepath.Join(s.Root, filepath.FromSlash(name)), data)
+		if err != nil {
+			return err
 		}
-		for _, target := range targets {
-			changed, err := writeIfDifferent(filepath.Join(s.Root, filepath.FromSlash(target)), data)
-			if err != nil {
-				return err
-			}
-			manifest = append(manifest, target)
-			if changed {
-				written++
-			}
+		manifest = append(manifest, name)
+		if changed {
+			written++
 		}
 		return nil
 	})
@@ -227,10 +228,10 @@ func (s Service) seedPolicy(report *reporter) error {
 }
 
 // copyBinary puts the running binary where the hooks look for it, as
-// cfo.exe, and beside it as goblins.exe, its second name. An old copy still
-// running, such as the supervisor, cannot be overwritten but can be renamed,
-// so it moves aside under a name of its own and goes once nothing runs it,
-// on this install or a later one.
+// bin\cfo.exe, and beside it as goblins.exe, its second name. An old copy
+// still running, such as the supervisor, cannot be overwritten but can be
+// renamed, so it moves aside under a name of its own and goes once nothing
+// runs it, on this install or a later one, or by the janitor's sweep.
 func (s Service) copyBinary(report *reporter) error {
 	data, err := fsx.ReadFile(s.Binary)
 	if err != nil {
@@ -239,7 +240,7 @@ func (s Service) copyBinary(report *reporter) error {
 	var copied []string
 	stillRunning := false
 	for _, name := range []string{"cfo.exe", "goblins.exe"} {
-		changed, running, err := replaceProgram(filepath.Join(s.Root, name), data)
+		changed, running, err := replaceProgram(filepath.Join(s.bin(), name), data)
 		if err != nil {
 			return err
 		}
@@ -249,10 +250,10 @@ func (s Service) copyBinary(report *reporter) error {
 		stillRunning = stillRunning || running
 	}
 	if len(copied) == 0 {
-		report.same("binary", "cfo.exe and goblins.exe in "+s.Root+" are already this build")
+		report.same("binary", "cfo.exe and goblins.exe in "+s.bin()+" are already this build")
 		return nil
 	}
-	report.change("binary", fmt.Sprintf("copied %s to %s in %s", s.Binary, strings.Join(copied, " and "), s.Root))
+	report.change("binary", fmt.Sprintf("copied %s to %s in %s", s.Binary, strings.Join(copied, " and "), s.bin()))
 	if stillRunning {
 		report.detail("the previous build still runs, such as the supervisor; goblins stop, then goblins --board, restarts it on this one")
 	}
@@ -270,7 +271,7 @@ const windowName = "goblins-window.exe"
 // otherwise shows the board in the browser.
 func (s Service) copyWindow(report *reporter) error {
 	source := filepath.Join(filepath.Dir(s.Binary), windowName)
-	target := filepath.Join(s.Root, windowName)
+	target := filepath.Join(s.bin(), windowName)
 	data, err := fsx.ReadFile(source)
 	if errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(target); err == nil {
@@ -288,10 +289,10 @@ func (s Service) copyWindow(report *reporter) error {
 		return err
 	}
 	if !changed {
-		report.same("window", windowName+" in "+s.Root+" is already this build")
+		report.same("window", windowName+" in "+s.bin()+" is already this build")
 		return nil
 	}
-	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, s.Root))
+	report.change("window", fmt.Sprintf("copied %s to %s in %s", source, windowName, s.bin()))
 	if running {
 		report.detail("the previous window still runs; quit it from its tray icon and goblins opens this one")
 	}
@@ -322,7 +323,7 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 	if _, err := os.Stat(s.EarlierWindow); err != nil {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(s.Root, windowName)); err != nil {
+	if _, err := os.Stat(filepath.Join(s.bin(), windowName)); err != nil {
 		report.same("window", "kept the earlier desktop window in "+s.EarlierWindow+", since this home holds none")
 		return nil
 	}
@@ -347,6 +348,97 @@ func (s Service) adoptEarlierWindow(report *reporter) error {
 		report.change("window", "removed the earlier desktop window in "+s.EarlierWindow+"; this home's window takes its place")
 	case removed:
 		report.change("window", "removed the earlier desktop window from "+s.EarlierWindow+" and left the folder, which holds other files")
+	}
+	return nil
+}
+
+// rootPrograms are the files an older install put at the home's root, which
+// now live in bin.
+var rootPrograms = []string{"cfo.exe", "goblins.exe", windowName, windowPicture}
+
+// retireRootBinaries removes the binaries an older install put at the home's
+// root, now that bin holds them. One a process still runs cannot be removed
+// but can be renamed, so it moves into bin as an aside copy, which the
+// janitor removes once nothing runs it.
+func (s Service) retireRootBinaries(report *reporter) error {
+	var removed, moved []string
+	for _, name := range rootPrograms {
+		paths, _ := filepath.Glob(filepath.Join(s.Root, name+".*.old"))
+		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".*.update-old"))
+		paths, _ = appendGlob(paths, filepath.Join(s.Root, name+".held-*"))
+		for _, path := range append([]string{filepath.Join(s.Root, name)}, paths...) {
+			err := os.Remove(path)
+			switch {
+			case err == nil:
+				removed = append(removed, filepath.Base(path))
+			case errors.Is(err, fs.ErrNotExist):
+			default:
+				aside := filepath.Join(s.bin(), filepath.Base(path)+"."+rand.Text()+".old")
+				if err := os.Rename(path, aside); err != nil {
+					return fmt.Errorf("install: retire %s, which an older install put at the home's root: %w", path, err)
+				}
+				moved = append(moved, filepath.Base(path))
+			}
+		}
+	}
+	if len(removed) > 0 {
+		report.change("binary", "removed "+strings.Join(removed, ", ")+" from "+s.Root+", where an older install put them")
+	}
+	if len(moved) > 0 {
+		report.change("binary", "moved "+strings.Join(moved, ", ")+" from "+s.Root+" into "+s.bin()+": something still runs them, and the janitor removes them once nothing does")
+	}
+	if len(removed)+len(moved) == 0 {
+		return nil
+	}
+	// A Start at login entry that ran the window from the root now runs it
+	// from bin.
+	return s.adoptStartAtLogin(report)
+}
+
+func appendGlob(paths []string, pattern string) ([]string, error) {
+	more, err := filepath.Glob(pattern)
+	return append(paths, more...), err
+}
+
+// installSkills installs the skills the binary ships the way every harness
+// reads them: one real copy in the shared skills folder and a junction to it
+// in Claude Code's, never a second copy and never over a skill the user put
+// there. It records where each harness keeps its configuration in the home.
+func (s Service) installSkills(report *reporter) error {
+	installed, kept, err := harnessmap.InstallSkills(s.Skills, s.Harnesses, s.Link)
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	if len(installed) > 0 {
+		report.same("skills", strings.Join(installed, ", ")+" in "+s.Harnesses.SharedSkills+", each with a junction from Claude Code's skills folder")
+	}
+	for _, note := range kept {
+		report.same("skills", "kept "+note)
+	}
+	m := s.Harnesses
+	m.Installed = installed
+	if err := harnessmap.Write(filepath.Join(s.Root, "state"), m); err != nil {
+		return fmt.Errorf("install: record where each harness keeps its configuration: %w", err)
+	}
+	return nil
+}
+
+// removeSkills removes the skills an install put in the shared skills folder
+// and their junctions, as the harness map recorded them, and nothing else.
+func (s Service) removeSkills(report *reporter) error {
+	m, err := harnessmap.Read(filepath.Join(s.Root, "state"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	removed, err := harnessmap.RemoveSkills(m, m.Installed)
+	if err != nil {
+		return fmt.Errorf("install: remove the skills Code Goblins installed: %w", err)
+	}
+	if len(removed) > 0 {
+		report.change("skills", "removed "+strings.Join(removed, ", ")+" from "+m.SharedSkills+" and their junctions")
 	}
 	return nil
 }

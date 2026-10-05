@@ -14,10 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -49,6 +51,8 @@ const (
 	// for the gap; it is never dropped.
 	memoryWakeGap = 15 * time.Minute
 	ciWakeGap     = 5 * time.Minute
+	// diskWakeGap is the least time between two disk wakes.
+	diskWakeGap = 15 * time.Minute
 	// repoWatchFor is how long a repository stays watched for its main's push
 	// CI after the last goblin in it is gone, since a merge's CI usually ends
 	// after the goblin that made it is retired.
@@ -73,6 +77,9 @@ type fleetWakes struct {
 	MemoryAbove  int       `json:"memory_above,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
+	// DiskLow says disk_low woke since a reading was last at or above the
+	// disk floor.
+	DiskLow bool `json:"disk_low,omitempty"`
 	// Checks holds each goblin pull request's finished checks the CFO was
 	// woken for, so each completion wakes once.
 	Checks          map[string]reportedChecks   `json:"checks,omitempty"`
@@ -190,7 +197,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkProgress(ctx, &w, now), writeFleetWakes(stateDir, w))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
 		repos := make([]string, 0, len(w.Unreadable))
@@ -263,6 +270,46 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	w.MemorySpent = true
 	w.woke("memory", now)
 	return nil
+}
+
+// checkDisk wakes the CFO once when the home's drive falls under the mark the
+// CFO is woken at, with the free space, the floor and what the janitor last
+// found. It wakes again only after a reading is back at or above the floor
+// and falls under the mark again, and never twice within diskWakeGap.
+func (s *Service) checkDisk(w *fleetWakes, now time.Time) error {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.Disk == nil {
+		return nil
+	}
+	reading, err := dispatch.Disk()
+	if err != nil {
+		return nil
+	}
+	if reading.Free >= reading.Floor {
+		w.DiskLow = false
+		return nil
+	}
+	if reading.Free >= reading.Wake || w.DiskLow || !w.due("disk", diskWakeGap, now) {
+		return nil
+	}
+	if err := raiseFleetWake(s.Store.Home.State, "disk", "disk", diskLowDetail(s.Store.Home, reading, now)); err != nil {
+		return err
+	}
+	w.DiskLow = true
+	w.woke("disk", now)
+	return nil
+}
+
+// diskLowDetail is the disk wake's text: the free space against the floor and
+// the mark, what the home holds, and what the janitor last did.
+func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
+	detail := fmt.Sprintf("disk_low: free disk on %s is %.1f GB, under the %.0f GB mark; no goblin or gate test run starts under the %.0f GB floor.", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Wake), disk.GB(reading.Floor))
+	if record, err := janitor.ReadRecord(h.State); err == nil {
+		b := record.Buckets
+		detail += fmt.Sprintf(" The home holds %.1f GB: worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f; the janitor last swept %s ago and freed %.1f GB.",
+			disk.GB(uint64(b.Total())), disk.GB(uint64(janitor.Sum(b.Worktrees))), disk.GB(uint64(janitor.Sum(b.Scratch))), disk.GB(uint64(janitor.Sum(b.Caches))), disk.GB(uint64(b.State)), disk.GB(uint64(b.Data)), disk.GB(uint64(b.Bin)), now.Sub(record.Time).Round(time.Minute), disk.GB(uint64(record.Freed())))
+	}
+	return detail + " Next: cfo runtime names every bucket and Docker's share; clean up finished goblins with cfo cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could

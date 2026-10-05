@@ -187,17 +187,17 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
-	// A relaunch reuses the task's own Go temporary directory and recreates it
-	// if it is missing; cleanup.removeGoTmp documents when it is retired. Both
-	// the path and the directory are knowable now - an unresolvable user cache
-	// directory or an unwritable one is a fleet-wide misconfiguration, and
-	// discovering it after the stop would leave the goblin with no harness.
-	goTmp, err := state.GoTmpDir(s.StateDir, req.ID)
+	// A relaunch reuses the task's own scratch folder and recreates it if it
+	// is missing; cleanup removes it with the task. Both the path and the
+	// folder are knowable now - an unwritable one is a fleet-wide
+	// misconfiguration, and discovering it after the stop would leave the
+	// goblin with no harness.
+	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return SwitchResult{}, err
 	}
-	if err := os.MkdirAll(goTmp, 0o755); err != nil {
-		return SwitchResult{}, fmt.Errorf("switch: create go temporary directory: %w", err)
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		return SwitchResult{}, fmt.Errorf("switch: create the task's scratch folder: %w", err)
 	}
 
 	// Stop before anything else is written, so a harness that refuses to exit
@@ -243,7 +243,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		}
 	}
 	launchMeta.SpawnGen = meta.SpawnGen
-	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, goTmp, manifest.Env, codexServers, req)
+	handoff, resumed, nativeHost, err := s.relaunchHarness(ctx, launchMeta, target, adapter, project, worktreePath, briefPath, dirty, req.ID, scratch, manifest.Env, codexServers, req)
 	if err != nil {
 		// The failure may have come after the new harness was already
 		// running, so the terminal is checked again before it is described.
@@ -298,7 +298,7 @@ var errBuildLaunch = errors.New("switch: build harness launch")
 // the old harness has stopped lives here, so any failure returns through the
 // same empty-terminal recovery. Anything knowable before the stop is resolved by
 // Switch and handed in, redirects and Codex's MCP servers included.
-func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, goTmp string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
+func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, project, worktreePath, briefPath, dirty, id, scratch string, redirects map[string]string, codexServers []string, request SwitchRequest) (handoff string, resumed bool, nativeHost host.Record, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0
 	if request.IsResume {
 		resumed = request.ResumeSession != "" && (target.Harness == harness.Claude || target.Harness == harness.Codex)
@@ -306,7 +306,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
-		GoTmp:           goTmp,
+		Scratch:         scratch,
 		Model:           target.Model,
 		Effort:          target.Effort,
 		MCPConfig:       goblinMCPConfig(meta.TaskTmp),

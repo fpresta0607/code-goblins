@@ -132,7 +132,12 @@ func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 				apiError(w, 409, short+"; Resume needs 5 GB to keep the 4 GB floor")
 				return
 			}
-			if err := CheckLaunch(s.Store.Home, memory); err != nil {
+			disk, err := s.machineDisk()
+			if err != nil {
+				apiError(w, 409, "Resume needs the free disk read, and it could not be: "+err.Error())
+				return
+			}
+			if err := CheckLaunch(s.Store.Home, memory, disk); err != nil {
 				apiError(w, 409, err.Error())
 				return
 			}

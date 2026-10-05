@@ -1,4 +1,5 @@
 import type { BoardActivity, Snapshot, Task } from "./types";
+import { DiskMeter } from "./DiskMeter";
 import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
@@ -8,8 +9,9 @@ import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
 // The queue, top first, as the Tasks column and the CFO's Task tab both show
-// it: free memory against the mark at which the CFO starts the next task, and
-// each queued task with its rank, its drag and its Start.
+// it: free memory against the mark at which the CFO starts the next task, free
+// disk against its floor, and each queued task with its rank, its drag and
+// its Start.
 export function QueuedTasks({ snapshot, selected, now, presentations, cardStart, onSelect }: {
   snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[];
   // cardStart is the board's one Start, shared by every list of queued tasks.
@@ -21,6 +23,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
   const nextTask = tasks.find((task) => !queueBlock(task));
   return <>
     {memory && <MemoryMeter memory={memory} />}
+    {snapshot.disk && <DiskMeter disk={snapshot.disk} />}
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
         next={task.id === nextTask?.id ? { text: nextChip(memory), waiting: !!memoryBlock(memory) } : undefined}

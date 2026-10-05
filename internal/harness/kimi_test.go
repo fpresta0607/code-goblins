@@ -15,7 +15,7 @@ func TestKimiBuildsNativeLaunch(t *testing.T) {
 		t.Fatalf("Get(Kimi): %v", err)
 	}
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
@@ -23,6 +23,8 @@ func TestKimiBuildsNativeLaunch(t *testing.T) {
 		Env: map[string]string{
 			"CFO_ROLE": RoleGoblin,
 			"GOTMPDIR": `C:\gotmp\task`,
+			"TEMP":     `C:\gotmp\task`,
+			"TMP":      `C:\gotmp\task`,
 		},
 		PromptFile: `C:\briefs\task.md`,
 	})
@@ -30,7 +32,7 @@ func TestKimiBuildsNativeLaunch(t *testing.T) {
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath: `C:\briefs\task.md`,
 		TaskTmp:   `C:\tasks\task`,
-		GoTmp:     `C:\gotmp\task`,
+		Scratch:     `C:\gotmp\task`,
 		Model:     "kimi-code/k3",
 	})
 	if err != nil {
@@ -40,7 +42,7 @@ func TestKimiBuildsNativeLaunch(t *testing.T) {
 		t.Errorf("Args = %#v, want %#v", got, want)
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, GoTmp: `C:\gotmp\task`, Effort: "xhigh"}); err == nil || !strings.Contains(err.Error(), "does not support effort") {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Effort: "xhigh"}); err == nil || !strings.Contains(err.Error(), "does not support effort") {
 		t.Fatalf("err = %v, want a refusal naming the unsupported effort", err)
 	}
 }

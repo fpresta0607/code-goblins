@@ -517,25 +517,50 @@ func TestSwitchRelaunchesIntoTheTasksOwnGoTmpDir(t *testing.T) {
 	}
 }
 
-// An unresolvable user cache directory is a fleet-wide misconfiguration, so a
+// A scratch folder that cannot be made is a fleet-wide misconfiguration, so a
 // switch has to refuse before it stops the running harness. Discovered after
 // the stop it would leave the goblin with no harness at all.
-func TestSwitchRefusesAnUnresolvableGoTmpDirBeforeStoppingTheHarness(t *testing.T) {
+func TestSwitchRefusesAScratchFolderItCannotMakeBeforeStoppingTheHarness(t *testing.T) {
 	f, terminal := newRunningGoblin(t)
 	before, err := state.ReadTaskMeta(f.stateDir, "task-7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// os.UserCacheDir reads these and errors when the one it needs is empty.
-	for _, name := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME"} {
-		t.Setenv(name, "")
+	if err := os.RemoveAll(before.Scratch); err != nil {
+		t.Fatal(err)
 	}
+	writeFile(t, before.Scratch, "a file where the scratch folder goes")
 
 	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "gpt-9"}); err == nil {
-		t.Fatal("Switch succeeded without a resolvable Go temporary directory, want refusal")
+		t.Fatal("Switch succeeded without a scratch folder, want refusal")
 	}
 
 	assertLeftRunning(t, f, terminal, before)
+}
+
+// A task spawned with a scratch folder relaunches into it, recreated, with
+// TEMP and TMP naming it as GOTMPDIR does.
+func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	scratch := filepath.Join(filepath.Dir(f.stateDir), "scratch", f.meta.ID)
+	f.meta.Scratch = scratch
+	if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"}); err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+
+	env := named(f.events(t), "env")[0].Env
+	for _, name := range []string{"GOTMPDIR", "TEMP", "TMP"} {
+		if got := env[name]; got == nil || *got != scratch {
+			t.Errorf("the new harness started with %s = %v, want the task's scratch %q", name, got, scratch)
+		}
+	}
+	if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
+		t.Errorf("stat %q = %v, %v, want the relaunch to have made the folder", scratch, info, err)
+	}
 }
 
 // Provisioning materializes the filtered configuration under the task's

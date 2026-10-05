@@ -20,6 +20,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 )
 
 // Schema names the typed report, matching the convention fleet-view set.
@@ -58,6 +60,13 @@ type Inventory struct {
 	Retired map[string]bool
 	// Checkouts is every project main checkout on disk, by absolute path.
 	Checkouts []Checkout
+	// WorktreesRoot is the home's worktrees folder, where every goblin
+	// worktree spawn makes lives.
+	WorktreesRoot string
+	// Storage is what the home holds on disk, by bucket.
+	Storage janitor.Buckets
+	// Janitor is the janitor's last sweep, absent before the first.
+	Janitor *janitor.Record
 	// SystemRoot is the Windows directory. A process running there is the
 	// operating system's own, never a project's, and saying so needs the
 	// real value rather than an assumption about the drive letter.
@@ -79,6 +88,8 @@ type Task struct {
 	ID       string
 	Project  string
 	Worktree string
+	// Extras are the extra worktrees the task recorded.
+	Extras []string
 }
 
 // Checkout is one project's main checkout.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -412,11 +413,17 @@ func plenty() (supervisor.Memory, error) {
 	return supervisor.Memory{Available: 64 << 30, CommitAvailable: 64 << 30}, nil
 }
 
-// gateTest runs cfo gate test on a machine with memory to spare, so that a
-// run's turn never waits on what this machine happens to have free.
+// roomy is the disk of a machine with disk to spare.
+func roomy(string) (supervisor.Disk, error) {
+	return supervisor.Disk{Reading: disk.Reading{Drive: "C:", Free: 400 << 30, Total: 900 << 30}, Floor: 15 << 30, Wake: 10 << 30}, nil
+}
+
+// gateTest runs cfo gate test on a machine with memory and disk to spare, so
+// that a run's turn never waits on what this machine happens to have free.
 func gateTest(stdout, stderr io.Writer, args ...string) int {
 	runtime := defaultCommandRuntime()
 	runtime.availableMemory = plenty
+	runtime.gateDisk = roomy
 	return gateTestWith(runtime, stdout, stderr, args...)
 }
 
@@ -430,11 +437,42 @@ func gateTestWith(runtime commandRuntime, stdout, stderr io.Writer, args ...stri
 func standIn() commandRuntime {
 	runtime := defaultCommandRuntime()
 	runtime.availableMemory = plenty
+	runtime.gateDisk = roomy
 	runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
 		fmt.Fprintf(stdout, "ran go %s\n", command[1])
 		return 0, nil
 	}
 	return runtime
+}
+
+// A gate run under the disk floor runs nothing and says how much is free and
+// what the floor is, before it takes a turn.
+func TestGateTestUnderTheDiskFloorRunsNothing(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	t.Setenv("NO_MISTAKES_GATE", "")
+	runtime := standIn()
+	ran := false
+	runtime.gateRun = func([]string, string, []string, io.Writer, io.Writer) (int, error) {
+		ran = true
+		return 0, nil
+	}
+	runtime.gateDisk = func(string) (supervisor.Disk, error) {
+		return supervisor.Disk{Reading: disk.Reading{Drive: "C:", Free: 9 << 30, Total: 900 << 30}, Floor: 15 << 30}, nil
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := gateTestWith(runtime, &stdout, &stderr)
+
+	// Assert
+	if exit == 0 || ran {
+		t.Fatalf("exit=%d ran=%v, want a refusal that ran nothing", exit, ran)
+	}
+	if !strings.Contains(stderr.String(), "free disk on C: is 9.0 GB, under the 15 GB disk floor") {
+		t.Errorf("stderr = %q, want the free space and the floor", stderr.String())
+	}
 }
 
 // gateTurns runs cfo gate turns on a machine with the memory available says.
