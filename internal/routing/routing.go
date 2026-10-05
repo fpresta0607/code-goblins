@@ -279,7 +279,9 @@ func redactQuotedLines(lowered string) string {
 		} else if isToolOutput {
 			toolIndent = indent + 2
 			isToolCommandContext = false
-		} else if trimmed == "" || indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0 {
+		} else if strings.TrimSpace(trimmed) != "" && (indent < toolIndent || strings.IndexAny(trimmed, "⎿●✻◐⏺❯›>•") == 0) {
+			// A blank row inside a tool result does not end it; the next
+			// line's indentation or harness marker does.
 			toolIndent = -1
 			isToolCommandContext = false
 		}
