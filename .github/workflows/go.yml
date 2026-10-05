@@ -17,6 +17,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
       - uses: actions/setup-node@v4
         with:
           node-version: '24.13.0'
@@ -44,6 +47,11 @@ jobs:
           if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
             throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
           }
+      # Fails on a copyleft or unrecognised licence in anything a release
+      # ships, or a THIRD_PARTY_NOTICES that no longer lists it. It reads the
+      # packages npm ci installed above, so it runs in this job.
+      - name: Check third-party licences
+        run: go run ./tools/notices -check
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results; keep them, so a failure seen once can be
       # read after the runner is gone.
@@ -107,7 +115,7 @@ jobs:
         if: matrix.shard == 'rest'
         shell: pwsh
         run: |
-          foreach ($program in 'cmd/cfo', 'cmd/goblins-window') {
+          foreach ($program in 'cmd/cfo', 'cmd/goblins-window', 'cmd/goblins-setup') {
             Push-Location $program
             go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
