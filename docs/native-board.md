@@ -585,7 +585,22 @@ Writing native stdin does not acknowledge application acceptance.
 Herdr cannot atomically compare the foreground process while writing: if an agent exits after the check, bytes may reach the same PowerShell terminal.
 Known exited/replaced sessions are refused, but the board does not claim to eliminate that native check-then-write race.
 
-Workspace details show the working folder and model separately from the Connections dropdown's asynchronous health checks.
+Workspace details show the working folder separately from the Connections dropdown's asynchronous health checks.
+The task's Connections start with Harness, Model and Effort selectors, with the real harness mark and efforts beside the model; the CFO and child sessions retain their reported read-only engine rows.
+`GET /api/engines` reads installed, signed-in harnesses and their local model catalogs: Codex's `models_cache.json`, Claude Code's `additionalModelOptionsCache`, pi's `models-store.json` and configured model in `settings.json`, plus fleet routing and the adapter's default model.
+The model catalog is not a model-name list embedded in the board; each model's reasoning levels are limited to those the installed adapter accepts, and an unavailable current value remains visible with its reason.
+`POST /api/tasks/engine` binds live changes to the task's spawn generation and queued changes to the backlog revision.
+A queued choice changes the settings Start reads under the backlog lock; a paused choice is saved in `state/engine/<id>.json` and consumed only after Resume succeeds.
+A running task's confirmation defaults to Switch when its turn ends: the pending choice survives a supervisor restart, is shown on its card, and applies after two idle empty-composer readings at least one second apart and no running, fixing or fix-review gate step.
+A task paused while that choice is still pending uses it on its next Resume, which removes it only after the launch succeeds.
+The catalog is read again as the choice applies: a selection that is no longer available is removed, with its reason on the task's card.
+An idle or gate reading that fails shows on that card until a later reading succeeds or the choice is cancelled; neither kind of failure becomes the board-wide error.
+Switch now explicitly interrupts the turn and a running gate step, using the existing `cfo switch` path with `--force-dirty` and `--generation`, which refuses the switch when the task's session has changed; its confirmation says uncommitted work stays.
+The old native terminal closes, ending the processes it started, and there is no additional leftover-process refusal.
+The target launch is built before the old harness stops, so an invalid launch leaves the session untouched; a failure after the stop shows the CLI's recovery reason and preserves the worktree.
+The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
+The CFO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
+Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connections groups MCP servers, repository services and credentials present in the goblin's launch environment, with 16px or larger text and check times.
 Each connection puts its name left and its status right on one line when the Connections region is at least 520px wide, then stacks them below that width, independently of the window's width.
 Every name carries the board's full-text tip, so a long name the wide row truncates with an ellipsis still reads in full, and narrower regions wrap it in full instead; the rows have 24px of padding above and below their content while checks load and after they finish.

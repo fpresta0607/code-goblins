@@ -17,7 +17,7 @@ import (
 var deliveredPR = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 
 func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason string) (outcome state.Outcome) {
-	outcome = state.Outcome{ID: meta.ID, Generation: meta.SpawnGen, Title: meta.Title, Project: meta.Project, Phase: "stopped", Reason: reason, At: time.Now().UTC()}
+	outcome = state.Outcome{ID: meta.ID, Generation: meta.SpawnGen, Title: meta.Title, Project: meta.Project, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, Phase: "stopped", Reason: reason, At: time.Now().UTC()}
 	if outcome.Title == "" {
 		outcome.Title = meta.ID
 	}
