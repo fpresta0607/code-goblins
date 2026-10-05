@@ -206,11 +206,16 @@ func Acquire(dir string) (*Info, error) {
 // stolen. allowReacquire preserves the session-lock custody contract while
 // task-spawn locks require a same-process concurrent caller to contend.
 func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info, error) {
-	path := filepath.Join(dir, name)
 	read := ReadNamed
 	if isStrict {
 		read = ReadNamedStrict
 	}
+	return acquireReading(dir, name, self, allowReacquire, isStrict, read)
+}
+
+// acquireReading is acquire, reading each holder's record with read.
+func acquireReading(dir, name string, self *Info, allowReacquire, isStrict bool, read func(dir, name string) (*Info, error)) (*Info, error) {
+	path := filepath.Join(dir, name)
 	unreadableCount := 0
 	unreadableStart := time.Time{}
 
@@ -285,6 +290,12 @@ func acquire(dir, name string, self *Info, allowReacquire, isStrict bool) (*Info
 		holder2, herr2 := read(dir, name)
 		if herr2 != nil {
 			if isStrict {
+				if errors.Is(herr2, os.ErrNotExist) {
+					// The holder removed its own record between the reads, as
+					// a run giving back its turn does: nothing is left to
+					// remove, so create the record again.
+					continue
+				}
 				return nil, herr2
 			}
 			// Re-read is unreadable (file mid-write). Never remove on an

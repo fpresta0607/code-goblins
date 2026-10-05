@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,10 @@ type prMergeRunner struct {
 	localOid    string
 	localExit   int
 	localStderr string
+	// queue and queued are what GitHub says of the base's merge queue and of
+	// the pull request in it; queueExit fails that read.
+	queue, queued bool
+	queueExit     int
 }
 
 func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -130,6 +135,11 @@ func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Res
 			body = prMergeHeadJSON
 		}
 		return execx.Result{ExitCode: r.viewExit, Stdout: []byte(body)}, nil
+	case request.Name == "gh" && request.Args[0] == "api" && request.Args[1] == "graphql":
+		if r.queueExit != 0 {
+			return execx.Result{ExitCode: r.queueExit, Stderr: []byte("gh: HTTP 502")}, nil
+		}
+		return execx.Result{Stdout: []byte(mergeQueueAnswer(r.queue, r.queued))}, nil
 	case request.Name == "gh" && request.Args[0] == "api":
 		if r.deleteExit != 0 {
 			reason := r.deleteStderr
@@ -148,6 +158,12 @@ func (r *prMergeRunner) Run(_ context.Context, request execx.Request) (execx.Res
 		return execx.Result{ExitCode: r.localExit, Stderr: []byte(r.localStderr)}, nil
 	}
 	return execx.Result{}, errors.New("unexpected command: " + request.Name)
+}
+
+// mergeQueueAnswer is GitHub's answer to the merge queue query, in the shape
+// gh api graphql prints it.
+func mergeQueueAnswer(queue, queued bool) string {
+	return fmt.Sprintf(`{"data":{"repository":{"pullRequest":{"isMergeQueueEnabled":%t,"isInMergeQueue":%t}}}}`, queue, queued)
 }
 
 func (r *prMergeRunner) ran(name string, args ...string) bool {
@@ -294,7 +310,7 @@ func TestPRMergeDeletesNothingWhenTheMergeFails(t *testing.T) {
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch"}, &stdout, &stderr, runner, nil); exit != 1 {
 		t.Fatalf("exit=%d, want 1 for a refused merge", exit)
 	}
-	if runner.ran("gh", "api") || runner.ran("git", "branch") {
+	if runner.ran("gh", "api", "--method", "DELETE") || runner.ran("git", "branch") {
 		t.Errorf("a branch was deleted for a merge that never landed: %v", runner.requests)
 	}
 }
@@ -307,8 +323,8 @@ func TestPRMergeWithoutDeleteBranchRunsOnlyTheMerge(t *testing.T) {
 	if exit := runPRMerge([]string{"https://github.com/o/r/pull/13"}, &stdout, &stderr, runner, nil); exit != 0 {
 		t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 	}
-	if len(runner.requests) != 2 {
-		t.Errorf("ran %d commands, want proof + merge: %v", len(runner.requests), runner.requests)
+	if len(runner.requests) != 3 {
+		t.Errorf("ran %d commands, want the proof, the merge queue read and the merge: %v", len(runner.requests), runner.requests)
 	}
 	if !runner.ran("gh", "pr", "merge", "https://github.com/o/r/pull/13", "--merge", "--match-head-commit", prMergeHeadOID) {
 		t.Errorf("merge was not SHA-pinned: %v", runner.requests)
