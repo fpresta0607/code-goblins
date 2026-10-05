@@ -155,12 +155,13 @@ func (s *Store) deliveredReview(action, task string) {
 }
 
 // behindGoblinsTurn is the outcome of a delivery typed for goblin task while
-// it was in a turn. A native goblin's harness reports taking it, so the
-// delivery is sent and awaits that report; a goblin in a Herdr pane reports
-// nothing the board can wait on, so its delivery reads as before.
+// it was in a turn. The goblin's harness reports taking it, so the delivery
+// is sent and awaits that report. A task whose record can no longer be read
+// names nothing the board can wait on, so its delivery reads as unwatched
+// says.
 func (s *Service) behindGoblinsTurn(task string, since time.Time, unwatched string) Evaluation {
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
-	if err != nil || meta.Backend != "native" {
+	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
 	return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since}}

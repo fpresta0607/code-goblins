@@ -75,12 +75,8 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// Claude registers from its own SessionStart hook, after the digest has
 	// settled custody. Codex and Pi have only this one, and a failure here
 	// shows on the board as the registration state rather than in the reply.
-	// One second keeps the whole hook inside the Codex 3 s and Pi 2.5 s hook
-	// timeouts.
-	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && (os.Getenv("HERDR_PANE_ID") != "" || os.Getenv(host.IDVariable) != "") {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, _ = supervisor.Register(ctx, *dir, registerTerminals(), e.Harness, e.SessionID)
-		cancel()
+	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv(host.IDVariable) != "" {
+		_, _ = supervisor.Register(*dir, e.Harness, e.SessionID)
 	}
 	return 0
 }

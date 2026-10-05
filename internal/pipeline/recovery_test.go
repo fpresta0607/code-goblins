@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,7 @@ type recoveryRunner struct {
 	anchorSymbolic         bool
 	anchorSymbolicRace     bool
 	anchorTargetMoved      bool
+	anchorProbeExitCode    int
 	nativeAnchor           bool
 	nativeAnchorHead       string
 	nativeAnchorWorktree   bool
@@ -61,6 +63,92 @@ func newRecoveryReader(t *testing.T, runner execx.Runner) Reader {
 		t.Fatal(err)
 	}
 	return Reader{Commands: runner, Root: root}
+}
+
+func TestRecoveryHeadRealGitDistinguishesMissingAndInvalidAnchors(t *testing.T) {
+	for _, isBare := range []bool{false, true} {
+		for _, kind := range []string{"missing", "commit", "symbolic", "blob", "corrupt", "unreadable-repository"} {
+			t.Run(fmt.Sprintf("bare=%t/%s", isBare, kind), func(t *testing.T) {
+				repo := t.TempDir()
+				args := []string{"init", "--quiet"}
+				if isBare {
+					args = append(args, "--bare")
+				}
+				runPipelineGit(t, repo, args...)
+				tree := runPipelineGit(t, repo, "mktree")
+				head := runPipelineGit(t, repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit-tree", tree, "-m", "fixture")
+				ref := "refs/no-mistakes/recovery/fixture/gate"
+				switch kind {
+				case "commit":
+					runPipelineGit(t, repo, "update-ref", ref, head)
+				case "symbolic":
+					runPipelineGit(t, repo, "update-ref", "refs/heads/fixture", head)
+					runPipelineGit(t, repo, "symbolic-ref", ref, "refs/heads/fixture")
+				case "blob":
+					path := filepath.Join(repo, "fixture.txt")
+					if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					blob := runPipelineGit(t, repo, "hash-object", "-w", path)
+					runPipelineGit(t, repo, "update-ref", ref, blob)
+				case "corrupt":
+					path := runPipelineGit(t, repo, "rev-parse", "--git-path", ref)
+					if !filepath.IsAbs(path) {
+						path = filepath.Join(repo, path)
+					}
+					if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, []byte("not-an-object-id\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "unreadable-repository":
+					repo = t.TempDir()
+				}
+				reader := Reader{Commands: execx.OSRunner{}}
+				if kind == "missing" {
+					probe, err := reader.runGit(context.Background(), repo, isBare, "show-ref", "--verify", "--hash", ref)
+					if err != nil || probe.ExitCode == 0 {
+						t.Fatalf("missing-ref reproduction: %+v %v", probe, err)
+					}
+					t.Logf("original missing-ref probe exited %d", probe.ExitCode)
+				}
+				got, isFound, err := reader.recoveryHead(context.Background(), repo, ref, isBare)
+				switch kind {
+				case "missing":
+					if err != nil || isFound || got != "" {
+						t.Fatalf("optional missing anchor: head=%s found=%t error=%v", got, isFound, err)
+					}
+					if isBare {
+						if err := reader.preserveRecoveryHead(context.Background(), repo, ref, head); err != nil {
+							t.Fatalf("create missing anchor: %v", err)
+						}
+					}
+				case "commit":
+					if err != nil || !isFound || got != head {
+						t.Fatalf("direct commit anchor: head=%s found=%t error=%v", got, isFound, err)
+					}
+				default:
+					if err == nil || isFound {
+						t.Fatalf("invalid anchor accepted: head=%s found=%t error=%v", got, isFound, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRecoveryHeadRejectsExistenceLookupErrors(t *testing.T) {
+	for _, code := range []int{1, 128} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			runner := &recoveryRunner{anchorExists: true, anchorProbeExitCode: code}
+			reader := Reader{Commands: runner}
+			head, isFound, err := reader.recoveryHead(context.Background(), "worktree", "refs/no-mistakes/recovery/fixture/gate", false)
+			if err == nil || isFound || head != "" {
+				t.Fatalf("lookup failure treated as absence: head=%s found=%t error=%v", head, isFound, err)
+			}
+		})
+	}
 }
 
 func (r *recoveryRunner) values() recoveryScenario {
@@ -199,16 +287,29 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{Stdout: []byte("refs/heads/" + scenario.branch + "\n")}, nil
 		case strings.HasPrefix(joined, "symbolic-ref --quiet refs/no-mistakes/"):
 			return execx.Result{ExitCode: 1}, nil
+		case strings.HasPrefix(joined, "show-ref --exists refs/no-mistakes/recovery/"):
+			if r.anchorProbeExitCode != 0 {
+				return execx.Result{ExitCode: r.anchorProbeExitCode}, nil
+			}
+			if r.anchorExists {
+				return execx.Result{}, nil
+			}
+			return execx.Result{ExitCode: 2}, nil
+		case strings.HasPrefix(joined, "show-ref --exists refs/no-mistakes/recover/"):
+			if _, isFound := r.nativeAnchorAt(request); isFound {
+				return execx.Result{}, nil
+			}
+			return execx.Result{ExitCode: 2}, nil
 		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recovery/") && r.anchorExists:
 			ref := strings.TrimPrefix(joined, "show-ref --verify --hash ")
 			return execx.Result{Stdout: []byte(r.recoveryAnchorHead(ref) + "\n")}, nil
 		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recovery/"):
-			return execx.Result{ExitCode: 1}, nil
+			return execx.Result{ExitCode: 128}, nil
 		case strings.HasPrefix(joined, "show-ref --verify --hash refs/no-mistakes/recover/"):
 			if head, found := r.nativeAnchorAt(request); found {
 				return execx.Result{Stdout: []byte(head + "\n")}, nil
 			}
-			return execx.Result{ExitCode: 1}, nil
+			return execx.Result{ExitCode: 128}, nil
 		case strings.HasPrefix(joined, "fetch --no-tags --no-write-fetch-head "):
 			return execx.Result{}, nil
 		case strings.HasPrefix(joined, "update-ref refs/heads/"+scenario.branch+" "+r.localHead+" "+scenario.submitted):

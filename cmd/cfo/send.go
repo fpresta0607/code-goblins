@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -51,7 +53,7 @@ func runSend(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 			fmt.Fprintln(stderr, "cfo send: command runtime is incomplete")
 			return 1
 		}
-		if err := runtime.sendKey(context.Background(), h, target, *key); err != nil {
+		if err := runtime.sendKey(h, target, *key); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -76,4 +78,17 @@ func nativePromptSince(h home.Home) func(taskID, generation string, since time.T
 	return func(taskID, generation string, since time.Time) (bool, error) {
 		return supervisor.NativePromptSince(h.State, taskID, generation, since)
 	}
+}
+
+// nativeTask is the record of the task target names, by its id or as gb-<id>:
+// a message or a key reaches a goblin only in its native terminal.
+func nativeTask(h home.Home, target string) (state.TaskMeta, error) {
+	meta, native := fleet.NativeTask(h.State, target)
+	switch {
+	case native:
+		return meta, nil
+	case meta.ID != "":
+		return meta, fmt.Errorf("task %s was recorded in Herdr by an older build, and this build reaches a goblin only in a native terminal", meta.ID)
+	}
+	return meta, fmt.Errorf("unknown task %q; give a task id", target)
 }

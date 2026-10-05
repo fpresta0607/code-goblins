@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -106,11 +105,9 @@ func TestReviewCommandOpensTheLavishPageItIsGiven(t *testing.T) {
 	}
 }
 
-// Opening a page has its own budget: a lavish-axi slower than the publish
-// budget still opens the page, and publishing then gets its whole budget.
+// Opening a page has its own budget: a slow lavish-axi still opens the page,
+// and the item is published after it.
 func TestReviewCommandGivesThePageOpenItsOwnTime(t *testing.T) {
-	defer func(publish time.Duration) { reviewPublishTimeout = publish }(reviewPublishTimeout)
-	reviewPublishTimeout = time.Second
 	dir := t.TempDir()
 	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
@@ -132,7 +129,7 @@ func TestReviewCommandGivesThePageOpenItsOwnTime(t *testing.T) {
 	exit := runReview([]string{"--id", "plan-review-1", "--task", "g1", "--title", "Pick a plan", "--lavish", page}, &stdout, &stderr, runtime)
 
 	// g1 is no goblin, so publishing refuses it: reaching that refusal means
-	// the slow open finished instead of running out the publish budget.
+	// the slow open finished.
 	if exit != 1 || !strings.Contains(stderr.String(), "no live record") {
 		t.Fatalf("exit=%d stderr=%q, want the page opened and then g1 refused", exit, stderr.String())
 	}
