@@ -917,6 +917,27 @@ func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-02: "in Scrawl the actual radio choice selection at
+// the bottom doesn't exist anymore". A Scrawl page draws its choices only
+// when it declares them, so the brief says how, and that his pick comes back
+// as the option's exact text.
+func TestNotifyInstructionTellsAPageThatAsksHimToPickToDeclareItsChoices(t *testing.T) {
+	// Act
+	instruction := notifyInstruction("task-7")
+
+	// Assert
+	for _, want := range []string{
+		`<script type="application/json" data-lavish-choices>`,
+		"radio list",
+		"the option's exact text",
+		"a page without it shows him no choices",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
+	}
+}
+
 // Every Claude goblin runs Opus 5.5 unless a model is named (the Supreme
 // Overlord's directive of 2026-09-23), whether --harness claude came alone or
 // a lane named claude without a model. A named model still wins, and another

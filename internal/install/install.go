@@ -68,6 +68,10 @@ type Service struct {
 	// EarlierWindow is the folder an earlier install kept the desktop window
 	// in, on its own. An install whose home holds the window takes its place.
 	EarlierWindow string
+	// BuiltWindow says the desktop window in Root was built for this install,
+	// as install.cmd -Dev builds it into a checkout, where the install copies
+	// none itself. Without it a checkout's window is one it held before.
+	BuiltWindow bool
 }
 
 // Install wires the CFO into the machine and reports every change and every
