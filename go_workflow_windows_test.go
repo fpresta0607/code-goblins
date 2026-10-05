@@ -216,6 +216,43 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	}
 }
 
+// The merge queue tests each group of pull requests on the base's tip and
+// merges it only when the required test check passes on that run, so the
+// workflow behind that check, and the install workflow, run on merge_group.
+// A queue run has no pull request of its own, so no job reads one: the only
+// use left is the concurrency group's, which falls back to the run's id.
+func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
+	for _, name := range []string{"go.yml", "install.yml"} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			var workflow struct {
+				On struct {
+					MergeGroup *struct {
+						Types []string `yaml:"types"`
+					} `yaml:"merge_group"`
+				} `yaml:"on"`
+			}
+			if err := yaml.Unmarshal(source, &workflow); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if workflow.On.MergeGroup == nil || !slices.Equal(workflow.On.MergeGroup.Types, []string{"checks_requested"}) {
+				t.Errorf("%s runs on merge_group %+v, want types [checks_requested]", name, workflow.On.MergeGroup)
+			}
+			if reads := strings.Count(string(source), "github.event.pull_request"); reads != 1 {
+				t.Errorf("%s reads the pull request's fields %d times, want once, in the concurrency group with its fallback", name, reads)
+			}
+		})
+	}
+}
+
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
