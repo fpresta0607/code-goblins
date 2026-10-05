@@ -69,7 +69,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
    An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
-5. It remembers the agent and starts the CFO in the CFO home, in Herdr, or with `goblins --native`, and always for a Codex or pi CFO, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
+5. It remembers the agent and starts the CFO in the CFO home, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
    In a native terminal it answers the CFO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
    It types nothing at a screen it does not know, such as Claude Code's own first-run questions.
