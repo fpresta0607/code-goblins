@@ -94,6 +94,14 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 			kind = "ended"
 		case "Interrupt":
 			kind = "interrupted"
+		case "PreCompact":
+			if c.Harness == "codex" {
+				kind = "compacting"
+			}
+		case "PostCompact":
+			if c.Harness == "codex" {
+				kind = "compacted"
+			}
 		case "SubagentStart":
 			kind = "started"
 		case "SubagentStop":
@@ -103,6 +111,10 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		switch p.Event {
 		case "session_start":
 			kind = "started"
+		case "session_before_compact":
+			kind = "compacting"
+		case "session_compact":
+			kind = "compacted"
 		case "agent_start", "tool_execution_start", "tool_execution_end":
 			kind = "active"
 		case "agent_settled":
@@ -162,7 +174,7 @@ func (e Event) Validate() error {
 		return errors.New("unsupported harness")
 	}
 	switch e.Kind {
-	case "started", "active", "settled", "ended", "interrupted":
+	case "started", "active", "settled", "ended", "interrupted", "compacting", "compacted":
 	default:
 		return errors.New("invalid event kind")
 	}

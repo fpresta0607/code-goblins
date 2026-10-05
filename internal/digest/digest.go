@@ -222,9 +222,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	checkpoint := ""
 	if isAfterCompact {
-		path := filepath.Join(h.State, CheckpointFile)
-		info, err := os.Stat(path)
-		if err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) <= 15*time.Minute {
+		if path, _, isFresh := FreshCheckpoint(h.State, time.Now()); isFresh {
 			checkpoint = path + " holds the checkpoint written before compaction. Read it first.\n"
 		} else {
 			checkpoint = "no checkpoint was written before this compaction, or the one on disk is stale or unreadable; run cfo install to register the pre-compact hook.\n"

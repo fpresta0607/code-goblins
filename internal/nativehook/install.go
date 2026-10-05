@@ -70,7 +70,7 @@ func Install(c InstallConfig) (string, error) {
 	helper, command := helperCommand(c.ConfigDir)
 	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
 	if c.Harness == "codex" {
-		events = append(events, "Interrupt")
+		events = append(events, "Interrupt", "PreCompact", "PostCompact")
 	}
 	for _, event := range events {
 		kept, stood, err := withoutCommand(hooks[event], command)
@@ -320,6 +320,8 @@ export default function (pi: ExtensionAPI) {
     if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
   };
   pi.on("session_start", (_event, ctx) => fire("session_start", ctx));
+  pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));
+  pi.on("session_compact", (_event, ctx) => fire("session_compact", ctx));
   pi.on("agent_start", (_event, ctx) => { turn++; fire("agent_start", ctx); });
   pi.on("tool_execution_end", (_event, ctx) => fire("tool_execution_end", ctx));
   pi.on("agent_settled", (_event, ctx) => fire("agent_settled", ctx));

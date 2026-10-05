@@ -183,6 +183,10 @@ It runs only for the live session that holds the primary home's lock, produces n
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
 The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.
 Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
+A Codex or pi CFO gets the same checkpoint from its native hooks: Codex `PreCompact` and pi `session_before_compact` write it under the same custody rule.
+Codex `PostCompact` and pi `session_compact` then queue one `check` wake that names the checkpoint, or says no fresh one was written, and the supervisor types it into the idle CFO like any other wake; a replayed event queues nothing new.
+A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
+Re-run `cfo hooks install codex` or `cfo hooks install pi` to add these events; Codex runs the two new definitions only once they are trusted in `/hooks`.
 The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
