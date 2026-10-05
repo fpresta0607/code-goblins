@@ -15,13 +15,13 @@ test("a question with an open review page is one card that shows the question an
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("May I build item 4's Paused divider and layout switch as drawn?")).toBeVisible();
   await expect(dialog.getByRole("radio")).toHaveCount(0);
-  await expect(dialog.getByRole("link", { name: "Open review" }).first()).toHaveAttribute("href", "http://127.0.0.1:4387/session/ec2ef7d06dddccbb");
+  await expect(dialog.getByRole("link", { name: "Open review" })).toHaveCount(1);
+  await expect(dialog.getByRole("link", { name: "Open review" })).toHaveAttribute("href", "http://127.0.0.1:4387/session/ec2ef7d06dddccbb");
   const status = dialog.getByText("Waiting for your answer. Reply in the page's conversation box; your answer closes this card.");
   await expect(status).toBeVisible();
-  // The page's tile names the page in the goblin's words, without the queue's
-  // prefix or the link the tile itself opens, and the status reads on one
-  // line with its icon beside it.
-  await expect(dialog.locator(".page-shot strong")).toHaveText("item 4 mockup on the page; reply build or say what to change");
+  // The card opens its page from its one Open review button and shows no page
+  // tile, and the status reads on one line with its icon beside it.
+  await expect(dialog.locator(".page-preview")).toHaveCount(0);
   const icon = await status.locator(".icon").boundingBox();
   const line = await status.boundingBox();
   expect(icon && line && icon.height + 8 >= line.height, "the status icon sits beside its words, not above them").toBe(true);
