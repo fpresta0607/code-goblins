@@ -119,6 +119,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "voice-worker" {
+		return runVoiceWorker(args[1:], os.Stdin, stdout, stderr)
+	}
 	return runWithRuntime(args, stdout, stderr, defaultCommandRuntime())
 }
 
