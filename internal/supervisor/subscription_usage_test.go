@@ -28,6 +28,7 @@ func TestSubscriptionVisibilityRequiresLiveHarnessEvidence(t *testing.T) {
 		{"both", cfoState{registered: true, harness: "claude"}, []Task{liveTask}, nil, "claude,codex"},
 		{"idle harness", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "idle", At: now}}}, nil, "claude"},
 		{"weekly-limited harness remains visible", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "harness-erroring", At: now}}}, nil, "claude"},
+		{"harness parked on a decision remains visible", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "parked", At: now}}}, nil, "claude"},
 		{"configured CFO", cfoState{harness: "claude"}, nil, nil, ""},
 		{"lost CFO", cfoState{registered: true, harness: "claude", problem: "terminal ended"}, nil, nil, ""},
 		{"foreign session", cfoState{}, nil, []Session{{Role: "foreign", Harness: "claude", Phase: "active"}}, ""},

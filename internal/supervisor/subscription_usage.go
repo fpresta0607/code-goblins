@@ -67,7 +67,7 @@ func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []Subscript
 			continue
 		}
 		switch task.Runtime.State {
-		case "active", "busy", "idle", "harness-erroring":
+		case "active", "busy", "idle", "parked", "harness-erroring":
 			active[task.Harness] = true
 		}
 	}
