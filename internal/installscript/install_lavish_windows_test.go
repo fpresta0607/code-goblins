@@ -1,4 +1,4 @@
-package codegoblins
+package installscript
 
 import (
 	"crypto/sha256"
@@ -91,6 +91,18 @@ func TestOneLineInstallRefusesALavishDownloadThatDoesNotMatchItsPin(t *testing.T
 	}
 	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*")); len(left) != 0 {
 		t.Errorf("the install left %v behind", left)
+	}
+	// A refused download is a warning: the install goes on and adds each skill
+	// the fleet's tools publish, through the stand-in npx.
+	skills, err := os.ReadFile(filepath.Join(temp, installtest.NpxCalls))
+	if err != nil {
+		t.Fatalf("npx was never called: %v\n%s", err, output)
+	}
+	for _, skill := range []string{"gh-axi", "chrome-devtools-axi", "no-mistakes"} {
+		want := fmt.Sprintf("-y skills add kunchenguid/%s --skill %s -g -y -a claude-code -a codex -a pi --copy", skill, skill)
+		if strings.Count(string(skills), want) != 1 {
+			t.Errorf("npx calls %q, want %q once", skills, want)
+		}
 	}
 }
 

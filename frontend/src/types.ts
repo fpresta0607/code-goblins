@@ -125,7 +125,16 @@ export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
+export interface SubscriptionUsage {
+  provider: "claude" | "codex";
+  status: "available" | "unavailable" | "stale" | "auth_required";
+  percent_remaining: number | null;
+  read_at: string;
+  resets_at: string;
+  source: "oauth" | "api" | "";
+}
 export interface Snapshot {
+  subscriptions?: SubscriptionUsage[];
   activity?: BoardActivity[];
   example: boolean;
   instance: string;
@@ -448,6 +457,15 @@ export function parseItems(value: unknown): Items {
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
+      const usage = object(value);
+      if (usage.provider !== "claude" && usage.provider !== "codex") return [];
+      const status = usage.status === "available" || usage.status === "stale" || usage.status === "auth_required" ? usage.status : "unavailable";
+      const remaining = usage.percent_remaining;
+      const isMeasured = status === "available" && usage.source === "oauth" && typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0 && remaining <= 100;
+      return [{ provider: usage.provider, status: status === "available" && !isMeasured ? "unavailable" : status, percent_remaining: isMeasured ? remaining : null,
+        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "" }];
+    }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
