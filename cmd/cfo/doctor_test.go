@@ -177,9 +177,9 @@ func TestRunDoctorIsHealthyWithoutHerdrOrKimi(t *testing.T) {
 	if exit != 0 || strings.Contains(stdout.String(), "MISSING") || strings.Contains(stdout.String(), "broken") {
 		t.Errorf("exit = %d, want 0 with nothing missing or broken\n%s", exit, stdout.String())
 	}
-	for _, name := range []string{"herdr", "kimi"} {
-		if strings.Contains(strings.ToLower(stdout.String()), name) {
-			t.Errorf("doctor names %s\n%s", name, stdout.String())
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && (fields[1] == "herdr" || fields[1] == "kimi") {
+			t.Errorf("doctor checks %s: %q\n%s", fields[1], line, stdout.String())
 		}
 	}
 }

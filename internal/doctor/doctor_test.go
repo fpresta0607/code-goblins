@@ -199,7 +199,7 @@ func TestInstallScriptInstallsExactlyTheToolsTheDoctorChecks(t *testing.T) {
 
 	// Act
 	installed := []string{}
-	for _, match := range regexp.MustCompile(`@\{ Name = "([^"]+)"`).FindAllStringSubmatch(string(script), -1) {
+	for _, match := range regexp.MustCompile(`@\{ Name = "([^"]+)";\s+Kind = `).FindAllStringSubmatch(string(script), -1) {
 		installed = append(installed, match[1])
 	}
 
