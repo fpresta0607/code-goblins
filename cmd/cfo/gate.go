@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -67,7 +68,9 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 // package; --level runs another level and still says what is required, and
 // --plan prints the plan and runs nothing. Every check waits for the run's
 // turn on the machine, and checks that ran past their level's
-// budget do not pass.
+// budget do not pass. The tests' output is what go test prints without -v,
+// the log holds every line they wrote, the report what became of each
+// package, and a run that holds a turn says beside it how far its tests are.
 func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	flags := flag.NewFlagSet("cfo gate test", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -99,7 +102,9 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		commands = append(commands, append([]string{"go", "vet"}, plan.Vet...))
 	}
 	if len(plan.Tests) > 0 {
-		commands = append(commands, append([]string{"go", "test", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
+		// -json has go test say what became of each package and each test, which
+		// the run prints as go test prints without it and records by package.
+		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
 	}
 	if *planOnly {
 		printGatePlan(stdout, plan)
@@ -138,12 +143,16 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	for _, left := range plan.Left {
 		report.Left = append(report.Left, verify.Left{Check: left.Check, Why: left.Why})
 	}
+	// short is where the step's own output goes, and full takes every line
+	// the tests wrote: the log, when the run has one.
+	short, full := stdout, io.Discard
 	log, reportPath, err := verify.Begin(report.Project, start, plan.Commit, report.Level)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate test: this run leaves no report: %v\n", err)
 	} else {
 		defer log.Close()
 		report.Log = log.Name()
+		full = log
 		stdout, stderr = io.MultiWriter(stdout, log), io.MultiWriter(stderr, log)
 	}
 	printGatePlan(stdout, plan)
@@ -168,7 +177,23 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				continue
 			}
 			check.Start, check.Status = time.Now(), "passed"
-			exit, err := runtime.gateRun(command, dir, env, stdout, stderr)
+			output := stdout
+			var events *gatetest.Events
+			if command[1] == "test" {
+				events = gatetest.NewEvents(short, full)
+				output = events
+			}
+			stopSaying := func() {}
+			if events != nil {
+				stopSaying = sayProgress(turn, events, runtime.gateProgress)
+			}
+			exit, err := runtime.gateRun(command, dir, env, output, stderr)
+			stopSaying()
+			if events != nil {
+				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
+					err = errors.Join(err, outputErr)
+				}
+			}
 			check.ExitCode = exit
 			if err != nil || exit != 0 {
 				check.Status, report.Status = "failed", "failed"
@@ -176,6 +201,9 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			}
 			ran := time.Since(check.Start)
 			check.DurationSeconds = ran.Seconds()
+			if events != nil {
+				check.Packages = recordPackages(stdout, events.Results())
+			}
 			turn.Release()
 			if check.Status == "passed" && ran > budget {
 				check.Status, report.Status = "over_budget", "failed"
@@ -307,6 +335,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 			line += fmt.Sprintf(" of its %s budget", run.Budget)
 		}
 		fmt.Fprintln(stdout, line)
+		if run.Now != "" {
+			fmt.Fprintln(stdout, "  now: "+run.Now)
+		}
 	}
 	if len(waiting) > 0 {
 		fmt.Fprintln(stdout, "waiting:")
@@ -367,4 +398,113 @@ func taskID(getenv func(string) string) string {
 		return ""
 	}
 	return getenv("CFO_TASK_ID")
+}
+
+// sayProgress has a run say beside its turn, every interval until the
+// returned function is called, how far its tests are. A gate shows a step's
+// output only once the step has ended, so the turn's card is where a run's
+// progress is read while it lasts, with cfo gate turns.
+func sayProgress(turn verify.Turn, events *gatetest.Events, every time.Duration) (stop func()) {
+	done, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case now := <-ticker.C:
+				turn.Say(progressLine(events, now))
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+	}
+}
+
+// progressShown is how many running tests a progress line names before it
+// counts the rest.
+const progressShown = 3
+
+// progressLine is what a run says of its tests beside its turn: how many
+// packages are done, which tests are running and for how long, and the last
+// line of the step's output.
+func progressLine(events *gatetest.Events, now time.Time) string {
+	running, done, last := events.Progress()
+	line := fmt.Sprintf("go test: %d package(s) done", done)
+	var names []string
+	for _, run := range running[:min(len(running), progressShown)] {
+		name := run.ImportPath
+		if run.Test != "" {
+			name += " " + run.Test
+		}
+		names = append(names, fmt.Sprintf("%s for %s", name, now.Sub(run.Since).Round(time.Second)))
+	}
+	if len(names) > 0 {
+		line += "; running " + strings.Join(names, ", ")
+	}
+	if more := len(running) - progressShown; more > 0 {
+		line += fmt.Sprintf(" and %d more", more)
+	}
+	if last != "" {
+		line += "; last output: " + last
+	}
+	return line
+}
+
+// recordPackages turns what became of each package's tests into the report's
+// form, and when any did not pass says which, and which tests in them, after
+// the tests' own output: one place to read what failed.
+func recordPackages(stdout io.Writer, results []gatetest.PackageResult) []verify.PackageResult {
+	var recorded []verify.PackageResult
+	var failures []string
+	for _, result := range results {
+		recorded = append(recorded, verify.PackageResult{Package: result.ImportPath, Status: result.Status, Seconds: result.Seconds, Tests: result.Tests, Failed: result.Failed, Unfinished: result.Unfinished})
+		if result.Status != "passed" && result.Status != "no_tests" {
+			failures = append(failures, notPassed(result))
+		}
+	}
+	if len(failures) > 0 {
+		fmt.Fprintf(stdout, "cfo gate test: go test did not pass in %d of %d package(s):\n", len(failures), len(results))
+		for _, failure := range failures {
+			fmt.Fprintln(stdout, "- "+failure)
+		}
+	}
+	return recorded
+}
+
+// namedTests is how many test names a line gives before it counts the rest.
+const namedTests = 5
+
+// notPassed says what became of a package that did not pass: the tests that
+// failed, the tests that never finished, as one that hangs, or that it did
+// not compile.
+func notPassed(result gatetest.PackageResult) string {
+	named := func(tests []string) string {
+		if more := len(tests) - namedTests; more > 0 {
+			return fmt.Sprintf("%s and %d more", strings.Join(tests[:namedTests], ", "), more)
+		}
+		return strings.Join(tests, ", ")
+	}
+	var what []string
+	if len(result.Failed) > 0 {
+		what = append(what, named(result.Failed)+" failed")
+	}
+	if len(result.Unfinished) > 0 {
+		what = append(what, named(result.Unfinished)+" did not finish")
+	}
+	if len(what) == 0 {
+		switch result.Status {
+		case "build_failed":
+			what = []string{"did not compile"}
+		case "unfinished":
+			what = []string{"did not finish"}
+		default:
+			what = []string{"failed outside any test"}
+		}
+	}
+	return result.ImportPath + ": " + strings.Join(what, "; ")
 }
