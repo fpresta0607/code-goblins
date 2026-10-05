@@ -70,7 +70,7 @@ func (s *Service) beginSnapshot(build *snapshotBuild) {
 		if s.buildSnapshot != nil {
 			build.snapshot, build.err = s.buildSnapshot()
 		} else {
-			build.snapshot, build.err = s.Snapshot()
+			build.snapshot, build.err = s.buildBoardSnapshot()
 		}
 		shared.mu.Lock()
 		shared.running = nil

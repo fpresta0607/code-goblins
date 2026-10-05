@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { spoken } from "./dictation";
+import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
 import type { Voice } from "./useVoice";
 
@@ -17,9 +18,17 @@ const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "
 // A terminal's voice bubble, always in the pane's bottom-right corner: idle,
 // a small microphone that opens the pane's recent dictations, each with Copy
 // and Paste into this terminal; recording, it shows the microphone's level as
-// bars. The first visit explains the shortcut once.
-export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice; listening: boolean; level: () => number; onPaste: (text: string) => void }) {
+// bars. The first visit explains the shortcut once. model is the speech model
+// the supervisor runs on this PC, which the bubble names as what listens; the
+// list's foot says so too and offers the browser's own speech recognition
+// where the browser has one.
+export function VoiceBubble({ voice, listening, level, model, onPaste }: { voice: Voice; listening: boolean; level: () => number; model: string; onPaste: (text: string) => void }) {
   const [open, setOpen] = useState(false);
+  // Read on every render, as the hint is, so a choice made in one pane shows
+  // in the others.
+  const [, chosen] = useState(0);
+  const browser = usesBrowser();
+  const engine = browser ? "this browser's speech recognition" : (model || "the speech model") + " on this PC";
   // Read on every render, so a hint dismissed in one pane stays away in the
   // others, which stay mounted.
   const [dismissed, setDismissed] = useState(false);
@@ -60,7 +69,7 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
     dismiss();
     setOpen(true);
   };
-  const tip = listening ? "Listening · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
+  const tip = listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // A page served over plain HTTP, such as across the tailnet, has no clipboard.
   const clipboard = !!navigator.clipboard;
   // Escape closes the list from the bubble or from inside it.
@@ -87,12 +96,13 @@ export function VoiceBubble({ voice, listening, level, onPaste }: { voice: Voice
           </span>
         </li>;
       })}</ul> : <p className="voice-empty">Nothing dictated yet.</p>}
-      <p className="voice-footer">Hold Ctrl+Shift+Space, speak, release.</p>
+      <p className="voice-footer">Hold Ctrl+Shift+Space, speak, release. {browser ? "Heard by this browser's speech recognition, which sends your voice to the browser's maker." : "Heard by " + engine + ": what you say never leaves it."}</p>
+      {browserOffered() && <p className="voice-empty"><label><input type="checkbox" checked={browser} onChange={(event) => { setUsesBrowser(event.target.checked); chosen((count) => count + 1); }} /> Use this browser's speech recognition instead</label></p>}
     </section>}
     <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} data-tip-align="end" onClick={toggle}>
       {listening ? <><span className="voice-dot" aria-hidden="true" /><span className="voice-bars" aria-hidden="true">{Array.from({ length: BARS }, (_, index) => <span key={index} ref={(bar) => { bars.current[index] = bar; }} />)}</span></> : <Icon name="mic" />}
     </button>
-    {listening && <span className="sr-only" role="status">Listening</span>}
+    {listening && <span className="sr-only" role="status">Listening with {engine}</span>}
   </div>;
 }

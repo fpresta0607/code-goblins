@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,30 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 )
-
-// paneRunner is a Herdr in which this test process is the foreground harness
-// of pane w1:p1 and no agent has been detected yet.
-type paneRunner struct{ calls int }
-
-func (r *paneRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
-	r.calls++
-	a := req.Args
-	switch {
-	case len(a) >= 2 && a[0] == "pane" && a[1] == "process-info":
-		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":%d}}}`, os.Getpid()))}, nil
-	case len(a) >= 2 && a[0] == "api" && a[1] == "snapshot":
-		return execx.Result{Stdout: []byte(`{"result":{"type":"session_snapshot","snapshot":{"protocol":1,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","terminal_id":"t-1"}],"agents":[]}}}`)}, nil
-	}
-	return execx.Result{}, fmt.Errorf("unexpected Herdr operation: %v", a)
-}
 
 func registerHome(t *testing.T) home.Home {
 	t.Helper()
@@ -46,7 +25,6 @@ func registerHome(t *testing.T) home.Home {
 	if err := os.MkdirAll(h.State, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HERDR_PANE_ID", "w1:p1")
 	return h
 }
 
@@ -55,10 +33,11 @@ func TestSessionStartRegistersTheSessionThatHoldsTheHome(t *testing.T) {
 	if _, err := lock.Acquire(h.State); err != nil {
 		t.Fatal(err)
 	}
-	runner := &paneRunner{}
+	hostAttachTestTerminal(t, h.State, "cfo")
+	standInAsTerminalProgram(t, h.State, "cfo")
 	var stdout bytes.Buffer
-	registerPrimary(h, os.Getpid(), "claude", "s1", terminal.HerdrSessions(&herdr.Client{Commands: runner, Session: "isolated"}), &stdout)
-	want := "CFO REGISTRATION: claude pid " + strconv.Itoa(os.Getpid()) + " in Herdr pane isolated:w1:p1\n"
+	registerPrimary(h, os.Getpid(), "claude", "s1", &stdout)
+	want := "CFO REGISTRATION: claude pid " + strconv.Itoa(os.Getpid()) + " in native terminal cfo\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -80,11 +59,11 @@ func TestSessionStartNeverRegistersAReadOnlySession(t *testing.T) {
 	if _, err := lock.AcquireOwner(h.State, other.Process.Pid, "other"); err != nil {
 		t.Fatal(err)
 	}
-	runner := &paneRunner{}
+	t.Setenv(host.IDVariable, "cfo")
 	var stdout bytes.Buffer
-	registerPrimary(h, os.Getpid(), "claude", "s1", terminal.HerdrSessions(&herdr.Client{Commands: runner}), &stdout)
-	if stdout.Len() != 0 || runner.calls != 0 {
-		t.Fatalf("read-only session: stdout %q, %d Herdr calls; want silence", stdout.String(), runner.calls)
+	registerPrimary(h, os.Getpid(), "claude", "s1", &stdout)
+	if stdout.Len() != 0 {
+		t.Fatalf("read-only session: stdout %q; want silence", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(h.State, "primary.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read-only session wrote primary.json: %v", err)
@@ -103,26 +82,37 @@ func TestRegisterCommandRefusesAGoblin(t *testing.T) {
 	}
 }
 
-// Registration opens Herdr in the session HERDR_SESSION names, the way spawn
-// and the watcher read it, and in Herdr's default session without it.
-func TestRegistrationOpensHerdrInTheSessionThisProcessRunsIn(t *testing.T) {
-	for session, want := range map[string]string{"fleet-7": "fleet-7", "": "default"} {
-		t.Setenv("HERDR_SESSION", session)
+// A session in no native terminal has nothing the board could reach: its
+// SessionStart stays silent, even inside a Herdr pane, and cfo register says
+// why it registered nothing.
+func TestASessionOutsideANativeTerminalRegistersNothing(t *testing.T) {
+	h := registerHome(t)
+	t.Setenv(host.IDVariable, "")
+	t.Setenv("HERDR_PANE_ID", "w1:p1")
+	if _, err := lock.Acquire(h.State); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Release(h.State) })
+	var hook, stdout, stderr bytes.Buffer
 
-		got := registerTerminals()("").EffectiveSession()
+	registerPrimary(h, os.Getpid(), "claude", "s1", &hook)
+	exit := runRegister(nil, &stdout, &stderr, commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }})
 
-		if got != want {
-			t.Errorf("HERDR_SESSION=%q opens %q, want %q", session, got, want)
-		}
+	if hook.Len() != 0 {
+		t.Errorf("SessionStart wrote %q, want silence", hook.String())
+	}
+	if exit != 1 || !strings.Contains(stderr.String(), "runs in no native terminal") {
+		t.Errorf("cfo register: exit %d stderr %q, want 1 and the reason", exit, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "primary.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("primary.json stat = %v, want no registration written", err)
 	}
 }
 
-// A CFO's SessionStart in a native terminal registers that terminal, where one
-// outside any Herdr pane used to stay silent. Here the terminal's host is
-// gone, so the hook reports the refusal.
+// A CFO's SessionStart in a native terminal registers that terminal. Here the
+// terminal's host is gone, so the hook reports the refusal.
 func TestSessionStartRegistersInANativeTerminal(t *testing.T) {
 	h := registerHome(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	t.Setenv(host.IDVariable, "cfo")
 	if _, err := lock.Acquire(h.State); err != nil {
 		t.Fatal(err)
@@ -141,7 +131,7 @@ func TestSessionStartRegistersInANativeTerminal(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 
-	registerPrimary(h, os.Getpid(), "claude", "s1", nil, &stdout)
+	registerPrimary(h, os.Getpid(), "claude", "s1", &stdout)
 
 	if !strings.Contains(stdout.String(), "CFO REGISTRATION FAILED") || !strings.Contains(stdout.String(), "does not answer") {
 		t.Fatalf("stdout = %q, want the native terminal's registration refused because its host does not answer", stdout.String())
