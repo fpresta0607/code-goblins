@@ -12,7 +12,10 @@ import (
 )
 
 type Result struct {
-	Command         []string  `json:"command"`
+	Command []string `json:"command"`
+	// Dir is where the command ran, from the repository root, when it is a
+	// check's that runs in a folder of its own.
+	Dir             string    `json:"dir,omitempty"`
 	Start           time.Time `json:"start,omitzero"`
 	DurationSeconds float64   `json:"duration_seconds"`
 	ExitCode        int       `json:"exit_code"`

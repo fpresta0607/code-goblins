@@ -68,9 +68,10 @@ type Report struct {
 	Log string `json:"log,omitempty"`
 }
 
-// Selection is a package a run selected, and why.
+// Selection is a package a run selected, or a check besides Go's, and why.
 type Selection struct {
-	Package string `json:"package"`
+	Package string `json:"package,omitempty"`
+	Check   string `json:"check,omitempty"`
 	Why     string `json:"why"`
 }
 

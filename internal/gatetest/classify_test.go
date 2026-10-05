@@ -178,3 +178,37 @@ func TestClassifyReachesEverythingWhenAModuleFileChanged(t *testing.T) {
 		t.Errorf("Classify = %+v; want everything and no list of packages", reach)
 	}
 }
+
+// A changed file a check besides Go's names selects that check, with every
+// changed file that selects it, and is neither outside the Go checks nor
+// unknown. A file a package owns that a check also names selects both, and a
+// check no changed file names is not selected.
+func TestClassifySelectsTheChecksBesidesGosThatAChangedFileNames(t *testing.T) {
+	// Arrange
+	policy := Policy{
+		Version: 1,
+		Outside: []Outside{{Paths: []string{"README.md"}, Why: "documentation no Go check reads"}},
+		Checks: []Check{
+			{Name: "frontend", Paths: []string{"frontend/**", "internal/state/testdata/**"}, Dir: "frontend", Commands: [][]string{{"npm", "test"}}},
+			{Name: "notices", Paths: []string{"NOTICES"}, Dir: ".", Commands: [][]string{{"go", "run", "./tools/notices", "-check"}}},
+		},
+	}
+
+	// Act
+	reach := Classify(root, "example.com/repo", []string{"frontend/src/app.ts", "frontend/package.json", "internal/state/testdata/task.json", "README.md"}, repo, policy)
+
+	// Assert
+	choices, outside := reached(reach)
+	wantChoices := []string{
+		"example.com/repo/internal/state (changed)",
+		"example.com/repo/cmd/cfo (imports example.com/repo/internal/reap)",
+		"example.com/repo/internal/reap (imports example.com/repo/internal/state)",
+	}
+	if !slices.Equal(choices, wantChoices) || !slices.Equal(outside, []string{"README.md (documentation no Go check reads)"}) || len(reach.Unknown) != 0 {
+		t.Errorf("Classify = choices %q, outside %q, unknown %q; want choices %q, README.md outside, nothing unknown", choices, outside, reach.Unknown, wantChoices)
+	}
+	wantFiles := []string{"frontend/src/app.ts", "frontend/package.json", "internal/state/testdata/task.json"}
+	if len(reach.Checks) != 1 || reach.Checks[0].Check.Name != "frontend" || !slices.Equal(reach.Checks[0].Files, wantFiles) {
+		t.Errorf("Classify checks = %+v; want the frontend check alone, selected by %q", reach.Checks, wantFiles)
+	}
+}

@@ -388,7 +388,7 @@ func TestGateTestPlanRequiresEveryPackageForAFileThePolicyDoesNotAccountFor(t *t
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 	for _, want := range []string{
-		"cfo gate test: level full: tools/new.sh is in no package, under no contract and not listed as outside the Go checks",
+		"cfo gate test: level full: tools/new.sh is in no package, under no contract, read by no check and not listed as outside the Go checks",
 		"cfo gate test: every package is tested",
 		"changed files outside the Go checks:\n- README.md (documentation no Go check reads)\n",
 		"changed files the policy does not account for:\n- tools/new.sh\n",

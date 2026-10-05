@@ -330,3 +330,74 @@ func TestReadReachesProductionAndExternalTestImportersTransitively(t *testing.T)
 			plan.Choices, plan.Everything, plan.Level, plan.Required, plan.Vet, plan.Tests, plan.Left, wantChoices, wantPackages)
 	}
 }
+
+// printsVersion is a runner whose every command prints the version it was
+// given, as node --version prints its own.
+type printsVersion string
+
+func (version printsVersion) Run(context.Context, execx.Request) (execx.Result, error) {
+	return execx.Result{Stdout: []byte(string(version) + "\n")}, nil
+}
+
+// An install is in place only when its output holds the stamp of an install
+// made from the same command, the same inputs and the same versions: an
+// output with no stamp, or a change to any of those, runs it again, and the
+// stamp a run writes once the install passed is read back.
+func TestAnInstallIsInPlaceOnlyWhenMadeFromTheSameCommandInputsAndVersions(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "web", "package-lock.json"), "lock 1\n")
+	check := func(command ...string) Check {
+		return Check{Name: "web", Dir: "web", Install: &Install{Command: command, Inputs: []string{"web/package-lock.json"}, Versions: [][]string{{"node", "--version"}}, Output: "web/node_modules"}}
+	}
+	plan := func(check Check, version string) Planned {
+		t.Helper()
+		planned := Planned{Check: check}
+		if err := installed(context.Background(), printsVersion(version), dir, &planned); err != nil {
+			t.Fatal(err)
+		}
+		return planned
+	}
+
+	// Act
+	fresh := plan(check("npm", "ci"), "v24.13.0")
+	if err := os.MkdirAll(filepath.Join(dir, "web", "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkInstalled(dir, fresh); err != nil {
+		t.Fatal(err)
+	}
+	same := plan(check("npm", "ci"), "v24.13.0")
+	otherVersion := plan(check("npm", "ci"), "v25.0.0")
+	otherCommand := plan(check("npm", "install"), "v24.13.0")
+	write(t, filepath.Join(dir, "web", "package-lock.json"), "lock 2\n")
+	otherInputs := plan(check("npm", "ci"), "v24.13.0")
+
+	// Assert
+	if fresh.IsInstalled || fresh.Fingerprint == "" {
+		t.Errorf("an output with no stamp = installed %v, fingerprint %q; want not installed, with a fingerprint to stamp", fresh.IsInstalled, fresh.Fingerprint)
+	}
+	if !same.IsInstalled || same.Fingerprint != fresh.Fingerprint {
+		t.Errorf("the same command, inputs and version after the stamp = installed %v; want installed", same.IsInstalled)
+	}
+	for name, other := range map[string]Planned{"another version": otherVersion, "another command": otherCommand, "other inputs": otherInputs} {
+		if other.IsInstalled || other.Fingerprint == fresh.Fingerprint {
+			t.Errorf("%s = installed %v, fingerprint %q; want not installed, under a fingerprint of its own", name, other.IsInstalled, other.Fingerprint)
+		}
+	}
+}
+
+// An install input that is not there is a policy that names the wrong file,
+// and the plan says which, rather than fingerprinting what is missing.
+func TestAnInstallRefusesAnInputThatIsNotThere(t *testing.T) {
+	// Arrange
+	planned := Planned{Check: Check{Name: "web", Dir: "web", Install: &Install{Command: []string{"npm", "ci"}, Inputs: []string{"web/package-lock.json"}, Output: "web/node_modules"}}}
+
+	// Act
+	err := installed(context.Background(), printsVersion("v24.13.0"), t.TempDir(), &planned)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "web/package-lock.json, an input of the web check's install") {
+		t.Errorf("installed = %v; want an error naming the missing input and its check", err)
+	}
+}

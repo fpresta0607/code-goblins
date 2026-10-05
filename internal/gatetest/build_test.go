@@ -101,12 +101,12 @@ func TestBuildRequiresFullWhenAChangedFileIsUnknownToThePolicy(t *testing.T) {
 	}{
 		"one file": {
 			changed: []string{"a/a.go", "tools/sign.ps1", "README.md"},
-			why:     "tools/sign.ps1 is in no package, under no contract and not listed as outside the Go checks",
+			why:     "tools/sign.ps1 is in no package, under no contract, read by no check and not listed as outside the Go checks",
 			unknown: []string{"tools/sign.ps1"},
 		},
 		"several files": {
 			changed: []string{"tools/sign.ps1", "tools/pack.ps1", "Makefile"},
-			why:     "Makefile and 2 more files are in no package, under no contract and not listed as outside the Go checks",
+			why:     "Makefile and 2 more files are in no package, under no contract, read by no check and not listed as outside the Go checks",
 			unknown: []string{"Makefile", "tools/pack.ps1", "tools/sign.ps1"},
 		},
 	} {
@@ -218,5 +218,41 @@ func TestBuildLevelsKeepTheTransitiveClosure(t *testing.T) {
 					plan.Level, plan.Required, plan.Choices, plan.Vet, plan.Tests, deferred(plan.Left), test.level, wantChoices, test.vet, test.tests, test.left)
 			}
 		})
+	}
+}
+
+// planned names each check besides Go's a plan runs, with why.
+func planned(checks []Planned) []string {
+	var names []string
+	for _, check := range checks {
+		names = append(names, check.Name+" ("+check.Why+")")
+	}
+	return names
+}
+
+// The affected level runs the checks besides Go's that a changed file
+// selects, naming the files; the full level runs every check; and the fast
+// level runs none, as they take minutes, and says which one it left to the
+// affected level and why.
+func TestBuildRunsTheChecksBesidesGosAChangeSelectsByLevel(t *testing.T) {
+	// Arrange
+	found := branch("web/app.ts", "web/style.css")
+	found.policy, found.hasPolicy = `{"version": 1, "checks": [{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]]}, {"name": "docs", "paths": ["docs/**"], "dir": "docs", "commands": [["make"]]}]}`, true
+
+	// Act
+	affected := build(found, "")
+	full := build(found, Full)
+	fast := build(found, Fast)
+
+	// Assert
+	if want := []string{"web (web/app.ts and 1 more changed)"}; affected.Level != Affected || affected.Required != Affected || !slices.Equal(planned(affected.Checks), want) {
+		t.Errorf("build = level %s, required %s, checks %q; want affected for both, running %q", affected.Level, affected.Required, planned(affected.Checks), want)
+	}
+	if want := []string{"web (the full level runs every check)", "docs (the full level runs every check)"}; !slices.Equal(planned(full.Checks), want) {
+		t.Errorf("build at full runs the checks %q; want %q", planned(full.Checks), want)
+	}
+	wantLeft := []string{"the web check (web/app.ts and 1 more changed, and a check besides Go's takes minutes)"}
+	if len(fast.Checks) != 0 || fast.Required != Affected || !slices.Equal(deferred(fast.Left), wantLeft) {
+		t.Errorf("build at fast = checks %q, required %s, left %q; want no check run, affected required, %q left", planned(fast.Checks), fast.Required, deferred(fast.Left), wantLeft)
 	}
 }

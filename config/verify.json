@@ -73,20 +73,35 @@
   ],
   "outside": [
     {
-      "paths": ["THIRD_PARTY_NOTICES"],
-      "why": "the licence notices, which CI's licence check reads, not a Go test"
-    },
-    {
       "paths": ["README.md", "CONTRIBUTING.md", "LICENSE", "docs/**", ".gitignore", ".gitattributes", ".tasks.toml"],
       "why": "documentation and housekeeping no Go check reads"
     },
     {
-      "paths": ["frontend/**"],
-      "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
-    },
-    {
       "paths": ["tests/**"],
       "why": "acceptance scripts and their fixtures that no Go test reads"
+    }
+  ],
+  "checks": [
+    {
+      "name": "frontend",
+      "paths": ["frontend/**", "internal/boardweb/dist/**", "THIRD_PARTY_NOTICES"],
+      "dir": "frontend",
+      "install": {
+        "command": ["npm", "ci"],
+        "inputs": ["frontend/package.json", "frontend/package-lock.json"],
+        "versions": [["node", "--version"]],
+        "output": "frontend/node_modules"
+      },
+      "commands": [
+        ["npm", "run", "build"],
+        ["npm", "run", "lint"],
+        ["npm", "test"],
+        ["go", "run", "../tools/notices", "-check"]
+      ],
+      "unchanged": ["internal/boardweb/dist"],
+      "left": [
+        {"check": "npm run test:browser", "why": "CI's frontend job runs the browser suite, which holds about 4 GB here"}
+      ]
     }
   ]
 }

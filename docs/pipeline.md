@@ -159,6 +159,8 @@ cfo gate test --plan          # print the plan and run nothing
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
 
+A check besides Go's, such as the frontend's, runs at `affected` when a changed file it reads selects it, and at `full` whatever changed; `fast` leaves it to `affected` and says so.
+
 A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
 A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
 
@@ -198,6 +200,22 @@ The policy is `config/verify.json`:
       "paths": ["README.md", "docs/**"],
       "why": "documentation and housekeeping no Go check reads"
     }
+  ],
+  "checks": [
+    {
+      "name": "frontend",
+      "paths": ["frontend/**", "internal/boardweb/dist/**", "THIRD_PARTY_NOTICES"],
+      "dir": "frontend",
+      "install": {
+        "command": ["npm", "ci"],
+        "inputs": ["frontend/package.json", "frontend/package-lock.json"],
+        "versions": [["node", "--version"]],
+        "output": "frontend/node_modules"
+      },
+      "commands": [["npm", "run", "build"], ["npm", "run", "lint"], ["npm", "test"], ["go", "run", "../tools/notices", "-check"]],
+      "unchanged": ["internal/boardweb/dist"],
+      "left": [{"check": "npm run test:browser", "why": "CI's frontend job runs the browser suite, which holds about 4 GB here"}]
+    }
   ]
 }
 ```
@@ -208,16 +226,26 @@ The policy is `config/verify.json`:
 A change to a file one of a contract's `paths` names selects the contract's `packages`, named as `slow_packages` names them, and the plan gives the contract's `why` with the file.
 A contract selects its own packages and not the packages that import them.
 
-`outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
+`outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or an acceptance fixture.
 A change to one of them selects nothing, and the plan lists it under the rule's reason.
+
+`checks` are the repository's checks besides Go's, which CI runs in jobs of their own: here the frontend's.
+A change to a file one of a check's `paths` names selects the check, and the plan lists it under `checks besides Go's:` with the files that selected it.
+Its `commands` run one after another in its `dir`, after Go's, each waiting for the run's turn as `go test` does.
+Its `install`, here `npm ci`, runs before them only when its `output` does not already hold an install made from the same `command`, `inputs` and `versions`, the output of commands such as `node --version`.
+A run writes that fingerprint to `.cfo-install` in the output once the install passed, and `npm ci` removes the stamp with the rest of `node_modules`, so a checkout installs once for each lockfile and Node version rather than on every run, and the plan says when the install does not run.
+After its commands, no file under `unchanged` may differ from the commit: the frontend check fails, as CI does, when the build embedded under `internal/boardweb/dist` is not what the sources build, and names the files to commit.
+`left` names what CI runs of the check and this step does not, with why, and the plan and the report list it: here the browser suite.
+The frontend check runs `npm run build` and not `npm run typecheck`, since the build runs the same `tsc --noEmit` first.
 
 A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
 A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
+A file a check reads selects the check as well as whatever else it reaches, and is not listed as outside.
 
-A policy that has `contracts` or `outside` says what every file is.
-Under it a changed file that is in no package, under no contract and not listed as outside is one nobody has said anything about, so the change requires `full` and the plan names the file.
+A policy that has `contracts`, `outside` or `checks` says what every file is.
+Under it a changed file that is in no package, under no contract, read by no check and not listed as outside is one nobody has said anything about, so the change requires `full` and the plan names the file.
 `TestTheRepositoryPolicyAccountsForEveryTrackedFile` in `internal/gatetest` fails when a tracked file is in that state, so a new kind of file gets its line in the policy in the change that adds it; that change is itself planned by the default branch's policy, which does not know the file yet, and so requires `full` once.
-A policy with neither field keeps the earlier rule: a file no package owns selects nothing and nothing is listed.
+A policy with none of these fields keeps the earlier rule: a file no package owns selects nothing and nothing is listed.
 
 The policy that applies is the default branch's, read from the commit where the branch left it and never from the branch's own copy, so a branch, or a fix commit under a gate, cannot loosen the policy it is checked by.
 A change to the file therefore takes effect once it is on the default branch.
@@ -228,7 +256,7 @@ A repository with no policy file has no slow packages.
 Every run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\cfo\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line saying which level the change still requires.
 `CFO_VERIFY_DIR` names a folder to use in place of `<user cache folder>\cfo\verify`, so they go under its `reports\<project>\`.
-The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package and each check besides Go's with why it was selected, each test run left out and what CI runs of a check instead, with why, and each command with the folder a check's command ran in, its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
 For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
 
 The tests run as `go test -json`, and the step prints what `go test` prints without `-v`: a compile error as it arrives, each package's summary line as the package ends, and for a package that did not pass what it printed itself and what its failed and unfinished tests printed.

@@ -91,6 +91,7 @@ The `no-mistakes` path owns review, bounded repair cycles, tests, lint, document
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
+A change to the frontend also runs the frontend's build, lint, unit tests and licence check, and fails when the rebuilt board differs from the committed one, one CI round sooner; its `npm ci` runs only when the lockfile or the Node version changed since the checkout's last install.
 While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
 See [Verification levels](docs/pipeline.md#verification-levels).

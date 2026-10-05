@@ -150,6 +150,24 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 			namesAFile(pattern, "outside the Go checks (\""+rule.Why+"\")")
 		}
 	}
+	for _, check := range policy.Checks {
+		in := "in the check \"" + check.Name + "\""
+		for _, pattern := range check.Paths {
+			namesAFile(pattern, in)
+		}
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(check.Dir))); err != nil || !info.IsDir() {
+			t.Errorf("%s runs the check %q in %q, which is not a folder of this repository", PolicyPath, check.Name, check.Dir)
+		}
+		var named []string
+		if check.Install != nil {
+			named = check.Install.Inputs
+		}
+		for _, name := range append(slices.Clip(named), check.Unchanged...) {
+			if !slices.ContainsFunc(tracked, func(file string) bool { return file == name || strings.HasPrefix(file, name+"/") }) {
+				t.Errorf("%s names %q %s, and this repository tracks no such file or folder", PolicyPath, name, in)
+			}
+		}
+	}
 }
 
 // Every file this repository tracks is a package's own, under a contract or
@@ -208,4 +226,53 @@ func trackedFiles(t *testing.T, root string) []string {
 		t.Fatalf("git ls-files: %v", err)
 	}
 	return strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+}
+
+// A policy can name checks besides Go's: the files each reads, the folder its
+// commands run in, the install they need, the files they must leave as
+// committed and what CI runs of it that this step does not.
+func TestParsePolicyReadsChecksBesidesGos(t *testing.T) {
+	// Act
+	policy, err := ParsePolicy([]byte(`{"version": 1, "checks": [{"name": "web", "paths": ["web/**"], "dir": "web", "install": {"command": ["npm", "ci"], "inputs": ["web/package-lock.json"], "versions": [["node", "--version"]], "output": "web/node_modules"}, "commands": [["npm", "run", "build"], ["npm", "test"]], "unchanged": ["dist"], "left": [{"check": "npm run e2e", "why": "CI runs it"}]}]}`))
+
+	// Assert
+	if err != nil || len(policy.Checks) != 1 || !policy.Classifies() {
+		t.Fatalf("ParsePolicy = %+v, %v; want one check, in a policy that classifies", policy, err)
+	}
+	check := policy.Checks[0]
+	if check.Name != "web" || !slices.Equal(check.Paths, []string{"web/**"}) || check.Dir != "web" || len(check.Commands) != 2 || !slices.Equal(check.Commands[1], []string{"npm", "test"}) || !slices.Equal(check.Unchanged, []string{"dist"}) {
+		t.Errorf("check = %+v; want web, reading web/**, running npm run build and npm test in web, leaving dist as committed", check)
+	}
+	if install := check.Install; install == nil || !slices.Equal(install.Command, []string{"npm", "ci"}) || !slices.Equal(install.Inputs, []string{"web/package-lock.json"}) || len(install.Versions) != 1 || install.Output != "web/node_modules" {
+		t.Errorf("install = %+v; want npm ci from web/package-lock.json and node's version into web/node_modules", check.Install)
+	}
+	if !slices.Equal(check.Left, []Deferred{{Check: "npm run e2e", Why: "CI runs it"}}) {
+		t.Errorf("left = %+v; want npm run e2e, as CI runs it", check.Left)
+	}
+}
+
+// A check that could not run as written is refused, so the run widens rather
+// than skipping a check or starting an empty command.
+func TestParsePolicyRefusesACheckThatCouldNotRunAsWritten(t *testing.T) {
+	for name, check := range map[string]string{
+		"no name":                    `{"paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]]}`,
+		"no paths":                   `{"name": "web", "dir": "web", "commands": [["npm", "test"]]}`,
+		"no dir":                     `{"name": "web", "paths": ["web/**"], "commands": [["npm", "test"]]}`,
+		"no commands":                `{"name": "web", "paths": ["web/**"], "dir": "web"}`,
+		"an empty command":           `{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [[]]}`,
+		"an install with no output":  `{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]], "install": {"command": ["npm", "ci"], "inputs": ["web/package-lock.json"]}}`,
+		"an install with no inputs":  `{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]], "install": {"command": ["npm", "ci"], "output": "web/node_modules"}}`,
+		"an empty version command":   `{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]], "install": {"command": ["npm", "ci"], "inputs": ["web/package-lock.json"], "versions": [[]], "output": "web/node_modules"}}`,
+		"an install with no command": `{"name": "web", "paths": ["web/**"], "dir": "web", "commands": [["npm", "test"]], "install": {"inputs": ["web/package-lock.json"], "output": "web/node_modules"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			policy, err := ParsePolicy([]byte(`{"version": 1, "checks": [` + check + `]}`))
+
+			// Assert
+			if err == nil {
+				t.Errorf("ParsePolicy = %+v with no error; want the check refused", policy)
+			}
+		})
+	}
 }

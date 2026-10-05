@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -101,20 +102,12 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	var commands [][]string
-	if len(plan.Vet) > 0 {
-		commands = append(commands, append([]string{"go", "vet"}, plan.Vet...))
-	}
-	if len(plan.Tests) > 0 {
-		// -json has go test say what became of each package and each test, which
-		// the run prints as go test prints without it and records by package.
-		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
-	}
+	steps := gateSteps(plan)
 	if *planOnly {
 		printGatePlan(stdout, plan)
 		fmt.Fprintln(stdout, "policy: "+plan.Policy)
-		for _, command := range commands {
-			fmt.Fprintln(stdout, "would run: "+strings.Join(command, " "))
+		for _, step := range steps {
+			fmt.Fprintln(stdout, "would run: "+step.String())
 		}
 		return 0
 	}
@@ -140,8 +133,16 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	for _, choice := range plan.Choices {
 		report.Selected = append(report.Selected, verify.Selection{Package: choice.ImportPath, Why: choice.Reason()})
 	}
+	for _, planned := range plan.Checks {
+		report.Selected = append(report.Selected, verify.Selection{Check: planned.Name, Why: planned.Why})
+	}
 	for _, left := range plan.Left {
 		report.Left = append(report.Left, verify.Left{Check: left.Check, Why: left.Why})
+	}
+	for _, planned := range plan.Checks {
+		for _, left := range planned.Left {
+			report.Left = append(report.Left, verify.Left{Check: left.Check, Why: left.Why})
+		}
 	}
 	for _, set := range plan.Outside {
 		report.Outside = append(report.Outside, verify.Outside{Why: set.Why, Files: set.Files})
@@ -169,8 +170,8 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		who += ", task " + report.Task
 	}
 	env := gatetest.Environment(os.Environ())
-	for _, command := range commands {
-		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
+	for _, step := range steps {
+		check := verify.Result{Command: step.command, Dir: step.dir, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
 			turn, admissionErr := takeGateTurn(stdout, stderr, runtime.availableMemory, who, budget, runtime.gateWaitLimit)
@@ -183,15 +184,23 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			check.Start, check.Status = time.Now(), "passed"
 			output := stdout
 			var events *gatetest.Events
-			if command[1] == "test" {
+			var printed strings.Builder
+			switch {
+			case step.isGoTest:
 				events = gatetest.NewEvents(short, full)
 				output = events
+			case step.unchanged != nil:
+				output = &printed
 			}
 			stopSaying := func() {}
 			if events != nil {
 				stopSaying = sayProgress(turn, events, runtime.gateProgress)
 			}
-			exit, err := runtime.gateRun(command, dir, env, output, stderr)
+			where := dir
+			if step.dir != "" {
+				where = filepath.Join(plan.Root, filepath.FromSlash(step.dir))
+			}
+			exit, err := runtime.gateRun(step.command, where, env, output, stderr)
 			stopSaying()
 			if events != nil {
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
@@ -199,9 +208,13 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 				}
 			}
 			check.ExitCode = exit
-			if err != nil || exit != 0 {
+			switch {
+			case err != nil || exit != 0:
 				check.Status, report.Status = "failed", "failed"
-				fmt.Fprintf(stderr, "cfo gate test: go %s: exit %d: %v\n", command[1], exit, err)
+				fmt.Fprintf(stderr, "cfo gate test: %s: exit %d: %v\n", step.name(), exit, err)
+			case printed.Len() > 0:
+				check.Status, report.Status = "failed", "failed"
+				fmt.Fprintf(stderr, "cfo gate test: %s differ from the commit once the %s check's commands ran, so what is committed is not what they build; commit what they rebuilt:\n%s", strings.Join(step.unchanged.Unchanged, ", "), step.unchanged.Name, printed.String())
 			}
 			ran := time.Since(check.Start)
 			check.DurationSeconds = ran.Seconds()
@@ -211,7 +224,12 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			turn.Release()
 			if check.Status == "passed" && ran > budget {
 				check.Status, report.Status = "over_budget", "failed"
-				fmt.Fprintf(stderr, "cfo gate test: go %s passed but ran for %s, past the %s budget of the %s level, so the run does not pass\n", command[1], ran.Round(time.Second), budget, plan.Level)
+				fmt.Fprintf(stderr, "cfo gate test: %s passed but ran for %s, past the %s budget of the %s level, so the run does not pass\n", step.name(), ran.Round(time.Second), budget, plan.Level)
+			}
+			if check.Status == "passed" && step.installs != nil {
+				if err := gatetest.MarkInstalled(plan.Root, *step.installs); err != nil {
+					fmt.Fprintf(stderr, "cfo gate test: %s passed and leaves no stamp, so the next run installs again: %v\n", step.name(), err)
+				}
 			}
 		}
 		report.Checks = append(report.Checks, check)
@@ -237,6 +255,62 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		return 1
 	}
 	return 0
+}
+
+// gateStep is one command the step runs. dir is where a check besides Go's
+// runs it, from the repository root, and empty for go vet and go test, which
+// run where the step was started. installs is the check whose install it is,
+// stamped once it passed, and unchanged the check whose unchanged files it
+// lists: a git status that passes only when it prints nothing.
+type gateStep struct {
+	command   []string
+	dir       string
+	isGoTest  bool
+	installs  *gatetest.Planned
+	unchanged *gatetest.Planned
+}
+
+// gateSteps are the commands a plan runs: go vet and go test on its
+// packages, then each check besides Go's: its install unless that is in
+// place, its commands, and the status of the files it must leave unchanged.
+func gateSteps(plan gatetest.Plan) []gateStep {
+	var steps []gateStep
+	if len(plan.Vet) > 0 {
+		steps = append(steps, gateStep{command: append([]string{"go", "vet"}, plan.Vet...)})
+	}
+	if len(plan.Tests) > 0 {
+		// -json has go test say what became of each package and each test, which
+		// the run prints as go test prints without it and records by package.
+		steps = append(steps, gateStep{command: append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...), isGoTest: true})
+	}
+	for _, planned := range plan.Checks {
+		if planned.Install != nil && !planned.IsInstalled {
+			steps = append(steps, gateStep{command: planned.Install.Command, dir: planned.Dir, installs: &planned})
+		}
+		for _, command := range planned.Commands {
+			steps = append(steps, gateStep{command: command, dir: planned.Dir})
+		}
+		if len(planned.Unchanged) > 0 {
+			steps = append(steps, gateStep{command: append([]string{"git", "status", "--porcelain", "--untracked-files=all", "--"}, planned.Unchanged...), dir: ".", unchanged: &planned})
+		}
+	}
+	return steps
+}
+
+// name is how the step's messages name its command: go and its subcommand,
+// or a check's whole command.
+func (s gateStep) name() string {
+	if s.dir == "" {
+		return strings.Join(s.command[:2], " ")
+	}
+	return strings.Join(s.command, " ")
+}
+
+func (s gateStep) String() string {
+	if s.dir == "" || s.dir == "." {
+		return strings.Join(s.command, " ")
+	}
+	return strings.Join(s.command, " ") + " (in " + s.dir + ")"
 }
 
 // runGateCommand runs one of the step's commands as a process in dir with
@@ -379,6 +453,8 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 		fmt.Fprintf(w, "cfo gate test: level %s, asked for; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
 	}
 	switch {
+	case len(plan.Vet) == 0 && len(plan.Checks) > 0:
+		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s; CI runs every package\n", plan.Base)
 	case len(plan.Vet) == 0:
 		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s, so there is nothing to test here; CI runs every package\n", plan.Base)
 	case plan.Everything:
@@ -395,6 +471,19 @@ func printGatePlan(w io.Writer, plan gatetest.Plan) {
 		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)
 		for _, left := range plan.Left {
 			fmt.Fprintln(w, "- "+left.String())
+		}
+	}
+	if len(plan.Checks) > 0 {
+		fmt.Fprintln(w, "checks besides Go's:")
+		for _, planned := range plan.Checks {
+			line := "- " + planned.Name + " (" + planned.Why + ")"
+			if planned.IsInstalled {
+				line += "; " + planned.Install.Output + " holds the install made from its inputs, so " + strings.Join(planned.Install.Command, " ") + " does not run"
+			}
+			fmt.Fprintln(w, line)
+			for _, left := range planned.Left {
+				fmt.Fprintln(w, "  left to CI: "+left.String())
+			}
 		}
 	}
 	if len(plan.Outside) > 0 {

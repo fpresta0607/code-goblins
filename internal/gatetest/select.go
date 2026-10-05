@@ -89,13 +89,23 @@ func Select(root, module string, files []string, packages []Package) (choices []
 }
 
 // Reach is what a change reaches under a policy that classifies files: the
-// packages to test, each with why, the changed files the policy puts outside
-// the Go checks, by its reason, and the changed files nothing accounts for.
+// packages to test, each with why, the checks besides Go's it selects, with
+// the changed files that select each, the changed files the policy puts
+// outside the Go checks, by its reason, and the changed files nothing
+// accounts for.
 type Reach struct {
 	Choices    []Choice
 	Everything bool
+	Checks     []Selected
 	Outside    []Set
 	Unknown    []string
+}
+
+// Selected is a check besides Go's that a change selects, and the changed
+// files that select it.
+type Selected struct {
+	Check Check
+	Files []string
 }
 
 // Set is the changed files one rule of the policy puts outside the Go checks.
@@ -116,10 +126,12 @@ func (s Set) String() string {
 // says of its folder. A file one of the policy's contracts names also selects
 // the contract's packages, each listed with the contract's reason and the
 // file, unless the package changed itself; a contract selects its packages
-// alone, not their importers. Of the remaining files, one the policy lists as
-// outside the Go checks is reported under that rule's reason, and one nothing
-// accounts for is unknown. A policy that classifies nothing leaves the
-// selection as Select makes it, with nothing outside and nothing unknown.
+// alone, not their importers. A file one of the policy's checks besides Go's
+// names selects that check, in the policy's order. Of the remaining files,
+// one the policy lists as outside the Go checks is reported under that rule's
+// reason, and one nothing accounts for is unknown. A policy that classifies
+// nothing leaves the selection as Select makes it, with nothing outside and
+// nothing unknown.
 func Classify(root, module string, files []string, packages []Package, policy Policy) Reach {
 	owned := ownership(root, module, files, packages)
 	if owned.everything {
@@ -137,6 +149,7 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 	var reach Reach
 	read := map[string]*Choice{}
 	outside := make([]Set, len(policy.Outside))
+	checked := make([]Selected, len(policy.Checks))
 	for _, name := range files {
 		file := filepath.ToSlash(name)
 		contracted := false
@@ -157,7 +170,15 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 				}
 			}
 		}
-		if owned.files[name] || contracted {
+		isChecked := false
+		for i, check := range policy.Checks {
+			if slices.ContainsFunc(check.Paths, func(pattern string) bool { return matches(pattern, file) }) {
+				isChecked = true
+				checked[i].Check = check
+				checked[i].Files = append(checked[i].Files, file)
+			}
+		}
+		if owned.files[name] || contracted || isChecked {
 			continue
 		}
 		rule := slices.IndexFunc(policy.Outside, func(rule Outside) bool {
@@ -173,6 +194,11 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 	for _, set := range outside {
 		if len(set.Files) > 0 {
 			reach.Outside = append(reach.Outside, set)
+		}
+	}
+	for _, selected := range checked {
+		if len(selected.Files) > 0 {
+			reach.Checks = append(reach.Checks, selected)
 		}
 	}
 	slices.Sort(reach.Unknown)

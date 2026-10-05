@@ -35,10 +35,11 @@ func (l Level) Covers(required Level) bool {
 	return slices.Index(levels, l) >= slices.Index(levels, required)
 }
 
-// Deferred is a check a level leaves to a broader one, and why.
+// Deferred is a check a level leaves to a broader one, or one a check
+// besides Go's leaves to CI, and why.
 type Deferred struct {
-	Check string
-	Why   string
+	Check string `json:"check"`
+	Why   string `json:"why"`
 }
 
 func (d Deferred) String() string {

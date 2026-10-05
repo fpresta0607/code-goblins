@@ -3,10 +3,13 @@ package gatetest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,7 +53,28 @@ type Plan struct {
 	// a broader level, with why.
 	Vet, Tests []string
 	Left       []Deferred
+	// Checks are the policy's checks besides Go's that Level runs: those a
+	// changed file selects, or every one at the full level.
+	Checks []Planned
 }
+
+// Planned is a check besides Go's that a plan runs, and why.
+type Planned struct {
+	Check
+	Why string
+	// Fingerprint identifies what the check's install is made from, and
+	// IsInstalled says its output already holds an install made from that,
+	// so the install does not run again. Both are empty for a check with no
+	// install.
+	Fingerprint string
+	IsInstalled bool
+}
+
+// InstallStamp is the file in an install's output that holds the
+// fingerprint of what the install there was made from. A step writes it once
+// the install passed, and an install such as npm ci, which removes its output
+// before it starts, removes it with the rest.
+const InstallStamp = ".cfo-install"
 
 // listFields are the fields of a package the plan reads. Asking go list for
 // these alone spares it loading every package's dependencies, which took it
@@ -67,12 +91,69 @@ const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPattern
 // The root and every package directory are spelled with long names, as git
 // and go list can spell one directory differently. The plan runs asked, or
 // the level the change requires when asked is empty, as build decides it.
+// Each check besides Go's that it runs says whether its install is in place.
 func Read(ctx context.Context, runner execx.Runner, dir string, asked Level) (Plan, error) {
 	found, err := gather(ctx, runner, dir)
 	if err != nil {
 		return Plan{}, err
 	}
-	return build(found, asked), nil
+	plan := build(found, asked)
+	for i := range plan.Checks {
+		if err := installed(ctx, runner, plan.Root, &plan.Checks[i]); err != nil {
+			return Plan{}, err
+		}
+	}
+	return plan, nil
+}
+
+// installed sets whether the install of a planned check is in place: its
+// output holds the stamp of an install made from the same command, the same
+// inputs and the same versions.
+func installed(ctx context.Context, runner execx.Runner, root string, planned *Planned) error {
+	install := planned.Install
+	if install == nil {
+		return nil
+	}
+	hash := sha256.New()
+	// Each part goes in with its length, so no two different lists of parts
+	// hash the same.
+	write := func(parts ...string) {
+		for _, part := range parts {
+			fmt.Fprintf(hash, "%d:%s", len(part), part)
+		}
+	}
+	write(install.Command...)
+	for _, input := range install.Inputs {
+		data, err := fsx.ReadFile(filepath.Join(root, filepath.FromSlash(input)))
+		if err != nil {
+			return fmt.Errorf("gatetest: read %s, an input of the %s check's install: %w", input, planned.Name, err)
+		}
+		write(input, string(data))
+	}
+	for _, version := range install.Versions {
+		printed, err := output(ctx, runner, filepath.Join(root, filepath.FromSlash(planned.Dir)), version[0], version[1:]...)
+		if err != nil {
+			return err
+		}
+		write(strings.Join(version, " "), strings.TrimSpace(printed))
+	}
+	planned.Fingerprint = hex.EncodeToString(hash.Sum(nil))
+	stamp, err := fsx.ReadFile(filepath.Join(root, filepath.FromSlash(install.Output), InstallStamp))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("gatetest: read the %s check's install stamp: %w", planned.Name, err)
+	default:
+		planned.IsInstalled = strings.TrimSpace(string(stamp)) == planned.Fingerprint
+	}
+	return nil
+}
+
+// MarkInstalled records in the output of a planned check's install that the
+// install there was made from what its fingerprint identifies, once the
+// install passed, so the next plan in this checkout does not run it again.
+func MarkInstalled(root string, planned Planned) error {
+	return fsx.AtomicWriteFile(filepath.Join(root, filepath.FromSlash(planned.Install.Output), InstallStamp), []byte(planned.Fingerprint+"\n"))
 }
 
 // findings are what git and go say about the branch checked out in a
@@ -157,8 +238,11 @@ func gather(ctx context.Context, runner execx.Runner, dir string) (findings, err
 // level, or the full one when a module file changed, the policy cannot be
 // read, or a changed file is one the policy does not account for: what the
 // build cannot be sure of widens the run. The plan runs asked, or the required
-// level when asked is empty. The policy is the default branch's, as the commit
-// at base has it, so a branch cannot loosen the policy it is planned by.
+// level when asked is empty, with the checks besides Go's that changed files
+// select, or every one at the full level; the fast level leaves them to the
+// affected one, as they take minutes. The policy is the default branch's,
+// as the commit at base has it, so a branch cannot loosen the policy it is
+// planned by.
 func build(found findings, asked Level) Plan {
 	plan := Plan{
 		Root:        found.root,
@@ -191,7 +275,7 @@ func build(found findings, asked Level) Plan {
 		if len(plan.Unknown) > 1 {
 			subject = fmt.Sprintf("%s and %d more files are", plan.Unknown[0], len(plan.Unknown)-1)
 		}
-		plan.Required, plan.Why = Full, subject+" in no package, under no contract and not listed as outside the Go checks"
+		plan.Required, plan.Why = Full, subject+" in no package, under no contract, read by no check and not listed as outside the Go checks"
 	}
 	if plan.Everything {
 		plan.Required, plan.Why = Full, "go.mod or go.sum changed"
@@ -201,6 +285,20 @@ func build(found findings, asked Level) Plan {
 		plan.Level = plan.Required
 	}
 	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
+	if plan.Level == Full {
+		for _, check := range policy.Checks {
+			plan.Checks = append(plan.Checks, Planned{Check: check, Why: "the full level runs every check"})
+		}
+		return plan
+	}
+	for _, selected := range reach.Checks {
+		why := andMore(selected.Files[:1], len(selected.Files)-1) + " changed"
+		if plan.Level == Fast {
+			plan.Left = append(plan.Left, Deferred{Check: "the " + selected.Check.Name + " check", Why: why + ", and a check besides Go's takes minutes"})
+			continue
+		}
+		plan.Checks = append(plan.Checks, Planned{Check: selected.Check, Why: why})
+	}
 	return plan
 }
 
