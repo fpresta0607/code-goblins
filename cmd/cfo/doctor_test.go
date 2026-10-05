@@ -135,8 +135,8 @@ func fakeDoctorTool(t *testing.T, dir, name string) {
 func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
@@ -155,28 +155,32 @@ func TestRunDoctorReportsAMissingWingetAndStaysHealthy(t *testing.T) {
 	}
 }
 
-// Without Herdr, doctor says who needs it and how to get it, and stays
-// healthy: a goblin or CFO in a native terminal needs no Herdr.
-func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
+// Doctor neither checks nor names Herdr or Kimi: no goblin or CFO starts in
+// Herdr, and a spawn refuses kimi, so a machine with neither is healthy.
+func TestRunDoctorIsHealthyWithoutHerdrOrKimi(t *testing.T) {
+	// Arrange
 	bin := t.TempDir()
 	for _, name := range []string{
 		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi", "lavish-axi", "winget",
-		"claude", "codex", "pi", "kimi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("CFO_HOME", t.TempDir())
 
+	// Act
 	var stdout, stderr bytes.Buffer
 	exit := run([]string{"doctor"}, &stdout, &stderr)
 
-	want := "OPTIONAL herdr not found on PATH (install: irm https://herdr.dev/install.ps1 | iex) - only a goblin or CFO started in Herdr needs it"
-	if !strings.Contains(stdout.String(), want) || strings.Contains(stdout.String(), "MISSING") {
-		t.Errorf("stdout lacks %q or reports something missing\n%s", want, stdout.String())
+	// Assert
+	if exit != 0 || strings.Contains(stdout.String(), "MISSING") || strings.Contains(stdout.String(), "broken") {
+		t.Errorf("exit = %d, want 0 with nothing missing or broken\n%s", exit, stdout.String())
 	}
-	if exit != 0 {
-		t.Errorf("exit = %d, want 0: a missing Herdr must not make doctor unhealthy\n%s", exit, stdout.String())
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && (fields[1] == "herdr" || fields[1] == "kimi") {
+			t.Errorf("doctor checks %s: %q\n%s", fields[1], line, stdout.String())
+		}
 	}
 }
 
@@ -187,8 +191,8 @@ func TestRunDoctorReportsAMissingHerdrAsOptionalAndStaysHealthy(t *testing.T) {
 func TestRunDoctorReportsPresentationUnavailableAndStaysHealthy(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{
-		"git", "gh", "herdr", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
-		"claude", "codex", "pi", "kimi",
+		"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi", "chrome-devtools-axi",
+		"claude", "codex", "pi",
 	} {
 		fakeDoctorTool(t, bin, name)
 	}

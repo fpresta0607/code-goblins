@@ -45,7 +45,7 @@ var version = "dev"
 
 const usage = `usage: cfo <command> [args]
 
-Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs: in Herdr, or in a native terminal shown here with goblins --native, and a Codex or pi CFO always in a native terminal, with or without --native, since only there is it woken. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background, which the window runs when Windows starts it at login, keeps it in the tray.
+Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs, in a native terminal of its own that outlives every window. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background, which the window runs when Windows starts it at login, keeps it in the tray.
 
 commands:
   version   print the cfo version
@@ -79,7 +79,7 @@ commands:
   cfo security <task-id> [--deep]
   cfo hygiene <task-id>
   cfo gate tests-kept   run from a no-mistakes repository gate: exits 1 when the gate's own fix commits deleted or skipped a test, so the run parks for an ask-user decision
-  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed and their direct importers, without the fleet's home; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
+  cfo gate test [--level fast|affected|full] [--plan]   this repository's gate test step: go vet and go test on the packages the branch changed, the packages that import them and the packages config/verify.json names for a changed file their tests read, without the fleet's home; it lists the changed files no Go check reads, and a changed file the policy does not account for requires every package; CI runs every package; --level fast leaves the slow packages' tests and the importers' to affected, full tests every package, --plan prints the plan and runs nothing; each run leaves a report and prints its path; above fast its tests wait for the run's turn on the machine, one run at a time
   cfo gate turns        show which cfo gate test runs hold the machine's turns, for how long and under what budget, how far their tests are, and which wait
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
@@ -95,7 +95,7 @@ commands:
   cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
   cfo pr check <id> <url>
-  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip, and no --delete-branch, and it is logged with its evidence before it merges
+  cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
   cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <merge|deploy|migration|install|answer|other> --what "<what>" --evidence "<evidence>" [--link <url>]   AFK mode, the Supreme Overlord's switch for running the fleet while he is away: on and off are his, made from a terminal of his own and refused in a goblin's; the registered CFO makes them only at his ask, with --asked and his words quoted exactly, which the switch and the report keep; off prints the report of the stretch; status says who turned it on, what was decided so far and what is held for him; log is the registered CFO recording a decision it made under the authority, with its evidence
   cfo merge-local <id>
   cfo cleanup <id>
@@ -150,17 +150,16 @@ type commandRuntime struct {
 	// openWindow shows the board in the desktop window, and returns
 	// errNoWindow when none sits beside this binary.
 	openWindow func(board, stateDir string, background bool) error
-	// nativeCFO, liveCFO, focusCFO, startCFO and attachHerdr are how the
-	// launcher finds a live registered CFO, in a native terminal or in Herdr,
-	// and brings it to the front, starts the CFO in Herdr and hands the
-	// terminal to herdr attached to a session.
+	// nativeCFO, liveCFO, focusCFO and attachHerdr are how the launcher
+	// finds a live registered CFO, in a native terminal or in Herdr, brings
+	// it to the front and hands the terminal to herdr attached to a live
+	// Herdr CFO's session.
 	nativeCFO   func(string) (string, bool)
 	liveCFO     func(string) (herdr.Endpoint, bool)
 	focusCFO    func(context.Context, herdr.Endpoint) error
-	startCFO    func(ctx context.Context, project, harness string) (bool, error)
 	attachHerdr func(string) int
 	// startNativeCFO and attachNative start the CFO in a native terminal and
-	// show a native terminal in this console, for goblins --native and a CFO
+	// show a native terminal in this console, for a new CFO and a CFO
 	// registered in one.
 	startNativeCFO func(h home.Home, project, harness string, args []string) error
 	attachNative   func(stateDir, id string, stdout, stderr io.Writer) int
@@ -316,7 +315,6 @@ func defaultCommandRuntime() commandRuntime {
 		nativeCFO:    supervisor.NativeCFO,
 		liveCFO:      supervisor.LiveCFO,
 		focusCFO:     focusCFOInHerdr,
-		startCFO:     startCFOInHerdr,
 		attachHerdr:  attachHerdr,
 		killTree: func(pid int) error {
 			return killTree(context.Background(), execx.OSRunner{}, pid)
@@ -356,25 +354,24 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "usage: goblins setup")
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, true, false, "")
+		return runQuickstart(stdout, stderr, runtime, true, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
 		fs.SetOutput(stderr)
-		native := fs.Bool("native", false, "start a new CFO in a native terminal shown here instead of in Herdr")
 		harness := fs.String("harness", "", "the harness goblins starts the CFO as, remembered for later starts: claude, codex or pi")
 		if err := fs.Parse(args); err != nil {
 			return 2
 		}
 		if fs.NArg() != 0 {
-			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --native and --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
+			fmt.Fprintf(stderr, "goblins: unexpected argument %q; goblins takes only --harness <claude|codex|pi>, or a command\n", fs.Arg(0))
 			return 2
 		}
 		if *harness != "" && !slices.Contains(cfoHarnesses, *harness) {
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, false, *native, *harness)
+		return runQuickstart(stdout, stderr, runtime, false, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)

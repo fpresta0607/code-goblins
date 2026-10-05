@@ -30,8 +30,6 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 			fmt.Fprintf(stdout, "INSTALLER_UNAVAILABLE %s %s (install: %s) - only install.ps1 needs it, to add git and gh\n", c.Name, c.Err, c.Hint)
 		case c.Err != "" && c.Presentation:
 			fmt.Fprintf(stdout, "PRESENTATION_UNAVAILABLE %s %s (requires >=%s; install: %s) - nonvisual work proceeds in plain text\n", c.Name, c.Err, c.Floor, c.Hint)
-		case c.Err != "" && c.Optional != "":
-			fmt.Fprintf(stdout, "OPTIONAL %s %s (install: %s) - %s\n", c.Name, c.Err, c.Hint, c.Optional)
 		case c.Err != "":
 			fmt.Fprintf(stdout, "MISSING  %-10s %s (install: %s)\n", c.Name, c.Err, c.Hint)
 		case c.Floor != "":

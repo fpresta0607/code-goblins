@@ -1,4 +1,4 @@
-package codegoblins
+package installscript
 
 import (
 	"crypto/sha256"
@@ -37,7 +37,7 @@ func runOneLineInstall(t *testing.T, shell, base string) (output, local, temp st
 
 func installScript(t *testing.T) string {
 	t.Helper()
-	script, err := filepath.Abs("install.ps1")
+	script, err := filepath.Abs(filepath.Join("..", "..", "install.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func serveFiles(t *testing.T, files map[string][]byte) string {
 // release names its publisher; an unsigned one passes none.
 func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (destination, output string, err error) {
 	t.Helper()
-	pin, err := filepath.Abs(filepath.Join("tools", "pin-installer.ps1"))
+	pin, err := filepath.Abs(filepath.Join("..", "..", "tools", "pin-installer.ps1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func runPin(t *testing.T, shell, repository, tag string, publisher ...string) (d
 
 func TestReleaseSigningIdentityAllowsUnsignedDraftWithoutAzure(t *testing.T) {
 	// Arrange
-	workflow, err := os.ReadFile(filepath.Join(".github", "workflows", "release.yml"))
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,6 +417,43 @@ func TestOneLineInstallRunsADownloadThatMatchesTheReleaseChecksum(t *testing.T) 
 	}
 }
 
+// The install reads the user-scope environment where it writes it: from the
+// file a stripped session names for it, never from this machine's own. A
+// projects folder recorded there spares the question, and with none recorded
+// the install says so, whatever this machine's own user environment holds.
+func TestOneLineInstallReadsTheUserEnvironmentItIsGiven(t *testing.T) {
+	binary := []byte("not a program")
+	sums := fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary))
+	for name, test := range map[string]struct {
+		recorded  string
+		shouldSay bool
+	}{
+		"with no projects folder recorded": {recorded: "{}", shouldSay: true},
+		"with a projects folder recorded":  {recorded: `{"CFO_PROJECTS_ROOT": "C:\\projects"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			cmd, local, _ := installtest.StrippedCommand(t, installtest.ServeRelease(t, binary, sums), map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n"}, installtest.WindowsPowerShell(),
+				"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+			if err := os.WriteFile(filepath.Join(local, installtest.UserEnvFile), []byte(test.recorded), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			out, _ := cmd.CombinedOutput()
+
+			// Assert
+			output := string(out)
+			if !strings.Contains(output, "Verified cfo.exe against the release's SHA256SUMS") {
+				t.Fatalf("the install stopped before it asked for a projects folder:\n%s", output)
+			}
+			if isSaid := strings.Contains(output, "No projects folder recorded"); isSaid != test.shouldSay {
+				t.Errorf("the install says no projects folder is recorded: %t, want %t:\n%s", isSaid, test.shouldSay, output)
+			}
+		})
+	}
+}
+
 // The one-line install runs in the caller's own session and leaves it exactly
 // as it was, even when it is refused.
 func TestOneLineInstallLeavesTheCallersSessionAsItWas(t *testing.T) {
@@ -457,7 +494,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
-		"https://herdr.dev/install.ps1",
 	}
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
@@ -602,7 +638,7 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 	checkout := fakeCheckout(t)
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +673,7 @@ func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
 // PowerShell its own module path.
 func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 	checkout := t.TempDir()
-	wrapper, err := os.ReadFile("install.cmd")
+	wrapper, err := os.ReadFile(filepath.Join("..", "..", "install.cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
