@@ -24,6 +24,64 @@ type fakeProgress struct {
 	cpuStep time.Duration
 }
 
+func TestCPUProgressJudgmentIgnoresTranscriptAndUnjudgedReads(t *testing.T) {
+	for _, test := range []struct {
+		name                                              string
+		cpuDelta, sinceLastSample                         time.Duration
+		hasPriorProgress, hasTranscript                   bool
+		isBaseline, isNewStretch, hasNoJobs, hasReadError bool
+		wantProgress                                      bool
+	}{
+		{name: "positive CPU sample", cpuDelta: 4 * time.Second, sinceLastSample: time.Minute, wantProgress: true},
+		{name: "CPU threshold counts", cpuDelta: 3 * time.Second, sinceLastSample: time.Minute, wantProgress: true},
+		{name: "CPU below threshold clears", cpuDelta: 3*time.Second - time.Nanosecond, sinceLastSample: time.Minute, hasPriorProgress: true},
+		{name: "sleeping sample clears", sinceLastSample: time.Minute, hasPriorProgress: true},
+		{name: "exited CPU clears", cpuDelta: -time.Second, sinceLastSample: time.Minute, hasPriorProgress: true},
+		{name: "short rescan retains positive", sinceLastSample: 10 * time.Second, hasPriorProgress: true, wantProgress: true},
+		{name: "short rescan with transcript retains positive", sinceLastSample: 10 * time.Second, hasPriorProgress: true, hasTranscript: true, wantProgress: true},
+		{name: "short CPU burst is unjudged", cpuDelta: 4 * time.Second, sinceLastSample: 10 * time.Second},
+		{name: "transcript cannot set CPU progress", sinceLastSample: time.Minute, hasTranscript: true},
+		{name: "baseline with transcript clears", isBaseline: true, hasPriorProgress: true, hasTranscript: true},
+		{name: "new stretch clears", sinceLastSample: time.Minute, isNewStretch: true, hasPriorProgress: true},
+		{name: "no jobs clears", hasNoJobs: true, hasPriorProgress: true},
+		{name: "read error clears", hasReadError: true, hasPriorProgress: true},
+		{name: "transcript beside read error cannot claim CPU", hasReadError: true, hasPriorProgress: true, hasTranscript: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+			at, since := now.Add(-test.sinceLastSample), now.Add(-10*time.Minute)
+			observation := Observation{EvidenceAt: timePointer(at), JobCPU: 5 * time.Second, JobSampledAt: &at, JobSampledSince: &since, HasJobProgress: test.hasPriorProgress}
+			if test.isBaseline {
+				observation.JobSampledAt, observation.JobSampledSince = nil, nil
+			}
+			stretch := since
+			if test.isNewStretch {
+				stretch = now.Add(-30 * time.Second)
+			}
+			progress := &fakeProgress{sample: ProgressSample{Jobs: []string{"go.exe (pid 51)"}, JobCPU: observation.JobCPU + test.cpuDelta}}
+			if test.hasNoJobs {
+				progress.sample.Jobs = nil
+			}
+			if test.hasTranscript {
+				progress.sample.TranscriptAt = now
+			}
+			if test.hasReadError {
+				progress.err = errors.New("CPU sample unavailable")
+			}
+			_, _, err := (Service{Progress: progress}).sampleProgress(context.Background(), state.TaskMeta{ID: "g1"}, EndpointSample{}, &observation, stretch, now)
+			if (err != nil) != test.hasReadError || observation.HasJobProgress != test.wantProgress {
+				t.Errorf("CPU judgment=%t err=%v, want %t read-error=%t", observation.HasJobProgress, err, test.wantProgress, test.hasReadError)
+			}
+			if test.hasTranscript && (observation.EvidenceAt == nil || !observation.EvidenceAt.Equal(now)) {
+				t.Error("CPU judgment altered shared transcript progress")
+			}
+			if !test.hasReadError && !test.hasNoJobs && !test.isBaseline && !test.isNewStretch && test.sinceLastSample < time.Minute && !observation.JobSampledAt.Equal(at) {
+				t.Error("unjudged rescan moved the CPU sample")
+			}
+		})
+	}
+}
+
 func (f *fakeProgress) InspectProgress(context.Context, state.TaskMeta, EndpointSample) (ProgressSample, error) {
 	f.calls++
 	f.sample.JobCPU += f.cpuStep

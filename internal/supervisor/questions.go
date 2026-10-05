@@ -19,13 +19,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
-	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -111,35 +109,28 @@ func goblinIdentity(meta state.TaskMeta) string {
 
 // goblinAsker proves the calling process runs under the task's own terminal,
 // the same proof registration uses for the CFO: the program in its native
-// terminal, or the harness in its Herdr pane. No other process can ask in a
-// goblin's name.
-func goblinAsker(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string) (state.TaskMeta, error) {
+// terminal. No other process can ask in a goblin's name.
+func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(stateDir, taskID)
 	if err != nil {
 		return meta, fmt.Errorf("task %s has no live record: %w", taskID, err)
 	}
-	if meta.Backend == "native" {
-		_, _, err := nativeProgram(stateDir, meta.ID)
-		return meta, err
+	if meta.Backend != "native" {
+		return meta, fmt.Errorf("task %s runs in no native terminal, so nothing proves who speaks in its name", taskID)
 	}
-	if meta.Backend != "herdr" || meta.HerdrSession == "" || meta.HerdrPaneID == "" {
-		return meta, fmt.Errorf("task %s has no Herdr pane to answer", taskID)
-	}
-	if _, _, err := paneHarness(ctx, terminals(meta.HerdrSession), herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}); err != nil {
-		return meta, err
-	}
-	return meta, nil
+	_, _, err = nativeProgram(stateDir, meta.ID)
+	return meta, err
 }
 
 // SurfaceNotify shows a goblin's blocking notify in the Command Center when
 // it offers choices, labelled with the goblin, and the Overlord's answer
-// returns to the goblin's pane once. A notify without choices is prose for
+// returns to the goblin's terminal once. A notify without choices is prose for
 // the CFO and never opens the modal, and neither does a failed notify.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the board shows the question with its own line breaks.
-func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Opener, taskID string, record wake.Record, detail string, images []string) error {
+func SurfaceNotify(stateDir, taskID string, record wake.Record, detail string, images []string) error {
 	asked := record
 	asked.Detail = detail
 	question, options, ok := wake.Question(asked)
@@ -147,7 +138,7 @@ func SurfaceNotify(ctx context.Context, stateDir string, terminals terminal.Open
 		return nil
 	}
 	options, recommended := questionChoices(options)
-	meta, err := goblinAsker(ctx, stateDir, terminals, taskID)
+	meta, err := goblinAsker(stateDir, taskID)
 	if err != nil {
 		return err
 	}
@@ -175,41 +166,30 @@ func questionChoices(options []string) ([]string, string) {
 	return choices, recommended
 }
 
-// SendGoblin delivers text to the goblin a question named: through its own
-// terminal for a native goblin, and otherwise through the same Herdr
-// connection the board uses for the CFO. The delivery is pinned to the task
-// generation and terminal that asked, so a restarted or moved task never
-// receives an answer meant for its predecessor.
+// SendGoblin delivers text to the goblin a question named, through its own
+// native terminal. The delivery is pinned to the task generation that asked,
+// so a restarted task never receives an answer meant for its predecessor.
 func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
-	if meta, err := state.ReadTaskMeta(c.State, taskID); err == nil && meta.Backend == "native" {
-		if goblinIdentity(meta) != identity {
-			return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
-		}
-		sender := spawn.Service{StateDir: c.State, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
-			return NativePromptSince(c.State, taskID, generation, since)
-		}}
-		if err := sender.SendNative(ctx, meta, fleet.Stamp(oneLine(text))); err != nil {
-			return Evaluation{}, err
-		}
-		return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
-	}
-	current := func(target herdr.Target) error {
-		meta, err := state.ReadTaskMeta(c.State, taskID)
-		if err != nil || goblinIdentity(meta) != identity || target != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) {
-			return errors.New("the goblin's task restarted or ended")
-		}
-		return nil
-	}
 	meta, err := state.ReadTaskMeta(c.State, taskID)
-	if err != nil || current(herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}) != nil {
+	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
 	}
-	guard := func(_ context.Context, target herdr.Target, _ herdr.AgentDetail) error { return current(target) }
-	sender := fleet.Sender{Terminal: c.Terminals(""), Resolve: fleet.Resolver{StateDir: c.State}, Guard: guard}
-	if err := sender.Text(ctx, taskID, oneLine(text)); err != nil {
+	if meta.Backend != "native" {
+		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
+	}
+	if err := typeIntoGoblin(ctx, c.State, meta, fleet.Stamp(oneLine(text))); err != nil {
 		return Evaluation{}, err
 	}
-	return Evaluation{Reason: "Accepted by the goblin through Herdr."}, nil
+	return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
+}
+
+// typeIntoGoblin delivers text into a goblin's native terminal. It is a
+// variable so a test can act while a delivery is in flight.
+var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
+	sender := spawn.Service{StateDir: stateDir, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+		return NativePromptSince(stateDir, taskID, generation, since)
+	}}
+	return sender.SendNative(ctx, meta, text)
 }
 
 // answerGoblin returns the Overlord's board answer to the goblin that asked.
@@ -217,7 +197,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 // nor the CFO asks it again; retiring it is still the CFO's ordinary ack.
 func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error) {
 	if s.Options.CFO == nil {
-		return Evaluation{}, fmt.Errorf("%w: Herdr message transport is unavailable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool {
 		return q.ID == a.QuestionID && q.Identity == a.Generation && q.AnswerID == a.ID && q.Task != ""
@@ -296,7 +276,7 @@ type cfoAnswer struct {
 // ends: that is a delivery, submitted once, and it is recorded like one, so
 // neither the CFO nor the board sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
-	identity, release, err := c.CallerIdentity(ctx)
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", false, err
 	}
@@ -406,8 +386,8 @@ var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 // is a question the Overlord is answering on the board. id is the question's
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
-func (c *CFOConnection) RecordAnswer(ctx context.Context, id, option, note, in string) (string, error) {
-	identity, release, err := c.CallerIdentity(ctx)
+func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error) {
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", err
 	}
@@ -750,14 +730,14 @@ func (s *Store) issue(text string) {
 // CFO, including its creation time, and that its native identity is live, and
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
-func (c *CFOConnection) CallerIdentity(ctx context.Context) (string, func(), error) {
-	return c.identityOf(ctx, os.Getpid(), time.Now())
+func (c *CFOConnection) CallerIdentity() (string, func(), error) {
+	return c.identityOf(os.Getpid(), time.Now())
 }
 
 // identityOf is CallerIdentity for any process that was running at connected,
 // such as a client of the supervisor's run request pipe: a process that
 // started later took the PID of the one that connected, and proves nothing.
-func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.Time) (string, func(), error) {
+func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -788,7 +768,7 @@ func (c *CFOConnection) identityOf(ctx context.Context, pid int, connected time.
 		release()
 		return "", nil, errors.New("this process does not run under the registered CFO")
 	}
-	if err := c.verify(ctx, p); err != nil {
+	if err := c.verify(p); err != nil {
 		release()
 		return "", nil, err
 	}
@@ -814,8 +794,8 @@ func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
 // PublishQuestion is deliberately a local CFO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
-func (c *CFOConnection) PublishQuestion(ctx context.Context, id, text string, options []string, recommended string) error {
-	identity, release, err := c.CallerIdentity(ctx)
+func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended string) error {
+	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
 	}

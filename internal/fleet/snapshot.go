@@ -239,6 +239,9 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		if err != nil {
 			return Snapshot{}, err
 		}
+		if outcome.Phase == "done" {
+			snapshot.Backlog.Queued = slices.DeleteFunc(snapshot.Backlog.Queued, func(row BacklogRow) bool { return row.Structured && row.ID == id })
+		}
 		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == outcome.Generation {
 			if status := record.TeardownStatus(); status != "" {
 				outcome.Reason += "; " + status
