@@ -95,6 +95,8 @@ type Service struct {
 	Started              time.Time
 	mu                   sync.Mutex
 	lastError            string
+	isNativeInboxFailing bool
+	nativeInboxRepair    error
 	reconciled           time.Time
 	presentationChecked  time.Time
 	presentationIdentity string
@@ -413,12 +415,20 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
-	if err := s.Store.Ingest(); err != nil {
-		s.publish(err)
+	ingestErr := s.Store.Ingest()
+	if ingestErr != nil && !isNativeInboxReadFailure(s.Store.Home.State, ingestErr) {
+		s.publish(ingestErr)
 		return
 	}
+	wasNativeInboxFailing := s.isNativeInboxFailing
+	s.isNativeInboxFailing = ingestErr != nil && !errors.Is(ingestErr, errNativeInboxRecreated)
+	s.mu.Lock()
+	isNativeInboxProblemNew := s.isNativeInboxFailing && !strings.Contains(s.lastError, ingestErr.Error())
+	ingestErr = errors.Join(ingestErr, s.nativeInboxRepair)
+	s.nativeInboxRepair = nil
+	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := s.Store.ingestQuestions()
+	reconcileErr := errors.Join(ingestErr, s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
@@ -456,7 +466,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	case s.work <- struct{}{}:
 	default:
 	}
-	if recover || before != s.Store.Snapshot().Revision {
+	if recover || wasNativeInboxFailing != s.isNativeInboxFailing || isNativeInboxProblemNew || errors.Is(ingestErr, errNativeInboxRecreated) || before != s.Store.Snapshot().Revision {
 		s.publish(reconcileErr)
 	}
 }
@@ -1055,16 +1065,23 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			evaluation = Evaluation{Phase: "review", Reason: "Session settled; evaluation is queued", At: node.UpdatedAt}
 		}
 		// A goblin's own newer report says what it is doing, unless a question
-		// or the gate holds it or its work already merged. A question it asked
-		// since replaces no such report: once answered, the goblin stands on
-		// it again.
+		// or the gate holds it or its work already merged. A question asked
+		// beside a dependency wait replaces no such wait.
 		standingAt, standing := standingReport(lines, spawned)
-		if phase, reason, target, ok := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing); ok && !isGateHeld {
+		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
+		if isReported && !isGateHeld {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = phase, reason, target
 		}
-		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && (reportKind(standing) == "working" || reportKind(standing) == "done") && !runtime.At.Before(standingAt) {
+		// Answering or acknowledging a report does not resume its task. A
+		// standing dependency wait still survives a question asked beside it.
+		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
+		}
+		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
 				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "idle", runtime.Reason, ""
+			} else if runtime.State == "unavailable" {
+				evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "unavailable", runtime.Reason, ""
 			} else if runtime.working() && evaluation.Phase == "review" {
 				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
 			}

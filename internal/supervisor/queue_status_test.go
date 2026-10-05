@@ -118,7 +118,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 		{name: "done is per PR while next work runs", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "new active turn keeps independent source binding", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, isActive: true, wantPhase: "working"},
 		{name: "newer held question beats older work", report: "working: collection evidence ready", health: monitor.HealthBusy, question: "blocked: Hold for live-auth evidence?", wantPhase: "blocked", wantReason: "Waiting on the CFO: Hold for live-auth evidence?"},
-		{name: "answered question releases earlier report", report: "working: collecting evidence", health: monitor.HealthBusy, question: "blocked: Which source?", isAnswered: true, wantPhase: "working", wantReason: "collecting evidence"},
+		{name: "answered question waits for explicit resumption", report: "working: collecting evidence", health: monitor.HealthBusy, question: "blocked: Which source?", isAnswered: true, wantPhase: "blocked", wantReason: "Which source?"},
 		{name: "newer report resumes without deleting decision", report: "working: old work", health: monitor.HealthBusy, question: "blocked: Which source?", isResumed: true, wantPhase: "working", wantReason: "resumed work"},
 		{name: "explicit CI wait survives idle", report: "waiting on ci: hosted checks", health: monitor.HealthIdle, wantPhase: "waiting", wantReason: "hosted checks"},
 		{name: "gate decision survives idle and working report", report: "working: local checks done", health: monitor.HealthIdle, gatePhase: "blocked", gateStep: "review", wantPhase: "blocked", wantReason: "Independent gate evidence"},

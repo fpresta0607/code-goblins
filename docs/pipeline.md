@@ -210,6 +210,9 @@ cfo gate test: waiting for its turn (3m0s so far): the turn is held by code-gobl
 ```
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they asked, and the memory when the machine is short of it.
+A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
+The run's recorded repository and branch select that worktree; the shared process's task variable is not used.
+If the run or owner cannot be verified, the task stays unnamed and the log explains why.
 
 ```text
 turn: code-goblins at 0123abcd, affected level, in C:\work\code-goblins (pid 4242), for 12m0s of its 1h30m0s budget
