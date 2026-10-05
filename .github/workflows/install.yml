@@ -100,8 +100,7 @@ jobs:
           $want = Join-Path $env:LOCALAPPDATA "CodeGoblins\goblins.exe"
           if ($found -ne $want) { throw "goblins resolves to $found in the install's own window, want $want" }
           # The install ends with goblins doctor, whose verdict the next step
-          # reads line by line: kimi has no scriptable installer, so its spawn
-          # probe is broken on a clean runner.
+          # reads line by line.
           $global:LASTEXITCODE = 0
       - name: Check the installed home
         env:
@@ -133,8 +132,8 @@ jobs:
           }
           $doctor = & (Join-Path $cfoHome "goblins.exe") doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
           # no-mistakes is the release this checkout's install.ps1 pins, where
           # no-mistakes' own installer puts it; a published release's script
           # may pin an earlier one. Only stdout holds the version: stderr may
@@ -238,8 +237,8 @@ jobs:
           }
           $doctor = & goblins doctor
           $doctor | Write-Host
-          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" -and $_ -notmatch "^(MISSING\s+kimi\s|broken\s+kimi\s+harness spawn probe: not found on PATH)" })
-          if ($failing.Count -gt 0) { throw "goblins doctor reports more than kimi missing: $($failing -join '; ')" }
+          $failing = @($doctor | Where-Object { $_ -match "^(MISSING|broken)\s" })
+          if ($failing.Count -gt 0) { throw "goblins doctor reports something missing or broken: $($failing -join '; ')" }
           & goblins status
           if ($LASTEXITCODE -ne 0) { throw "no supervisor runs after -Dev's quick start" }
           $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Code Goblins.lnk"))

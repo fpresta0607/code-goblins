@@ -340,7 +340,6 @@ func TestOneLineInstallStartsOfficialInstallersFromAFile(t *testing.T) {
 	base := installtest.ServeRelease(t, binary, fmt.Sprintf("%x  cfo.exe\n", sha256.Sum256(binary)))
 	installers := []string{
 		"https://claude.ai/install.ps1",
-		"https://herdr.dev/install.ps1",
 	}
 	for _, shell := range installtest.OneLineShells(t) {
 		t.Run(filepath.Base(shell), func(t *testing.T) {
