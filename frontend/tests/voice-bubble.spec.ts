@@ -1,6 +1,6 @@
 import { expect, ORIGIN, test, type Page, type Request, type Route } from "./site";
 
-// Chromium's fake microphone (a steady beep) stands in for the Overlord's. The
+// Chromium's fake microphone (periodic beeps) stands in for the Overlord's. The
 // supervisor's speech model is a route that keeps each sound it is posted and
 // answers one phrase; the browser's speech service is a recognizer that records
 // the track it is given and hears another phrase when released, so a test can
@@ -11,7 +11,10 @@ test.use({
 });
 
 declare global {
-  interface Window { voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number } }
+  interface Window {
+    voiceProbe?: { captures: MediaStreamTrack[]; started: unknown[]; frames: number; replies: number };
+    voiceSignal?: { context: AudioContext; gain: GainNode };
+  }
 }
 
 // The microphone glyph the idle bubble shows, as the page draws it.
@@ -349,25 +352,52 @@ test("the first visit explains the shortcut once", async ({ page }) => {
 
 test("holding the shortcut records one capture and its bars follow the voice", async ({ page }) => {
   const { bubble, posts } = await openPane(page);
-  await holdShortcut(page, 300);
+  // Short fake-device beeps can be weak or missed between meter samples. Give
+  // the real analyser and recorder one stream whose loudness this test controls.
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const context = new AudioContext();
+      const tone = context.createOscillator();
+      tone.frequency.value = 440;
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      const microphone = context.createMediaStreamDestination();
+      tone.connect(gain).connect(microphone);
+      tone.start();
+      await context.resume();
+      window.voiceSignal = { context, gain };
+      window.voiceProbe!.captures.push(microphone.stream.getAudioTracks()[0]);
+      return microphone.stream;
+    };
+  });
+  await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
   await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
-  const scales = new Set<number>();
-  for (let sample = 0; sample < 12; sample++) {
-    const heights = await bubble.locator(".voice-bars span").evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
-    for (const height of heights) scales.add(Math.round(height * 100));
-    await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.voiceSignal!.context.state)).toBe("running");
+  const bars = bubble.locator(".voice-bars span");
+  await expect(bars).toHaveCount(9);
+  const heights = () => bars.evaluateAll((bars) => bars.map((bar) => new DOMMatrix(getComputedStyle(bar).transform).d));
+  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
+  const scales = new Set<number>([20]);
+  for (const [volume, minimum] of [[.04, .25], [.12, .4], [.3, .8]]) {
+    await page.evaluate((volume) => { window.voiceSignal!.gain.gain.value = volume; }, volume);
+    await expect.poll(async () => Math.min(...await heights())).toBeGreaterThan(minimum);
+    for (const height of await heights()) scales.add(Math.round(height * 100));
   }
   expect(Math.max(...scales)).toBeGreaterThan(25);
   expect(scales.size).toBeGreaterThan(2);
+  await page.evaluate(() => { window.voiceSignal!.gain.gain.value = 0; });
+  await expect.poll(async () => Math.max(...await heights())).toBeCloseTo(.2, 2);
   // One microphone is open, for the bars and the words alike.
   expect(await page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
 
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("ship the voice bubble");
   expect(posts).toHaveLength(1);
+  expect(posts[0].peak).toBeGreaterThan(300);
   await expect(bubble).not.toHaveClass(/recording/);
   expect(await page.evaluate(() => window.voiceProbe!.captures[0].readyState)).toBe("ended");
+  await page.evaluate(() => window.voiceSignal!.context.close());
 
   // Idle, the bubble asks for no frames and runs no animation.
   const frames = await page.evaluate(() => window.voiceProbe!.frames);
