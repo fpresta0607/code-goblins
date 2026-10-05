@@ -870,11 +870,16 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity   string    `json:"activity"`
-	Report     string    `json:"report"`
-	LastReport string    `json:"last_report"`
-	Handoff    bool      `json:"handoff"`
-	RetiredAt  time.Time `json:"retired_at"`
+	Activity   string `json:"activity"`
+	Report     string `json:"report"`
+	LastReport string `json:"last_report"`
+	// ReportHandled says the task is blocked or failed by its own notify, which
+	// the CFO answered or acknowledged: it holds the task until the goblin
+	// reports again, and it is the CFO's to handle, never news for the
+	// Overlord. A block or failure the gate holds is never marked.
+	ReportHandled bool      `json:"report_handled,omitempty"`
+	Handoff       bool      `json:"handoff"`
+	RetiredAt     time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -1053,9 +1058,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		lines, _ := s.statusTail(id)
-		lines = taskReports(lines, out.Decisions, id)
 		spawned := spawnTime(meta.SpawnGen)
 		reportedAt, report := latestReport(lines, spawned)
+		unhandledAt, unhandled := latestReport(taskReports(lines, out.Decisions, id), spawned)
+		isHandled := report != "" && (unhandledAt != reportedAt || unhandled != report)
+		isHeldByHandledReport := false
 		decisions := out.Decisions
 		if !spawned.IsZero() || supersedesQuestion(report) {
 			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
@@ -1090,6 +1097,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// standing dependency wait still survives a question asked beside it.
 		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
+			isHeldByHandledReport = isHandled
 		}
 		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
@@ -1114,7 +1122,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), ReportHandled: isHeldByHandledReport, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

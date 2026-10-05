@@ -137,9 +137,9 @@ test("a goblin's question to the CFO alerts nothing, whichever reaches the board
 
 test("a goblin's question the CFO handled is no failure news after it, and its next news still alerts", () => {
   // As the supervisor serves it: a blocked or failed notify holds its task
-  // as Waiting on the CFO until he answers or acks it. After that the
-  // supervisor restores its standing report, with its phase back on
-  // what its pane shows.
+  // as Waiting on the CFO until he answers or acks it. After that it still
+  // holds the task until the goblin reports again, marked report_handled,
+  // and a block the gate holds is never marked.
   const asked = "Which fix should I take?";
   const choices = asked + " options: Retry | Revert";
   const working = snapshot({ tasks: [task("a", "working", { report: "working" })] });
@@ -147,21 +147,22 @@ test("a goblin's question the CFO handled is no failure news after it, and its n
   const answered = question("notify-a-7", { task: "a", text: asked, status: "succeeded", answered_by: "cfo" });
   for (const verb of ["blocked", "failed"]) {
     const waiting = task("a", verb, { report: verb, reason: "Waiting on the CFO: " + choices, activity: choices });
-    const handled = (phase: string) => task("a", phase, { report: "working", reason: "Herdr reports " + phase, activity: "working: implementing the fix" });
+    const handled = task("a", verb, { report: verb, report_handled: true, reason: choices, activity: verb + ": " + choices });
+    const gateBlocked = task("a", "blocked", { report: verb, reason: GATE_BLOCK, activity: verb + ": " + choices });
     const orders: [string, Snapshot[]][] = [
-      ["stream missed the waiting snapshot", [working, snapshot({ tasks: [handled("idle")] })]],
-      ["handled, then its pane changes", [working, snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), snapshot({ tasks: [handled("working")] })]],
-      ["its question closed first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [waiting], questions: [answered] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
-      ["its task released first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [pending] }), snapshot({ tasks: [handled("idle")], questions: [answered] })]],
+      ["stream missed the waiting snapshot", [working, snapshot({ tasks: [handled] })]],
+      ["handled after it waited", [working, snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled] })]],
+      ["its question closed first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [waiting], questions: [answered] }), snapshot({ tasks: [handled], questions: [answered] })]],
+      ["its task released first", [working, snapshot({ tasks: [waiting], questions: [pending] }), snapshot({ tasks: [handled], questions: [pending] }), snapshot({ tasks: [handled], questions: [answered] })]],
     ];
     for (const [name, snapshots] of orders) {
       const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
       assert.deepEqual(alerts.map((alert) => alert.text), [], verb + ": " + name);
     }
     const news: [string, Snapshot[], string[]][] = [
-      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [task("a", "blocked", { report: "working", reason: GATE_BLOCK })] })], ["Goblin a is blocked: " + GATE_BLOCK]],
-      ["its gate blocking and clearing", [working, snapshot({ tasks: [handled("idle")] }), snapshot({ tasks: [task("a", "blocked", { report: "working", reason: GATE_BLOCK })] }), snapshot({ tasks: [handled("working")] })], ["Goblin a is blocked: " + GATE_BLOCK]],
-      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled("idle")] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke"]],
+      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [gateBlocked] })], ["Goblin a is blocked: " + GATE_BLOCK]],
+      ["its gate blocking and clearing", [working, snapshot({ tasks: [handled] }), snapshot({ tasks: [gateBlocked] }), snapshot({ tasks: [handled] })], ["Goblin a is blocked: " + GATE_BLOCK]],
+      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke"]],
     ];
     for (const [name, snapshots, want] of news) {
       const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));

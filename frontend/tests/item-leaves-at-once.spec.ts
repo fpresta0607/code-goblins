@@ -152,16 +152,20 @@ for (const way of WAYS) {
   });
 }
 
+// An item shows no toast, so a goblin's news is the dialogue whose action a
+// click can meet while it is still stepping in.
 for (const scenario of [
-  { name: "the Command Center opens when its dialogue finishes appearing during the click", review: wait, says: WAITS },
-  { name: "a review opens when its dialogue finishes appearing during the click", review: proof, says: proof.title },
+  { name: "a goblin's finished news opens its goblin when its dialogue finishes appearing during the click", news: { phase: "done", report: "done", pr: "https://github.com/fpresta0607/code-goblins/pull/204" }, says: "Probe the DNS finished" },
+  { name: "a goblin's failed news opens its goblin when its dialogue finishes appearing during the click", news: { phase: "failed", report: "failed", activity: "failed: its checks failed" }, says: "Probe the DNS failed" },
 ]) {
   test(scenario.name, async ({ page, context }, testInfo) => {
     // Arrange: pause the toast's entrance before pressing its real action.
     await standInStream(context);
     await announcer(context);
-    await actions(context);
-    await boardAsked(page, { reviews: [scenario.review] }, scenario.says);
+    await page.goto("/");
+    await send(page, "snapshot", quiet);
+    await expect(bar(page)).toContainText("All quiet");
+    await send(page, "snapshot", { ...quiet, revision: 2, tasks: [{ ...quiet.tasks[0], ...scenario.news }] });
     const dialogue = toasts(page).filter({ hasText: scenario.says }).locator(".dialogue");
     await dialogue.evaluate((element) => {
       for (const animation of element.getAnimations()) {
@@ -169,9 +173,9 @@ for (const scenario of [
         animation.currentTime = 0;
       }
     });
-    const button = dialogue.getByRole("button", { name: "Open Command Center", exact: true });
+    const button = dialogue.getByRole("button", { name: "Open", exact: true });
     const bounds = await button.boundingBox();
-    if (!bounds) throw new Error("The Command Center button has no visible bounds.");
+    if (!bounds) throw new Error("The news's Open button has no visible bounds.");
     const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
     await page.mouse.move(point.x, point.y);
 
@@ -184,8 +188,7 @@ for (const scenario of [
     await testInfo.attach("the dialogue after the pointer click", { body: await page.screenshot(), contentType: "image/png" });
 
     // Assert
-    await expect(card(page)).toBeVisible();
-    await expect(card(page)).toContainText(scenario.says);
+    await expect(page.locator("#panel-title")).toHaveText("Probe the DNS");
   });
 }
 

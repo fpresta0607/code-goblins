@@ -43,6 +43,9 @@ export interface Task extends Evaluation {
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
   report: string;
+  // report_handled says the task is blocked or failed by its own notify, which
+  // the CFO answered or acknowledged: the CFO's to handle, never his news.
+  report_handled?: boolean;
   // waiting_on names what a waiting task waits on: another task's id,
   // overlord, ci or deploy; gate_step is the gate step of a task in review.
   waiting_on: string;

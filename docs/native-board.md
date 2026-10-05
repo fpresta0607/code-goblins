@@ -740,6 +740,7 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 
 A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` asks the CFO.
 It never appears in the Overlord's waiting count, shows him a toast or opens the Command Center; after it is answered, History shows who answered it.
+Once the CFO answers or acknowledges it, its notify still holds the task, blocked or failed with its words, until the goblin reports again, and the snapshot marks that task `report_handled`, so the board never tells him of it as the goblin's news; a block or failure the gate holds is never marked and is news.
 The CFO publishes a decision that needs the Overlord with `cfo question`.
 A question's first choice that ends with `(Recommended)` is shown first and marked, and the mark is stripped from every choice.
 The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.

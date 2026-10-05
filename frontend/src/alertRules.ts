@@ -58,15 +58,17 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 }
 
 // A goblin's blocked or failed notify waits on the CFO, and its task reads so
-// until he answers or acks it.
-const asksCFO = (task: Task) => task.reason.startsWith("Waiting on the CFO");
+// until he answers or acks it. After that the notify still holds the task
+// until the goblin reports again, marked as one the CFO handled.
+const asksCFO = (task: Task) => task.reason.startsWith("Waiting on the CFO") || !!task.report_handled;
 
 // A goblin's state that the Overlord hears of: blocked or failed by its
 // evidence or failed by its own report, or done with its pull request.
 // Anything else, such as working, in review or waiting on another task, is
 // routine and says nothing. A goblin waiting on its own question, which its
-// task reads as Waiting on the CFO, says nothing either: its question is the
-// CFO's to answer, who is woken for it, so nothing waits on the Overlord.
+// task reads as Waiting on the CFO, or held by one the CFO handled, says
+// nothing either: its question is the CFO's to answer, who is woken for it,
+// so nothing waits on the Overlord.
 function taskState(task: Task): "blocked" | "failed" | "done" | "" {
   if (task.phase === "blocked") return asksCFO(task) ? "" : "blocked";
   if (task.phase === "failed" || task.report === "failed") return asksCFO(task) ? "" : "failed";

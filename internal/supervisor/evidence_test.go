@@ -129,7 +129,11 @@ func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
 	}
 }
 
-func TestSnapshotDoesNotServeAHandledNotifyAsFailureAfterReconnectOrGateTransitions(t *testing.T) {
+// A blocked or failed notify the CFO handled still holds the task, as the hold
+// tests in hold_status_test.go require, and is marked as the CFO's so the board
+// never announces it as the goblin's news, through a reconnect and later gate
+// transitions.
+func TestSnapshotMarksAHandledNotifyAsTheCFOsThroughReconnectAndGateTransitions(t *testing.T) {
 	for _, verb := range []string{"blocked", "failed"} {
 		for _, handling := range []string{"answer then drain", "drain without a waiting snapshot"} {
 			t.Run(verb+"/"+handling, func(t *testing.T) {
@@ -155,15 +159,15 @@ func TestSnapshotDoesNotServeAHandledNotifyAsFailureAfterReconnectOrGateTransiti
 				}
 				if handling == "answer then drain" {
 					view, err := service.Snapshot()
-					if err != nil || view.Tasks[0].Phase != verb {
-						t.Fatalf("waiting snapshot = %+v, %v", view.Tasks, err)
+					if err != nil || view.Tasks[0].Phase != verb || view.Tasks[0].ReportHandled {
+						t.Fatalf("waiting snapshot = %+v, %v; want the question waiting and not handled", view.Tasks, err)
 					}
 					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Retry"); err != nil {
 						t.Fatal(err)
 					}
 					view, err = service.Snapshot()
-					if err != nil || view.Tasks[0].Report != "working" {
-						t.Errorf("answered snapshot = %+v, %v; want the standing working report", view.Tasks, err)
+					if err != nil || view.Tasks[0].Report != verb || !view.Tasks[0].ReportHandled {
+						t.Errorf("answered snapshot = %+v, %v; want the %s report held and marked handled", view.Tasks, err, verb)
 					}
 				}
 				if err := wake.AckThrough(h.State, record.Seq); err != nil {
@@ -184,8 +188,9 @@ func TestSnapshotDoesNotServeAHandledNotifyAsFailureAfterReconnectOrGateTransiti
 					if err != nil {
 						t.Fatal(err)
 					}
-					if task := view.Tasks[0]; task.Report != "working" || task.Activity != "working: implementing the fix" || phase == "blocked" && task.Phase != "blocked" {
-						t.Errorf("after handling, gate %s sends %+v; want working report and the gate's own block", phase, task)
+					isGateBlock := phase == "blocked"
+					if task := view.Tasks[0]; task.Report != verb || task.ReportHandled == isGateBlock || isGateBlock && (task.Phase != "blocked" || task.Reason != "gate blocked") || !isGateBlock && task.Phase != verb {
+						t.Errorf("after handling, gate %s sends %+v; want the %s report holding the task marked handled, or the gate's own block unmarked", phase, task, verb)
 					}
 				}
 				// Even the same words reported again are new failure evidence.
@@ -199,8 +204,8 @@ func TestSnapshotDoesNotServeAHandledNotifyAsFailureAfterReconnectOrGateTransiti
 					t.Fatalf("append later report: %v, %v", err, closeErr)
 				}
 				view, err := service.Snapshot()
-				if err != nil || view.Tasks[0].Report != verb {
-					t.Fatalf("new report = %+v, %v; want %s", view.Tasks, err, verb)
+				if err != nil || view.Tasks[0].Report != verb || view.Tasks[0].ReportHandled {
+					t.Fatalf("new report = %+v, %v; want an unhandled %s", view.Tasks, err, verb)
 				}
 			})
 		}
