@@ -61,12 +61,12 @@ func TestRenderPreservesUnownedConfigAndIsIdempotent(t *testing.T) {
 		t.Fatalf("primary agent=%v", rendered.Agent)
 	}
 	profile := rendered.AgentConfig["codex"]
-	if profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+	if profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 		t.Fatalf("primary profile=%+v", profile)
 	}
 	for _, role := range []string{"reviewer", "fixer"} {
 		profile := rendered.ReviewAgents[role]
-		if profile.Agent != "codex" || profile.Model != "gpt-5.6-sol" || profile.Effort != "high" {
+		if profile.Agent != "codex" || profile.Model != "gpt-6.1-sol" || profile.Effort != "xhigh" {
 			t.Fatalf("%s profile=%+v", role, profile)
 		}
 	}

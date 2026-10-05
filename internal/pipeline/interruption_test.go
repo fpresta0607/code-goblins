@@ -44,10 +44,16 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 	if strings.Contains(command, "symbolic-ref --quiet") {
 		return execx.Result{ExitCode: 1}, nil
 	}
+	if strings.Contains(command, "show-ref --exists") {
+		if runner.pins[request.Args[len(request.Args)-1]] == "" {
+			return execx.Result{ExitCode: 2}, nil
+		}
+		return execx.Result{}, nil
+	}
 	if strings.Contains(command, "show-ref --verify") {
 		head := runner.pins[request.Args[len(request.Args)-1]]
 		if head == "" {
-			return execx.Result{ExitCode: 1}, nil
+			return execx.Result{ExitCode: 128}, nil
 		}
 		return execx.Result{Stdout: []byte(head)}, nil
 	}
