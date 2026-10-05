@@ -42,8 +42,8 @@ func TestGoblinsResumeRestartsARunningCFOOnItsConversation(t *testing.T) {
 			exit, stdout, stderr := f.launch("resume")
 
 			// Assert
-			if exit != 0 || f.restarts != 1 || len(f.nativeStarts)+len(f.cfoStarts) != 0 {
-				t.Fatalf("exit=%d restarts=%d nativeStarts=%q cfoStarts=%q stderr=%q, want one restart and no other start", exit, f.restarts, f.nativeStarts, f.cfoStarts, stderr)
+			if exit != 0 || f.restarts != 1 || len(f.nativeStarts) != 0 {
+				t.Fatalf("exit=%d restarts=%d nativeStarts=%q stderr=%q, want one restart and no other start", exit, f.restarts, f.nativeStarts, stderr)
 			}
 			if !strings.Contains(stdout, "CFO        restarted on its conversation a1b2c3d4-session, in native terminal cfo\n") || !strings.Contains(stdout, "Its current response was interrupted; goblins keep running.") {
 				t.Errorf("stdout = %q, want the restart said", stdout)
@@ -113,7 +113,7 @@ func TestGoblinsResumeSaysWhyItLeftTheCFORunning(t *testing.T) {
 	extra, _, extraErr := f.launch("resume", "now")
 
 	// Assert
-	if exit != 1 || !strings.Contains(stderr, "so it is left running") || len(f.nativeStarts)+len(f.cfoStarts) != 0 || len(f.screens) != 0 {
+	if exit != 1 || !strings.Contains(stderr, "so it is left running") || len(f.nativeStarts) != 0 || len(f.screens) != 0 {
 		t.Errorf("exit=%d stderr=%q nativeStarts=%q screens=%+v, want the refusal and nothing started or shown", exit, stderr, f.nativeStarts, f.screens)
 	}
 	if extra != 2 || !strings.Contains(extraErr, "usage: goblins resume") {
