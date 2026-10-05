@@ -55,6 +55,7 @@ type Turn struct {
 	// when anything was, including an admission failure.
 	Note    string
 	release func()
+	say     func(now string)
 }
 
 // Release gives the turn's slot back.
@@ -64,10 +65,22 @@ func (t Turn) Release() {
 	}
 }
 
-// card is what a run says of itself beside its lock file.
+// Say records what the run is doing now beside its turn, for whoever reads
+// the line: a gate shows a step's output only once the step has ended. A run
+// that released its turn, or no longer holds its slot's custody, says
+// nothing.
+func (t Turn) Say(now string) {
+	if t.say != nil {
+		t.say(now)
+	}
+}
+
+// card is what a run says of itself beside its lock file. Now is what a run
+// that holds a turn says it is doing.
 type card struct {
 	Who           string  `json:"who"`
 	BudgetSeconds float64 `json:"budget_seconds,omitempty"`
+	Now           string  `json:"now,omitempty"`
 }
 
 // arrivals keeps the places of runs that join the line from one process
@@ -154,7 +167,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				if err := ctx.Err(); err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				release, err := a.take(capacity)
+				release, say, err := a.take(capacity)
 				if err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
@@ -163,7 +176,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 						release()
 						return Turn{Waited: time.Since(start)}, err
 					}
-					return Turn{Waited: time.Since(start), release: release}, nil
+					return Turn{Waited: time.Since(start), release: release, say: say}, nil
 				}
 			}
 		}
@@ -288,16 +301,18 @@ func (a Admission) heldBy() string {
 }
 
 // take takes a free slot or reclaims verifiably dead custody. A live or
-// uncertain holder keeps the slot regardless of its elapsed budget.
-func (a Admission) take(capacity int) (release func(), err error) {
+// uncertain holder keeps the slot regardless of its elapsed budget. Once
+// release has run, say writes nothing, so a progress note can never land
+// beside a slot the run has given back.
+func (a Admission) take(capacity int) (release func(), say func(now string), err error) {
 	entries, err := os.ReadDir(a.Dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" && (capacity != 2 || name != "slot-2") {
-			return nil, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
+			return nil, nil, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
 		}
 	}
 	// Inspect every configured slot before choosing a free one: uncertain
@@ -308,10 +323,10 @@ func (a Admission) take(capacity int) (release func(), err error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if holder.Alive() && !holder.VerifiedAlive() {
-			return nil, nil
+			return nil, nil, nil
 		}
 	}
 	for slot := 1; slot <= capacity; slot++ {
@@ -321,16 +336,46 @@ func (a Admission) take(capacity int) (release func(), err error) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := a.leave(a.Dir, name, card{Who: a.Who, BudgetSeconds: a.Budget.Seconds()}); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
-			return nil, err
+			return nil, nil, err
 		}
-		var once sync.Once
-		return func() { once.Do(func() { a.remove(a.Dir, name, owner) }) }, nil
+		var mu sync.Mutex
+		isReleased := false
+		release = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if !isReleased {
+				isReleased = true
+				a.remove(a.Dir, name, owner)
+			}
+		}
+		say = func(now string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !isReleased {
+				a.say(name, owner, now)
+			}
+		}
+		return release, say, nil
 	}
-	return nil, nil
+	return nil, nil, nil
+}
+
+// say rewrites the card of the slot this run holds with what the run is doing
+// now, while the slot's custody is still owner's. The card is replaced whole,
+// so a run reading it never finds it half written and takes its holder for
+// one that named no budget.
+func (a Admission) say(name string, owner *lock.Info, now string) {
+	current, err := lock.ReadNamedStrict(a.Dir, name)
+	if err != nil || *current != *owner || !current.VerifiedAlive() {
+		return
+	}
+	if data, err := json.Marshal(card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), Now: now}); err == nil {
+		fsx.AtomicWriteFile(filepath.Join(a.Dir, name+".run"), data)
+	}
 }
 
 // leave writes a run's card beside its lock file dir/name.
@@ -375,8 +420,9 @@ type Standing struct {
 	// Since is when it took its turn or joined the line.
 	Since time.Time
 	// Budget is how long its turn may last, for a run that holds one and
-	// said so.
+	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
+	Now    string
 }
 
 // Line reads who holds the turns kept in dir, slot by slot, and who waits, in
@@ -407,7 +453,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 			}
 			if record.Alive() {
 				says := readCard(filepath.Join(dir, name))
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second))})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: record.Acquired, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now})
 			}
 		}
 		return runs, nil
