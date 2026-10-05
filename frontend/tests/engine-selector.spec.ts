@@ -35,6 +35,10 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
   });
   await page.goto("/");
   await page.locator(".task-board .task-card").filter({ hasText: "Choose the task engine" }).click();
+  // A task with a terminal opens on it; the selectors are on its Task view.
+  await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
+  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+  if (await pill.count()) await pill.click();
   const connections = page.locator(".workspace-details").getByText("Connections", { exact: true });
   if (await connections.count()) await connections.click();
 }
