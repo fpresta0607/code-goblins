@@ -149,12 +149,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    board always does. */
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; min-height: 100%; padding: 28px 24px; }
 .task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
-/* The CFO pinned above the columns is the one place on the board that says
-   Waiting on you. At rest it is a plain bar, a card like the columns under
-   it, with only its terminal on its icon and portrait; while something waits
-   on the Overlord it is the CFO's dialogue box with Open Command Center.
-   Hovered or focused, it rises over the columns so its tooltips show in
-   full. */
+/* The CFO pinned above the columns is a plain bar, a card like the columns
+   under it, with its terminal on its icon and portrait; what it shows while
+   something waits on the Overlord is in cfo-pin.css. Hovered or focused, it
+   rises over the columns so its tooltips show in full. */
 .task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
 .task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
 .cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
@@ -558,35 +556,23 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 18px; width: min(480px, calc(100vw - 40px)); }
 .toasts > .toast { position: relative; }
 .toasts > .toast:hover, .toasts > .toast:focus-within { z-index: 1; }
-/* Alerts, and the CFO's banner while it needs the Overlord, are goblins'
-   dialogue boxes in the workshop's own lantern-and-leather palette: the
-   speaker's portrait, the CFO's name on its banner's tab, and a stepped
-   pixel frame with a hard shadow. Lantern means it
+/* Alerts are goblins' dialogue boxes in the workshop's own
+   lantern-and-leather palette: the speaker's portrait and a stepped pixel
+   frame with a hard shadow. Lantern means it
    needs the Overlord and nothing else, so only then is the action filled.
    A box steps up once as it arrives and is still after that. The stepped
    fills and frames are drawn behind each box, portrait and button, never
    clipping them, so focus rings and tooltips show in full. */
 /* The goblin palette, shared by the dialogue boxes and the voice dock. */
-.dialogue, .voice-dock { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --ember: #D8664C; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
-.dialogue { --tone: var(--lantern); position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(1px 0 0 var(--glass-border-hover)) drop-shadow(-1px 0 0 var(--glass-border-hover)) drop-shadow(0 1px 0 var(--glass-border-hover)) drop-shadow(0 -1px 0 var(--glass-border-hover)) drop-shadow(3px 3px 0 var(--soot)) drop-shadow(0 0 12px rgba(0, 229, 155, 0.18)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
-.dialogue.done { --tone: var(--moss); }
-.dialogue.failed { --tone: var(--ember); }
-.dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--tone); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
+.dialogue, .voice-dock { --hide: #241C15; --soot: #0D0A07; --lantern: #F2B447; --moss: #86B36B; --bone: #EFE6D2; --edge: #5C4631; --bone-dim: #C4B79F; --pixel-corners: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 2px) calc(100% - 4px), calc(100% - 2px) calc(100% - 2px), calc(100% - 4px) calc(100% - 2px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 4px), 0 calc(100% - 4px)); }
+.dialogue { position: relative; display: grid; justify-items: start; min-width: 0; container-type: inline-size; filter: drop-shadow(1px 0 0 var(--glass-border-hover)) drop-shadow(-1px 0 0 var(--glass-border-hover)) drop-shadow(0 1px 0 var(--glass-border-hover)) drop-shadow(0 -1px 0 var(--glass-border-hover)) drop-shadow(3px 3px 0 var(--soot)) drop-shadow(0 0 12px rgba(0, 229, 155, 0.18)); transform-origin: bottom left; animation: dialogue-in .18s steps(3, end) both; }
 .dialogue-box, .dialogue-portrait, .pixel-button, .dialogue .pixel-icon, .voice-card .pixel-icon { position: relative; isolation: isolate; }
 .dialogue-box::before, .dialogue-portrait::before, .pixel-button::before, .dialogue .pixel-icon::before, .voice-card .pixel-icon::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); }
 .dialogue-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px 16px; width: 100%; padding: 14px 16px 14px 14px; color: var(--bone); }
 .dialogue-box::before, .dialogue-portrait::before { border: 2px solid var(--soot); background: var(--hide); box-shadow: inset 0 0 0 2px var(--edge); }
 .dialogue-portrait { display: grid; place-items: center; width: 64px; height: 64px; min-height: 64px; padding: 0; border: 0; background: transparent; }
 .dialogue-portrait::before { background: #1a140f; }
-button.dialogue-portrait:hover { background: transparent; transform: none; }
-button.dialogue-portrait:hover::before { background: #2e241b; }
 .dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
-/* A badge beside the portrait, such as the CFO's harness mark, sits in the
-   same stepped frame, drawn behind it so its tip shows in full. */
-.dialogue-who { display: flex; align-items: center; gap: 10px; }
-.dialogue .mark { position: relative; isolation: isolate; width: 40px; height: 40px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #1a140f; box-shadow: inset 0 0 0 2px var(--edge); }
-.dialogue .mark svg, .dialogue .mark .icon { width: 22px; height: 22px; }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
 .dialogue-text p { margin: 0; overflow-wrap: anywhere; }
 .dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -603,7 +589,7 @@ button.dialogue-portrait:hover::before { background: #2e241b; }
 .dialogue .pixel-icon::before, .voice-card .pixel-icon::before { box-shadow: inset 0 0 0 2px var(--bone); }
 .dialogue .pixel-icon:hover, .voice-card .pixel-icon:hover { background: transparent; transform: none; }
 .dialogue .pixel-icon:hover::before, .voice-card .pixel-icon:hover::before { background: #ffffff12; }
-@keyframes dialogue-in { from { transform: scaleY(.25); } }
+@keyframes dialogue-in { from { opacity: .25; } }
 @container (max-width: 640px) { .dialogue-box { grid-template-columns: auto minmax(0, 1fr); } .dialogue-actions { grid-column: 2; } }
 @container (max-width: 400px) { .dialogue-actions { grid-column: 1 / -1; } }
 @media (prefers-reduced-motion: reduce) { .dialogue { animation: none; } }
