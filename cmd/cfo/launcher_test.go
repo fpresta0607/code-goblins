@@ -58,7 +58,6 @@ type launcherFixture struct {
 	cfoLive   bool
 	nativeCFO string
 	focused   []herdr.Endpoint
-	cfoStarts []string
 	attached  []string
 	// nativeStarts are the projects a CFO was started in natively, and
 	// nativeAttached the native terminals shown in this terminal.
@@ -151,11 +150,6 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 		focusCFO: func(_ context.Context, endpoint herdr.Endpoint) error {
 			f.focused = append(f.focused, endpoint)
 			return nil
-		},
-		startCFO: func(_ context.Context, project, harness string) (bool, error) {
-			f.cfoStarts = append(f.cfoStarts, project)
-			f.harnesses = append(f.harnesses, harness)
-			return true, nil
 		},
 		attachHerdr: func(session string) int {
 			f.attached = append(f.attached, session)
@@ -380,8 +374,8 @@ func TestGoblinsBoardOpensTheBoardAndLeavesTheCFOToIt(t *testing.T) {
 	if !slices.Equal(f.opened, []string{board}) {
 		t.Fatalf("opened %q, want the board once", f.opened)
 	}
-	if len(f.cfoStarts)+len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
-		t.Fatalf("CFO starts=%q native=%q focused=%v attached=%q native attached=%q, want none", f.cfoStarts, f.nativeStarts, f.focused, f.attached, f.nativeAttached)
+	if len(f.nativeStarts)+len(f.focused)+len(f.attached)+len(f.nativeAttached) != 0 {
+		t.Fatalf("CFO starts=%q focused=%v attached=%q native attached=%q, want none", f.nativeStarts, f.focused, f.attached, f.nativeAttached)
 	}
 
 	if exit, _, stderr := f.launch("--board"); exit != 0 || f.starts != 1 || !slices.Equal(f.opened, []string{board, board}) {
@@ -573,8 +567,8 @@ func TestGoblinsStartsNoSecondBoardWhenItsAddressIsInUse(t *testing.T) {
 	exit, stdout, stderr := f.launch()
 
 	// Assert
-	if exit != 1 || stdout != "" || len(f.opened) != 0 || len(f.cfoStarts)+len(f.nativeStarts) != 0 {
-		t.Fatalf("exit=%d stdout=%q opened=%q cfoStarts=%q nativeStarts=%q, want nothing started or shown", exit, stdout, f.opened, f.cfoStarts, f.nativeStarts)
+	if exit != 1 || stdout != "" || len(f.opened) != 0 || len(f.nativeStarts) != 0 {
+		t.Fatalf("exit=%d stdout=%q opened=%q nativeStarts=%q, want nothing started or shown", exit, stdout, f.opened, f.nativeStarts)
 	}
 	if want := "goblins: the board's address 127.0.0.1:4310 is in use by the Code Goblins fleet in C:\\Fleet (supervisor pid 4242), so no second one was started."; !strings.HasPrefix(stderr, want) {
 		t.Errorf("stderr = %q, want it to start %q", stderr, want)
@@ -895,8 +889,8 @@ func TestGoblinsWindowShowsOnlyTheWindow(t *testing.T) {
 			if want := []string{fmt.Sprintf("%s background=%v", board, test.background)}; !slices.Equal(f.windows, want) {
 				t.Errorf("windows %q, want %q", f.windows, want)
 			}
-			if len(f.opened) != 0 || len(f.cfoStarts) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
-				t.Errorf("browser %q, CFO starts %q and %q, attached %q; want none", f.opened, f.cfoStarts, f.nativeStarts, f.attached)
+			if len(f.opened) != 0 || len(f.nativeStarts) != 0 || len(f.attached) != 0 {
+				t.Errorf("browser %q, CFO starts %q, attached %q; want none", f.opened, f.nativeStarts, f.attached)
 			}
 		})
 	}

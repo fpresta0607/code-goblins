@@ -23,7 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A native terminal starts at the size goblins --native starts the CFO at.
+// A native terminal starts at the size goblins starts the CFO at.
 const (
 	nativeCols = 120
 	nativeRows = 40
