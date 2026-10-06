@@ -77,7 +77,7 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
 
-			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, 90*time.Second)
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", 90*time.Second)
 
 			if err != nil || poll.Status != test.status || poll.Ended != test.ended || poll.EndedBy != test.endedBy || poll.Output != test.output {
 				t.Fatalf("Poll = %+v, %v; want status %q, ended %v by %q and the whole output", poll, err, test.status, test.ended, test.endedBy)
@@ -85,6 +85,23 @@ func TestLavishPollReadsTheSessionStatusAndKeepsTheOutput(t *testing.T) {
 			assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--timeout-ms", "90000"}, KillTree: true})
 		})
 	}
+}
+
+// A poll can carry a reply the Overlord reads in the page's conversation
+// panel, such as that his revision was received and what happens next.
+func TestLavishPollCarriesAReplyToThePage(t *testing.T) {
+	// Arrange
+	runner := &fakeRunner{result: execx.Result{Stdout: []byte(lavishWaiting)}}
+	reply := "Revision received. task-1 makes the next version, which replaces this page."
+
+	// Act
+	_, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, reply, 90*time.Second)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, runner, execx.Request{Name: "lavish-axi", Args: []string{"poll", `C:\work\.lavish\plan.html`, "--agent-reply", reply, "--timeout-ms", "90000"}, KillTree: true})
 }
 
 // A poll's prompts are what the Overlord wrote on the page, read from the
@@ -104,7 +121,7 @@ func TestLavishPollReadsWhatTheOverlordWrote(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(test.output)}}
 
-			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, time.Second)
+			poll, err := (Lavish{Commands: runner}).Poll(context.Background(), `C:\work\.lavish\plan.html`, "", time.Second)
 
 			if err != nil || !slices.Equal(poll.Prompts, test.want) {
 				t.Fatalf("Poll = %+v, %v; want prompts %q", poll, err, test.want)
@@ -122,7 +139,7 @@ func TestLavishReadsOnlyTheSessionObject(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{result: execx.Result{Stdout: []byte(output)}}
-			if _, err := (Lavish{Commands: runner}).Poll(context.Background(), "x", time.Second); err == nil || !strings.Contains(err.Error(), "no session status") {
+			if _, err := (Lavish{Commands: runner}).Poll(context.Background(), "x", "", time.Second); err == nil || !strings.Contains(err.Error(), "no session status") {
 				t.Errorf("Poll = %v, want it refused for having no session status", err)
 			}
 			if _, err := (Lavish{Commands: runner}).Open(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "no address") {
