@@ -65,7 +65,7 @@ for (const phase of ["retired", "paused", "stopped"]) {
     await page.goto(`/tests/fixtures/ended-session.html?phase=${phase}`);
 
     await expect(page.getByRole("heading", { name: `Session ${phase}` })).toBeVisible();
-    await expect(page.locator("time")).toHaveAttribute("datetime", "2026-09-29T09:42:00Z");
+    await expect(page.locator(".ended-session time")).toHaveAttribute("datetime", "2026-09-29T09:42:00Z");
     await expect(page.getByText("Last report", { exact: true })).toBeVisible();
     await expect(page.getByText("Terminal fixes verified. Pull request ready.", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open handoff" })).toHaveAttribute("href", "/api/tasks/input-proof/handoff");
@@ -91,7 +91,7 @@ test("the ended message fits a narrow panel and its handoff is keyboard accessib
 test("missing ended-session details are omitted without inventing a time or a link", async ({ page }) => {
   await page.goto("/tests/fixtures/ended-session.html?phase=retired&missing");
   await expect(page.getByRole("heading", { name: "Session retired" })).toBeVisible();
-  await expect(page.locator("time")).toHaveCount(0);
+  await expect(page.locator(".ended-session time")).toHaveCount(0);
   await expect(page.getByText("Last report", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open handoff" })).toHaveCount(0);
 });
@@ -99,7 +99,7 @@ test("missing ended-session details are omitted without inventing a time or a li
 test("a history entry's last update is not presented as its retirement time", async ({ page }) => {
   await page.goto("/tests/fixtures/ended-session.html?phase=retired&missing-time");
   await expect(page.getByRole("heading", { name: "Session retired" })).toBeVisible();
-  await expect(page.locator("time")).toHaveCount(0);
+  await expect(page.locator(".ended-session time")).toHaveCount(0);
 });
 
 test("retiring an open terminal replaces it and closes its connection", async ({ page }) => {

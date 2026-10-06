@@ -65,7 +65,12 @@ export interface Task extends Evaluation {
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // pause is what a paused task waits for: memory, allowance, overlord,
+  // dependency, question, ci or deploy, with until naming the reset time,
+  // task:, pr:, date:, question id or awaited run; absent on an older pause.
+  pause?: PauseCondition;
 }
+export interface PauseCondition { reason: string; until: string; at: string }
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
 // at which the CFO starts the next queued task; with the kernel's pools and,
@@ -154,6 +159,9 @@ export interface Snapshot {
   cfo_terminal: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  // The conversation the CFO could not resume when it last came back, and how
+  // to resume it by hand; empty when it came back on its own.
+  cfo_conversation_left: string;
   // build names the board bundle the supervisor serves.
   build: string;
   // cfo_runs says a CFO is registered and running or starting; without one
@@ -164,6 +172,10 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  // cfo_closed says the home's CFO registered and has since ended, with no
+  // terminal up for a new one: the board says so and offers Reopen, and
+  // shows no first-run page.
+  cfo_closed: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -494,9 +506,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
     memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
@@ -511,7 +525,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
         switching: t.switching === undefined ? false : boolean(t.switching),

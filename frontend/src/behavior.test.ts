@@ -4,7 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
-import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
+import { arrange, settle, waitingOn, workflowNodes, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT } from "./workflow.ts";
 
 test("board completion and semantic personas require the corresponding evidence", () => {
   const task = parseSnapshot({healthy:true, tasks:[{id:"work",title:"Test keyboard access",phase:"done",generation:"new",verified:false}]}).tasks[0];
@@ -211,6 +211,12 @@ test("the board keeps the CFO registration state the supervisor reports", () => 
   const stale = "The CFO is not registered; run cfo register in the CFO session";
   assert.equal(parseSnapshot({healthy:true, registration:stale}).registration, stale);
   assert.equal(parseSnapshot({healthy:true}).registration, "");
+});
+
+test("the board keeps the conversation the CFO could not resume, as the supervisor reports it", () => {
+  const left = "The CFO's conversation a1b2c3d4-session could not be resumed when it came back at 2026-10-03 01:47 UTC, so it started on a new one. That conversation is kept: claude --resume a1b2c3d4-session in the CFO's home opens it by hand.";
+  assert.equal(parseSnapshot({healthy:true, cfo_conversation_left:left}).cfo_conversation_left, left);
+  assert.equal(parseSnapshot({healthy:true}).cfo_conversation_left, "");
 });
 
 test("completed history and fleet statuses read the way the fleet reports them", () => {
@@ -550,4 +556,21 @@ test("a run item states its progress in plain words with its exit code", () => {
   const cases: [string, string, boolean][] = [["Ready to run", "play", false], ["Running", "clock", false], ["Finished · exit 0", "check", false],
     ["Failed · exit 2", "warning", true], ["Failed", "warning", true], ["Expired", "close", false], ["Withdrawn by the CFO", "close", false]];
   cases.forEach(([label, icon, trouble], index) => assert.deepEqual(runMark(runs[index]), { icon, label, trouble }, runs[index].id));
+});
+
+test("an action that did not finish is the task's one status, and in-flight work wins over it", () => {
+  const failed = (action: string, phase = "working") => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Claude Code", phase, generation: "s1", verified: false,
+    lifecycle: { phase: "failed", action, at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: ["context deadline exceeded"], handoff_saved: false, validation_restarts: false } }] }).tasks[0];
+  const cases: [string, ReturnType<typeof failed>, string, string][] = [
+    ["a pause that ran out of time, whose goblin still reports working", failed("pause"), "Pause failed", "failed"],
+    ["a resume that failed", failed("resume", "unavailable"), "Resume failed", "failed"],
+    ["a stop that failed", failed("stop"), "Stop failed", "failed"],
+    ["a new pause under way", failed("pause", "pausing"), "Pausing", "pausing"],
+  ];
+  for (const [name, task, status, phase] of cases) {
+    assert.equal(nodeStatus({ id: "a", title: "", task, relation: "" }), status, name);
+    assert.equal(statusPhase(task), phase, name);
+  }
+  assert.equal(sessionTitle({ ...parseSnapshot({ healthy: true, sessions: [{ id: "n", role: "goblin", task_id: "a" }] }).sessions[0] }, failed("pause")), "A");
+  assert.equal(workflowNodes(parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "A; Codex", phase: "working", generation: "s1", verified: false }] }))[1].title, "A");
 });
