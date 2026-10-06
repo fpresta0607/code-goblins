@@ -22,6 +22,21 @@ import (
 
 const overlapPollEvery = 10 * time.Minute
 
+// Overlap is one piece of a teammate's open work that meets a live goblin's
+// area: who, what it is, such as "PR #1446", and its link.
+type Overlap struct {
+	tickets.Actor
+	What string `json:"what"`
+	URL  string `json:"url"`
+}
+
+// sameArea is the teammates' open work a goblin's area meets, as its
+// generation's last overlap read found it.
+type sameArea struct {
+	Generation string    `json:"generation"`
+	Overlaps   []Overlap `json:"overlaps"`
+}
+
 type overlapNotice struct {
 	Task       string `json:"task"`
 	Generation string `json:"generation"`
@@ -58,6 +73,8 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 	for _, goblin := range mine {
 		if s.isOverlapLive(goblin.meta, currentTime()) {
 			active = append(active, goblin)
+		} else {
+			delete(w.SameArea, goblin.id)
 		}
 	}
 	if len(active) == 0 {
@@ -159,6 +176,10 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				unread = errors.Join(unread, err)
 				continue
 			}
+			if w.SameArea == nil {
+				w.SameArea = map[string]sameArea{}
+			}
+			w.SameArea[goblin.id] = sameArea{Generation: goblin.meta.SpawnGen, Overlaps: overlapsOf(matches, own)}
 			for _, match := range matches.Issues {
 				if own[match.Number] {
 					continue
@@ -198,6 +219,26 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 	}
 	w.OverlapUnread[repo] = fmt.Sprintf("overlap read of %s incomplete: %v", repo, unread)
 	return errors.New(w.OverlapUnread[repo])
+}
+
+// overlapsOf is the teammates' work an area meets, as a card names it: each
+// pull request or branch that changes its files, and each issue other than
+// the task's own that names it, whenever it was opened.
+func overlapsOf(matches tickets.Overlaps, own map[int]bool) []Overlap {
+	var overlaps []Overlap
+	for _, match := range matches.Files {
+		what := "branch " + match.Branch
+		if match.PullRequest != 0 {
+			what = fmt.Sprintf("PR #%d", match.PullRequest)
+		}
+		overlaps = append(overlaps, Overlap{Actor: match.Author, What: what, URL: match.URL})
+	}
+	for _, match := range matches.Issues {
+		if !own[match.Number] {
+			overlaps = append(overlaps, Overlap{Actor: match.Author, What: fmt.Sprintf("issue #%d", match.Number), URL: match.URL})
+		}
+	}
+	return overlaps
 }
 
 func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin ciGoblin) (tickets.Area, string, error) {

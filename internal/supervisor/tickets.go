@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -61,6 +62,27 @@ const (
 	ticketGoneGrace = ticketRetry
 )
 
+// TaskTicket is a task's ticket as the board shows it: its issue's number
+// and link, and where it stands.
+type TaskTicket struct {
+	Number int           `json:"number"`
+	URL    string        `json:"url"`
+	State  tickets.State `json:"state"`
+}
+
+// ProjectPeople are the people other than the Overlord, bots aside, active
+// in a collaborative project's repository in the last 30 days, most recently
+// active first, under the project name the board's tasks carry.
+type ProjectPeople struct {
+	Name         string          `json:"name"`
+	Repository   string          `json:"repository"`
+	Contributors []tickets.Actor `json:"contributors"`
+}
+
+func (p ProjectPeople) equal(other ProjectPeople) bool {
+	return p.Name == other.Name && p.Repository == other.Repository && slices.Equal(p.Contributors, other.Contributors)
+}
+
 // ticketKeeper keeps each task's ticket where its task is. It reads the
 // tasks the board shows, so a ticket follows the same lifecycle the Overlord
 // sees, and it writes to GitHub only when a ticket's state changed.
@@ -82,9 +104,18 @@ type ticketKeeper struct {
 	// about. A pass starts with none, so a line lasts only while its cause
 	// does.
 	found map[string]string
+	// people are who works in each project still on the board, by its name,
+	// as last read; boardTickets is each task's ticket as its record says.
+	people       map[string]ProjectPeople
+	boardTickets map[string]TaskTicket
 
-	mu       sync.Mutex
-	problems []string
+	// What the board shows, as the last pass found it, and a count that
+	// moves whenever any of it changed.
+	mu           sync.Mutex
+	problems     []string
+	shownTickets map[string]TaskTicket
+	shownPeople  []ProjectPeople
+	version      uint64
 }
 
 // repositoryAnswer is what one project's repository answered, and when it is
@@ -105,7 +136,7 @@ type ticketWait struct {
 }
 
 func newTicketKeeper(h home.Home, writer *Tickets) *ticketKeeper {
-	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]ticketWait{}, askPullAfter: map[string]ticketWait{}, offTheBoardSince: map[string]time.Time{}}
+	return &ticketKeeper{home: h, writer: writer, repositories: map[string]repositoryAnswer{}, labelled: map[string]bool{}, backOff: map[string]ticketWait{}, askPullAfter: map[string]ticketWait{}, offTheBoardSince: map[string]time.Time{}, people: map[string]ProjectPeople{}}
 }
 
 // Issues are the lines the board shows for tickets that wait or failed, as
@@ -114,6 +145,20 @@ func (k *ticketKeeper) Issues() []string {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	return slices.Clone(k.problems)
+}
+
+// Shown is each task's ticket and the people of each project on the board,
+// by project name, as the last pass found them.
+func (k *ticketKeeper) Shown() (map[string]TaskTicket, []ProjectPeople) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return maps.Clone(k.shownTickets), slices.Clone(k.shownPeople)
+}
+
+func (k *ticketKeeper) shownVersion() uint64 {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.version
 }
 
 // keepTickets moves tickets away from the loop, as keepHistory rebuilds the
@@ -129,9 +174,9 @@ func (s *Service) keepTickets(ctx context.Context, retry, watch time.Duration) {
 		if snapshot, err := s.boardSnapshot(); err == nil {
 			if next := ticketMark(snapshot.Tasks); next != mark || time.Since(reconciled) >= retry {
 				mark, reconciled = next, time.Now()
-				before := s.tickets.Issues()
+				before := s.tickets.shownVersion()
 				s.tickets.reconcile(ctx, snapshot.Tasks, time.Now().UTC())
-				if !slices.Equal(s.tickets.Issues(), before) {
+				if s.tickets.shownVersion() != before {
 					s.notify()
 				}
 			}
@@ -189,8 +234,56 @@ func (k *ticketKeeper) reconcile(ctx context.Context, tasks []Task, now time.Tim
 		k.reconcileTask(ctx, id, task, slices.Contains(queuedBefore, id), now)
 	}
 	k.reconcileGone(ctx, onTheBoard, now)
+	k.readPeople(ctx, tasks, now)
+	k.readBoardTickets()
 	if ctx.Err() == nil {
 		k.show()
+	}
+}
+
+// readPeople reads who works in the repository of each project a task still
+// on the board names, from the same hourly answer its tickets use, so naming
+// them costs no read of its own. A project whose repository GitHub did not
+// answer keeps the people last read for it.
+func (k *ticketKeeper) readPeople(ctx context.Context, tasks []Task, now time.Time) {
+	read := map[string]bool{}
+	for _, task := range tasks {
+		if ctx.Err() != nil {
+			return
+		}
+		if task.Archived || task.Project == "" || read[task.Project] || state.ValidTaskID(task.ID) != nil {
+			continue
+		}
+		project := k.project(task.ID)
+		if project == "" {
+			continue
+		}
+		read[task.Project] = true
+		known := k.repository(ctx, project, now)
+		switch {
+		case known.err != nil:
+		case known.IsCollaborative && len(known.People) > 0:
+			k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.People}
+		default:
+			delete(k.people, task.Project)
+		}
+	}
+	maps.DeleteFunc(k.people, func(name string, _ ProjectPeople) bool { return !read[name] })
+}
+
+// readBoardTickets reads each task's ticket from its record, which only this
+// keeper writes.
+func (k *ticketKeeper) readBoardTickets() {
+	records, err := tickets.ListRecords(k.home.State)
+	if err != nil {
+		k.note("records", fmt.Sprintf("The ticket records cannot be read: %v", err))
+		return
+	}
+	k.boardTickets = map[string]TaskTicket{}
+	for _, record := range records {
+		if record.Number > 0 && record.URL != "" {
+			k.boardTickets[record.TaskID] = TaskTicket{Number: record.Number, URL: record.URL, State: record.State}
+		}
 	}
 }
 
@@ -399,11 +492,7 @@ func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now ti
 	if project == "" {
 		return ""
 	}
-	known, ok := k.repositories[project]
-	if !ok || !now.Before(known.again) {
-		known = k.readRepository(ctx, project, now)
-		k.repositories[project] = known
-	}
+	known := k.repository(ctx, project, now)
 	switch {
 	case known.isNotGitHub:
 		return ""
@@ -425,6 +514,17 @@ func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now ti
 		}
 	}
 	return known.Repository
+}
+
+// repository is what a project's repository answered, asked again once its
+// answer no longer stands.
+func (k *ticketKeeper) repository(ctx context.Context, project string, now time.Time) repositoryAnswer {
+	known, ok := k.repositories[project]
+	if !ok || !now.Before(known.again) {
+		known = k.readRepository(ctx, project, now)
+		k.repositories[project] = known
+	}
+	return known
 }
 
 // readRepository asks what a project's repository is and who works in it.
@@ -511,16 +611,20 @@ func (k *ticketKeeper) noteOf(record *tickets.Record) {
 	}
 }
 
-// show puts the finished pass's problems on the board.
+// show puts the finished pass's problems, tickets and people on the board.
 func (k *ticketKeeper) show() {
 	problems := make([]string, 0, len(k.found))
 	for _, problem := range k.found {
 		problems = append(problems, problem)
 	}
 	slices.Sort(problems)
+	people := slices.SortedFunc(maps.Values(k.people), func(a, b ProjectPeople) int { return strings.Compare(a.Name, b.Name) })
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.problems = problems
+	if !slices.Equal(problems, k.problems) || !maps.Equal(k.boardTickets, k.shownTickets) || !slices.EqualFunc(people, k.shownPeople, ProjectPeople.equal) {
+		k.version++
+	}
+	k.problems, k.shownTickets, k.shownPeople = problems, maps.Clone(k.boardTickets), people
 }
 
 // ticketFor is the ticket a task's place on the board calls for, under the
