@@ -33,9 +33,10 @@ func TestCollaborationReadsWhoWorksThereInOneRound(t *testing.T) {
 		page              string
 		wantCollaborative bool
 		wantPrivate       bool
+		wantPeople        []Actor
 	}{
-		{name: "a teammate's commit in a private repository", page: collaborationPage(true, "ana-teammate", "fpresta0607"), wantCollaborative: true, wantPrivate: true},
-		{name: "a teammate's branch in a public repository", page: collaborationPage(false, "fpresta0607", "ben-teammate"), wantCollaborative: true},
+		{name: "a teammate's commit in a private repository", page: collaborationPage(true, "ana-teammate", "fpresta0607"), wantCollaborative: true, wantPrivate: true, wantPeople: []Actor{{Login: "ana-teammate", AvatarURL: "https://a/x"}}},
+		{name: "a teammate's branch in a public repository", page: collaborationPage(false, "fpresta0607", "ben-teammate"), wantCollaborative: true, wantPeople: []Actor{{Login: "ben-teammate", AvatarURL: "https://a/y"}}},
 		{name: "only the Overlord and a bot", page: collaborationPage(true, "fpresta0607", "fpresta0607"), wantPrivate: true},
 	}
 	for _, tc := range cases {
@@ -52,6 +53,9 @@ func TestCollaborationReadsWhoWorksThereInOneRound(t *testing.T) {
 			}
 			if got.Repository != "fpresta0607/northwind-api" || got.IsCollaborative != tc.wantCollaborative || got.IsPrivate != tc.wantPrivate {
 				t.Fatalf("collaboration = %+v, want collaborative %v, private %v", got, tc.wantCollaborative, tc.wantPrivate)
+			}
+			if !slices.Equal(got.People, tc.wantPeople) {
+				t.Fatalf("people = %+v, want %+v: the teammates who worked there, bots and the Overlord aside", got.People, tc.wantPeople)
 			}
 			if len(gh.calls) != 1 {
 				t.Fatalf("calls = %v, want one GraphQL round and no page or file read after it", gh.calls)

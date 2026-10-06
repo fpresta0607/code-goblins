@@ -708,6 +708,12 @@ The board says when tickets wait: for that consent, or for an hour after GitHub 
 A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
 A project with no GitHub repository simply has no tickets.
 
+The board shows the same.
+A task's card carries its ticket's number, which opens the issue: green while it is open, purple once its task merged, grey once it closed otherwise.
+Beside it sits the avatar of each teammate whose open pull request, branch or issue meets a live goblin's branch, ringed in amber, opening that work.
+A goblin's panel names the people of its project beside the project's name, each with a GitHub avatar and username, whoever is in the goblin's area first.
+The people come from the same hourly read that decides whether a repository gets tickets, and the overlaps from the ten-minute pull request read below, so the board asks GitHub nothing of its own; a project only you work in shows neither.
+
 The same supervisor poll watches the health of every open pull request in its watched repositories, including teammates' and fork pull requests.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
 Each condition wakes once per head, survives a restart, and waits at least five minutes after that PR's previous health wake.

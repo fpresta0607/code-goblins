@@ -8,11 +8,13 @@ import (
 )
 
 // Collaboration is whether people other than the Overlord work in a
-// repository, and whether only its members can read it.
+// repository, who they are, most recently active first, and whether only its
+// members can read it.
 type Collaboration struct {
 	Repository      string
 	IsCollaborative bool
 	IsPrivate       bool
+	People          []Actor
 }
 
 // Collaboration reads who worked in a repository in the last 30 days, by the
@@ -39,5 +41,9 @@ func (g GitHub) Collaboration(ctx context.Context, repository string, now time.T
 	for _, node := range repo.Refs.Nodes {
 		activity.Branches = append(activity.Branches, Branch{Name: node.Name, Head: node.Target.Oid, CommittedAt: node.Target.CommittedDate, Author: node.Target.Author.actor()})
 	}
-	return Collaboration{Repository: repository, IsCollaborative: len(contributors(activity, now)) > 0, IsPrivate: repo.IsPrivate}, nil
+	var people []Actor
+	for _, contributor := range contributors(activity, now) {
+		people = append(people, Actor{Login: contributor.Login, Name: contributor.Name, AvatarURL: contributor.AvatarURL})
+	}
+	return Collaboration{Repository: repository, IsCollaborative: len(people) > 0, IsPrivate: repo.IsPrivate, People: people}, nil
 }
