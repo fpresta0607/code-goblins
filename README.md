@@ -186,7 +186,7 @@ It stops nothing it cannot bring back: a CFO whose conversation cannot be resume
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
-`cfo resume` with no task named is the same command.
+`cfo resume` with no task named is the same command, and the board's CFO bar offers it as **Restart the CFO**, beside its terminal's button, which asks first since it interrupts what the CFO is doing.
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.

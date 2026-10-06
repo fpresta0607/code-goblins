@@ -47,8 +47,10 @@ export function switchTarget(order: DeckEntry[], current: string, key: SwitchKey
 export type DeckView = { kind: "host"; query: string } | { kind: "herdr" } | { kind: "empty"; text: string };
 
 // A registered CFO with no native terminal is the live CFO still in Herdr.
-export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_runs" | "cfo_closed">): DeckView {
-  if (snapshot.cfo_terminal) return { kind: "host", query: "cfo=" + encodeURIComponent(snapshot.cfo_terminal) };
+// A view of a native CFO names when its terminal's host started, so a host
+// that replaced it, as a restart does, is viewed afresh.
+export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_since" | "cfo_runs" | "cfo_closed">): DeckView {
+  if (snapshot.cfo_terminal) return { kind: "host", query: new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() };
   if (snapshot.cfo_runs) return { kind: "herdr" };
   return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed. Reopen it from the board." : "No CFO is running." };
 }
