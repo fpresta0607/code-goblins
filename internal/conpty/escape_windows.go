@@ -12,8 +12,10 @@ import (
 // character that starts a longer sequence, as the start of a sequence still
 // arriving: it holds it until the next key, then reads the two together, so
 // an Escape typed alone reaches the program only with the next key, as Alt
-// and that key. Such an ending is written as the key events it stands for
-// instead, which conhost delivers at once.
+// and that key. The console holds such an ending back instead, for the next
+// write to take on when it comes at once, as the rest of a key event split
+// across two writes does, and otherwise writes it as the key events it
+// stands for, which conhost delivers at once.
 
 // windowsKeyEvent is a key event written as Windows sends it.
 var windowsKeyEvent = regexp.MustCompile(`\x1b\[[0-9;]*_`)
@@ -29,18 +31,26 @@ const escapeKey = "\x1b[27;1;27;1;0;1_\x1b[27;1;27;0;0;1_"
 // the left Alt key down.
 const leftAltPressed = 2
 
-// endingAsKeyEvents returns p with an ending conhost would hold, once it has
-// read a Windows key event, written as the key events it stands for: a lone
-// Escape as Escape, and Escape and a character that starts a longer sequence
-// as Alt and that character.
-func endingAsKeyEvents(p []byte) []byte {
+// heldEnding is how many bytes at the end of p conhost would hold once it
+// has read a Windows key event: one for a lone Escape, two for Escape and a
+// character that starts a longer sequence, and otherwise none.
+func heldEnding(p []byte) int {
 	switch {
 	case len(p) >= 1 && p[len(p)-1] == 0x1b:
-		return append(p[:len(p)-1:len(p)-1], escapeKey...)
+		return 1
 	case len(p) >= 2 && p[len(p)-2] == 0x1b && strings.IndexByte(sequenceStarts, p[len(p)-1]) >= 0:
-		character := p[len(p)-1]
-		pressed := fmt.Sprintf("\x1b[0;0;%d;1;%d;1_\x1b[0;0;%d;0;%d;1_", character, leftAltPressed, character, leftAltPressed)
-		return append(p[:len(p)-2:len(p)-2], pressed...)
+		return 2
 	}
-	return p
+	return 0
+}
+
+// asKeyEvents is an ending heldEnding found written as the Windows key events
+// it stands for: a lone Escape as Escape, and Escape and a character as Alt
+// and that character.
+func asKeyEvents(ending []byte) []byte {
+	if len(ending) == 1 {
+		return []byte(escapeKey)
+	}
+	character := ending[1]
+	return fmt.Appendf(nil, "\x1b[0;0;%d;1;%d;1_\x1b[0;0;%d;0;%d;1_", character, leftAltPressed, character, leftAltPressed)
 }

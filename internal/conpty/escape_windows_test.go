@@ -1,7 +1,6 @@
 package conpty
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -14,39 +13,44 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestAnEndingConhostWouldHoldIsWrittenAsTheKeysItStandsFor(t *testing.T) {
+func TestAnEndingConhostWouldHoldIsHeldAndWrittenAsTheKeysItStandsFor(t *testing.T) {
 	altPressed := func(character string) string {
 		return fmt.Sprintf("\x1b[0;0;%d;1;2;1_\x1b[0;0;%d;0;2;1_", character[0], character[0])
 	}
-	for name, test := range map[string]struct{ typed, written string }{
-		"Escape alone":                            {typed: "\x1b", written: escapeKey},
-		"text ending in Escape":                   {typed: "abc\x1b", written: "abc" + escapeKey},
-		"Alt and a character that starts a CSI":   {typed: "\x1b[", written: altPressed("[")},
-		"Alt and a character that starts an SS3":  {typed: "\x1bO", written: altPressed("O")},
-		"Alt and a character that starts a DCS":   {typed: "\x1bP", written: altPressed("P")},
-		"Alt and a character that starts an OSC":  {typed: "\x1b]", written: altPressed("]")},
-		"Alt and a character that starts an APC":  {typed: "x\x1b_", written: "x" + altPressed("_")},
-		"Alt and a character that ends the pair":  {typed: "\x1bx", written: "\x1bx"},
-		"a whole sequence":                        {typed: "\x1b[A", written: "\x1b[A"},
-		"a key event as Windows sends it":         {typed: "\x1b[65;30;97;1;0;1_", written: "\x1b[65;30;97;1;0;1_"},
-		"text":                                    {typed: "hello\r", written: "hello\r"},
-		"nothing":                                 {typed: "", written: ""},
-		"Escape inside the input, not at its end": {typed: "\x1bq", written: "\x1bq"},
+	for name, test := range map[string]struct {
+		typed, keys string
+		held        int
+	}{
+		"Escape alone":                            {typed: "\x1b", held: 1, keys: escapeKey},
+		"text ending in Escape":                   {typed: "abc\x1b", held: 1, keys: escapeKey},
+		"Alt and a character that starts a CSI":   {typed: "\x1b[", held: 2, keys: altPressed("[")},
+		"Alt and a character that starts an SS3":  {typed: "\x1bO", held: 2, keys: altPressed("O")},
+		"Alt and a character that starts a DCS":   {typed: "\x1bP", held: 2, keys: altPressed("P")},
+		"Alt and a character that starts an OSC":  {typed: "\x1b]", held: 2, keys: altPressed("]")},
+		"Alt and a character that starts an APC":  {typed: "x\x1b_", held: 2, keys: altPressed("_")},
+		"Alt and a character that ends the pair":  {typed: "\x1bx"},
+		"a whole sequence":                        {typed: "\x1b[A"},
+		"a key event as Windows sends it":         {typed: "\x1b[65;30;97;1;0;1_"},
+		"text":                                    {typed: "hello\r"},
+		"nothing":                                 {typed: ""},
+		"Escape inside the input, not at its end": {typed: "\x1bq"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			typed := []byte(test.typed)
-			kept := bytes.Clone(typed)
 
 			// Act
-			written := endingAsKeyEvents(typed)
+			held := heldEnding(typed)
 
 			// Assert
-			if string(written) != test.written {
-				t.Errorf("endingAsKeyEvents(%q) = %q, want %q", test.typed, written, test.written)
+			if held != test.held {
+				t.Fatalf("heldEnding(%q) = %d, want %d", test.typed, held, test.held)
 			}
-			if !bytes.Equal(typed, kept) {
-				t.Errorf("endingAsKeyEvents changed what it was given: %q, was %q", typed, kept)
+			if held == 0 {
+				return
+			}
+			if keys := asKeyEvents(typed[len(typed)-held:]); string(keys) != test.keys {
+				t.Errorf("asKeyEvents(%q) = %q, want %q", typed[len(typed)-held:], keys, test.keys)
 			}
 		})
 	}
@@ -135,5 +139,54 @@ func TestAnEscapeTypedAfterAWindowsKeyEventReachesTheProgramAtOnce(t *testing.T)
 			progress, _ := os.ReadFile(progressPath)
 			t.Fatalf("%s typed as %q did not reach the program as %q within a second; it read:\n%s", key.name, key.typed, key.read, progress)
 		}
+	}
+}
+
+// A key event written as Windows sends it and split across two writes, as cfo
+// attach splits what its console reads 4 KiB at a time, reaches the program
+// as that key: the Escape that ends the first write is held for the second,
+// never sent alone.
+func TestAKeyEventSplitAcrossTwoWritesReachesTheProgramWhole(t *testing.T) {
+	progressPath := filepath.Join(t.TempDir(), "keys.log")
+	console, s := startChild(t, Spec{
+		Args: []string{os.Args[0], "-test.run=^TestKeyRecordChild$", "--", "key-record-child", progressPath},
+		Env:  os.Environ(),
+		Cols: 80, Rows: 25,
+	})
+	s.waitFor(t, "key-records-ready")
+	read := func(want string) bool {
+		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if progress, _ := os.ReadFile(progressPath); strings.Contains(string(progress), want) {
+				return true
+			}
+		}
+		return false
+	}
+	if _, err := console.Write([]byte("\x1b[65;30;97;1;0;1_\x1b[65;30;97;0;0;1_")); err != nil {
+		t.Fatal(err)
+	}
+	if !read("key 65 character 0061 alt false") {
+		t.Fatal("the program never read the first key event")
+	}
+
+	for _, split := range []struct{ name, first, rest, read string }{
+		{"after its Escape", "\x1b", "[66;48;98;1;0;1_\x1b[66;48;98;0;0;1_", "key 66 character 0062 alt false"},
+		{"after its bracket", "\x1b[", "67;46;99;1;0;1_\x1b[67;46;99;0;0;1_", "key 67 character 0063 alt false"},
+	} {
+		// Act
+		for _, part := range []string{split.first, split.rest} {
+			if _, err := console.Write([]byte(part)); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Assert
+		if !read(split.read) {
+			progress, _ := os.ReadFile(progressPath)
+			t.Fatalf("a key event split %s did not reach the program as %q; it read:\n%s", split.name, split.read, progress)
+		}
+	}
+	if progress, _ := os.ReadFile(progressPath); strings.Contains(string(progress), "key 27 ") || strings.Contains(string(progress), "alt true") {
+		t.Fatalf("a split key event reached the program as Escape or Alt; it read:\n%s", progress)
 	}
 }

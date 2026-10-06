@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -60,16 +61,24 @@ type inputRecord struct {
 	Event [16]byte
 }
 
+// wakerReady bounds how long a new waker takes to say it is ready.
+const wakerReady = 10 * time.Second
+
 // waker is the host's end of a console's input waker.
 type waker struct {
 	// typed takes one byte each time input is written.
 	typed *os.File
-	// report carries what the waker says, a line at a time.
+	// report carries what the waker says, a line at a time, and lines reads
+	// it.
 	report *os.File
+	lines  *bufio.Reader
 }
 
 // startWaker starts this program as the input waker of pseudo console pc,
-// in job, suspended until it is in the job and scheduled as interactive.
+// in job, suspended until it is in the job and scheduled as interactive, and
+// returns once it says it is ready: it outlives a Ctrl-C or Ctrl-Break only
+// from then on, so the console's program, which could raise one, runs only
+// after.
 func startWaker(pc, job windows.Handle) (*waker, error) {
 	self, err := os.Executable()
 	if err != nil {
@@ -143,15 +152,36 @@ func startWaker(pc, job windows.Handle) (*waker, error) {
 		windows.TerminateProcess(info.Process, 1)
 		return fail(fmt.Errorf("conpty: resume the input waker: %w", err))
 	}
+	w.lines = bufio.NewReader(w.report)
+	said := make(chan error, 1)
+	go func() {
+		line, err := w.lines.ReadString('\n')
+		if line = strings.TrimSpace(line); err == nil && line != "ready" {
+			err = errors.New(line)
+		}
+		said <- err
+	}()
+	select {
+	case err := <-said:
+		if err != nil {
+			windows.TerminateProcess(info.Process, 1)
+			return fail(fmt.Errorf("conpty: the input waker did not start: %w", err))
+		}
+	case <-time.After(wakerReady):
+		windows.TerminateProcess(info.Process, 1)
+		return fail(fmt.Errorf("conpty: the input waker did not start within %s", wakerReady))
+	}
 	return w, nil
 }
 
 // relay tells the waker of input written, through typed, until done closes,
-// and copies what it says into this process's standard error.
-func (w *waker) relay(typed <-chan struct{}, done <-chan struct{}) {
+// and copies what it says into this process's standard error. A waker that
+// stops listening before done or closing closes, which the console closes as
+// Close begins, has failed, and says so.
+func (w *waker) relay(typed, done, closing <-chan struct{}) {
 	go func() {
 		defer w.report.Close()
-		lines := bufio.NewScanner(w.report)
+		lines := bufio.NewScanner(w.lines)
 		for lines.Scan() {
 			fmt.Fprintln(os.Stderr, "conpty: "+lines.Text())
 		}
@@ -163,6 +193,7 @@ func (w *waker) relay(typed <-chan struct{}, done <-chan struct{}) {
 			if _, err := w.typed.Write([]byte{1}); err != nil {
 				select {
 				case <-done:
+				case <-closing:
 				default:
 					fmt.Fprintf(os.Stderr, "conpty: the console's input waker stopped listening, so input left unread is no longer woken: %v\n", err)
 				}
@@ -190,6 +221,7 @@ func runWaker(typed io.Reader, report io.Writer) int {
 		fmt.Fprintf(report, "the input waker cannot open its console's input: %v\n", err)
 		return 1
 	}
+	fmt.Fprintln(report, "ready")
 	written := make(chan struct{}, 1)
 	go func() {
 		defer close(written)
