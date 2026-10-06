@@ -4,6 +4,7 @@ import { FitList } from "./FitList";
 import { QueuedTasks } from "./QueuedTasks";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
+import { nextInOrder } from "./start";
 import { TaskCard } from "./TaskCard";
 import type { CardStarter } from "./useStart";
 import { taskColumn } from "./workflow";
@@ -31,7 +32,8 @@ export function Board({ snapshot, layout, selected, now, onSelect, onTerminal, o
   onStartCfo: () => void;
   cardStart: CardStarter;
 }) {
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} onSelect={onSelect} onTerminal={onTerminal} />;
+  const next = nextInOrder(snapshot, now);
+  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} onTerminal={onTerminal} />;
   const paused = snapshot.tasks.filter((task) => taskColumn(task) === "Paused");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
     <CfoPin snapshot={snapshot} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />

@@ -340,7 +340,10 @@ Resume requires the same 5 GB of free memory and of free commit, and continues a
 The live cap is also checked for Start, spawn and Resume: `config/fleet.json` sets `max_live_goblins` (default 8), and memory and commit further reduce the available slots while preserving the 4 GB floor.
 At 5 percent remaining in a measured weekly allowance window, the same supervisor scheduler requests each affected goblin's handoff and pauses it until the applicable weekly windows reset.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
-The board snapshot exposes pause conditions, the live cap, time since real progress, and recent CI/deploy durations for the pending board presentation.
+On the board, a paused card says in place of Paused why it waits and what resumes it, in a few words such as "Memory: resumes at 5 GB free", "Waiting on PR #331 to merge" or "Waiting on CI, usually 13 min", the last from the median of that repository's measured runs.
+The memory meter shows the goblins live against the cap, and the setting while memory lowers the cap; with no free slot, Start and Resume say so on the card instead of being refused after the click.
+**Next** marks the one card the free-slot order takes first: a reported production defect, which says it jumps the queue, then a paused goblin whose pause has cleared or clears with memory, oldest pause first, then the top of the queue.
+A live goblin with no real progress for 20 minutes says for how long on its card.
 After 20 minutes with no new commit, push, gate-step change or changed status report, the supervisor raises one `progress_stalled` check wake to the CFO; real progress resets it, and intentional pauses do not raise it.
 Progress probes run together under one 10-second deadline, so stalled probes do not accumulate delays between memory readings.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
