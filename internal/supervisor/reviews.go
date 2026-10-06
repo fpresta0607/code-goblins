@@ -63,6 +63,9 @@ type Review struct {
 	// own, which the supervisor polls for the Overlord's feedback while the
 	// item is open.
 	LavishPage string `json:"lavish_page,omitempty"`
+	// Link is the web link a goblin's wait gives as where the Overlord goes,
+	// the only link its card opens.
+	Link string `json:"link,omitempty"`
 	// Document is a delivered file, copied beside the item's images; an item
 	// with a document carries nothing else to look at.
 	Document *ReviewDocument `json:"document,omitempty"`
@@ -104,8 +107,13 @@ func validReview(r Review) error {
 		}
 	}
 	if r.Lavish != "" {
-		if problem := presentationURLProblem(r.Lavish); problem != "" {
+		if problem := PresentationURLProblem(r.Lavish); problem != "" {
 			return errors.New("a review's Scrawl link " + problem)
+		}
+	}
+	if r.Link != "" {
+		if problem := PresentationURLProblem(r.Link); problem != "" {
+			return errors.New("a wait's link " + problem)
 		}
 	}
 	if r.LavishPage != "" {
@@ -124,7 +132,7 @@ func validReview(r Review) error {
 }
 
 func sameReview(a, b Review) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && slices.Equal(a.ImageSums, b.ImageSums) &&
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Lavish == b.Lavish && a.LavishPage == b.LavishPage && a.Link == b.Link && slices.Equal(a.ImageSums, b.ImageSums) &&
 		(a.Document == nil) == (b.Document == nil) && (a.Document == nil || *a.Document == *b.Document)
 }
 
@@ -907,8 +915,11 @@ func (h *HTTP) reviewImage(w http.ResponseWriter, r *http.Request) {
 // PublishWait puts a goblin's wait on the Overlord in the Command Center as an
 // item for him until he answers or clears it, or the goblin reports again. It
 // names the item waiting-<task>-<wake sequence>, which retireItems relies on.
-func PublishWait(h home.Home, taskID string, seq int, why, lavish, page string) error {
-	return PublishReview(h, taskID, fmt.Sprintf("waiting-%s-%d", taskID, seq), "Waiting on you: "+why, lavish, page, nil)
+// why keeps the goblin's lines, so its card can show a table of values, and
+// link is the web link it gives as where he goes, if any.
+func PublishWait(h home.Home, taskID string, seq int, why, lavish, page, link string) error {
+	wait := Review{ID: fmt.Sprintf("waiting-%s-%d", taskID, seq), Task: taskID, Title: "Waiting on you: " + why, Lavish: lavish, LavishPage: page, Link: link}
+	return publishItem(h, wait, func(*Review, string) (bool, error) { return false, nil })
 }
 
 // retireItems withdraws a goblin's items nobody waits on any more, so the

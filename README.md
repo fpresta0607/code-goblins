@@ -128,7 +128,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 It ends with the [quick start](#quick-start) in that same window, where `goblins` works at once.
 Code Goblins in the Start menu runs the quick start again at any time, and opens the board in [the desktop app](#the-desktop-app) instead where the install put one.
 
-To work on Code Goblins itself, clone it and install from the clone, which needs Go: `-Dev` builds in a folder of its own and installs into the same per-user home, so the clone keeps only its source.
+To work on Code Goblins itself, clone it and install from the clone, which needs Go and Node.js: `-Dev` builds the programs in a folder of its own and installs them into the same per-user home, so the clone keeps no program.
 
 ```powershell
 git clone https://github.com/fpresta0607/code-goblins.git
@@ -628,7 +628,7 @@ cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
@@ -790,7 +790,7 @@ The core is intentionally local-first:
 - `internal/auth/` — project-scoped credential preflight and injection.
 - `internal/state/` / `internal/wake/` — restart-proof task and event state.
 - `internal/supervisor/` - native event ingestion, durable actions and the local board API behind `cfo serve`, including the WebSocket that relays a native task's terminal from its host.
-- `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist`, which is embedded in `cfo.exe`.
+- `frontend/` - the board's React/TypeScript source; Vite compiles it into `internal/boardweb/dist/board`, which git ignores and `cfo.exe` embeds.
 - `.agents/skills/` - the skills this repository owns, including `lavish`, the CFO's review surface over the third-party `lavish-axi` CLI; [docs/load-map.md](docs/load-map.md) maps every file each harness reads for instructions, skills, hooks and MCP.
 
 The control plane is local. Your coding harnesses may still call their model providers according to their own configuration.
@@ -806,7 +806,14 @@ Code Goblins is becoming a native Windows desktop app.
 
 ## Development
 
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`: `cfo.exe` embeds the board they build, and one built without it serves a page saying the board was not built.
+`go vet` and `go test` need Go alone.
+
 ```powershell
+cd frontend
+npm ci
+npm run build
+cd ..
 go vet ./...
 go test ./... -count=1
 go build ./cmd/cfo

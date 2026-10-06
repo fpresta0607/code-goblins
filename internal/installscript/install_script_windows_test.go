@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -637,6 +638,63 @@ func TestDevStopsForGoBeforeChangingAnything(t *testing.T) {
 	}
 }
 
+// -Dev builds the board cfo.exe embeds with npm, so with Go and without
+// Node.js it stops before building or changing anything and names the
+// install.
+func TestDevStopsForNodeBeforeChangingAnything(t *testing.T) {
+	checkout := fakeCheckout(t)
+
+	output, _, _, err := runPowerShellWith(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), []string{"git", "gh", "go"}, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+
+	if err == nil || !strings.Contains(output, "winget install -e --id OpenJS.NodeJS.LTS") || !strings.Contains(output, "needs Node.js") {
+		t.Fatalf("install = %v, want it stopped for Node.js with its install:\n%s", err, output)
+	}
+	if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
+		t.Errorf("the stopped install left %v, want nothing built", left)
+	}
+}
+
+// -Dev builds the board in frontend before it builds cfo.exe, which embeds
+// it: without the board cfo.exe serves a page saying it was not built. A
+// warning npm writes to stderr does not stop the install, and a failed npm
+// step stops it before Go builds anything.
+func TestDevBuildsTheBoardBeforeCfo(t *testing.T) {
+	for name, test := range map[string]struct {
+		// npm is what the stand-in does after it records its call.
+		npm       string
+		wantCalls []string
+		wantSaid  string
+	}{
+		"npm warns and succeeds": {"@echo npm warn deprecated a package 1>&2\r\n@exit /b 0\r\n", []string{"npm --prefix frontend ci", "npm --prefix frontend run build", "go build -trimpath"}, "go build failed"},
+		"npm ci fails":           {"@exit /b 1\r\n", []string{"npm --prefix frontend ci"}, "npm ci in frontend failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: npm and go record each call in one file, in order,
+			// and go then fails, so the install stops at its first build.
+			checkout := fakeCheckout(t)
+			calls := filepath.Join(t.TempDir(), "calls.txt")
+			stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n",
+				"npm": "@echo npm %*>>\"" + calls + "\"\r\n" + test.npm,
+				"go":  "@echo go %1 %2>>\"" + calls + "\"\r\n@exit /b 1\r\n"}
+
+			// Act
+			output, _, _, _ := runPowerShellWithStubs(t, installtest.WindowsPowerShell(), installtest.ServeRelease(t, nil, ""), stubs, "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
+
+			// Assert
+			recorded, err := os.ReadFile(calls)
+			if err != nil {
+				t.Fatalf("npm and go were never called (%v):\n%s", err, output)
+			}
+			if got := strings.Split(strings.TrimSuffix(string(recorded), "\r\n"), "\r\n"); !slices.Equal(got, test.wantCalls) {
+				t.Errorf("calls = %q, want %q:\n%s", got, test.wantCalls, output)
+			}
+			if !strings.Contains(output, test.wantSaid) {
+				t.Errorf("the install does not say %q:\n%s", test.wantSaid, output)
+			}
+		})
+	}
+}
+
 // install.cmd runs install.ps1 under an execution policy that refuses to run
 // the script itself, and hands back its exit code.
 func TestInstallCmdRunsTheScriptWhateverTheExecutionPolicy(t *testing.T) {
@@ -722,7 +780,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 
 // -Dev builds from the clone into a folder of its own and runs that build's
 // cfo install, which sets up the per-user home as the one-line install does:
-// the clone keeps only its source, and the build folder goes once the
+// the clone keeps no program, and the build folder goes once the
 // install has run, here a stand-in install that fails, so the script stops
 // there. The window is built as a release builds it, a program that opens no
 // console and has no developer tools, and the install says the programs it
@@ -730,7 +788,7 @@ func TestInstallCmdGivesWindowsPowerShellItsOwnModules(t *testing.T) {
 // starts Windows PowerShell, so Windows PowerShell alone checks it; the
 // install workflow runs the whole install in both PowerShells on a clean
 // runner.
-func TestDevBuildsOutsideTheCloneAndLeavesItSourceOnly(t *testing.T) {
+func TestDevBuildsOutsideTheCloneAndLeavesNoProgramInIt(t *testing.T) {
 	// Arrange: go copies a stand-in cfo.exe, a copy of this test binary that
 	// fails at every command, to the path it is told to build to.
 	checkout := fakeCheckout(t)
@@ -750,7 +808,7 @@ func TestDevBuildsOutsideTheCloneAndLeavesItSourceOnly(t *testing.T) {
 	if err := os.WriteFile(window, []byte("the window"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n" +
+	stubs := map[string]string{"git": "@exit /b 0\r\n", "gh": "@exit /b 0\r\n", "npm": "@exit /b 0\r\n", "go": "@if not \"%2\"==\"-trimpath\" exit /b 1\r\n" +
 		"@if not \"%9\"==\"./cmd/goblins-window\" copy /y \"" + standIn + "\" \"%4\" >nul & exit /b\r\n" +
 		"@if not \"%~6\"==\"-H windowsgui\" exit /b 1\r\n@if not \"%7 %8\"==\"-tags production\" exit /b 1\r\n@copy /y \"" + window + "\" \"%4\" >nul\r\n"}
 	cmd, _, temp := installtest.StrippedCommand(t, installtest.ServeRelease(t, nil, ""), stubs, installtest.WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(checkout, "install.ps1"), "-Dev")
@@ -765,7 +823,7 @@ func TestDevBuildsOutsideTheCloneAndLeavesItSourceOnly(t *testing.T) {
 		t.Fatalf("install -Dev did not build, or does not say its programs are unsigned:\n%s", output)
 	}
 	if left, _ := filepath.Glob(filepath.Join(checkout, "*.exe*")); len(left) != 0 {
-		t.Errorf("the clone holds %v after install -Dev, want only its source", left)
+		t.Errorf("the clone holds %v after install -Dev, want no program", left)
 	}
 	if left, _ := filepath.Glob(filepath.Join(temp, "code-goblins-build-*")); len(left) != 0 {
 		t.Errorf("the build folder %v was left behind", left)

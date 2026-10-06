@@ -536,6 +536,53 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	}
 }
 
+// A wait on the Overlord names the one link he goes to with --link, which his
+// card opens: it travels with the wait to the CFO, and a link that is not a
+// safe web link, or one on anything but a wait on him, is refused before
+// anything is recorded.
+func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	link := "https://dash.cloudflare.com/precisiondocs/dns"
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"a link on a question":  {[]string{"g1", "--blocked", "which plan?", "--link", link}, "--link goes with --waiting-on overlord"},
+		"a link on a CI wait":   {[]string{"g1", "--waiting-on", "ci", "checks", "--link", link}, "--link goes with --waiting-on overlord"},
+		"a bare host name":      {[]string{"g1", "--waiting-on", "overlord", "add the records", "--link", "mcp.precisiondocs.ai"}, "absolute URL"},
+		"a link with a query":   {[]string{"g1", "--waiting-on", "overlord", "add the records", "--link", link + "?token=x"}, "query"},
+		"a plain http web link": {[]string{"g1", "--waiting-on", "overlord", "add the records", "--link", "http://dash.cloudflare.com/dns"}, "https"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), c.says) {
+			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q", name, exit, stderr.String(), c.says)
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("status = %q after refused notifies, want nothing recorded", lines)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "add the records", "--link", link}, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	want := "waiting on overlord: add the records (link " + link + ")"
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {
+		t.Fatalf("wake records = %+v %v, want the wait with its link", records, err)
+	}
+}
+
 // While AFK mode is on a goblin that reports a wait on the Overlord is told he
 // is away and to move to work that does not depend on it, so it does not sit
 // all night on something only he can do. While it is off the notify says

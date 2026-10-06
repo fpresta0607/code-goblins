@@ -119,14 +119,16 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-It needs Go: `winget install -e --id GoLang.Go`.
+It needs Go and Node.js: `winget install -e --id GoLang.Go` and `winget install -e --id OpenJS.NodeJS.LTS`.
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`, because `cfo.exe` embeds the board they build, and `-Dev` does both for you.
 `install.cmd` runs `install.ps1` with PowerShell's execution policy bypassed, so it works whatever execution policy is set locally.
 An execution policy set by Group Policy still applies, and can refuse it.
 Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, which the default execution policy refuses.
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds `cfo.exe` and the desktop window, `goblins-window.exe`, from the clone into a temporary folder of its own, runs that build's `cfo install`, which sets up the same per-user home the one-line install does, and removes the folder, so the clone keeps only its source.
+- It builds the board in the clone, then `cfo.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which sets up the same per-user home the one-line install does, and removes the folder.
+  The clone keeps only what git ignores: the board, which `cfo.exe` embeds from there, and the frontend's `node_modules`.
   A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.

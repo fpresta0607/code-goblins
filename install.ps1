@@ -219,6 +219,10 @@
             Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
             throw "-Dev builds cfo.exe from this clone, which needs Go."
         }
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Host "Install Node.js with: winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
+            throw "-Dev builds the board cfo.exe embeds from this clone, which needs Node.js."
+        }
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
@@ -234,16 +238,23 @@
             }
         }
 
-        # The clone holds source only: the build goes to a folder of its own,
-        # and cfo install puts it in the per-user home, as the one-line
-        # install does.
+        # The programs build to a folder of their own, and cfo install puts them
+        # in the per-user home, as the one-line install does. The clone keeps
+        # only what git ignores: the board npm builds, which cfo.exe embeds
+        # from there, and frontend's node_modules.
         $build = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-build-" + [Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $build | Out-Null
         try {
-            Write-Host "Building cfo.exe and the desktop window from $scriptFolder ..."
+            Write-Host "Building the board, cfo.exe and the desktop window from $scriptFolder ..."
             $dest = Join-Path $build "cfo.exe"
             Push-Location -LiteralPath $scriptFolder
             try {
+                # cfo.exe embeds the board npm builds from frontend, and without it
+                # serves a page saying the board was not built.
+                npm.cmd --prefix frontend ci
+                if ($LASTEXITCODE -ne 0) { throw "npm ci in frontend failed" }
+                npm.cmd --prefix frontend run build
+                if ($LASTEXITCODE -ne 0) { throw "npm run build in frontend failed" }
                 go build -trimpath -o $dest ./cmd/cfo
                 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
                 # -H windowsgui: the window is a program with no console.
@@ -710,7 +721,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built from $scriptFolder and installed in $InstallDir, your CFO home; the clone keeps only its source. Code Goblins in the Start menu starts it again; open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built from $scriptFolder and installed in $InstallDir, your CFO home; the clone keeps no program. Code Goblins in the Start menu starts it again; open a new terminal so cfo and goblins are on your PATH."
     }
     else {
         Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu starts it again, and goblins works in this window and in any new one."

@@ -133,11 +133,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.adoptEarlierWindow(report); err != nil {
 		return err
 	}
-	if err := s.finish(report, "cfo install: already installed - nothing changed"); err != nil {
-		return err
-	}
-	s.warnMissingBinary(out)
-	return nil
+	return s.finish(report, "cfo install: already installed - nothing changed")
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -271,22 +267,6 @@ func (s Service) finish(report *reporter, idleLine string) error {
 		fmt.Fprintln(report.out, idleLine)
 	}
 	return nil
-}
-
-// warnMissingBinary says loudly what a missing binary means before the first
-// session finds out. Installing before the binary is built is a supported
-// flow, so this warns rather than refuses - but without it, `cfo install`
-// would bless with a success message the exact unsupervised session this
-// package exists to prevent.
-func (s Service) warnMissingBinary(out io.Writer) {
-	binary := filepath.Join(s.bin(), "cfo.exe")
-	if _, err := os.Stat(binary); err == nil {
-		return
-	}
-	fmt.Fprintf(out, "\nWARNING: %s does not exist.\n", binary)
-	fmt.Fprintln(out, "Every installed hook runs that binary, so until it exists each one fails to start,")
-	fmt.Fprintln(out, "Claude Code reports a non-blocking hook error, and sessions run UNSUPERVISED.")
-	fmt.Fprintln(out, "Run cfo install again from a build of cfo.exe to put it there.")
 }
 
 func (s Service) setHome(report *reporter) error {

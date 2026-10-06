@@ -33,6 +33,10 @@ config/
 /goblins.exe.*.old
 /goblins-window.exe.*.old
 /frontend/node_modules/
+# The board npm run build writes for cfo.exe to embed. The placeholder page a
+# build without it serves is the one file under dist that is committed.
+/internal/boardweb/dist/*
+!/internal/boardweb/dist/index.html
 /frontend/test-results/
 /frontend/test-results-*.txt
 /frontend/playwright.scratch.config.ts

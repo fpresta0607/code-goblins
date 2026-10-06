@@ -37,7 +37,7 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Check frontend and regenerate embedded assets
+      - name: Check and build the frontend
         id: frontend
         working-directory: frontend
         shell: pwsh
@@ -56,9 +56,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (git status --porcelain --untracked-files=all -- ../internal/boardweb/dist) {
-            throw 'Embedded assets differ from the lockfile build. Run npm ci and npm run build in frontend, then commit the assets.'
+          # Where cfo.exe finds no board, it serves a page saying the board
+          # was not built.
+          if (-not (Test-Path ../internal/boardweb/dist/board/index.html)) {
+            throw 'npm run build wrote no internal/boardweb/dist/board/index.html, which cfo.exe embeds the board from.'
           }
+      # With the board built above, boardweb's tests prove cfo.exe embeds and
+      # serves it rather than the placeholder page.
+      - name: Check cfo.exe embeds the board
+        run: go test ./internal/boardweb -count=1
       # Fails on a copyleft or unrecognised licence in anything a release
       # ships, or a THIRD_PARTY_NOTICES that no longer lists it. It reads the
       # packages npm ci installed above, so it runs in this job.
