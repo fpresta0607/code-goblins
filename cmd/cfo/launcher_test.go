@@ -736,6 +736,7 @@ func TestStatusLineCountsWhatTheBadgeCounts(t *testing.T) {
 	}{
 		"a question asked about its goblin's open review page is that page's one card": {`{"questions":[{"status":"pending","page":"waiting-billing-7"}],"reviews":[{"state":"open"}]}`, 1},
 		"a question of its own and a page":                                             {`{"questions":[{"status":"pending"}],"reviews":[{"state":"open"}]}`, 2},
+		"a page he sent a revision on waits on its goblin, not on him":                 {`{"reviews":[{"state":"open","revising_since":"2026-10-01T05:09:00Z"},{"state":"open"}]}`, 1},
 	} {
 		// Arrange
 		var snapshot launcherSnapshot
