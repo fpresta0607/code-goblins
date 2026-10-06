@@ -343,8 +343,11 @@ func TestAFreshInstallIsAHomeInUse(t *testing.T) {
 }
 
 // A home an older install set up kept its binaries at its root, on PATH
-// there; a reinstall moves them into bin and PATH with them. The desktop
+// there; a reinstall puts them in bin and PATH with them. The desktop
 // window, which this build does not supply, stays the home's own in bin.
+// cfo.exe and goblins.exe stay at the root too, as this build: sessions
+// started before the reinstall run them there, by the path their hooks and
+// their briefs name and through the PATH they started with.
 func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 	// Arrange
 	f := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
@@ -360,9 +363,14 @@ func TestReinstallMovesAnOlderInstallsRootBinariesIntoBin(t *testing.T) {
 	output := f.install()
 
 	// Assert
-	for _, name := range older {
+	for _, name := range older[2:] {
 		if _, err := os.Stat(filepath.Join(f.root, name)); !os.IsNotExist(err) {
 			t.Errorf("%s survived at the home's root: %v", name, err)
+		}
+	}
+	for _, name := range older[:2] {
+		if got, err := os.ReadFile(filepath.Join(f.root, name)); err != nil || string(got) != "build 1" {
+			t.Errorf("%s at the home's root = %q (%v), want it kept as this build:\n%s", name, got, err, output)
 		}
 	}
 	if got := readFile(t, filepath.Join(f.bin, "cfo.exe")); got != "build 1" {

@@ -180,8 +180,11 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 						t.Fatal(err)
 					}
 				}
+				// The queue stamps the question when it is appended, after
+				// this case's slow setup, so the resumption is dated from
+				// that stamp rather than from now.
 				if test.isResumed {
-					lines += fmt.Sprintf("%s working: resumed work\n", now.Add(time.Second).Format(time.RFC3339))
+					lines += fmt.Sprintf("%s working: resumed work\n", record.Time.Add(time.Second).Format(time.RFC3339))
 				}
 			}
 			writeFile(t, state.StatusPath(h.State, meta.ID), lines)

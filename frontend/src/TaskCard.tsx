@@ -3,11 +3,12 @@ import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { Icon } from "./Icon";
-import { clockText } from "./cards";
+import { clockText, stalledText } from "./cards";
 import { harnessMark } from "./connectors";
+import type { NextUp } from "./start";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { plainText, teardownSentence, withoutHarness } from "./task-words";
+import { pauseStatus, plainText, teardownSentence, withoutHarness } from "./task-words";
 import { TicketLink } from "./ticket-link";
 import { SameAreaAvatars } from "./same-area-avatars";
 
@@ -21,11 +22,14 @@ import { SameAreaAvatars } from "./same-area-avatars";
 // place, so none is drawn over another, and a part's tip floats clear of the
 // card. The goblin it waits on is named in its status line only. A queued
 // task says nothing of what it waits for, whose note is in its panel behind
-// More; a paused or finished task shows when, and its status says what.
+// More; a paused or finished task shows when, and its status says what: a
+// paused one, in place of Paused, why it waits and what resumes it. A live
+// goblin past the threshold without progress says for how long. next marks
+// the one card the order for a free slot takes first.
 export interface CardStart { blocked: string; problem: string; onStart: (source: HTMLElement) => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
-  next?: { text: string; waiting: boolean }; start?: CardStart;
+  next?: NextUp; start?: CardStart;
   onSelect: (task: Task, source: HTMLElement) => void;
   onTerminal: (task: Task, source: HTMLElement) => void;
 }) {
@@ -45,12 +49,15 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
+  const status = statusPhase(task) === "paused" ? pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_durations) : nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking);
+  const stalled = stalledText(task, now);
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.waiting ? " waiting" : "")}>{next.text}</span>}<strong className="card-title">{name}</strong>
+    <span className="card-copy">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className="card-title">{name}</strong>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
+      <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span></span>
       {clockBadge}
+      {stalled && <span className="card-stalled"><Icon name="warning" />{stalled}</span>}
       {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
       {task.switching && <span className="card-secondary">Switching engine...</span>}
       {ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}

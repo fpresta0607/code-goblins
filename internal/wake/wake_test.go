@@ -107,6 +107,30 @@ func TestAckThroughDropsHandledKeepsRest(t *testing.T) {
 	}
 }
 
+func TestAckKeepsABlockingNotifyIfItsHandledStatusCannotBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	record, err := Append(dir, "notify", "task-1", "failed: Which fix? options: Retry | Revert")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "task-1.status"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	err = AckThrough(dir, record.Seq)
+
+	if err == nil {
+		t.Fatal("ack succeeded without preserving the handled blocking notice")
+	}
+	queued, err := Pending(dir)
+	if err != nil || len(queued) != 1 || queued[0].Seq != record.Seq {
+		t.Fatalf("pending = %+v, %v; want the original blocking notice", queued, err)
+	}
+	if retired, err := Acked(dir, record.Seq); err != nil || retired {
+		t.Fatalf("acked = %v, %v; want the notice unretired", retired, err)
+	}
+}
+
 func TestSequenceNeverReusedAfterAck(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {

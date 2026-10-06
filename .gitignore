@@ -1,7 +1,11 @@
-# What a clone an older build made its CFO home holds; cfo home move takes it
-# to the per-user home, and a clone is source only after that.
+# What a clone an older build made its CFO home holds, and what an install
+# that keeps such a home adds to it; cfo home move takes it to the per-user
+# home, and a clone is source only after that.
 projects/
 /state/
+/bin/
+/worktrees/
+/scratch/
 # Fleet data is local state, except the standing routing policy, which ships.
 /data/*
 !/data/routing.json

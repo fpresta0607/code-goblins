@@ -45,6 +45,9 @@ export interface Task extends Evaluation {
   // report is the kind of the goblin's latest report: working, blocked,
   // failed, done, waiting, or empty.
   report: string;
+  // report_handled says the task is blocked or failed by its own notify, which
+  // the CFO answered or acknowledged: the CFO's to handle, never his news.
+  report_handled?: boolean;
   // waiting_on names what a waiting task waits on: another task's id,
   // overlord, ci or deploy; gate_step is the gate step of a task in review.
   waiting_on: string;
@@ -61,12 +64,19 @@ export interface Task extends Evaluation {
   brief: boolean;
   starting: boolean;
   start_error: string;
+  // priority is a queued task's backlog priority: production-defect starts
+  // it ahead of every other start and resume.
+  priority: string;
+  // progress is a live goblin's last real progress: a commit, a push, a gate
+  // step or a new status report, and when.
+  progress?: WorkProgress;
   // ticket is the GitHub issue kept for a task in a repository other people
   // work in, and overlaps is their open work in the same area as a live
   // goblin's branch.
   ticket?: Ticket;
   overlaps: Overlap[];
 }
+export interface WorkProgress { at: string; source: string }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -95,7 +105,13 @@ export interface PauseCondition { reason: string; until: string; at: string }
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+  // capacity is the cap on live goblins: the configured maximum, lowered to
+  // what free memory and commit carry, and the slots left under it.
+  capacity?: FleetCapacity;
 }
+export interface FleetCapacity { live: number; limit: number; configured: number; slots: number }
+// CIDuration is how long one finished CI run or deploy took in a repository.
+export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
@@ -196,6 +212,7 @@ export interface Snapshot {
   // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
   // register.
   cfo_starting: boolean;
+  cfo_quiet: { since: string; count: number; oldest_age: number } | null;
   // cfo_closed says the home's CFO registered and has since ended, with no
   // terminal up for a new one: the board says so and offers Reopen, and
   // shows no first-run page.
@@ -215,6 +232,7 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  ci_durations: CIDuration[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
   afk: Afk;
@@ -547,13 +565,16 @@ export function parseSnapshot(value: unknown): Snapshot {
     build: string(v.build),
     cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
+    cfo_quiet: v.cfo_quiet == null ? null : ((quiet) => ({ since: string(quiet.since), count: number(quiet.count), oldest_age: number(quiet.oldest_age) }))(object(v.cfo_quiet)),
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders, capacity }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+      ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
+    ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),
@@ -598,6 +619,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        priority: t.priority === undefined ? "" : string(t.priority),
+        ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         phase: string(t.phase),

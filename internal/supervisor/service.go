@@ -453,6 +453,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
+	reconcileErr = errors.Join(reconcileErr, s.Store.keepCFOQuiet(time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
@@ -892,8 +893,13 @@ type Task struct {
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
-	Handoff    bool      `json:"handoff"`
-	RetiredAt  time.Time `json:"retired_at"`
+	// ReportHandled says the task is blocked or failed by its own notify, which
+	// the CFO answered or acknowledged: it holds the task until the goblin
+	// reports again, and it is the CFO's to handle, never news for the
+	// Overlord. A block or failure the gate holds is never marked.
+	ReportHandled bool      `json:"report_handled,omitempty"`
+	Handoff       bool      `json:"handoff"`
+	RetiredAt     time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
 	// without merging.
@@ -918,6 +924,9 @@ type Task struct {
 	Switching     bool                `json:"switching,omitempty"`
 	Notes         []string            `json:"notes,omitempty"`
 	Progress      *WorkProgress       `json:"progress,omitempty"`
+	// Priority is a queued task's backlog priority; production-defect starts
+	// it ahead of the rest, and the board says it jumped the order.
+	Priority string `json:"priority,omitempty"`
 	// Ticket is the task's issue in a repository other people work in, and
 	// Overlaps their open work in a live goblin's area, as its last overlap
 	// read found it.
@@ -941,6 +950,7 @@ type Snapshot struct {
 	Retired    []string        `json:"retired"`
 	Actions    []Action        `json:"actions"`
 	Decisions  []wake.Record   `json:"decisions"`
+	CFOQuiet   *CFOQuiet       `json:"cfo_quiet,omitempty"`
 	Issues     []string        `json:"issues"`
 	Questions  []Question      `json:"questions"`
 	Activity   []BoardActivity `json:"activity"`
@@ -1071,6 +1081,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if err != nil {
 		return out, err
 	}
+	if !d.CFOQuietSince.IsZero() {
+		out.CFOQuiet = cfoQuietNotice(out.Decisions, out.At)
+		if out.CFOQuiet != nil {
+			out.CFOQuiet.Since = d.CFOQuietSince
+		}
+	}
 	entries, err := os.ReadDir(s.Store.Home.State)
 	if err != nil {
 		return out, err
@@ -1095,6 +1111,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		lines, _ := s.statusTail(id)
 		spawned := spawnTime(meta.SpawnGen)
 		reportedAt, report := latestReport(lines, spawned)
+		unhandledAt, unhandled := latestReport(taskReports(lines, out.Decisions, id), spawned)
+		isHandled := report != "" && (unhandledAt != reportedAt || unhandled != report)
+		isHeldByHandledReport := false
 		decisions := out.Decisions
 		if !spawned.IsZero() || supersedesQuestion(report) {
 			decisions = slices.DeleteFunc(slices.Clone(out.Decisions), func(r wake.Record) bool {
@@ -1129,6 +1148,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// standing dependency wait still survives a question asked beside it.
 		if kind := reportKind(report); !isGateHeld && (kind == "blocked" || kind == "failed") && !(isReported && phase == "waiting") {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = kind, strings.TrimPrefix(report, kind+": "), ""
+			isHeldByHandledReport = isHandled
 		}
 		if !isGateHeld && (evaluation.Phase == "working" || evaluation.Phase == "review") && !runtime.At.Before(standingAt) {
 			if runtime.State == string(monitor.HealthIdle) || runtime.State == string(monitor.HealthParked) {
@@ -1153,7 +1173,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), ReportHandled: isHeldByHandledReport, Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1214,7 +1234,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task.Starting = task.ID == starting
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
-				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				task.QueueRevision, task.Detail, task.Priority = queued.Revision, queued.Detail, queued.Row.Priority
 				brief := filepath.Join(s.Store.Home.Data, task.ID, "brief.md")
 				named, _ := kept(&s.reads, "brief-settings", []string{brief}, func() (map[string]string, error) { return briefSettings(brief), nil })
 				settings := queuedEngine(queued.Row, named)

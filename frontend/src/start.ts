@@ -1,4 +1,5 @@
-import type { Disk, Memory, Snapshot, Task } from "./types";
+import type { Disk, FleetCapacity, Memory, PauseCondition, Snapshot, Task } from "./types";
+import { queuedTasks } from "./workflow.ts";
 
 const gigabytes = (bytes: number) => Math.round(bytes / 2 ** 30 * 10) / 10;
 
@@ -95,6 +96,7 @@ export function startBlock(task: Task, memory: Memory | null, anotherStarting: b
   if (queueBlock(task)) return queueBlock(task);
   if (memoryBlock(memory)) return "Needs " + memoryBlock(memory);
   if (diskBlock(disk)) return "Needs " + diskBlock(disk);
+  if (slotBlock(memory)) return slotBlock(memory);
   if (anotherStarting) return "Another task is starting";
   return "";
 }
@@ -133,4 +135,46 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
   return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
+}
+
+// The cap on live goblins under the memory meter: how many are live against
+// it, and, while free memory and commit lower it, the setting it lowers.
+export function capacityLine(capacity: FleetCapacity): { live: string; note: string } {
+  return { live: `${capacity.live} of ${capacity.limit}`, note: capacity.limit < capacity.configured ? `Memory allows ${capacity.limit} of the ${capacity.configured} set` : "" };
+}
+
+// Why a Start or Resume cannot run while no slot is left under the cap, or
+// empty while one is. The supervisor refuses it with the same reason.
+export function slotBlock(memory: Memory | null): string {
+  const capacity = memory?.capacity;
+  return capacity && capacity.slots === 0 ? `No free slot: ${capacity.live} of ${capacity.limit} goblins live` : "";
+}
+
+export interface NextUp { id: string; text: string; tone: "" | "waiting" | "defect" }
+
+// The one card that says Next, by the supervisor's order for a free slot
+// (internal/supervisor/scheduler.go): a reported production defect first;
+// then a paused goblin whose pause has cleared, oldest pause first, which
+// for a pause for memory is once memory is back; then the top of the queue
+// that can start. A pause that waits on the Overlord, a pull request, a task,
+// CI or a date still ahead holds no slot: the supervisor resumes it at the
+// first reading after it clears.
+export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
+  const tone = memoryBlock(snapshot.memory) ? "waiting" : "";
+  const queued = queuedTasks(snapshot).filter((task) => !queueBlock(task));
+  const defect = queued.find((task) => task.priority === "production-defect");
+  if (defect) return { id: defect.id, text: "Production defect: jumps the queue", tone: "defect" };
+  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && isClearing(task.lifecycle.pause, now))
+    .sort((left, right) => Date.parse(left.lifecycle!.pause!.at) - Date.parse(right.lifecycle!.pause!.at) || left.id.localeCompare(right.id));
+  if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
+  return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;
+}
+
+// Whether a pause has cleared as far as the board sees it, or clears with
+// memory alone.
+function isClearing(pause: PauseCondition, now: number): boolean {
+  const [kind, target] = pause.until.split(/:(.*)/s);
+  if (pause.reason === "memory") return true;
+  if (pause.reason === "allowance") return Date.parse(pause.until) <= now;
+  return pause.reason === "dependency" && kind === "date" && Date.parse(target) <= now;
 }

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,24 +17,40 @@ import (
 )
 
 // Install wires in the per-user home wherever it runs, a checkout included,
-// and whatever CFO_HOME says.
-func TestInstallRootIsThePerUserHomeWhereverItRuns(t *testing.T) {
+// unless the user's CFO_HOME names a home a fleet lives in, which it keeps;
+// a CFO_HOME naming a folder with no fleet does not decide it.
+func TestInstallTargetIsThePerUserHomeWhereverItRunsUnlessAHomeIsInUse(t *testing.T) {
 	local := t.TempDir()
 	t.Setenv("LOCALAPPDATA", local)
-	t.Setenv("CFO_HOME", t.TempDir())
+	environment := filepath.Join(t.TempDir(), "user-env.json")
+	t.Setenv(install.UserEnvFileVariable, environment)
+	stale := t.TempDir()
+	if err := os.WriteFile(environment, []byte(`{"CFO_HOME": `+strconv.Quote(stale)+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	checkout := fakeSourceCheckout(t)
 	want := filepath.Join(local, "CodeGoblins")
 	for name, dir := range map[string]string{"a checkout": checkout, "a folder inside a checkout": filepath.Join(checkout, "cmd"), "any other folder": t.TempDir()} {
 		t.Chdir(dir)
-		root, err := installRoot()
-		if err != nil || !strings.EqualFold(root, want) {
-			t.Errorf("%s: installRoot = %q, %v; want the per-user home %q", name, root, err, want)
+		target, err := installTarget()
+		if err != nil || !strings.EqualFold(target.Root, want) || target.Kept {
+			t.Errorf("%s: installTarget = %+v, %v; want the per-user home %q", name, target, err, want)
 		}
 	}
 
+	if err := os.MkdirAll(filepath.Join(checkout, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(environment, []byte(`{"CFO_HOME": `+strconv.Quote(checkout)+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := installTarget(); err != nil || !strings.EqualFold(target.Root, checkout) || !target.Kept || !target.Checkout {
+		t.Errorf("with CFO_HOME at a checkout holding a fleet: installTarget = %+v, %v; want that checkout kept", target, err)
+	}
+
 	t.Setenv("LOCALAPPDATA", "")
-	if root, err := installRoot(); err == nil {
-		t.Errorf("installRoot without LOCALAPPDATA = %q, want a refusal", root)
+	if target, err := installTarget(); err == nil {
+		t.Errorf("installTarget without LOCALAPPDATA = %+v, want a refusal", target)
 	}
 }
 
