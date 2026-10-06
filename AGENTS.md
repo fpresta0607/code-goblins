@@ -277,6 +277,7 @@ For a free slot, the oldest cleared pause comes before the Overlord's queue orde
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
 Start, spawn and Resume share the memory/commit floor and the live cap from `config/fleet.json`'s `max_live_goblins`, default 8, reduced by the free resources while reserving 4 GB.
 The allowance floor is 5 percent remaining in a measured weekly window; the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
+While [AFK mode](#afk-mode) is on, the 4 GB memory floor pauses the newest live goblin not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 The board snapshot includes pause conditions, capacity, time since real progress and recent CI/deploy durations; the visual presentation follows its mockup review.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
@@ -470,7 +471,7 @@ At his first click or key on the board after five minutes with none, the board o
 After a switch you made at his ask, his very first click or key on the board offers it at once, so a switch made on his words meets him before anything else.
 The desktop window is silenced with it: before `goblins-window.exe` notifies what its own look at the board found, it claims it through `/api/announce`, which hands out nothing while AFK mode is on.
 
-Turning it off produces the report of the stretch, which the board shows him as one page, `cfo afk off` prints for him and `cfo afk report` prints again: who turned it on and off, with his words for a switch you made, then what is held for him with the choice recommended for it and what became of it, as it stands whenever the report is read, and what its goblin did meanwhile, which he reads first, then what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
+Turning it off produces the report of the stretch, which the board shows him as one page, `cfo afk off` prints for him and `cfo afk report` prints again: who turned it on and off, with his words for a switch you made, then what is held for him with the choice recommended for it and what became of it, as it stands whenever the report is read, and what its goblin did meanwhile, which he reads first, then what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, the goblins paused at a floor, what each goblin reported done, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
@@ -478,7 +479,8 @@ Only he resets the switch, with the board's toggle or `cfo afk off` from a termi
 Your `cfo afk off --asked` does not reset it: it is refused and leaves the switch as it is.
 
 The supervisor's single scheduler owns allowance pauses at 5 percent weekly remaining and their automatic resume at reset, shared with AFK mode through lifecycle pause reasons.
-Not built yet: automatic pauses at the memory floor.
+While it is on, the memory floor pauses goblins by itself too: when two readings in a row find free memory or commit under the 4 GB floor, the supervisor pauses the newest live goblin that is not pushing or merging, with the reason `memory`, through the same pause the allowance floor uses, one goblin at a time, and the scheduler resumes it once memory and commit are back at 5 GB.
+Each pause at either floor while it is on is logged in `state/afk.audit` with the readings it stood on and how it went, and the report lists it under Paused at a floor; it is the supervisor's, not a decision of yours.
 The proof of who switches reads processes, so it stops an agent that follows this contract and tries the command, the pipe, or the board's toggle from a browser it started; like the board's other items, it does not stop a process of the same Windows user that writes `state/afk.json` itself or drives his own running browser, and it does not prove that the words passed with `--asked` are his (see [docs/native-board.md](docs/native-board.md#afk-mode)).
 
 ## Escalation
