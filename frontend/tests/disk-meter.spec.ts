@@ -33,7 +33,7 @@ async function board(page: Page, disk: object) {
   return column;
 }
 
-// The meter's layout: every label inside it at body size, the two marks'
+// The meter's layout: every visible label inside it at body size, the two marks'
 // labels apart, nothing scrolling sideways, and the disk meter the second
 // meter in the memory meter's box, under memory's own scale.
 async function layout(column: ReturnType<Page["getByRole"]>) {
@@ -47,7 +47,7 @@ async function layout(column: ReturnType<Page["getByRole"]>) {
     const [wake, floor] = [".memory-scale > .floor", ".memory-scale > .next"].map((selector) => meter.querySelector<HTMLElement>(selector)!.getBoundingClientRect());
     return {
       smallest: Math.min(...texts.map((element) => parseFloat(getComputedStyle(element).fontSize))),
-      outside: [...meter.children].filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
+      outside: [...meter.children].filter((child) => !child.classList.contains("sr-only")).filter((child) => { const rect = child.getBoundingClientRect(); return rect.left < inside.left || rect.right > inside.right || rect.bottom > inside.bottom; }).map((child) => child.className),
       labelsApart: wake.right <= floor.left,
       overflows: meter.scrollWidth > meter.clientWidth,
       stackedInTheMemoryBox: meter.parentElement === memoryBox && inside.top >= memoryScale.bottom && inside.left >= box.left && inside.right <= box.right && inside.bottom <= box.bottom,
