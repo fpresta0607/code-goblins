@@ -1,6 +1,7 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalDocument } from "./terminalDocument";
+import { copyText } from "./clipboard.ts";
 import { clipboardInput, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
@@ -283,7 +284,7 @@ export class TerminalView {
 
   private readonly copy = (): void => {
     if (!this.term.hasSelection()) return;
-    navigator.clipboard.writeText(this.term.getSelection()).then(() => this.events.copied(), () => {});
+    copyText(this.term.getSelection()).then(() => this.events.copied(), () => {});
   };
 
   private readonly pasteClipboard = (event: ClipboardEvent): void => {

@@ -176,7 +176,8 @@ type Service struct {
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
 	// reads is what the snapshot remembers of the fleet's files.
-	reads keptReads
+	reads                keptReads
+	subscriptionReadings map[string]quota.WeeklyReading
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -319,6 +320,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}()
+	defer func() { s.cancel(); <-usageDone }()
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
@@ -663,7 +670,7 @@ func (s *Service) process(ctx context.Context) {
 		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)
 		err := s.Store.ProcessOne(boundedCtx, s.execute)
 		cancel()
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrDeferred) {
 			s.publish(err)
 			return
 		}
@@ -687,24 +694,28 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	// A clear closed its item when the board took it. The CFO asked a
 	// dismissed question, or holds the goblin's notify that did, so it hears
 	// here that the Overlord dismissed it.
-	tellDismissed := func(evaluation Evaluation, dismissed Question) Evaluation {
-		whose := "your question " + dismissed.ID
-		if dismissed.Task != "" {
-			whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", dismissed.Task, dismissed.ID, dismissed.Seq)
-		}
-		if err := s.tellCFO(ctx, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+dismissed.Text); err != nil {
-			evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
-		}
-		return evaluation
-	}
 	if a.Kind == "review_clear" || a.Kind == "question_clear" {
 		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
 		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
 			evaluation.Reason = "Dismissed from the Command Center."
 		}
-		for _, q := range s.Store.Snapshot().Questions {
-			if slices.Contains(a.Dismissed, q.ID) {
-				evaluation = tellDismissed(evaluation, q)
+		var notices []string
+		for _, question := range s.Store.Snapshot().Questions {
+			if !slices.Contains(a.Dismissed, question.ID) {
+				continue
+			}
+			whose := "your question " + question.ID
+			if question.Task != "" {
+				whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", question.Task, question.ID, question.Seq)
+			}
+			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
+		}
+		if len(notices) > 0 {
+			if err := s.tellCFO(ctx, strings.Join(notices, "\n")); err != nil {
+				if errors.Is(err, ErrDeferred) {
+					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
+				}
+				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
 			}
 		}
 		return evaluation, nil
@@ -956,8 +967,9 @@ type Snapshot struct {
 	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory      *Memory      `json:"memory,omitempty"`
-	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	Memory        *Memory             `json:"memory,omitempty"`
+	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -1294,5 +1306,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	return out, nil
 }

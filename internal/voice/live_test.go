@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // With VOICE_LIVE_DIR naming a folder, this test downloads the engine and the
@@ -32,12 +33,24 @@ func TestThePinnedEngineRecognisesASpokenLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, err := voice.Recognize(context.Background(), sound)
-	if err != nil {
-		t.Fatal(err)
-	}
-	words := strings.Join(regexp.MustCompile(`[a-z]+`).FindAllString(strings.ToLower(text), -1), " ")
-	if words != "open the pull request" {
-		t.Fatalf("heard %q", text)
+	defer voice.Close()
+	// The first dictation loads the engine and the second finds it loaded.
+	var loaded *worker
+	for _, dictation := range []string{"first", "second"} {
+		started := time.Now()
+		text, err := voice.Recognize(context.Background(), sound)
+		if err != nil {
+			t.Fatal(err)
+		}
+		words := strings.Join(regexp.MustCompile(`[a-z]+`).FindAllString(strings.ToLower(text), -1), " ")
+		if words != "open the pull request" {
+			t.Fatalf("heard %q", text)
+		}
+		t.Logf("%s dictation heard %q in %s", dictation, text, time.Since(started).Round(time.Millisecond))
+		if loaded == nil {
+			loaded = current(t, voice)
+		} else if current(t, voice) != loaded {
+			t.Fatal("the second dictation loaded the engine again")
+		}
 	}
 }
