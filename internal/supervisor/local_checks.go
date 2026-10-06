@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ type LocalChecks struct {
 	Waited   float64   `json:"queue_seconds,omitempty"`
 	Failed   []string  `json:"failed,omitempty"`
 	At       time.Time `json:"at"`
+	// log is the run's log, which the board serves the end of.
+	log string
 }
 
 // newestRun is the first of reports, newest first, that is task's: its
@@ -43,7 +46,7 @@ func newestRun(reports []verify.Report, task Task) (verify.Report, bool) {
 
 // localChecks is what a run's report says, for a card.
 func localChecks(report verify.Report) *LocalChecks {
-	checks := &LocalChecks{Commit: report.Commit, Level: report.Level, Required: report.RequiredLevel, Status: report.Status, Seconds: report.DurationSeconds, Waited: report.QueueSeconds, At: report.Start}
+	checks := &LocalChecks{Commit: report.Commit, Level: report.Level, Required: report.RequiredLevel, Status: report.Status, Seconds: report.DurationSeconds, Waited: report.QueueSeconds, At: report.Start, log: report.Log}
 	for _, check := range report.Checks {
 		named := false
 		for _, result := range check.Packages {
@@ -93,21 +96,19 @@ func (s *Service) readLocalReports() (map[string][]verify.Report, error) {
 // whether one is kept. A log is read only from its project's folder of the
 // report store, where cfo gate test writes it.
 func (s *Service) localChecksLog(meta state.TaskMeta) ([]string, bool, error) {
-	evaluation := s.Store.Snapshot().Tasks[meta.ID]
-	project := filepath.Base(meta.Project)
-	s.mu.Lock()
-	reports := s.localReports[project]
-	hosted, isHosted := s.hostedChecks[evaluation.PR]
-	s.mu.Unlock()
-	task := Task{ID: meta.ID, Evaluation: evaluation}
-	if isHosted && evaluation.PR != "" {
-		task.HostedChecks = &hosted
+	snapshot, err := s.Snapshot()
+	if err != nil {
+		return nil, false, err
 	}
-	report, found := newestRun(reports, task)
-	if !found || filepath.Ext(report.Log) != ".log" || filepath.Base(filepath.Dir(report.Log)) != project {
+	index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
+	if index < 0 || snapshot.Tasks[index].LocalChecks == nil {
 		return nil, false, nil
 	}
-	lines, err := fileTail(report.Log, 200)
+	log := snapshot.Tasks[index].LocalChecks.log
+	if filepath.Ext(log) != ".log" || filepath.Base(filepath.Dir(log)) != snapshot.Tasks[index].Project {
+		return nil, false, nil
+	}
+	lines, err := fileTail(log, 200)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}

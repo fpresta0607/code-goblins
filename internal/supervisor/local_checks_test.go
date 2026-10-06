@@ -50,6 +50,9 @@ func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 	t.Helper()
 	handler, h := orderBoard(t)
 	project := filepath.Join(t.TempDir(), "northwind")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"cg-wakes", "cg-other"} {
 		liveGoblin(t, h, id, project)
 	}
@@ -59,9 +62,11 @@ func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", hostedRollup("", testPassed)
 	handler.Service.Options.CI = forge
+	var read []string
 	handler.Service.Options.VerifyReports = func(name string) ([]verify.Report, error) {
+		read = append(read, name)
 		if name != "northwind" {
-			t.Errorf("reports were read for project %q, want northwind", name)
+			return nil, nil
 		}
 		return reports, nil
 	}
@@ -70,6 +75,9 @@ func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 		t.Fatal(err)
 	}
 	handler.Service.cycle(context.Background(), false)
+	if slices.Index(read, "northwind") < 0 || len(read) != len(slices.Compact(slices.Sorted(slices.Values(read)))) {
+		t.Fatalf("the projects read = %q, want northwind's reports read once a cycle", read)
+	}
 	return handler
 }
 
