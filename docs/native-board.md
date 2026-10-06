@@ -905,7 +905,7 @@ A goblin's explicit wait on the Overlord, review page, delivered file, run item 
 No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
 A goblin's finished or failed news still shows a dialogue box with Open for that goblin; routine progress shows none.
 The first snapshot establishes the baseline for news and items.
-When unanswered blocked or failed wake records have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
+When unanswered blocked or failed wake records, or `goblin_asks` records of a question a goblin asked in prose, have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
 Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
 The board can announce that notice on its first snapshot, with Open the CFO's terminal; it never offers the goblins' questions to the Overlord.
 Before an announcement the board claims the event through `POST /api/announce` (`keys` for items and the quiet-CFO stretch, `news` for a goblin's news) and announces only what the answer's `claimed` names.
