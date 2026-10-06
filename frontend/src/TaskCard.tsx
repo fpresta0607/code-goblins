@@ -8,6 +8,8 @@ import { harnessMark } from "./connectors";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
 import { plainText, teardownSentence, withoutHarness } from "./task-words";
+import { TicketLink } from "./ticket-link";
+import { SameAreaAvatars } from "./same-area-avatars";
 
 // A task's card on the board: its title, up to three lines, then a muted line
 // with the repo and the status, both wrapping onto further lines, and a quiet
@@ -60,8 +62,10 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
     <button ref={card} className="task-card"
       aria-pressed={selected} onClick={(event) => onSelect(task, event.currentTarget)} onPointerEnter={measure} onFocus={measure} {...tip}>{content}</button>
-    {(pr || column === "Completed") && <div className="card-links">
+    {(pr || column === "Completed" || task.ticket || task.overlaps.length > 0) && <div className="card-links">
       {pr && <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)}><Icon name={icon} />{pullRequestLabel(pr)}</a>}
+      {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" />}
+      <SameAreaAvatars overlaps={task.overlaps} />
       {column === "Completed" && <span className="card-secondary card-history-id">{task.branch || task.id.replace(/^finished:/, "")}</span>}
     </div>}
     <TaskControls task={task} snapshot={snapshot} start={start} leading={terminal} onAdjust={(source) => onSelect(task, source)} />
