@@ -439,27 +439,43 @@ func DecisionSignal(rec Record, id string) bool {
 	return rec.Kind == "signal" && rec.Key == id+".status"
 }
 
-// stallAwaitingAnswer and stallGoblinIdle are the detail prefixes the monitor
-// writes for a goblin whose agent turn ended at its prompt, and for one that
-// then sat there idle. They are spelled out here for the same reason
+// stallAwaitingAnswer, stallGoblinIdle and stallGoblinAsks are the detail
+// prefixes the monitor writes for a goblin whose agent turn ended at its
+// prompt, for one that then sat there idle, and for one whose last reply
+// asked in prose; proseAskQuote opens the question the last of them quotes,
+// which ends its detail. They are spelled out here for the same reason
 // BlockingNotify spells out its verbs: the queue stores rendered text, and
 // this package must read that text without importing the monitor.
 const (
 	stallAwaitingAnswer = "awaiting_answer:"
 	stallGoblinIdle     = "goblin_idle:"
+	stallGoblinAsks     = "goblin_asks:"
+	proseAskQuote       = `It asked: "`
 )
 
 // AwaitingAnswerStall is the third arm: the monitor's own stall record for a
-// goblin whose turn ended waiting on input, or that sat idle at its prompt,
-// without filing a notify of its own. Such a goblin asked nothing formally,
-// so the notify and signal arms both miss it - and an answer is owed all the
-// same. That gap is how this class went quiet twice on 2026-09-18.
+// goblin whose turn ended waiting on input, that sat idle at its prompt, or
+// that asked in prose, without filing a notify of its own. Such a goblin
+// asked nothing formally, so the notify and signal arms both miss it - and an
+// answer is owed all the same. That gap is how this class went quiet twice on
+// 2026-09-18.
 //
-// Only those two stalls count. The monitor's own re-asks are stall records
-// too, and counting them would make a goblin unanswered forever: the re-ask
-// would be its own evidence, outliving the record it re-asked about.
+// Only those stalls count. The monitor's own re-asks are stall records too,
+// and counting them would make a goblin unanswered forever: the re-ask would
+// be its own evidence, outliving the record it re-asked about.
 func AwaitingAnswerStall(rec Record, id string) bool {
-	return rec.Kind == "stale" && rec.Key == id && (strings.HasPrefix(rec.Detail, stallAwaitingAnswer) || strings.HasPrefix(rec.Detail, stallGoblinIdle))
+	return rec.Kind == "stale" && rec.Key == id && (strings.HasPrefix(rec.Detail, stallAwaitingAnswer) || strings.HasPrefix(rec.Detail, stallGoblinIdle) || strings.HasPrefix(rec.Detail, stallGoblinAsks))
+}
+
+// ProseAsk is the question the monitor quoted for goblin id when its last
+// reply asked the CFO something in prose instead of with a notify: the board
+// shows that goblin waiting on the CFO with it, as it shows a blocked notify.
+func ProseAsk(rec Record, id string) (string, bool) {
+	if rec.Kind != "stale" || rec.Key != id || !strings.HasPrefix(rec.Detail, stallGoblinAsks) {
+		return "", false
+	}
+	_, question, ok := strings.Cut(rec.Detail, proseAskQuote)
+	return strings.TrimSuffix(question, `"`), ok
 }
 
 // Question is a blocked notify's question and the options it offered. A

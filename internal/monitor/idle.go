@@ -18,6 +18,9 @@ import (
 // goblin runs without its hooks, and on 2026-09-30 one sat idle for about an
 // hour while a process it had left running held the other stale wakes back.
 //
+// One whose last reply asks the CFO something, or offers it a choice, wakes
+// as goblin_asks with that question instead.
+//
 // It runs after classification. A goblin already woken this stretch, as
 // awaiting its answer or as idle, is left alone, and so is one the scan could
 // not see: the clock neither runs out nor restarts on a scan that saw nothing.
@@ -27,7 +30,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	if sample.Verdict != ProbePresent || observation.EndpointVerdict != ProbePresent {
 		return observation
 	}
-	if observation.Health == HealthStale && observation.Reason == GoblinIdle {
+	if observation.Health == HealthStale && (observation.Reason == GoblinIdle || observation.Reason == GoblinAsks) {
 		return observation
 	}
 	atPrompt := sample.Status == herdr.AgentDone || sample.Status == herdr.AgentIdle || sample.InteractiveReady && sample.Status != herdr.AgentWorking && sample.Status != herdr.AgentBlocked
@@ -63,6 +66,11 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 	observation.PromptSince = timePointer(since)
 	if now.Sub(since) < s.idleAfter() || !judged || observation.PendingEvent != nil {
 		return observation
+	}
+	// A goblin whose last reply asks waits on that answer: it wakes with its
+	// question, and an idle wake's gap does not hold a question back.
+	if asked := s.askedAtPrompt(ctx, meta, sample); len(asked) > 0 {
+		return askObservation(observation, asked, now)
 	}
 	if observation.IdleWokeAt != nil && now.Sub(*observation.IdleWokeAt) < s.idleWakeGap() {
 		return observation
