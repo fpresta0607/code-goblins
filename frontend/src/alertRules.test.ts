@@ -13,6 +13,8 @@ const snapshot = (parts: { tasks?: Task[]; questions?: Question[]; reviews?: Rev
 const MINUTE = 60 * 1000;
 // The reason the gate gives every time a step needs the Overlord's decision.
 const GATE_BLOCK = "Pipeline decision required at review; use cfo pipeline respond";
+// How an alert says it: in plain sentences.
+const GATE_BLOCK_SAID = "Pipeline decision required at review. Use cfo pipeline respond.";
 const LONG_TITLE = "Answers given in a review page's editor are never lost (a disconnect is not the end), no duplicate Command Center question, revisions update the editor, the Command Center never blocks typing, and waiting cards render cleanly with a copy button on every value";
 
 test("questions left on the CFO raise one notice per stretch, with their count and age, opening his terminal", () => {
@@ -167,9 +169,9 @@ test("a goblin's question the CFO handled is no failure news after it, and its n
       assert.deepEqual(alerts.map((alert) => alert.text), [], verb + ": " + name);
     }
     const news: [string, Snapshot[], string[]][] = [
-      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [gateBlocked] })], ["Goblin a is blocked: " + GATE_BLOCK]],
-      ["its gate blocking and clearing", [working, snapshot({ tasks: [handled] }), snapshot({ tasks: [gateBlocked] }), snapshot({ tasks: [handled] })], ["Goblin a is blocked: " + GATE_BLOCK]],
-      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke"]],
+      ["its gate blocking after its question", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [gateBlocked] })], ["Goblin a is blocked: " + GATE_BLOCK_SAID]],
+      ["its gate blocking and clearing", [working, snapshot({ tasks: [handled] }), snapshot({ tasks: [gateBlocked] }), snapshot({ tasks: [handled] })], ["Goblin a is blocked: " + GATE_BLOCK_SAID]],
+      ["its own failure after it went back to work", [snapshot({ tasks: [waiting] }), snapshot({ tasks: [handled] }), working, snapshot({ tasks: [task("a", "review", { report: "failed", activity: "failed: The build broke" })] })], ["Goblin a failed: The build broke."]],
     ];
     for (const [name, snapshots, want] of news) {
       const alerts = snapshots.slice(1).flatMap((next, i) => boardAlerts(snapshots[i], next));
