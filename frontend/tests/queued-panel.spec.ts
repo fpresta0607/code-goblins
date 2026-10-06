@@ -139,7 +139,7 @@ test("Remove asks first, then takes the task out of the queue and keeps its brie
   const tasks = page.getByRole("region", { name: "Tasks", exact: true });
   await expect(tasks.locator(".task-card-shell")).toHaveCount(1);
   await expect(card(page, "queued-one").and(tasks.locator(".task-card-shell"))).toHaveCount(0);
-  await expect(panel(page).locator(".lifecycle-details li")).toHaveText(["task brief"]);
+  await expect(panel(page).locator(".lifecycle-details li")).toHaveText(["Task brief"]);
 });
 
 test("removing a queued task says Removing while it goes", async ({ page }) => {
@@ -161,7 +161,8 @@ test("Adjust this task has Save changes, labelled, under its text box, and no Se
   await expect(panel(page).getByText("Send", { exact: false })).toHaveCount(0);
   const box = (await form.getByRole("textbox").boundingBox())!;
   expect((await row.boundingBox())!.y).toBeGreaterThan(box.y + box.height);
-  await expect(form.locator("p.muted").last()).toHaveText("Save updates the task and its brief.");
+  // Save changes says what it does; no line under it says it again.
+  await expect(form.locator("p.muted")).toHaveText(["First line is the title. Following lines are the detail."]);
   await form.getByRole("textbox").fill("A better title\n\nIts new detail.");
   await form.getByRole("button", { name: "Save changes" }).click();
   await expect.poll(() => posted).toEqual([{ path: "/api/tasks/adjust", body: expect.objectContaining({ task: "queued-one", revision: "q1", text: "A better title\n\nIts new detail.", action: "save" }) }]);

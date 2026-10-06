@@ -65,7 +65,12 @@ export interface Task extends Evaluation {
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
+  // pause is what a paused task waits for: memory, allowance, overlord,
+  // dependency, question, ci or deploy, with until naming the reset time,
+  // task:, pr:, date:, question id or awaited run; absent on an older pause.
+  pause?: PauseCondition;
 }
+export interface PauseCondition { reason: string; until: string; at: string }
 // Memory is the machine's free memory and free commit (memory plus page file)
 // in bytes beside the fleet's floor, under which nothing starts, and the mark
 // at which the CFO starts the next queued task; with the kernel's pools and,
@@ -517,7 +522,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts) }))(object(t.lifecycle)),
+        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_restarts: boolean(record.validation_restarts),
+          ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),
         teardown: strings(t.teardown), detail: string(t.detail), queue_revision: string(t.queue_revision), notes: strings(t.notes), action_error: string(t.action_error), branch: string(t.branch),
         pending_engine: t.pending_engine == null ? undefined : ((choice) => ({ harness: string(choice.harness), model: string(choice.model), effort: string(choice.effort), when: string(choice.when) }))(object(t.pending_engine)),
         switching: t.switching === undefined ? false : boolean(t.switching),

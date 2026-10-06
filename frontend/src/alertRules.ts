@@ -3,6 +3,7 @@ import { credentialAsk } from "./credentials.ts";
 import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
+import { plainText, reportBody, withoutHarness } from "./task-words.ts";
 
 // What an alert opens: a Command Center item by its key, where an empty key
 // opens the first item waiting or the inbox, or a goblin's task.
@@ -36,7 +37,7 @@ const OPEN_COMMAND_CENTER = "Open Command Center";
 
 // A goblin speaks by its title, as its card and the Command Center inbox name
 // it, falling back to its id.
-const nameOf = (tasks: Task[], id: string) => tasks.find((task) => task.id === id)?.title || id;
+const nameOf = (tasks: Task[], id: string) => withoutHarness(tasks.find((task) => task.id === id)?.title || "") || id;
 
 // An item alerts by its own id, and says what it asks and who asks it, so the
 // same ask filed again under a new item, such as a wait a goblin files once
@@ -79,17 +80,16 @@ function taskState(task: Task): "blocked" | "failed" | "done" | "" {
 // news has no id of its own, so its key is what it says: the same pull request
 // or the same failure, and its next pull request is another.
 function taskAlert(task: Task, state: "blocked" | "failed" | "done", next: Snapshot): BoardAlert {
-  const name = shortened(task.title || task.id, NAME_LIMIT);
+  const name = shortened(withoutHarness(task.title) || task.id, NAME_LIMIT);
   const blocked = state === "blocked";
   const target: AlertTarget = blocked ? { kind: "command", key: newestItemOf(next, task.id)?.key || "" } : { kind: "task", id: task.id };
   const alert = (tone: BoardAlert["tone"], news: string, text: string): BoardAlert => {
     const key = "task:" + task.id + ":" + task.generation + ":" + state + ":" + news;
-    return { key, says: key, tone, speaker: task.title || task.id, text: shortened(text), action: blocked ? OPEN_COMMAND_CENTER : "Open", task: task.id, target };
+    return { key, says: key, tone, speaker: withoutHarness(task.title) || task.id, text: shortened(text), action: blocked ? OPEN_COMMAND_CENTER : "Open", task: task.id, target };
   };
   if (state === "done") return alert("done", task.pr, name + " finished: " + pullRequestLabel(task.pr) + " is ready.");
-  const reported = task.activity.startsWith("failed: ") ? task.activity.slice("failed: ".length) : task.activity;
-  const said = state === "failed" && task.report === "failed" ? reported : task.reason;
-  return alert(state === "failed" ? "failed" : "needs", said, name + (state === "failed" ? " failed: " : " is blocked: ") + (said || "it needs a decision to go on."));
+  const said = state === "failed" && task.report === "failed" ? reportBody(task.activity) : task.reason;
+  return alert(state === "failed" ? "failed" : "needs", said, name + (state === "failed" ? " failed: " : " is blocked: ") + (plainText(said) || "it needs a decision to go on."));
 }
 
 // boardAlerts is what changed between two snapshots that needs the Overlord

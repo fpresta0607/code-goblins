@@ -6,6 +6,7 @@ import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { personaFor } from "./workflow";
 import { lineageRoots, ownsTaskSession, projectSessions, sessionRole, sessionTitle, tasksWithoutSession } from "./lineageTree";
+import { withoutHarness } from "./task-words";
 
 export interface Selection { session?: string; task?: string }
 
@@ -59,7 +60,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
             onClick={(event) => onSelect({ session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
-            {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {task.title}</span>}
+            {!owner && node.role !== "cfo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
             <span className="node-status">{nodeStatus({ id: node.id, title, task, session: node, relation }, owner && asksOverlord(snapshot, task?.id || ""))}</span>
           </button>
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
@@ -85,7 +86,7 @@ export function Lineage({ snapshot, project, selected, onSelect, effects, presen
           <div className={"workflow-node" + (selected?.task === task.id ? " selected" : "")}>
             <button className="node-select" aria-pressed={selected?.task === task.id}
               onClick={(event) => onSelect({ task: task.id }, event.currentTarget)}>
-              <span className="node-role">Task</span><strong>{task.title || task.id}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
+              <span className="node-role">Task</span><strong>{withoutHarness(task.title) || task.id}</strong>{presentations.some(a=>presentationShownOn(a,undefined,task))&&<span className="browser-indicator">Browser active</span>}{task.project && <span className="project-label">{task.project}</span>}
               <span className="node-status">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asksOverlord(snapshot, task.id))}</span>
             </button>
           </div>
