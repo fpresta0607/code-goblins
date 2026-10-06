@@ -138,6 +138,9 @@ export interface Snapshot {
   registration: string;
   // The native terminal the registered CFO runs in; empty while it runs in Herdr.
   cfo_terminal: string;
+  // When the host of that terminal started; a new one, as after a restart,
+  // is viewed afresh.
+  cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
   // The conversation the CFO could not resume when it last came back, and how
@@ -466,6 +469,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
+    cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     build: string(v.build),

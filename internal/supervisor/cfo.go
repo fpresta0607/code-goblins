@@ -259,7 +259,8 @@ func (c *CFOConnection) verify(primary primaryRegistration) error {
 	if !primary.Process.VerifiedAlive() {
 		return processGone(primary)
 	}
-	return terminalLeft(c.State, primary)
+	_, err := terminalLeft(c.State, primary)
+	return err
 }
 
 // processGone is the problem of a registration whose process no longer runs.
@@ -268,14 +269,16 @@ func processGone(primary primaryRegistration) error {
 }
 
 // terminalLeft is the problem of a native registration whose terminal no
-// longer runs the registered process, or nil while it does. The host's job
-// ends its terminal's program with the host, so while the program the record
-// names runs, its host serves it.
-func terminalLeft(stateDir string, primary primaryRegistration) error {
-	if record, err := host.ReadRecord(stateDir, primary.Host); err != nil || record.ChildPID != primary.Process.PID {
-		return registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
+// longer runs the registered process, or nil, with the record of the
+// terminal's host, while it does. The host's job ends its terminal's program
+// with the host, so while the program the record names runs, its host serves
+// it.
+func terminalLeft(stateDir string, primary primaryRegistration) (host.Record, error) {
+	record, err := host.ReadRecord(stateDir, primary.Host)
+	if err != nil || record.ChildPID != primary.Process.PID {
+		return host.Record{}, registrationProblem("The registered CFO's native terminal " + primary.Host + " ended or runs another program")
 	}
-	return nil
+	return record, nil
 }
 
 // check reports why the board cannot reach the registered CFO right now, or
@@ -353,6 +356,9 @@ type cfoState struct {
 	// where the Overlord may first have to answer it. It is empty while the
 	// CFO runs in Herdr or not at all.
 	terminal string
+	// since is when the host of that terminal started, and zero when its
+	// record cannot be read.
+	since time.Time
 	// harness is the harness the registered CFO runs, as it registered.
 	harness string
 	// identity is the fingerprint of the registration this read found, and
@@ -375,14 +381,20 @@ func readCFOState(stateDir string) cfoState {
 	if err == nil && primary.Process.VerifiedAlive() {
 		cfo := cfoState{registered: true, terminal: primary.Host, harness: primary.Agent, identity: identity}
 		if primary.Host != "" {
-			if err := terminalLeft(stateDir, primary); err != nil {
+			record, err := terminalLeft(stateDir, primary)
+			if err != nil {
 				cfo.problem = err.Error()
 			}
+			cfo.since = record.Started
 		}
 		return cfo
 	}
 	if NativeTerminalRuns(stateDir, NativeCFOTerminal) {
-		return cfoState{starting: true, terminal: NativeCFOTerminal}
+		cfo := cfoState{starting: true, terminal: NativeCFOTerminal}
+		if record, err := host.ReadRecord(stateDir, NativeCFOTerminal); err == nil {
+			cfo.since = record.Started
+		}
+		return cfo
 	}
 	if err == nil {
 		return cfoState{closed: true, identity: identity}
