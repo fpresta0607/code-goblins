@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,13 +15,18 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
 // runInstall wires a CFO home into the machine so a Claude Code session
-// opened in any repository is supervised by it: the per-user home the binary
+// opened in any repository is supervised by it: the home already in use where
+// there is one, kept where it is, and otherwise the per-user home the binary
 // sets up itself, the same one wherever it runs, a code-goblins checkout
-// included.
+// included. It never stops to ask: whatever the machine holds, it ends in a
+// home that works, with a fleet already there and running kept as it is.
 //
 // It is deliberately separate from `cfo doctor`: doctor reports, install
 // repairs, and a command that silently changes a machine while claiming to
@@ -46,16 +52,18 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, err := installRoot()
+	target, err := installTarget()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	root := target.Root
 	service, err := installService(root)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	service.Checkout = target.Checkout
 	if *projectsRoot != "" {
 		if service.ProjectsRoot, err = fsx.AbsClean(*projectsRoot); err != nil {
 			fmt.Fprintf(stderr, "cfo install: resolve --projects-root: %v\n", err)
@@ -85,13 +93,116 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 
 	service.EarlierWindow = install.EarlierWindowDir()
+	if target.Kept {
+		fmt.Fprintf(stdout, "%s You already run Code Goblins from %s, so it is updated there and your goblins and their work stay as they are.\n", notePrefix, root)
+	}
 	fmt.Fprintf(stdout, "cfo install: wiring %s into this machine\n", root)
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	board, serving := servingBoard(h, stdout)
 	if err := service.Install(stdout); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if serving {
+		board.restart(h, stdout)
+	}
 	fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
 	return 0
+}
+
+// notePrefix starts a line the install script shows the person as it is,
+// among the details it otherwise keeps in its log.
+const notePrefix = "Note:"
+
+// runningBoard is a supervisor this home already runs, with the address it
+// serves on and a copy of the program it runs, kept to fall back on.
+type runningBoard struct {
+	process  serveProcess
+	address  string
+	previous string
+}
+
+// servingBoard finds the supervisor this home already runs, proved this
+// home's own, before an install replaces its program, and keeps a copy of
+// that program beside the copies an update keeps.
+func servingBoard(h home.Home, stdout io.Writer) (runningBoard, bool) {
+	running, ok := homeSupervisor(h.State)
+	if !ok || provedHomeSupervisor(h, running) != nil {
+		return runningBoard{}, false
+	}
+	identity, err := proc.Identify(running.pid, running.start)
+	if err != nil {
+		return runningBoard{}, false
+	}
+	board := runningBoard{process: running, address: boardAddress(), previous: filepath.Join(update.Dir(h.State), "previous-goblins.exe")}
+	if record, err := readBoardRecord(h.State); err == nil && record.PID == running.pid {
+		board.address = strings.TrimPrefix(record.URL, "http://")
+	}
+	// An update that stopped part way keeps its own copies there as its way
+	// back, which are never written over.
+	if journal, err := update.ReadJournal(h.State); err == nil && !journal.Phase.Finished() || err != nil && !errors.Is(err, os.ErrNotExist) {
+		board.previous = ""
+	} else if err := copyProgram(identity.Image, board.previous); err != nil {
+		fmt.Fprintf(stdout, "cfo install: could not keep a copy of the running board's program %s (%v), so the board is restarted with nothing to fall back on\n", identity.Image, err)
+		board.previous = ""
+	}
+	return board, true
+}
+
+// restart brings the board onto the build just installed as cfo update does:
+// it stops only the supervisor and starts it again from bin on the address
+// it served, leaving every goblin's and the CFO's terminal as it is. A build
+// that does not serve gives way to the program that ran before.
+func (b runningBoard) restart(h home.Home, stdout io.Writer) {
+	fmt.Fprintf(stdout, "cfo install: restarting the board (pid %d) on this build\n", b.process.pid)
+	// The supervisors started here serve this home whatever this process's
+	// environment names, which on a machine where only the user scope holds
+	// CFO_HOME is nothing.
+	h, err := pinHome(h)
+	if err != nil {
+		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
+		return
+	}
+	if err := endSupervisor(h, b.process); err != nil {
+		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
+		return
+	}
+	started, err := startSupervisor(h, filepath.Join(h.Bin(), "goblins.exe"), b.address)
+	if err == nil {
+		if err = awaitSupervisor(h.State, started, true); err != nil && processIs(started) {
+			_ = endSupervisor(h, started)
+		}
+	}
+	if err == nil {
+		fmt.Fprintf(stdout, "cfo install: the board (pid %d) serves this build\n", started.pid)
+		_ = os.Remove(b.previous)
+		return
+	}
+	if b.previous == "" {
+		fmt.Fprintf(stdout, "%s The board did not start on this build (%v); opening Code Goblins starts it again.\n", notePrefix, err)
+		return
+	}
+	earlier, previousErr := startSupervisor(h, b.previous, b.address)
+	if previousErr == nil {
+		previousErr = awaitSupervisor(h.State, earlier, false)
+	}
+	if previousErr != nil {
+		fmt.Fprintf(stdout, "%s The board did not start on this build (%v) or on the one before (%v); opening Code Goblins starts it again.\n", notePrefix, err, previousErr)
+		return
+	}
+	fmt.Fprintf(stdout, "%s The board did not start on this build (%v), so it runs the one before again.\n", notePrefix, err)
+}
+
+// copyProgram copies the program at from to to.
+func copyProgram(from, to string) error {
+	data, err := fsx.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, 0o755)
 }
 
 // installService is the install of this binary into the home at root, against
@@ -131,22 +242,23 @@ func installService(root string) (install.Service, error) {
 	}, nil
 }
 
-// installRoot is the home install wires in: CFO_HOME's own value is never
-// consulted, because honoring a stale CFO_HOME here would make the one command
-// that is supposed to repair the machine quietly confirm the broken value, and
-// the working directory never decides it either: a code-goblins checkout is
-// source, never a home, so an install run from one sets up the same per-user
-// home the desktop installer does.
-func installRoot() (string, error) {
+// installTarget is the home install wires in, as install.FindTarget picks it:
+// the home CFO_HOME names where a fleet lives there, kept where it is, and
+// otherwise the per-user home. A CFO_HOME naming a folder with no fleet never
+// decides it, so the one command that is supposed to repair the machine never
+// confirms a broken value, and the working directory never decides it either:
+// an install run from a code-goblins checkout sets up the same home the
+// desktop installer does.
+func installTarget() (install.Target, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
-		return "", fmt.Errorf("cfo install: LOCALAPPDATA is not set, so there is no per-user folder for a CFO home")
+		return install.Target{}, fmt.Errorf("cfo install: LOCALAPPDATA is not set, so there is no per-user folder for a CFO home")
 	}
-	root, err := fsx.AbsClean(filepath.Join(local, "CodeGoblins"))
+	standard, err := fsx.AbsClean(filepath.Join(local, "CodeGoblins"))
 	if err != nil {
-		return "", fmt.Errorf("cfo install: resolve the per-user home: %w", err)
+		return install.Target{}, fmt.Errorf("cfo install: resolve the per-user home: %w", err)
 	}
-	return root, nil
+	return install.FindTarget(install.NewEnvStore(execx.OSRunner{}), standard)
 }
 
 // junction links a directory through cmd's mklink /J, which needs no

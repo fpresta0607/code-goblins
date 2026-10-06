@@ -106,11 +106,15 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 // open review item, a command ready or running unless a credential card
 // opened it, and an open request for credentials by its project, never by the
 // credential names. A question asked from an open review page is returned as
-// a key beside them, open without an alert of its own. The snapshot names the
+// a key beside them, open without an alert of its own. A goblin's question,
+// which names its task, is the CFO's to answer: it is neither listed nor
+// returned as a key, beside its open page or not. The snapshot names the
 // supervisor's instance too.
 func TestWaitingListsWhatTheBoardsPageAlerts(t *testing.T) {
 	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which plan?\n- details","status":"pending"},{"id":"q2","text":"old","status":"answered"},
-			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1"}],
+			{"id":"q3","text":"Asked from its page?","status":"pending","page":"r1"},
+			{"id":"notify-shop-4","text":"Which port?","status":"pending","task":"shop"},
+			{"id":"notify-shop-5","text":"Which colour?","status":"pending","task":"shop","page":"r1"}],
 		"reviews":[{"id":"r1","title":"Pick a layout","state":"open"},{"id":"r2","title":"done","state":"answered"}],
 		"runs":[{"id":"u1","title":"Install the tool","state":"ready"},{"id":"u2","title":"ran","state":"finished"},
 			{"id":"u3","title":"Sign in","state":"ready","credential_request":"c1"}],

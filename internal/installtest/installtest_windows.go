@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // UserEnvFile is the file in a stripped session's LOCALAPPDATA that
@@ -101,6 +102,17 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		cmd.Env = append(cmd.Env, moduleCacheVariable+"="+cache)
 	}
 	return cmd, local, temp
+}
+
+// InstallLog is the file in a stripped session's temp folder where an install
+// keeps every detail it does not print.
+const InstallLog = "CodeGoblinsInstall.log"
+
+// Said is all an install run in temp said: the plain lines it printed, then
+// the details it kept in its log.
+func Said(printed []byte, temp string) string {
+	kept, _ := fsx.ReadFile(filepath.Join(temp, InstallLog))
+	return string(printed) + string(kept)
 }
 
 // ServeRelease serves a release holding binary and sums, or nothing at all.

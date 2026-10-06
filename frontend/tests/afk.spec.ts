@@ -10,7 +10,9 @@ const BOARD = "his own board (goblins-window.exe pid 4242)";
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", ...fields });
 const TASKS = [task("nw-invoice-export"), task("nw-checkout-tax"), task("nw-search-index")];
 const question = (id: string, text: string, asker = "") => ({ id, text, options: ["Hold it", "Do it"], recommended: "Hold it", status: "pending", task: asker, generation: asker ? asker + "-1" : "", created_at: new Date(Date.now() - HOURS).toISOString() });
-const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "Delete the old branch fix/tax-rounding-v1?", "nw-checkout-tax")];
+// The second is a goblin's question the CFO passed up to him: a goblin's own
+// question is the CFO's to answer, never waits on him and is never held.
+const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "nw-checkout-tax asks: Delete the old branch fix/tax-rounding-v1?")];
 const HELD = [
   { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it" },
   { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
@@ -29,6 +31,7 @@ const REPORT = {
     { title: "Deployed", entries: [] },
     { title: "Answered for goblins", entries: [{ at: "2026-10-02T04:05:00Z", kind: "answer", what: "notify-nw-invoice-export-12", task: "nw-invoice-export", evidence: "asked: Which CSV dialect? answered: RFC 4180" }] },
     { title: "Other decisions", entries: [{ at: "2026-10-02T05:00:00Z", kind: "other", what: "Restarted the dev server", link: "javascript:alert(1)", evidence: "it had stopped answering" }] },
+    { title: "Paused at a floor", entries: [{ at: "2026-10-02T06:40:00Z", kind: "pause", what: "at the memory floor", task: "nw-search-index", evidence: "3.1 GB of memory and 8.0 GB of commit free on two readings in a row, under the 4 GB floor; nw-search-index was the newest goblin not pushing or merging", outcome: "paused" }] },
   ],
   finished: [{ task: "nw-login-rate", pr: "https://github.com/northwind/northwind-api/pull/412", at: "2026-10-02T04:12:00Z" }],
   held: [HELD[0], { ...HELD[1], waiting: false, now: "you answered it: Keep it for now" }],
@@ -218,7 +221,6 @@ for (const response of ["successful", "failed"] as const) test(`a late ${respons
   const inFlight: Route[] = [];
   await page.route("**/api/announce", (route) => { inFlight.push(route); });
   await push(page, snapshot({ questions: [QUESTIONS[0]] }));
-  await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("open:question:q-drop-table"))).toBe(true);
   await expect.poll(() => inFlight.some((route) => (route.request().postDataJSON() as { keys: string[] }).keys.includes("alert:question:q-drop-table"))).toBe(true);
   await push(page, snapshot({ questions: [QUESTIONS[0]], afk: on({ held: [HELD[0]] }) }));
   await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/1 held for you\.$/);
@@ -241,9 +243,12 @@ test("with AFK on, a new item raises no alert and opens nothing, even when the s
   await expect(page.locator(".toasts .dialogue")).toHaveCount(0);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
   // The same failed ask with AFK off announces from what this browser
-  // remembers, as it always has.
+  // remembers, as it always has: an item shows no toast, so a goblin's news
+  // stands for it.
   await push(page, snapshot({ questions: QUESTIONS }));
-  await expect(page.locator(".toasts .dialogue")).toContainText("Migration 0042 drops the legacy_invoices table. Apply it?");
+  await push(page, snapshot({ questions: QUESTIONS, tasks: TASKS.map((task) => task.id === "nw-invoice-export" ? { ...task, phase: "done", pr: "https://github.com/northwind/northwind-api/pull/412" } : task) }));
+  await expect(page.locator(".toasts .dialogue")).toContainText("nw-invoice-export finished");
+  await expect(page.locator(".toasts")).not.toContainText("Migration 0042");
 });
 
 test("his first click after he has been gone still does what he meant and offers to turn AFK off: keys typed blind press nothing, Stay AFK keeps it on, and Turn AFK off shows the report", async ({ page }) => {
@@ -343,9 +348,9 @@ test("the report lists what is held first, then how much of each thing the CFO d
   await openCfoPanel(page);
   await header(page).getByRole("button", { name: "Open the last AFK report" }).click();
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on from your board, off from your terminal.");
-  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Goblins finished 1"]);
+  await expect(report(page).locator(".afk-tally li")).toHaveText(["Held for you 2", "Merged 1", "Merge words with no merge recorded 1", "Deployed 0", "Answered for goblins 1", "Other decisions 1", "Paused at a floor 1", "Goblins finished 1"]);
   // Coming back he reads what is held before what was decided.
-  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Goblins finished", "Spent"]);
+  expect(await report(page).locator("section").evaluateAll((sections) => sections.map((section) => section.getAttribute("aria-label")))).toEqual(["Held for you", "Merged", "Merge words with no merge recorded", "Answered for goblins", "Other decisions", "Paused at a floor", "Goblins finished", "Spent"]);
   // A section with nothing in it is counted above and not listed.
   await expect(report(page).getByRole("region", { name: "Deployed" })).toHaveCount(0);
 
@@ -362,6 +367,13 @@ test("the report lists what is held first, then how much of each thing the CFO d
   const other = report(page).getByRole("region", { name: "Other decisions" });
   await expect(other).toContainText("Restarted the dev server");
   await expect(other.getByRole("link")).toHaveCount(0);
+
+  // A goblin the supervisor paused at the memory floor wears the pause mark,
+  // with the readings the pause stood on.
+  const paused = report(page).getByRole("region", { name: "Paused at a floor" }).locator("li");
+  await expect(paused.locator("strong")).toHaveText("nw-search-index: at the memory floor: paused");
+  await expect(paused).toContainText("Evidence: 3.1 GB of memory and 8.0 GB of commit free on two readings in a row");
+  await expect(paused.locator(".delivery path")).toHaveAttribute("d", "M8 5v14M16 5v14");
 
   const held = report(page).getByRole("region", { name: "Held for you" }).locator("li");
   await expect(held).toHaveCount(2);

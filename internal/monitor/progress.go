@@ -81,7 +81,7 @@ const harnessLaunch = 2 * time.Minute
 func (h *HostProgress) InspectProgress(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (ProgressSample, error) {
 	progress := ProgressSample{TranscriptAt: transcriptAt(h.Home, sample.Harness, sample.Session)}
 	if meta.Backend == "native" && strings.EqualFold(sample.Harness, "codex") && sample.Session == "" {
-		progress.TranscriptAt = h.nativeCodexTranscriptAt(ctx, meta.Worktree)
+		_, progress.TranscriptAt = h.newestNativeCodexRollout(ctx, meta.Worktree)
 	}
 	harnessPID, err := h.harnessPID(ctx, meta, sample)
 	if err != nil || harnessPID == 0 {
@@ -247,15 +247,17 @@ func transcriptAt(home, harness, session string) time.Time {
 
 // Native Codex screens carry no session ID. The rollout's own metadata binds
 // it to the task's worktree; directory timestamps cannot establish progress
-// while Codex keeps the writer open.
-func (h *HostProgress) nativeCodexTranscriptAt(ctx context.Context, worktree string) time.Time {
+// while Codex keeps the writer open. newestNativeCodexRollout returns the
+// rollout bound to worktree whose entries were written last, and when.
+func (h *HostProgress) newestNativeCodexRollout(ctx context.Context, worktree string) (string, time.Time) {
+	var newest string
 	var latest time.Time
 	if h.Home == "" || !filepath.IsAbs(worktree) {
-		return latest
+		return newest, latest
 	}
 	worktree, err := fsx.Canonical(worktree)
 	if err != nil {
-		return latest
+		return newest, latest
 	}
 	pattern := strings.ReplaceAll(transcriptPatterns["codex"][0], "{session}", "*")
 	matches, _ := filepath.Glob(filepath.Join(h.Home, pattern))
@@ -294,11 +296,11 @@ func (h *HostProgress) nativeCodexTranscriptAt(ctx context.Context, worktree str
 			continue
 		}
 		if written := transcriptFileAt(file); written.After(latest) {
-			latest = written
+			newest, latest = match, written
 		}
 		file.Close()
 	}
-	return latest
+	return newest, latest
 }
 
 // rolloutCwd reads the directory a rollout's opening session_meta names,

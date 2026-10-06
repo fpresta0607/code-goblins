@@ -306,12 +306,17 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 	return evaluation
 }
 
-// waitingQuestion is the blocked or failed notify a task is still waiting on;
-// one the Overlord answered on the board no longer holds the goblin.
+// waitingQuestion is the blocked or failed notify a task is still waiting on,
+// or the question the monitor read in its last reply when it asked in prose
+// instead, which waits the same way; one the Overlord answered on the board no
+// longer holds the goblin.
 func waitingQuestion(records []wake.Record, id string) (string, string, bool) {
 	for i := len(records) - 1; i >= 0; i-- {
 		if verb, ok := wake.BlockingNotify(records[i]); ok && records[i].Key == id && records[i].Answered == "" {
 			return verb, strings.TrimSpace(strings.TrimPrefix(records[i].Detail, verb+":")), true
+		}
+		if question, ok := wake.ProseAsk(records[i], id); ok {
+			return "blocked", question, true
 		}
 	}
 	return "", "", false
@@ -330,6 +335,44 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 		}
 	}
 	return time.Time{}, ""
+}
+
+// taskReports leaves handled blocking notices out of the task's standing
+// reports. Acknowledgment records survive the queue and answer markers;
+// their position and original wake time keep later reports with the same
+// words from being mistaken for the handled notice.
+func taskReports(lines []string, records []wake.Record, id string) []string {
+	handled := []wake.Record{}
+	seen := map[int]bool{}
+	for _, record := range records {
+		if _, isBlocking := wake.BlockingNotify(record); isBlocking && record.Key == id && record.Answered != "" {
+			handled = append(handled, record)
+			seen[record.Seq] = true
+		}
+	}
+	kept := slices.Clone(lines)
+	for index := len(lines) - 1; index >= 0; index-- {
+		stamp, event := state.SplitStatus(lines[index])
+		if detail, isHandled := strings.CutPrefix(event, "notify-handled: "); isHandled {
+			var record wake.Record
+			if json.Unmarshal([]byte(detail), &record) == nil && record.Key == id && !seen[record.Seq] {
+				if _, isBlocking := wake.BlockingNotify(record); isBlocking {
+					handled = append(handled, record)
+					seen[record.Seq] = true
+				}
+			}
+			continue
+		}
+		for notice := len(handled) - 1; notice >= 0; notice-- {
+			record := handled[notice]
+			if !stamp.After(record.Time) && strings.Join(strings.Fields(event), " ") == strings.Join(strings.Fields(record.Detail), " ") {
+				kept[index] = ""
+				handled = slices.Delete(handled, notice, notice+1)
+				break
+			}
+		}
+	}
+	return slices.DeleteFunc(kept, func(line string) bool { return line == "" })
 }
 
 // standingReport is latestReport passed over the questions the goblin asked

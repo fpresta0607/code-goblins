@@ -238,7 +238,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 		"}\n" +
 		"function Start-Sleep { param([int]$Seconds) Add-Content -LiteralPath '" + record + "' -Value \"wait $Seconds\" }\n"
 	cmd, local, temp := StrippedCommand(t, base, all, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-		internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression")
+		internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 	var bin string
 	for i, variable := range cmd.Env {
 		if path, found := strings.CutPrefix(variable, "PATH="); found {
@@ -259,7 +259,7 @@ func runInstallWithNoMistakes(t *testing.T, shell, releases string, setup noMist
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return noMistakesInstall{output: string(output), record: string(recorded), local: local, temp: temp, bin: bin, userEnv: filepath.Join(local, UserEnvFile)}
+	return noMistakesInstall{output: Said(output, temp), record: string(recorded), local: local, temp: temp, bin: bin, userEnv: filepath.Join(local, UserEnvFile)}
 }
 
 // installedNoMistakes is where the install puts no-mistakes, where
@@ -279,9 +279,9 @@ func assertNoAPICall(t *testing.T, run noMistakesInstall) {
 	}
 }
 
-// notCompleted matches no-mistakes among the installs the install's summary
-// says did not complete.
-var notCompleted = regexp.MustCompile(`(?m)^\s+- no-mistakes\s*$`)
+// notCompleted matches no-mistakes among the tools the install's closing note
+// names as not installed.
+var notCompleted = regexp.MustCompile(`(?m)^Note: These could not be installed, so only what needs them is left out: (.*, )?no-mistakes[,.]`)
 
 // assertNoDownloadLeft checks that the install's own download folders are gone.
 func assertNoDownloadLeft(t *testing.T, temp string) {
@@ -367,7 +367,7 @@ func TestOneLineInstallGivesUpOnANoMistakesDownloadThatKeepsFailing(t *testing.T
 	if !strings.Contains(run.output, "could not be downloaded after 3 attempts") || !strings.Contains(run.output, "503") {
 		t.Errorf("the install did not say the download failed 3 times, and why:\n%s", run.output)
 	}
-	if !strings.Contains(run.output, "Verifying the toolchain") || !strings.Contains(run.output, "These installs did not complete") || !notCompleted.MatchString(run.output) {
+	if !strings.Contains(run.output, "Verifying the toolchain") || !notCompleted.MatchString(run.output) {
 		t.Errorf("the install did not go on and name no-mistakes as not installed:\n%s", run.output)
 	}
 	if _, err := os.Stat(installedNoMistakes(run.local)); !os.IsNotExist(err) {

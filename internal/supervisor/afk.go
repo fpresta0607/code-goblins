@@ -378,11 +378,13 @@ type heldItem struct {
 func (item heldItem) key() string { return item.kind + ":" + item.id }
 
 // waitingOnOverlord are the items that wait on the Overlord: what the board
-// would announce to him, and a credential request, which only he can fill.
+// would announce to him, and a credential request, which only he can fill. A
+// goblin's question waits on the CFO, which answers it, so of the questions
+// only the CFO's own are his, as the board's forOverlord has it.
 func waitingOnOverlord(d Database) []heldItem {
 	var items []heldItem
 	for _, q := range d.Questions {
-		if q.Status == "pending" {
+		if q.Status == "pending" && q.Task == "" {
 			items = append(items, heldItem{"question", q.ID, q.Task, q.Text, q.Recommended})
 		}
 	}
@@ -443,9 +445,10 @@ func (s *Service) holdForOverlord(now time.Time) error {
 	return nil
 }
 
-// afkReport is the report of the stretch ended holds: the log's decisions,
-// what each goblin reported done, each held item with what became of it, and
-// the allowance read when it turned on beside after, read now.
+// afkReport is the report of the stretch ended holds: the log's decisions and
+// pauses at a floor, what each goblin reported done, each held item with what
+// became of it, and the allowance read when it turned on beside after, read
+// now.
 func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread string) afk.Report {
 	stateDir := s.Store.Home.State
 	report := afk.Report{Session: ended.Session, Since: ended.Since, Ended: ended.Ended, From: ended.From, Asked: ended.Asked, EndedFrom: ended.EndedFrom, EndedAsked: ended.EndedAsked, Before: ended.Allowance, After: after}
@@ -462,7 +465,7 @@ func (s *Service) afkReport(ended afk.State, after []afk.Allowance, unread strin
 	if len(after) == 0 {
 		report.Notes = append(report.Notes, "the allowance was not read when AFK mode turned off: "+unread)
 	}
-	report.Decisions = afk.Decisions(entries)
+	report.Decisions, report.Paused = afk.Decisions(entries), afk.Pauses(entries)
 	finished, err := doneBetween(stateDir, ended.Since, ended.Ended)
 	if err != nil {
 		report.Notes = append(report.Notes, "what the goblins finished could not be read in full: "+err.Error())

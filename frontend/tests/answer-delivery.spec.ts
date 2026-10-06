@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openItem, test, type Page } from "./site";
 
 // The Overlord, 2026-10-01, on answers to the CFO that had all arrived:
 // "Delivery unconfirmed. Inspect the CFO queue before sending again: I get
@@ -13,6 +13,7 @@ async function answerTheCFO(page: Page): Promise<string> {
     await route.fulfill({ json: { id: answer, kind: "cfo_answer", question_id: "freeze-lift", status: "queued" } });
   });
   await page.goto("/tests/fixtures/answer-delivery.html");
+  await openItem(page, "Lift the merge freeze?");
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("radio", { name: /Lift it/ }).check();
   await dialog.getByRole("button", { name: "Send decision" }).click();
@@ -63,6 +64,7 @@ test("an answer the board refuses after he closed its card stays waiting, and it
     await route.fulfill({ status: 403, json: { error: refusal } });
   });
   await page.goto("/tests/fixtures/answer-delivery.html");
+  await openItem(page, "Lift the merge freeze?");
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("radio", { name: /Lift it/ }).check();
   await dialog.getByRole("button", { name: "Send decision" }).click();
@@ -82,6 +84,7 @@ test("an answer the board refuses after he closed its card stays waiting, and it
   await expect(row.locator("small")).toHaveText("Not sent: " + refusal);
   await row.getByRole("button", { name: /^Answer/ }).click();
   await expect(dialog.getByRole("alert")).toContainText(refusal);
+  await expect(dialog.getByRole("alert")).toContainText("An unchanged retry keeps its request identity.");
   await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
 });
 

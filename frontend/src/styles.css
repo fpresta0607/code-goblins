@@ -114,7 +114,9 @@ h3 { font-size: 1.0625rem; }
 button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 :focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .app-shell { display: flex; flex-direction: column; height: 100dvh; padding: 12px; gap: 10px; }
-.topbar { position: relative; z-index: 3; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 20px; min-height: 72px; flex: none; padding: 10px 24px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
+/* Above every pane (they stack to 5), so the Command Center's list opens over
+   a terminal's cover; under toasts and tips. */
+.topbar { position: relative; z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 20px; min-height: 72px; flex: none; padding: 10px 24px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; color: #edf4f3; }
 .brand img { object-fit: contain; flex: none; }
 .brand h1 { font-size: 1.75rem; white-space: nowrap; background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
