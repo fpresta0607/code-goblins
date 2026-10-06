@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/release"
 )
 
 func TestRun(t *testing.T) {
@@ -100,6 +101,13 @@ func TestMain(m *testing.M) {
 	// of the machine the tests run on may hold: each asks for any free port,
 	// and so does every program a test starts.
 	if err := os.Setenv(boardAddressVariable, "127.0.0.1:0"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	// Nor does any supervisor a test starts look for a release on GitHub:
+	// it looks at a port that refuses at once, unless its test names a
+	// release server of its own.
+	if err := os.Setenv(release.APIVariable, "http://127.0.0.1:1/latest"); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
