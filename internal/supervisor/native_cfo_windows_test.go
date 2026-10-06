@@ -29,11 +29,18 @@ import (
 // behind.
 func recordHost(t *testing.T, stateDir string, childPID int) {
 	t.Helper()
+	recordHostStarted(t, stateDir, childPID, time.Now().UTC())
+}
+
+// recordHostStarted records native terminal cfo's host as recordHost does,
+// as one that started at started.
+func recordHostStarted(t *testing.T, stateDir string, childPID int, started time.Time) {
+	t.Helper()
 	var name [16]byte
 	if _, err := rand.Read(name[:]); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: childPID, Started: time.Now().UTC()})
+	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-` + hex.EncodeToString(name[:]), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: childPID, Started: started})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -890,6 +897,35 @@ func TestAnExitedCFOIsSaidClosedByTheReadThatFindsItGone(t *testing.T) {
 	}
 	if snapshot.CFORuns || !snapshot.CFOClosed || snapshot.Registration != "" {
 		t.Errorf("with the registered process gone since the last check: runs %v, closed %v, registration %q; want it closed and no problem", snapshot.CFORuns, snapshot.CFOClosed, snapshot.Registration)
+	}
+}
+
+// A CFO restarted in its terminal runs under a new host there. The snapshot
+// says when the host of the CFO's terminal started, so the board opens its
+// view of the CFO again when that changes, as it does for a goblin's new
+// generation, rather than leave it on the old host's ended screen.
+func TestTheSnapshotSaysWhenTheCFOsTerminalHostStarted(t *testing.T) {
+	// Arrange
+	h, _ := nativeBoard(t, "direct")
+	stateDir := h.Service.Store.Home.State
+	nativePrimary(t, stateDir)
+	before, after := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC), time.Date(2026, 10, 5, 9, 5, 0, 0, time.UTC)
+	recordHostStarted(t, stateDir, os.Getpid(), before)
+	first, err := h.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordHostStarted(t, stateDir, os.Getpid(), after)
+
+	// Act
+	second, err := h.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.CFOTerminalSince.Equal(before) || !second.CFOTerminalSince.Equal(after) {
+		t.Errorf("the CFO's terminal host started %v, then %v; want %v, then %v", first.CFOTerminalSince, second.CFOTerminalSince, before, after)
 	}
 }
 

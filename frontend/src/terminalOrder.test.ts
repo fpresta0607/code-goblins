@@ -22,8 +22,8 @@ const key = (code: string, changes: Partial<{ ctrlKey: boolean; altKey: boolean;
 
 test("a slot with no terminal shows an empty state that belongs to no backend", () => {
   const cases: [string, DeckView, string][] = [
-    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
-    ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed. Reopen it from the board."],
+    ["no CFO runs", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: false }), "No CFO is running."],
+    ["the CFO was closed", cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: false, cfo_closed: true }), "The CFO is closed. Reopen it from the board."],
     ["a queued task", idleView(task("queued", { generation: "" })), "This task has not started yet."],
     ["a child of a task", idleView(task("alpha"), { id: "child" } as Session), "This child has no separate terminal."],
     ["a child with no task", idleView(undefined, { id: "child" } as Session), "This child has no separate terminal."],
@@ -33,10 +33,20 @@ test("a slot with no terminal shows an empty state that belongs to no backend", 
 });
 
 test("a CFO or goblin still in Herdr keeps Herdr's view, and a native one shows from its host", () => {
-  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_runs: true, cfo_closed: false }), { kind: "herdr" });
+  assert.deepEqual(cfoView({ cfo_terminal: "", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "herdr" });
   assert.deepEqual(goblinView(task("alpha")), { kind: "herdr" });
-  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_runs: true, cfo_closed: false }), { kind: "host", query: "cfo=cfo" });
+  assert.deepEqual(cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "", cfo_runs: true, cfo_closed: false }), { kind: "host", query: "cfo=cfo" });
   assert.deepEqual(goblinView(task("alpha", { backend: "native" })), { kind: "host", query: "task=alpha&generation=g1" });
+});
+
+// A restart replaces the CFO's terminal host under the same terminal, so its
+// view names when that host started, as a goblin's names its generation: a
+// new host is a new view, never the old host's ended screen.
+test("the CFO's view names when its terminal's host started, so a restarted CFO is viewed afresh", () => {
+  const before = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:00:00Z", cfo_runs: true, cfo_closed: false });
+  const after = cfoView({ cfo_terminal: "cfo", cfo_terminal_since: "2026-10-05T09:05:00Z", cfo_runs: true, cfo_closed: false });
+  assert.deepEqual(before, { kind: "host", query: "cfo=cfo&since=2026-10-05T09%3A00%3A00Z" });
+  assert.notDeepEqual(after, before);
 });
 
 test("a resuming or stopping goblin shows its transition instead of connecting to the old generation", () => {

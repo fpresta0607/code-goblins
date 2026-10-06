@@ -964,6 +964,10 @@ type Snapshot struct {
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
+	// CFOTerminalSince is when the host of that terminal started, so a view
+	// of a CFO whose terminal was replaced, as a restart replaces it, is
+	// opened again on the new host.
+	CFOTerminalSince time.Time `json:"cfo_terminal_since,omitzero"`
 	// CFOHarness names the harness the registered CFO runs, such as claude or
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
@@ -1012,6 +1016,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOTerminalSince = cfo.since
 	out.CFOConversationLeft = s.cfoConversationLeft()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
