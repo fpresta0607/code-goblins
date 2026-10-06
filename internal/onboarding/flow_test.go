@@ -446,8 +446,8 @@ func TestAnUnverifiedSignInIsContinuedOnlyByChoice(t *testing.T) {
 func TestTheInstallScreenNamesWhatItRuns(t *testing.T) {
 	for id, want := range map[string]string{
 		"claude": "Install Claude Code\nNot installed. Enter runs the installer at https://claude.ai/install.ps1.",
-		"codex":  "Install Codex\nNot installed. Enter runs npm install -g @openai/codex.",
-		"pi":     "Install pi\nNot installed. Enter runs npm install -g @earendil-works/pi-coding-agent.",
+		"codex":  "Install Codex\nNot installed. Enter runs npm install -g @openai/codex@0.160.1.",
+		"pi":     "Install pi\nNot installed. Enter runs npm install -g @earendil-works/pi-coding-agent@1.0.4.",
 	} {
 		t.Run(id, func(t *testing.T) {
 			// Arrange
