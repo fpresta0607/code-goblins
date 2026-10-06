@@ -75,8 +75,17 @@ export interface Task extends Evaluation {
   // goblin's branch.
   ticket?: Ticket;
   overlaps: Overlap[];
+  // hosted_checks is what its pull request's hosted checks said at the last
+  // CI poll.
+  hosted_checks?: HostedChecks;
 }
 export interface WorkProgress { at: string; source: string }
+// HostedChecks is a pull request's hosted checks at its head: state is
+// pending while one runs and none has failed, failed as soon as one has,
+// cancelled when they ended with one cancelled, and passed when all passed;
+// failed names the checks that failed or were cancelled and link is the first
+// one's page; approved says a reviewer approved the pull request.
+export interface HostedChecks { state: string; checks: number; failed: string[]; link: string; approved: boolean }
 // Ticket is a task's issue: its number, its link and where it stands, one
 // of queued, in progress, pr open, paused, blocked, merged or closed.
 export interface Ticket { number: number; url: string; state: string }
@@ -623,6 +632,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
+        ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ state: string(c.state), checks: number(c.checks), failed: strings(c.failed), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),
