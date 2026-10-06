@@ -61,7 +61,24 @@ export interface Task extends Evaluation {
   brief: boolean;
   starting: boolean;
   start_error: string;
+  // ticket is the GitHub issue kept for a task in a repository other people
+  // work in, and overlaps is their open work in the same area as a live
+  // goblin's branch.
+  ticket?: Ticket;
+  overlaps: Overlap[];
 }
+// Ticket is a task's issue: its number, its link and where it stands, one
+// of queued, in progress, pr open, paused, blocked, merged or closed.
+export interface Ticket { number: number; url: string; state: string }
+// Person is someone on GitHub: a login, or only a git name for a commit that
+// links to no account, and an avatar.
+export interface Person { login: string; name: string; avatar_url: string }
+// Overlap is one piece of a teammate's open work, such as "PR #1446", that
+// changes the files a goblin's branch changes or names its area.
+export interface Overlap extends Person { what: string; url: string }
+// ProjectPeople are the people other than the Overlord, bots aside, active in
+// a project's repository in the last 30 days, most recent first.
+export interface ProjectPeople { name: string; repository: string; contributors: Person[] }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
@@ -201,6 +218,9 @@ export interface Snapshot {
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
   afk: Afk;
+  // projects names who else works in each collaborative project, by the
+  // project name tasks carry.
+  projects: ProjectPeople[];
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
@@ -495,6 +515,9 @@ export function parseItems(value: unknown): Items {
   const v = object(value);
   return { instance: string(v.instance), revision: number(v.revision), ...itemLists(v) };
 }
+function parsePerson(p: Record<string, unknown>): Person {
+  return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -534,6 +557,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),
+    projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
@@ -574,6 +598,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
+        overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

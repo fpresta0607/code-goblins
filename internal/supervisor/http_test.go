@@ -36,7 +36,7 @@ func TestTerminalCSPAllowsColorAttributesWithoutRelaxingScriptsOrStyleElements(t
 		}
 		want := map[string]string{
 			"default-src": "'self'", "script-src": "'self'", "style-src-attr": "'unsafe-inline'",
-			"img-src": "'self' data:", "connect-src": "'self'", "frame-ancestors": "'none'",
+			"img-src": "'self' data: https://avatars.githubusercontent.com", "connect-src": "'self'", "frame-ancestors": "'none'",
 			"base-uri": "'none'", "form-action": "'self'",
 		}
 		// Unlisted script/style element directives could override these fallbacks.
