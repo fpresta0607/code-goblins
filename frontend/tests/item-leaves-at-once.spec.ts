@@ -90,8 +90,10 @@ async function boardAsked(page: Page, item: { questions?: object[]; reviews?: ob
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(toasts(page)).toHaveCount(0);
 }
-async function openCard(page: Page, says: string) {
-  if (!await card(page).isVisible()) await openItem(page, says);
+// row is the item's words in the Command Center's list, when they differ
+// from its card's, as a credential request's ask does.
+async function openCard(page: Page, says: string, row = says) {
+  if (!await card(page).isVisible()) await openItem(page, row);
   await expect(card(page)).toContainText(says);
 }
 // What the board shows of the item in the very frame of a click on selector.
@@ -395,7 +397,7 @@ test("a reused credential request clears its typed value, while CFO registration
   const request = { id: "cred-release", generation: "f".repeat(32), identity: "c".repeat(64), by: "cfo", project: "probe", repository: "C:/dev/probe", names: ["PROBE_VALUE"], why: "Configure the first release", state: "open", created_at: question.created_at, expires_at: "2026-10-13T09:00:00Z" };
   await page.goto("/");
   await send(page, "snapshot", { ...quiet, revision: 2, credentials: [request] });
-  await openCard(page, request.why);
+  await openCard(page, request.why, "Paste PROBE_VALUE for probe");
   const field = card(page).getByLabel("Value for PROBE_VALUE");
   const value = crypto.randomUUID();
   await field.fill(value);
