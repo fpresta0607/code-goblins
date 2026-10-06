@@ -12,7 +12,9 @@ const memory = { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 *
 const LONG = "Paused goblins resume by themselves when the reason for the pause clears, and the board says which goblin each one was waiting on and for how long it has waited";
 // The title whose tip lay over the memory meter on 2026-10-02, and the longest
 // title the queue held that day.
-const SEEN = "Paused goblins resume by themselves when the reason for the pause clears; Claude Code";
+// Its "; Claude Code" is shown as the card's harness mark now, so the same
+// width of title carries other words.
+const SEEN = "Paused goblins resume by themselves when the reason for the pause clears, in Claude Code";
 const LONGEST = "An OpenClaw-style quick start in the goblins command: detect and install Claude Code, Codex and pi, walk through sign-in, pick the CFO's agent, clear Enter-to-continue steps, and a final screen with the board link or Enter for the CFO terminal";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
