@@ -7,6 +7,7 @@ test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
 // answers every other API request with a 404 unless a later route claims it.
 async function serveSnapshots(page: Page, initial: Snapshot): Promise<(next: Snapshot) => Promise<void>> {
   await page.addInitScript((first) => {
+    localStorage.setItem("cfo-first-open", "shown");
     class SnapshotSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));

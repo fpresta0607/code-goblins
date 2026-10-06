@@ -86,6 +86,12 @@ export function maximizedFor(stored: string | null): boolean {
   return stored === "true";
 }
 
+// firstOpen says this browser has never shown the board: nothing records a
+// first open, and it keeps no panel layout from before that record existed.
+export function firstOpen(recorded: string | null, kept: (string | null)[]): boolean {
+  return recorded === null && kept.every((value) => value === null);
+}
+
 export function paneWidth(requested: number, workspace: number): number {
   const wanted = Number.isFinite(requested) ? requested : workspace / 2;
   return Math.round(Math.min(Math.max(wanted, MIN_PANE), Math.max(MIN_PANE, workspace - MIN_BOARD - DIVIDER)));
