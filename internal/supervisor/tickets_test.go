@@ -144,7 +144,7 @@ func (f *fakeTicketWriter) writer(checkout string) *Tickets {
 			if f.applyErr != nil {
 				return record, f.applyErr
 			}
-			next := tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: 501}
+			next := tickets.Record{TaskID: ticket.TaskID, Repository: repository, Number: 501, URL: "https://github.com/" + repository + "/issues/501"}
 			if record != nil {
 				next = *record
 			}
@@ -488,6 +488,157 @@ func TestSnapshotShowsTheTicketsThatWait(t *testing.T) {
 	}
 	if len(after.Issues) != len(before.Issues)+1 || !strings.Contains(after.Issues[len(after.Issues)-1], "--allow-public-tickets") {
 		t.Fatalf("issues = %v, want the board to say the public repository's tickets are held", after.Issues)
+	}
+}
+
+var teammate = tickets.Actor{Login: "ana-teammate", AvatarURL: "https://avatars.githubusercontent.com/u/7"}
+
+func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *testing.T) {
+	inProject := func(task Task) Task {
+		task.Project = "northwind-api"
+		return task
+	}
+	people := []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository, Contributors: []tickets.Actor{teammate}}}
+	cases := []struct {
+		name            string
+		isCollaborative bool
+		hasTicket       bool
+		task            Task
+		want            []ProjectPeople
+	}{
+		{name: "a live task in a repository a teammate works in", isCollaborative: true, task: inProject(liveTask("working", "")), want: people},
+		{name: "a task whose ticket is already kept", isCollaborative: true, hasTicket: true, task: inProject(liveTask("working", "")), want: people},
+		{name: "a queued task", isCollaborative: true, task: inProject(liveTask("queued", "")), want: people},
+		{name: "a repository only the Overlord works in", task: inProject(liveTask("working", ""))},
+		{name: "a finished task", isCollaborative: true, task: Task{ID: "finished:nw-sync", Project: "northwind-api", Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			github.collaboration.IsCollaborative = tc.isCollaborative
+			if tc.isCollaborative {
+				github.collaboration.People = []tickets.Actor{teammate}
+			}
+			if tc.hasTicket {
+				if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Labels: []string{"cfo: in progress", "goblin: claude"}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow)
+			keeper.reconcile(context.Background(), []Task{tc.task}, ticketNow.Add(30*time.Minute))
+			_, got := keeper.Shown()
+
+			// Assert
+			if !slices.EqualFunc(got, tc.want, ProjectPeople.equal) {
+				t.Fatalf("people = %+v, want %+v", got, tc.want)
+			}
+			wantReads := 1
+			if tc.task.Archived {
+				wantReads = 0
+			}
+			if github.collaborationReads != wantReads {
+				t.Fatalf("collaboration reads = %d, want %d: once an hour for a task on the board, never for a finished one", github.collaborationReads, wantReads)
+			}
+		})
+	}
+}
+
+func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
+	// Arrange
+	h, checkout, github := ticketHome(t)
+	github.collaboration.People = []tickets.Actor{teammate}
+	keeper := newTicketKeeper(h, github.writer(checkout))
+	task := liveTask("working", "")
+	task.Project = "northwind-api"
+
+	// Act
+	keeper.reconcile(context.Background(), []Task{task}, ticketNow)
+	github.collaborationErr = errors.New("GitHub is down")
+	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(61*time.Minute))
+	_, whileDown := keeper.Shown()
+	github.collaborationErr = nil
+	github.collaboration.IsCollaborative, github.collaboration.People = false, nil
+	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(72*time.Minute))
+	_, afterwards := keeper.Shown()
+
+	// Assert
+	if len(whileDown) != 1 || !slices.Equal(whileDown[0].Contributors, []tickets.Actor{teammate}) {
+		t.Fatalf("people while GitHub is down = %+v, want the last ones read", whileDown)
+	}
+	if len(afterwards) != 0 {
+		t.Fatalf("people once only the Overlord works there = %+v, want none", afterwards)
+	}
+}
+
+func TestSnapshotShowsEachTasksTicketAndThePeopleInItsProject(t *testing.T) {
+	// Arrange: the board's live task, task-1, in a private repository a
+	// teammate works in.
+	store, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work")))}
+	before, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	service.tickets.reconcile(context.Background(), before.Tasks, ticketNow)
+	after, err := service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := slices.IndexFunc(after.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if index < 0 {
+		t.Fatalf("tasks = %+v, want task-1", after.Tasks)
+	}
+	want := TaskTicket{Number: 501, URL: "https://github.com/" + ticketRepository + "/issues/501", State: tickets.InProgress}
+	if got := after.Tasks[index].Ticket; got == nil || *got != want {
+		t.Fatalf("ticket = %+v, want %+v", got, want)
+	}
+	if len(after.Projects) != 1 || after.Projects[0].Name != "work" || !slices.Equal(after.Projects[0].Contributors, []tickets.Actor{teammate}) {
+		t.Fatalf("projects = %+v, want task-1's project with its teammate", after.Projects)
+	}
+}
+
+func TestKeepTicketsTellsTheBoardWhenATicketOrThePeopleChange(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work"))), subscribers: map[chan struct{}]struct{}{}}
+	told := make(chan struct{}, 1)
+	service.subscribers[told] = struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	// Act
+	go func() {
+		defer close(done)
+		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
+	}()
+	var isTold bool
+	select {
+	case <-told:
+		isTold = true
+	case <-time.After(20 * time.Second):
+	}
+	cancel()
+	<-done
+
+	// Assert
+	if !isTold {
+		t.Fatal("the board was never told about the ticket it now shows")
 	}
 }
 
