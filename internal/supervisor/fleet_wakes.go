@@ -72,9 +72,11 @@ type fleetWakes struct {
 	Progress  map[string]WorkProgress `json:"progress,omitempty"`
 	Durations []CIDuration            `json:"durations,omitempty"`
 	// MemoryAbove counts readings in a row with memory and commit both at or
-	// above the next-start mark. MemorySpent says memory_ready woke since a
-	// reading last fell under the floor.
+	// above the next-start mark, and MemoryBelow those with either under the
+	// floor, which AFK mode pauses a goblin at. MemorySpent says memory_ready
+	// woke since a reading last fell under the floor.
 	MemoryAbove  int       `json:"memory_above,omitempty"`
+	MemoryBelow  int       `json:"memory_below,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
 	// DiskLow says disk_low woke since a reading was last at or above the
@@ -232,7 +234,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // memory: a queued task a Start could start now, or a live goblin whose latest
 // report is a wait on memory. It wakes once per crossing: not again until a
 // reading falls under the floor and crosses back, and never twice within
-// memoryWakeGap.
+// memoryWakeGap. A reading under the floor goes to AFK mode's memory floor.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {
@@ -241,17 +243,20 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	memory, err := dispatch.Memory()
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
-		w.MemoryAbove = 0
+		w.MemoryAbove, w.MemoryBelow = 0, 0
 		return nil
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
-		w.MemoryAbove = 0
+		w.MemoryAbove, w.MemoryBelow = 0, 0
 	}
 	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
 	if low < memoryFloor {
-		w.MemorySpent = false
+		w.MemorySpent, w.MemoryAbove = false, 0
+		w.MemoryBelow++
+		return s.pauseAtMemoryFloor(w, memory)
 	}
+	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
 		return nil
