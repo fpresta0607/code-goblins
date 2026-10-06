@@ -156,7 +156,7 @@ It needs no backup repository: backing it up is only your own choice, and [Your 
 ```powershell
 goblins              # the quick start: the supervisor, the CFO's agent and the CFO, then its terminal or the board
 goblins setup        # the quick start again, choosing the agent the CFO runs on
-goblins resume       # restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back
+goblins resume       # restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, then every goblin a reboot ended
 goblins --harness codex  # start the CFO as codex, claude or pi from now on, set up first; a running CFO keeps its harness
 goblins --board      # start the supervisor if needed and open the board, with no CFO in this terminal
 goblins --window     # the same, with the board in the desktop window
@@ -188,6 +188,8 @@ A restarted CFO whose agent ends within three seconds, as one that cannot resume
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
 `cfo resume` with no task named is the same command, and the board's CFO bar offers it as **Restart the CFO**, beside its terminal's button, which asks first since it interrupts what the CFO is doing.
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
+Then it brings back every goblin whose terminal ended, as a reboot or sign-out ends them all: each in place, with its worktree, uncommitted work, harness, model and effort, on its own conversation where the board's record proves it is the task's and from a handoff where it does not, and it lists which came back and which need a hand.
+A goblin paused or stopped on purpose, or still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
@@ -402,7 +404,7 @@ The CFO's Task view lists every queued task under its workspace, in the same pri
 The Terminal view is the goblin's live terminal, edge to edge.
 A goblin in a native terminal (what `cfo spawn` starts for every goblin) is drawn from its terminal's own output at the panel's size, in a 20 px font, with an even inset and the input line at the bottom: type straight into it, scroll its history with the wheel (no scroll bar is drawn; a Claude Code goblin starts in Claude's classic interface, not its fullscreen one, so its history is the terminal's own and scrolls at once), and use **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** to change the font size, which gives the terminal fewer or more columns rather than shrinking what it shows.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
-`cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `cfo switch <id>` resumes it in its own session.
+`cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `goblins resume` brings every goblin back in its own session, as `cfo switch <id> --harness <the harness it ran>` does for one.
 Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a full-pane state shows while it connects.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
 The board and an Open in Windows Terminal window can show the same terminal at once.

@@ -113,6 +113,26 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 			list.Note(fmt.Sprintf("It keeps its agent; %s is the agent goblins starts the next CFO as.", onboarding.Name(agent)))
 		}
 	}
+	// goblins resume then brings back the goblins whose terminals ended, as a
+	// reboot ends them all, and says what came back and what needs a hand.
+	if restart {
+		comebacks, err := bringGoblinsBack(ctx, h, runtime)
+		if err != nil {
+			list.Note("The goblins could not be brought back: their records cannot be read: " + err.Error())
+		}
+		back := 0
+		for _, comeback := range comebacks {
+			if comeback.isBack {
+				back++
+			}
+		}
+		if len(comebacks) > 0 {
+			list.Done("Goblins", fmt.Sprintf("%d of %d whose terminals ended are back", back, len(comebacks)))
+			for _, comeback := range comebacks {
+				list.Note(comeback.id + ": " + comeback.said)
+			}
+		}
+	}
 	heading := "Your CFO is running"
 	if started {
 		heading = "Your CFO is starting"
