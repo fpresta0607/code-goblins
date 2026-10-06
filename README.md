@@ -278,7 +278,7 @@ The header switches between two views, one at a time, each with a contextual pan
   Selecting a card opens its changes (only the changed lines for a file over 256 KiB), activity and commit history.
   The CFO is pinned above the columns in a plain bar that says how many goblins it supervises, with its terminal icon. While something waits on you **Open Command Center** appears on the bar and glows, with how many items wait; the bar says none of what they are.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
-  A goblin waiting on you says Waiting on the CFO, since the CFO brings every question to you, until your answer reaches it.
+  A goblin's question waits on the CFO, who answers it or publishes the decision he needs from you.
 - **Orchestration** is the live family tree: the CFO above its goblins and any child sessions they reported. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging cards, panning, zooming, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message.
 
 <p align="center">
@@ -476,7 +476,9 @@ Retrying an unchanged comment keeps its request ID, so a retry cannot deliver th
   <img src="docs/images/command-center.webp" alt="Supreme Overlord Command Center: the CFO asks which order for the lag fixes, with its details as two bullets, then three answers as a plain radio list (Fix it next, before item 7, marked Recommended and selected; Keep 300 s; Wait for the Codex reset on 29 September) and Other, with Send decision below" width="560" />
 </p>
 
-When the CFO needs a decision only you can make, it publishes the question with `cfo question` and the Command Center opens as a modal, unless you are typing on the board (a text field, a comment box or a terminal): then it waits under the badge with its alert and never takes your typing.
+When the CFO needs a decision only you can make, it publishes the question with `cfo question` and **Open Command Center** shows how many items wait on you.
+The Command Center opens when you choose it, and a new item leaves your typing in place.
+Goblins' blocked or failed questions wait on the CFO; they enter History once answered and never count as waiting on you.
 The question reads as plain body text across a wide card: its first sentence is the question, details follow as bullets, and only what the asker marked, such as the verdict or the blocking item, is bold.
 Choices are a plain list of the answers themselves, the recommended one first and marked **Recommended**, with no A, B or C, and **Other** takes a written answer; a goblin's own A), B), C) labels are dropped.
 `cfo question` and `cfo notify` refuse a choice that is only a letter or number, such as `a` or `2`: each choice is the answer, written as a short phrase.
@@ -486,14 +488,16 @@ When a goblin asks a question about its open review page, the Command Center sho
 An answer you send on the page finishes its card with the same check as an answer sent from the card (**Answered**, You answered on its page) and the next item follows; History lists it as answered, never as withdrawn.
 Other items, a plain link included, are answered in writing with **Send answer**, and any item but a wait closes with **Clear**.
 A document the CFO or a goblin delivers with `cfo deliver` shows its file type, name and size with **Download**, and **Open** when the browser can show it or it has a link; opening or downloading it moves it to History.
-Anything new that needs you or finished shows as an alert at the bottom right: a new question, review item, command or credential request, and a goblin that is blocked, failed, or done with its pull request.
-Each alert is its goblin's dialogue box that says its news once, with one button: **Open Command Center** for what needs you, the only button filled lantern, or **Open** for a goblin's news; alerts stack and leave after a few seconds, and routine progress never alerts.
-Each event alerts once, in one tab of the board, however often the board reconnects or reloads or the supervisor restarts, and a goblin's question alerts as that question alone.
-The Command Center opens by itself on a new question once, too: closing it means it stays closed for that question, in every tab and after a reload.
-An item alerts once by its own id, and the same words from the same goblin within five minutes are one event.
-A goblin's news, or a wait it files again, more than five minutes later alerts again.
+Each item that needs you has one signal on the visible board: **Open Command Center** and its count.
+An item shows no toast and opens no dialog by itself.
+A goblin's finished or failed news still appears in its dialogue box at the bottom right, with **Open** for that goblin; alerts stack and leave after a few seconds, and routine progress never alerts.
+If unanswered blocked or failed questions have waited on the CFO for ten minutes, one notice names their count and the oldest age, with **Open the CFO's terminal**.
+That notice appears once for the same stretch, through reloads, reconnects and supervisor restarts, and never turns those questions into decisions for you.
+Each item is announced once by its own id, and the same news from the same goblin within five minutes is one event.
+A goblin's next pull request alerts at once; the same news more than five minutes later alerts again.
 Your browser remembers the last 100 alerts it showed.
-While the board's tab is hidden or its window is behind another, each alert is also a Windows notification once you allow them; the board asks once, with its first alert, and clicking one opens its item and takes its alert off the board.
+While the board's tab is hidden or its window is minimized, an announcement can also be a Windows notification once you allow them; the board asks once, with its first announcement, and clicking one opens its item or terminal.
+An unfocused window that is still visible sends no Windows notification.
 
 <p align="center">
   <img src="docs/images/alert.webp" alt="An alert at the bottom right of the board: the goblin fixing the flaky checkout test wants your review, with its request, Look at the checkout race fix before it ships, and a close button" width="420" />

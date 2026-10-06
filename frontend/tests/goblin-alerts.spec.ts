@@ -8,7 +8,7 @@ async function open(page: Page) {
   await page.addInitScript(() => Object.defineProperty(Notification, "permission", { get: () => "default" }));
   await page.goto("/tests/fixtures/goblin-alerts.html");
   await expect(page.getByRole("group", { name: "Alerts" }).or(page.locator(".toasts"))).toBeVisible();
-  await expect(page.locator(".toasts .dialogue")).toHaveCount(4);
+  await expect(page.locator(".toasts .dialogue")).toHaveCount(3);
 }
 // The fixture's two bars: one over a board column while a question waits on
 // the Overlord, and one at rest.
@@ -68,10 +68,9 @@ test("Open Command Center opens the first item waiting", async ({ page }) => {
   await expect(page.locator("dialog.question-modal")).toContainText("Pick the waveform");
 });
 
-test("each alert says its news once, in its speaker's box: what needs him opens the Command Center, a goblin's news opens the goblin", async ({ page }) => {
+test("each goblin's news opens its goblin, and its question for the CFO shows no toast", async ({ page }, testInfo) => {
   await open(page);
   const cases: [string, string, boolean][] = [
-    ["cg-board-kill asks: Which layout should I keep?", "Open Command Center", true],
     ["cg-board-kill finished: code-goblins #204 is ready.", "Open", false],
     ["pd-billing-admin failed: Its checks failed.", "Open", false],
   ];
@@ -81,9 +80,13 @@ test("each alert says its news once, in its speaker's box: what needs him opens 
     await expect(alert.locator(".dialogue-actions")).toHaveText(action);
     expect(await filled(alert.getByRole("button", { name: action, exact: true })), text).toBe(isFilled ? LANTERN : "rgba(0, 0, 0, 0)");
   }
+  await expect(page.locator(".toasts")).not.toContainText("Which layout should I keep?");
+  await expect(page.locator("dialog.question-modal")).not.toBeVisible();
+  await testInfo.attach("cfo-question-after", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByRole("button", { name: /terminal/i }).filter({ hasText: /Open terminal/ })).toHaveCount(0);
   await page.locator(".toasts .dialogue").filter({ hasText: "finished" }).getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.locator("output")).toHaveText("opened cg-board-kill");
+  await page.mouse.move(0, 0);
   const ask = page.locator(".toasts .dialogue").filter({ hasText: "Windows notification" });
   expect(await filled(ask.getByRole("button", { name: "Turn on" }))).toBe(LANTERN);
   expect(await filled(ask.getByRole("button", { name: "Not now" }))).toBe("rgba(0, 0, 0, 0)");
@@ -100,7 +103,7 @@ test("boxes are stepped pixel frames with plain text of 16 px or more, and step 
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(16);
 });
 
-test("the stepped frames clip no focus ring or tooltip, and a focused Open Command Center shows its outline, in an alert and on the bar", async ({ page }) => {
+test("the stepped frames clip no focus ring or tooltip, and a focused Open Command Center on the bar shows its outline", async ({ page }) => {
   await open(page);
   const clipped = await page.locator(".dialogue").evaluateAll((boxes) => boxes.flatMap((dialogue) =>
     [...dialogue.querySelectorAll("button, a[href], input, select, textarea, [tabindex], [data-tip]")].flatMap((element) => {
@@ -109,12 +112,12 @@ test("the stepped frames clip no focus ring or tooltip, and a focused Open Comma
       return chain.filter((node) => getComputedStyle(node).clipPath !== "none").map((node) => node.className);
     })));
   expect(clipped).toEqual([]);
-  // The bar's button glows with a shadow, which is not its focus ring.
-  for (const button of [page.locator(".toasts").getByRole("button", { name: "Open Command Center" }), command(page)]) {
-    await button.focus();
-    await expect(button).toHaveCSS("outline-style", "solid");
-    await expect(button).toHaveCSS("outline-width", "3px");
-  }
+  // The bar's button glows with a shadow, which is not its focus ring. No
+  // alert carries it: an item's one signal is the bar's button.
+  await expect(page.locator(".toasts").getByRole("button", { name: "Open Command Center" })).toHaveCount(0);
+  await command(page).focus();
+  await expect(command(page)).toHaveCSS("outline-style", "solid");
+  await expect(command(page)).toHaveCSS("outline-width", "3px");
 });
 
 // Whether the tip showing is drawn over everything else where it lies: the
@@ -161,7 +164,7 @@ test("an alert's Dismiss tooltip shows over the next alert", async ({ page }) =>
 test("with reduced motion the boxes just appear and Open Command Center keeps its glow without breathing", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page);
-  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(4).fill("none"));
+  expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(Array(3).fill("none"));
   await expect(command(page)).toHaveCSS("animation-name", "none");
   expect(await command(page).evaluate((button) => getComputedStyle(button).boxShadow)).not.toBe("none");
 });

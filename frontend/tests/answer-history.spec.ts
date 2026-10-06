@@ -4,8 +4,7 @@ import { expect, test, type Page } from "./site";
 // History tells at a glance who answered each question, the crown for him,
 // the CFO's face for the CFO and the CFO's face with a moon while he was
 // away, with when and why; and his choice wins, from History's pencil on an
-// answer the CFO gave while the goblin has reported nothing since, or from
-// his own card when his send crossed the CFO's answer.
+// answer the CFO gave while the goblin has reported nothing since.
 test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 
 const NOW = new Date("2026-10-06T02:20:00Z");
@@ -13,10 +12,6 @@ const NOW = new Date("2026-10-06T02:20:00Z");
 async function history(page: Page) {
   await page.clock.install({ time: NOW });
   await page.goto("/tests/fixtures/answer-history.html");
-  // cg-board-theme's waiting question opens the Command Center by itself.
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("Ship the dark theme first?")).toBeVisible();
-  await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await page.locator(".command-center-menu > summary").click();
   const panel = page.locator(".command-center-updates");
   await panel.getByText("History").click();
@@ -28,7 +23,6 @@ async function actions(page: Page) {
   await page.route("**/api/actions", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     posted.push(body);
-    if (body.kind === "goblin_answer") return route.fulfill({ status: 409, json: { error: "an answer is already recorded for this question; inspect its outcome" } });
     await route.fulfill({ status: 202, json: { id: body.id, kind: body.kind, status: "queued", question_id: body.question_id, generation: body.generation, text: body.text, answer_kind: body.answer_kind } });
   });
   return posted;
@@ -91,37 +85,6 @@ test("he changes the CFO's answer from History, and the goblin is told it is his
   await expect(rows.nth(0).getByRole("img", { name: "You answered" })).toBeVisible();
   await expect(rows.nth(0).locator(".answer-reason")).toHaveText("Replaced the CFO's answer: Wait for the running test step to end");
 });
-
-for (const width of [1440, 390]) {
-  test(`his send crossing the CFO's answer says so in plain words and lets him change it, never a Retry, at ${width}px`, async ({ page }, testInfo) => {
-    // Arrange
-    await page.setViewportSize({ width, height: 1000 });
-    const posted = await actions(page);
-    await page.clock.install({ time: NOW });
-    await page.goto("/tests/fixtures/answer-history.html");
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("radio", { name: "Ship dark first" }).check();
-
-    // Act
-    await dialog.getByRole("button", { name: "Send decision" }).click();
-    await expect.poll(() => posted.filter((body) => body.kind === "goblin_answer").length).toBe(1);
-    await page.evaluate(() => window.cfoAnswersFirst?.());
-
-    // Assert
-    await expect(dialog.getByRole("status")).toHaveText("The CFO answered this at the same moment: Ship both together.");
-    await expect(dialog.getByRole("radio", { name: "Ship dark first" })).toBeChecked();
-    await expect(dialog.locator(".question-choice", { hasText: "Ship both together" }).locator(".cfo-answer")).toHaveText("The CFO's answer");
-    await expect(dialog.getByRole("button", { name: "Retry" })).toHaveCount(0);
-    await expect(dialog).not.toContainText("request identity");
-    expect(await dialog.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
-    await dialog.locator(".card-stage").screenshot({ path: testInfo.outputPath(`crossed-card-${width}.png`) });
-    await dialog.getByRole("button", { name: "Change to my answer" }).click();
-    await expect.poll(() => posted.filter((body) => body.kind === "answer_change").length).toBe(1);
-    const changeID = String(posted.find((body) => body.kind === "answer_change")!.id);
-    await page.evaluate((id) => window.changeLands?.(id, "notify-cg-board-theme-5", "Ship dark first"), changeID);
-    await expect(dialog.locator(".done-card").getByRole("heading", { name: "Changed to your answer" })).toBeVisible();
-  });
-}
 
 test("once the goblin reports again, the CFO's answer stands and the change is gone", async ({ page }) => {
   // Arrange
