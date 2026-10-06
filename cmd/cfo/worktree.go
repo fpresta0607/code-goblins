@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -132,7 +133,20 @@ func removeExtraWorktree(ctx context.Context, h home.Home, service worktree.Serv
 		if err != nil {
 			return err
 		}
-		at := slices.IndexFunc(meta.Extras, func(extra string) bool { return strings.EqualFold(filepath.Clean(extra), want) })
+		// The record holds the worktree's canonical path, which a home named
+		// by a short or linked path spells differently, so the folder that is
+		// the same one on disk matches too.
+		at := slices.IndexFunc(meta.Extras, func(extra string) bool {
+			if strings.EqualFold(filepath.Clean(extra), want) {
+				return true
+			}
+			recorded, err := os.Stat(extra)
+			if err != nil {
+				return false
+			}
+			named, err := os.Stat(want)
+			return err == nil && os.SameFile(recorded, named)
+		})
 		if at < 0 {
 			return fmt.Errorf("cfo worktree: task %s records no extra worktree %s", id, want)
 		}
