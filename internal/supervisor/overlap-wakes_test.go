@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -772,5 +773,98 @@ func TestNewTeammateOverlapUsesReadableItemWhenCollaborationMetadataFails(t *tes
 				}
 			})
 		}
+	}
+}
+
+func TestOverlapReadPutsTheTeammatesInAGoblinsAreaOnItsCardWheneverTheirWorkOpened(t *testing.T) {
+	// Arrange: a teammate's pull request and issue in the goblin's area, both
+	// opened before it started, so neither wakes the CFO.
+	service, h, forge, meta, now := overlapFixture(t)
+	opened := spawnTime(meta.SpawnGen).Add(-time.Hour)
+	forge.activity = strings.ReplaceAll(overlapActivity(t, opened, "teammate", []string{"app/retry.go"}, "app/retry.go times out"), `"login":"teammate"`, `"avatarUrl":"https://avatars.githubusercontent.com/u/7","login":"teammate"`)
+	shown := func(at time.Time) []Overlap {
+		t.Helper()
+		if err := service.checkFleet(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+		service.cycle(context.Background(), false)
+		snapshot, err := service.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == meta.ID })
+		if index < 0 {
+			t.Fatalf("tasks = %+v, want %s", snapshot.Tasks, meta.ID)
+		}
+		return snapshot.Tasks[index].Overlaps
+	}
+
+	// Act
+	whileLive := shown(now)
+	afterItStopped := shown(now.Add(11 * time.Minute))
+
+	// Assert
+	teammate := tickets.Actor{Login: "teammate", AvatarURL: "https://avatars.githubusercontent.com/u/7"}
+	want := []Overlap{{Actor: teammate, What: "PR #7", URL: "https://github.com/o/r/pull/7"}, {Actor: teammate, What: "issue #8", URL: "https://github.com/o/r/issues/8"}}
+	if !slices.Equal(whileLive, want) {
+		t.Fatalf("overlaps on the card = %+v, want %+v", whileLive, want)
+	}
+	if wakes := fleetWakeRecords(t, h, "pr"); len(wakes) != 0 {
+		t.Fatalf("wakes = %+v, want none for work opened before the goblin started", wakes)
+	}
+	if len(afterItStopped) != 0 {
+		t.Fatalf("overlaps once the goblin is no longer live = %+v, want none", afterItStopped)
+	}
+}
+
+func TestOverlapReadLeavesTheGoblinsOwnTicketOffItsCard(t *testing.T) {
+	// Arrange: issue #8 names the goblin's area, and it is the goblin's own
+	// ticket.
+	service, h, forge, meta, now := overlapFixture(t)
+	forge.activity = overlapActivity(t, now.Add(-time.Minute), "teammate", []string{"unrelated.go"}, "app/retry.go times out")
+	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: meta.ID, Repository: "o/r", Number: 8, State: tickets.InProgress}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := service.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	w, err := readFleetWakes(h.State)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if area, ok := w.SameArea[meta.ID]; !ok || len(area.Overlaps) != 0 {
+		t.Fatalf("same area = %+v, %v, want the read kept with nothing on the card: issue #8 is the goblin's own ticket", area, ok)
+	}
+}
+
+func TestOverlapReadForgetsTheCardOfACleanedUpGoblin(t *testing.T) {
+	// Arrange
+	service, h, _, meta, now := overlapFixture(t)
+	if err := service.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	if w, err := readFleetWakes(h.State); err != nil || len(w.SameArea[meta.ID].Overlaps) == 0 {
+		t.Fatalf("same area = %+v, %v, want the teammate's pull request kept first", w.SameArea, err)
+	}
+	if err := state.RemoveTaskMeta(h.State, meta.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := service.checkFleet(context.Background(), now.Add(11*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	w, err := readFleetWakes(h.State)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if area, ok := w.SameArea[meta.ID]; ok {
+		t.Fatalf("same area = %+v, want nothing kept for a goblin the fleet no longer has", area)
 	}
 }
