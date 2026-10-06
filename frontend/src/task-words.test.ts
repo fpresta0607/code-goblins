@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { listItem, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
-import { parseSnapshot, type Task } from "./types.ts";
+import { listItem, pauseStatus, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
+import { parseSnapshot, type CIDuration, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
 const lifecycle = (fields: Record<string, unknown>) => ({ phase: "paused", action: "pause", at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, ...fields });
@@ -149,4 +149,36 @@ test("a paused goblin says what resumes it, in words, from its pause's condition
     ["a deploy", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9@" + "a".repeat(40) }, /^It resumes by itself when its deploy finishes\.$/],
   ];
   for (const [name, pause, said] of cases) assert.match(taskSummary(paused(pause), [blocker]).sentence, said, name);
+});
+
+test("a paused card says why it waits and what resumes it in a few words, in place of Paused", () => {
+  // Arrange
+  const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
+  const runs = (repository: string, kind: string, minutes: number[]): CIDuration[] => minutes.map((minute) => ({ repository, kind, seconds: minute * 60 }));
+  const durations = [...runs("o/r", "ci", [15, 12, 13]), ...runs("o/r", "deploy", [10, 11]), ...runs("o/other", "deploy", [2])];
+  const head = "@" + "a".repeat(40);
+  const cases: [string, Record<string, unknown> | undefined, CIDuration[], string | RegExp][] = [
+    ["memory", { reason: "memory" }, [], "Memory: resumes at 5 GB free"],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], /^Allowance: resumes Oct \d+, \d+:27 [AP]M$/],
+    ["the Overlord", { reason: "overlord" }, [], "Paused by you"],
+    ["a question", { reason: "question", until: "q-7" }, [], "Waiting for your answer"],
+    ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Waiting on Pause, Resume and Stop on the board"],
+    ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Waiting on another task"],
+    ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, [], "Waiting on PR #12 to merge"],
+    ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Resumes Oct \d+, \d+:00 [AP]M$/],
+    ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, durations, "Waiting on CI, usually 13 min"],
+    ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Waiting on CI"],
+    ["a deploy with an even count of runs", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, durations, "Waiting on deploy, usually 11 min"],
+    ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, durations, "Waiting on deploy"],
+    ["a pause from before pauses had reasons", undefined, [], "Paused"],
+  ];
+
+  for (const [name, pause, measured, said] of cases) {
+    // Act
+    const status = pauseStatus(pause && { until: "", at: "2026-10-05T16:30:06Z", ...pause } as never, [blocker], measured);
+
+    // Assert
+    if (typeof said === "string") assert.equal(status, said, name);
+    else assert.match(status, said, name);
+  }
 });
