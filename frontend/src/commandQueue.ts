@@ -23,8 +23,10 @@ export const asItems = (snapshot: Snapshot): Item[] => [
 ];
 const task = (item: Item) => item.kind === "credential" ? item.request.task : item.kind === "question" ? item.question.task : item.kind === "review" ? item.review.task : item.run.task;
 const created = (item: Item) => Date.parse(item.kind === "credential" ? item.request.created_at : item.kind === "question" ? item.question.created_at : item.kind === "review" ? item.review.created_at : item.run.created_at) || Number.MAX_SAFE_INTEGER;
-const closed = (item: Item) => Date.parse(item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
-  : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at) || 0;
+// When an item closed, as its History row says.
+export const closedAt = (item: Item) => item.kind === "credential" ? item.request.closed_at || item.request.created_at : item.kind === "question" ? item.question.answered_at || item.question.created_at
+  : item.kind === "review" ? item.review.updated_at : item.run.finished_at || item.run.ran_at || item.run.created_at;
+const closed = (item: Item) => Date.parse(closedAt(item)) || 0;
 // A run stays in the stack while it runs, so its card shows the result.
 export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
@@ -216,7 +218,43 @@ export function answeredLabel(question: Question): string {
   if (!question.answer) return who + " answered it";
   // A board answer still on its way says so until its reader has it.
   const onItsWay = question.status === "succeeded" ? "" : " (not yet delivered to " + (question.task ? "the goblin" : "the CFO") + ")";
-  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + question.answer) + onItsWay;
+  return (question.answer_kind === "other" ? who + " wrote: " + question.answer : who + " chose " + (cfoReason(question) ? question.answered_option : question.answer)) + onItsWay;
+}
+
+// The reason the CFO gave with its choice: cfo answer --note joins it to the
+// choice as "<choice>. <reason>".
+const cfoReason = (question: Question) => question.answered_by === "cfo" && question.answered_option && question.answer.startsWith(question.answered_option + ". ")
+  ? question.answer.slice(question.answered_option.length + 2) : "";
+
+// The line under an answer in History: the CFO's reason, or the CFO's answer
+// his change replaced.
+export function answerReason(question: Question): string {
+  if (question.replaced_answer) return "Replaced the CFO's answer: " + question.replaced_answer;
+  const reason = cfoReason(question);
+  return reason ? "Reason: " + reason : "";
+}
+
+// Who answered, as History marks it: you, the CFO, or the CFO while you were
+// away. A question nobody answered, or whose answer is still on its way or
+// did not arrive, keeps the mark of what became of it, so its row reads sent,
+// then delivered.
+export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
+  if (questionOutcome(question) !== "answered" || question.status !== "succeeded") return "";
+  if (question.answered_by !== "cfo") return "you";
+  return question.answered_away ? "away" : "cfo";
+}
+
+// Whether he can still change the CFO's answer to a goblin's question to his
+// own: the goblin that asked is still the one running and has reported
+// nothing since, so it has not acted on it, and no change is on its way. The
+// supervisor checks the same again before the goblin hears a word.
+export function canChange(question: Question, snapshot: Snapshot): boolean {
+  if (!question.task || question.status !== "succeeded" || question.answered_by !== "cfo" || question.answer_id || !question.answered_at) return false;
+  const task = snapshot.tasks.find((candidate) => candidate.id === question.task);
+  if (!task || task.generation !== question.generation) return false;
+  const change = snapshot.actions.find((action) => action.id === question.change_id);
+  if (change && change.status !== "failed") return false;
+  return !task.reported_at || Date.parse(task.reported_at) <= Date.parse(question.answered_at);
 }
 
 export function outcomeIcon(outcome: QuestionOutcome): IconName {

@@ -684,7 +684,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "run" {
@@ -724,6 +724,9 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
+	}
+	if a.Kind == "answer_change" {
+		return s.changeAnswer(ctx, a)
 	}
 	if a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
@@ -882,9 +885,12 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity   string    `json:"activity"`
-	Report     string    `json:"report"`
-	LastReport string    `json:"last_report"`
+	Activity   string `json:"activity"`
+	Report     string `json:"report"`
+	LastReport string `json:"last_report"`
+	// ReportedAt is when the goblin wrote its latest report, so the board
+	// can tell whether it reported since an answer it was given.
+	ReportedAt time.Time `json:"reported_at"`
 	Handoff    bool      `json:"handoff"`
 	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
@@ -1106,7 +1112,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		activity, pr := statusActivity(lines, spawned)
-		lastReport, _ := taskSessionSummary(lines, spawned)
+		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
@@ -1119,7 +1125,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
