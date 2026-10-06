@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -373,6 +374,28 @@ func TestReportedProductionDefectJumpsClearedPausesAndQueue(t *testing.T) {
 		}
 	}
 	t.Fatal("board report did not explain the ordering exception")
+}
+
+func TestSnapshotMarksTheQueuedProductionDefectForTheBoard(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	queueBriefedTask(t, h, "- **next-task** - Ship it\n- **urgent-task** - Repair production (priority: production-defect)", plainBrief)
+	writeFile(t, filepath.Join(h.Data, "urgent-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "urgent-task"))
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	priorities := map[string]string{}
+	for _, task := range snapshot.Tasks {
+		priorities[task.ID] = task.Priority
+	}
+	if want := map[string]string{"task-1": "", "next-task": "", "urgent-task": "production-defect"}; !maps.Equal(priorities, want) {
+		t.Fatalf("priorities=%v, want %v", priorities, want)
+	}
 }
 
 func TestFailedAutomaticStartDoesNotHoldTheSlotOrRetryEveryReading(t *testing.T) {

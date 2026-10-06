@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, poolWarning, refusalStands, startBlock, startOutcome, tighter } from "./start.ts";
+import { capacityLine, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolWarning, refusalStands, slotBlock, startBlock, startOutcome, tighter } from "./start.ts";
 import { parseSnapshot, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
@@ -145,5 +145,66 @@ test("a passing refusal lapses once a newer snapshot shows Start no longer block
 
     // Assert
     assert.equal(stands, want, name);
+  }
+});
+
+// capped is a machine with ample memory and the given live goblins, cap,
+// configured maximum and slots left.
+const capped = (live: number, limit: number, configured: number): Memory => ({ ...memory(9), capacity: { live, limit, configured, slots: Math.max(0, limit - live) } });
+
+test("the cap line says how many goblins are live against the cap, and the setting when memory lowers it", () => {
+  const cases: [string, Memory, { live: string; note: string }][] = [
+    ["under the setting", capped(3, 8, 8), { live: "3 of 8", note: "" }],
+    ["memory lowers the cap", capped(5, 5, 8), { live: "5 of 5", note: "Memory allows 5 of the 8 set" }],
+  ];
+  for (const [name, machine, want] of cases) assert.deepEqual(capacityLine(machine.capacity!), want, name);
+});
+
+test("a Start or Resume past the cap is refused on the board with its reason", () => {
+  // Arrange
+  const cases: [string, Memory | null, string][] = [
+    ["a slot is free", capped(3, 8, 8), ""],
+    ["the setting is reached", capped(8, 8, 8), "No free slot: 8 of 8 goblins live"],
+    ["memory lowers the cap to what is live", capped(5, 5, 8), "No free slot: 5 of 5 goblins live"],
+    ["a board that reads no cap", memory(9), ""],
+    ["a board that reads no memory", null, ""],
+  ];
+
+  for (const [name, machine, want] of cases) {
+    // Act
+    const blocked = startBlock(task(), machine, false);
+
+    // Assert
+    assert.equal(slotBlock(machine), want, name);
+    assert.equal(blocked, want, name);
+  }
+});
+
+test("Next sits on the card the supervisor's order for a free slot takes first", () => {
+  // Arrange
+  const now = Date.parse("2026-10-06T12:00:00Z");
+  const paused = (id: string, reason: string, until: string, at: string) => ({ id, phase: "paused", generation: id + "-1", verified: false,
+    lifecycle: { phase: "paused", action: "pause", at, kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason, until, at } } });
+  const queued = (id: string, fields: Record<string, unknown> = {}) => ({ id, phase: "queued", brief: true, verified: false, ...fields });
+  const board = (machine: Memory, tasks: Record<string, unknown>[]) => parseSnapshot({ healthy: true, memory: machine, tasks });
+  const cases: [string, Snapshot, ReturnType<typeof nextInOrder>][] = [
+    ["only the queue", board(memory(9), [queued("first"), queued("second")]), { id: "first", text: "Next up", tone: "" }],
+    ["the queue while memory is short", board(memory(4.2), [queued("first")]), { id: "first", text: "Next at 5 GB", tone: "waiting" }],
+    ["a queued task waiting on another goblin is passed over", board(memory(9), [queued("held", { dependencies: ["other"] }), queued("free")]), { id: "free", text: "Next up", tone: "" }],
+    ["a goblin paused for memory resumes before the queue", board(memory(4.2), [queued("first"), paused("later", "memory", "", "2026-10-06T11:00:00Z"), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "older", text: "Next up", tone: "waiting" }],
+    ["an allowance whose reset passed counts as cleared", board(memory(9), [queued("first"), paused("reset", "allowance", "2026-10-06T11:59:00Z", "2026-10-05T10:00:00Z")]), { id: "reset", text: "Next up", tone: "" }],
+    ["an allowance not yet reset holds no slot", board(memory(9), [queued("first"), paused("later", "allowance", "2026-10-06T13:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a goblin blocked on a date does not stop the queue", board(memory(9), [queued("first"), paused("dated", "dependency", "date:2026-10-07T09:00:00Z", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a goblin waiting on the Overlord never holds Next", board(memory(9), [queued("first"), paused("his", "overlord", "", "2026-10-05T10:00:00Z"), paused("asks", "question", "q-1", "2026-10-05T10:00:00Z")]), { id: "first", text: "Next up", tone: "" }],
+    ["a reported production defect jumps paused goblins and the queue", board(memory(9), [queued("first"), queued("urgent", { priority: "production-defect" }), paused("older", "memory", "", "2026-10-06T10:00:00Z")]), { id: "urgent", text: "Production defect: jumps the queue", tone: "defect" }],
+    ["nothing to start", board(memory(9), []), null],
+  ];
+
+  for (const [name, snapshot, want] of cases) {
+    // Act
+    const next = nextInOrder(snapshot, now);
+
+    // Assert
+    assert.deepEqual(next, want, name);
   }
 });

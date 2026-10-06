@@ -917,6 +917,9 @@ type Task struct {
 	Switching     bool                `json:"switching,omitempty"`
 	Notes         []string            `json:"notes,omitempty"`
 	Progress      *WorkProgress       `json:"progress,omitempty"`
+	// Priority is a queued task's backlog priority; production-defect starts
+	// it ahead of the rest, and the board says it jumped the order.
+	Priority string `json:"priority,omitempty"`
 	Evaluation
 }
 
@@ -1199,7 +1202,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		task.Starting = task.ID == starting
 		if task.Phase == "queued" {
 			if queued, err := s.queuedTask(task.ID); err == nil {
-				task.QueueRevision, task.Detail = queued.Revision, queued.Detail
+				task.QueueRevision, task.Detail, task.Priority = queued.Revision, queued.Detail, queued.Row.Priority
 				brief := filepath.Join(s.Store.Home.Data, task.ID, "brief.md")
 				named, _ := kept(&s.reads, "brief-settings", []string{brief}, func() (map[string]string, error) { return briefSettings(brief), nil })
 				settings := queuedEngine(queued.Row, named)

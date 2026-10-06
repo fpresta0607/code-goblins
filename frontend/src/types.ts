@@ -61,7 +61,14 @@ export interface Task extends Evaluation {
   brief: boolean;
   starting: boolean;
   start_error: string;
+  // priority is a queued task's backlog priority: production-defect starts
+  // it ahead of every other start and resume.
+  priority: string;
+  // progress is a live goblin's last real progress: a commit, a push, a gate
+  // step or a new status report, and when.
+  progress?: WorkProgress;
 }
+export interface WorkProgress { at: string; source: string }
 export interface LifecycleStatus {
   phase: string; action: string; at: string; kept: string[]; stopped: string[]; problems: string[];
   handoff_saved: boolean; validation_restarts: boolean;
@@ -78,7 +85,13 @@ export interface PauseCondition { reason: string; until: string; at: string }
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; floor: number; next: number; holders: CommitHolder[];
+  // capacity is the cap on live goblins: the configured maximum, lowered to
+  // what free memory and commit carry, and the slots left under it.
+  capacity?: FleetCapacity;
 }
+export interface FleetCapacity { live: number; limit: number; configured: number; slots: number }
+// CIDuration is how long one finished CI run or deploy took in a repository.
+export interface CIDuration { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
@@ -194,6 +207,7 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  ci_durations: CIDuration[];
   afk: Afk;
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
@@ -520,11 +534,13 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, floor, next, holders, capacity }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+      ...(capacity == null ? {} : { capacity: ((c) => ({ live: number(c.live), limit: number(c.limit), configured: number(c.configured), slots: number(c.slots) }))(object(capacity)) }),
     }))(object(v.memory)),
+    ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
@@ -565,6 +581,8 @@ export function parseSnapshot(value: unknown): Snapshot {
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),
         start_error: string(t.start_error),
+        priority: t.priority === undefined ? "" : string(t.priority),
+        ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         phase: string(t.phase),
         reason: string(t.reason),
         head: string(t.head),

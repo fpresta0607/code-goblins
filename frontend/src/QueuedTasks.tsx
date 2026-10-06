@@ -4,7 +4,7 @@ import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
 import { TaskCard } from "./TaskCard";
 import { SubscriptionDial } from "./subscription-dial";
-import { memoryBlock, nextChip, queueBlock } from "./start";
+import { nextInOrder } from "./start";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 
@@ -19,7 +19,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
 }) {
   const memory = snapshot.memory;
   const tasks = queuedTasks(snapshot);
-  const nextTask = tasks.find((task) => !queueBlock(task));
+  const next = nextInOrder(snapshot, now);
   return <>
     {(memory || !!snapshot.subscriptions?.length) && <div className="task-meters">
       {memory && <MemoryMeter memory={memory} />}
@@ -29,7 +29,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, cardStart,
     </div>}
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={<p className="column-empty">Nothing queued</p>}
       renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
-        next={task.id === nextTask?.id ? { text: nextChip(memory), waiting: !!memoryBlock(memory) } : undefined}
+        next={task.id === next?.id ? next : undefined}
         start={cardStart(task)} onSelect={onSelect} onTerminal={onSelect} />} /></RenderBoundary>
   </>;
 }

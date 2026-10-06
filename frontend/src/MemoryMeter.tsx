@@ -1,6 +1,6 @@
 import type { Memory } from "./types";
 import { Icon } from "./Icon";
-import { freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighter } from "./start";
+import { capacityLine, freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighter } from "./start";
 
 // Free memory at the head of Tasks, on a bar marked with the floor under
 // which nothing starts and the mark at which the CFO starts the next task
@@ -11,10 +11,11 @@ import { freeGigabytes, holdersLine, meterScale, meterState, poolWarning, tighte
 // so that neither leaves the box. While commit (memory plus
 // page file) is the tighter of the two, the meter shows commit instead and
 // names the apps holding the most of it; a leaking paged pool gets a line of
-// its own.
+// its own. Under it, the goblins live against the cap on live goblins, with
+// the setting while memory lowers the cap.
 export function MemoryMeter({ memory }: { memory: Memory }) {
   const state = meterState(memory), scale = meterScale(memory), shown = tighter(memory);
-  const holders = holdersLine(memory), warning = poolWarning(memory);
+  const holders = holdersLine(memory), warning = poolWarning(memory), capacity = memory.capacity && capacityLine(memory.capacity);
   return <div className="memory" role="group" aria-label="Memory">
     <div className="memory-line"><span>{shown.isCommit ? "Commit free (memory plus page file)" : "Memory free"}</span><strong>{freeGigabytes(shown.free)} GB</strong></div>
     <div className="memory-bar" aria-hidden="true">
@@ -29,6 +30,8 @@ export function MemoryMeter({ memory }: { memory: Memory }) {
     </div>
     {holders && <p className="memory-holders">{holders}</p>}
     {warning && <p className="memory-warning"><Icon name="warning" />{warning}</p>}
+    {capacity && <div className="memory-line memory-capacity"><span>Goblins live</span><strong>{capacity.live}</strong></div>}
+    {capacity?.note && <p className="memory-holders">{capacity.note}</p>}
     <p className="sr-only">{state.text}</p>
   </div>;
 }
