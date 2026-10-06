@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Snapshot } from "./types";
+import { message, request } from "./api";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
@@ -18,9 +20,11 @@ import "./cfo-pin.css";
 // Command Center appears on it and glows, with how many wait, and that is the
 // whole signal. With no CFO running, which he sees only after choosing the
 // board without one, its button leads back to the first-run page to start
-// one. A CFO still starting has not registered yet: Claude Code registers
-// through its SessionStart hook after onboarding and sign-in, and a Codex or
-// pi CFO when its first prompt runs cfo register.
+// one. A CFO that was closed, however it ended, is said to be closed, with
+// Reopen as its one action, which brings it back as goblins does. A CFO still
+// starting has not registered yet: Claude Code registers through its
+// SessionStart hook after onboarding and sign-in, and a Codex or pi CFO when
+// its first prompt runs cfo register.
 // The mark of the harness the registered CFO runs sits beside its portrait,
 // with the model of its newest session in that harness in its tip. While AFK
 // mode is on nothing glows: the bar says since when and how much was decided
@@ -29,13 +33,35 @@ import "./cfo-pin.css";
 // Center.
 export function CfoPin({ snapshot, onOpen, onCommand, onStart }: { snapshot: Snapshot; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
+  const { answer } = useAfkActions();
+  const [reopening, setReopening] = useState(false);
+  const [failure, setFailure] = useState("");
+  // The board shows the reopened CFO from its next snapshot, so a reopen
+  // that worked has nothing more to do here.
+  const reopen = async () => {
+    setReopening(true);
+    setFailure("");
+    try {
+      await request("/api/cfo/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: "{}" });
+    } catch (error) {
+      setFailure(message(error));
+    } finally {
+      setReopening(false);
+    }
+  };
+  if (snapshot.cfo_closed) return <div className="cfo-pin">
+    <div className="cfo-rest" role="group" aria-label="CFO">
+      <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
+      <p>The CFO is closed. Goblins keep running.{failure && <span className="warning-text" role="alert"> {failure}</span>}</p>
+      <button className="labelled-button primary" disabled={reopening} onClick={reopen}><Icon name="play" />{reopening ? "Reopening the CFO…" : "Reopen the CFO"}</button>
+    </div>
+  </div>;
   const absent = !snapshot.cfo_runs;
   const shown = absent ? "No CFO is running." : snapshot.cfo_starting ? "Starting: answer anything it asks in its terminal." : line;
   const terminal = "Open the CFO's terminal";
   const harness = snapshot.cfo_harness;
   const model = snapshot.sessions.filter((session) => session.role === "cfo" && session.harness === harness).at(-1)?.model || "";
   const held = stillHeld(snapshot.afk);
-  const { answer } = useAfkActions();
   return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       {absent

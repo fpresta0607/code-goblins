@@ -3,6 +3,7 @@ import type { Task } from "./types";
 import type { EngineSelection } from "./engine-catalog";
 import { Icon } from "./Icon";
 import { harnessName } from "./workflow";
+import { withoutHarness } from "./task-words";
 
 export function EngineSwitchDialog({ task, choice, onSwitch, onClose }: { task: Task; choice: EngineSelection; onSwitch: (when: "turn-end" | "now") => void; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -15,7 +16,7 @@ export function EngineSwitchDialog({ task, choice, onSwitch, onClose }: { task: 
   }, []);
   return <dialog ref={dialog} className="stop-task-dialog engine-switch-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <h2 id={title}>Switch this task's engine?</h2>
-    <p className="muted">{task.title || task.id}</p>
+    <p className="muted">{withoutHarness(task.title) || task.id}</p>
     <p>{harnessName(choice.harness)} · {choice.model} {choice.effort}</p>
     <p id={description}>The old terminal closes and the session is handed over. The task, worktree and branch stay.</p>
     <p className="preservation-notice"><Icon name="shield" />Uncommitted work stays.</p>

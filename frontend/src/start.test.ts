@@ -52,7 +52,7 @@ test("free memory rounds down, so just under the floor or start mark never reads
 
 test("the next eligible task waits for 5 GB when memory is short", () => {
   assert.equal(nextChip(memory(5)), "Next up");
-  assert.equal(nextChip(memory(4.2)), "Next, at 5 GB free");
+  assert.equal(nextChip(memory(4.2)), "Next at 5 GB");
   assert.equal(nextChip(null), "Next up");
 });
 
@@ -74,7 +74,7 @@ test("Start, Resume and the next task name commit when it is the one short, and 
   assert.equal(memoryBlock(memory(4.9, 2.5)), "5 GB of commit free to keep the 4 GB floor", "both short names the tighter");
   assert.equal(memoryBlock(memory(5, 5)), "");
   assert.equal(memoryBlock(null), "");
-  assert.equal(nextChip(memory(16, 4.2)), "Next, at 5 GB free");
+  assert.equal(nextChip(memory(16, 4.2)), "Next at 5 GB");
   assert.equal(nextChip(memory(5, 5)), "Next up");
 });
 

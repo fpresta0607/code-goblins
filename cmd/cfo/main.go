@@ -55,6 +55,7 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal; cfo resume <id> resumes a paused task
   update    run by a verified candidate build: install it as this home's cfo.exe and goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
@@ -110,7 +111,7 @@ commands:
   cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]   hand the Overlord a document as a Command Center item with Open and Download; the file is copied, a goblin's from its own folders, and the item leaves the queue when he opens or downloads it
   cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>   registered CFO asks the Overlord to run a command with one click in the Command Center; the file is read once and runs as a script file, and the output and exit code come back as his answer; --interactive runs it in the window itself, which stays open, for a sign-in or anything that needs the console
   cfo run-request --withdraw <id> --reason "<why>"   registered CFO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
-  cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context
+  cfo present --id <stable-id> --kind browser|review --url <safe-url> [--task <id> [--generation <spawn-gen>]] [--state active|ended] [--ttl 5m] [--watch "<what to watch>"]   report a successful presentation without opening a browser or waiting; omit task only from verified primary CFO context; only one with --watch, a goblin asking the Overlord to watch it, reaches his Command Center
   hook <name>  claude code hook entry points (session-start, pretool-bash, pretool-arm, pretool-cd, pretool-subagent, turnend-guard, stop-autoarm)
 `
 
@@ -170,6 +171,9 @@ type commandRuntime struct {
 	// so a CFO started in terminal cfo is shown before it registers, never
 	// started twice.
 	nativeTerminalRuns func(stateDir, id string) bool
+	// restartCFO restarts the CFO running in native terminal cfo on its
+	// conversation and returns the conversation and whether it was resumed.
+	restartCFO func(h home.Home) (supervisor.CFOConversation, bool, error)
 	// settleCFO answers the known startup dialogs of a CFO just started in
 	// native terminal cfo and returns what to tell the Overlord about them.
 	settleCFO func(ctx context.Context, stateDir, harness string) []string
@@ -326,6 +330,7 @@ func defaultCommandRuntime() commandRuntime {
 		attachNative:       attachNative,
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
+		restartCFO:         restartCFO,
 		setupAgent:         setupAgent,
 		choose:             onboarding.AskConsole,
 		repoActivity:       readRepositoryActivity,
@@ -357,7 +362,14 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintln(stderr, "usage: goblins setup")
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, true, "")
+		return runQuickstart(stdout, stderr, runtime, true, false, "")
+	}
+	if len(args) > 0 && args[0] == "resume" && (runtime.goblins || len(args) == 1) {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: goblins resume")
+			return 2
+		}
+		return runQuickstart(stdout, stderr, runtime, false, true, "")
 	}
 	if runtime.goblins && (len(args) == 0 || strings.HasPrefix(args[0], "-")) {
 		fs := flag.NewFlagSet("goblins", flag.ContinueOnError)
@@ -374,7 +386,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 			fmt.Fprintf(stderr, "goblins: --harness %q is not claude, codex or pi\n", *harness)
 			return 2
 		}
-		return runQuickstart(stdout, stderr, runtime, false, *harness)
+		return runQuickstart(stdout, stderr, runtime, false, false, *harness)
 	}
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)

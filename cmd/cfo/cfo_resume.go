@@ -19,6 +19,51 @@ var (
 	cfoResumeWait   = time.Sleep
 )
 
+// comeBack starts agent as the CFO of h in native terminal cfo on the
+// conversation resume names, and reports whether it holds: a terminal that
+// ended within cfoResumeSettle is a harness that could not resume it.
+func comeBack(h home.Home, agent string, resume []string, start func(h home.Home, project, harness string, args []string) error, runs func(stateDir, id string) bool) (bool, error) {
+	if err := start(h, h.Root, agent, resume); err != nil {
+		return false, err
+	}
+	cfoResumeWait(cfoResumeSettle)
+	return runs(h.State, supervisor.NativeCFOTerminal), nil
+}
+
+// reopenCFO brings the home's closed CFO back for the board's Reopen, as
+// goblins brings it back: as the agent the home remembers, in native terminal
+// cfo, on the conversation it last registered with where its harness resumes
+// one, and on a new one when there is none or the resumed terminal does not
+// hold. The board shows the CFO in a native terminal, so it starts in one
+// wherever it ran before.
+func reopenCFO(h home.Home, start func(h home.Home, project, harness string, args []string) error, runs func(stateDir, id string) bool) error {
+	agent, err := cfoHarness(h.State)
+	if err != nil {
+		return err
+	}
+	resume, _ := cfoResume(h, agent)
+	if len(resume) > 0 {
+		held, err := comeBack(h, agent, resume, start, runs)
+		if err != nil {
+			return err
+		}
+		if held {
+			supervisor.ClearCFOConversationLeft(h.State)
+			return nil
+		}
+	}
+	if err := start(h, h.Root, agent, nil); err != nil {
+		return err
+	}
+	if len(resume) > 0 {
+		left := supervisor.CFOConversationLeft{Harness: agent, Session: resume[len(resume)-1], Resume: resume}
+		if err := supervisor.RecordCFOConversationLeft(h.State, left); err != nil {
+			return fmt.Errorf("the CFO started on a new conversation, but the board could not be told that its conversation %s could not be resumed: %w", left.Session, err)
+		}
+	}
+	return nil
+}
+
 // cfoTranscriptLimit is the size past which a CFO starts a new conversation
 // rather than resume its last one: the Overlord's rule (2026-09-29) that CFO
 // sessions stay small, about 20 MB.
@@ -26,9 +71,10 @@ const cfoTranscriptLimit = 20 << 20
 
 // cfoResume is how a CFO starting as agent comes back after the home's CFO
 // was closed. args are the harness's own arguments that resume the
-// conversation it last registered with, or none, with the reason when it
-// starts a new one instead; a CFO last run as another harness, or in Herdr,
-// starts a new conversation with nothing to say.
+// conversation it last registered with, or none, with why that conversation
+// cannot be resumed when it starts a new one instead; a CFO last run as
+// another harness, or in Herdr, starts a new conversation with nothing to
+// say.
 func cfoResume(h home.Home, agent string) (args []string, why string) {
 	conversation, err := supervisor.ReadCFOConversation(h.State)
 	if err != nil || conversation.Host == "" {
@@ -40,13 +86,13 @@ func cfoResume(h home.Home, agent string) (args []string, why string) {
 	switch agent {
 	case "claude":
 		if size := claudeTranscriptSize(h.Root, conversation.Session); size > cfoTranscriptLimit {
-			return nil, fmt.Sprintf("Its last conversation is %d MB, past the %d MB a CFO resumes, so the CFO starts a new one.", size>>20, cfoTranscriptLimit>>20)
+			return nil, fmt.Sprintf("Its last conversation is %d MB, past the %d MB a CFO resumes", size>>20, cfoTranscriptLimit>>20)
 		}
 		return []string{"--resume", conversation.Session}, ""
 	case "codex":
 		return []string{"resume", conversation.Session}, ""
 	}
-	return nil, fmt.Sprintf("%s has no way to resume a conversation, so the CFO starts a new one.", agent)
+	return nil, fmt.Sprintf("%s has no way to resume a conversation", agent)
 }
 
 // claudeProjectFolder names the folder under ~\.claude\projects where Claude

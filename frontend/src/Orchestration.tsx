@@ -5,7 +5,7 @@ import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type Activit
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession } from "./lineageTree";
-import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
+import { arrange, asksOverlord, expireTraffic, fitScale, fleetTraffic, NODE_HEIGHT, NODE_WIDTH, nodeStatus, personaFor, PULSE_MS, reportTraffic, settle, statusPhase, waitingOn, workflowNodes, type Point, type WorkflowNode } from "./workflow";
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
@@ -221,7 +221,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             const activity = activityDisplay(connected ? effects : [],node.session?.id || "",parent?.session?.id || "");
             const effect = activity.received || activity.created;
             const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
-            const phase = owner ? node.task?.phase : node.session?.runtime?.state || node.session?.phase;
+            const phase = owner && node.task ? statusPhase(node.task) : node.session?.runtime?.state || node.session?.phase;
             const children = nodes.some((child) => child.parent === node.id);
             const asking = owner && asksOverlord(snapshot, node.task?.id || ""), status = nodeStatus(node, asking);
             return <article key={node.id} className={"flow-node" + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }}>
