@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"os"
 	"path/filepath"
@@ -85,5 +86,5 @@ func Save(path string, v any) error {
 	if e != nil {
 		return e
 	}
-	return os.WriteFile(path, append(b, '\n'), 0644)
+	return fsx.AtomicWriteFile(path, append(b, '\n'))
 }
