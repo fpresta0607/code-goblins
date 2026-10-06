@@ -12,8 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -164,6 +167,17 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		fmt.Fprintf(stderr, "cfo gate test: task attribution unavailable: %v\n", taskErr)
 	}
 
+	// A run under the disk floor is refused before it takes a turn: its
+	// tests write build output and test homes, and a full disk fails them
+	// for no reason of their own.
+	if short, err := gateDiskShortfall(runtime, plan.Root); err != nil || short != "" {
+		if err != nil {
+			short = "free disk cannot be read, so the run cannot be shown to leave the disk floor free: " + err.Error()
+		}
+		fmt.Fprintf(stderr, "cfo gate test: %s; a run needs the floor free\n", short)
+		report.Status, report.QueueNote = "failed", short
+	}
+
 	who := fmt.Sprintf("%s at %.8s, %s level, in %s", report.Project, plan.Commit, plan.Level, plan.Root)
 	if report.Task != "" {
 		who += ", task " + report.Task
@@ -291,6 +305,28 @@ func takeGateTurn(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintf(stdout, "cfo gate test: took its turn after %s\n", turn.Waited.Round(time.Second))
 	}
 	return turn, err
+}
+
+// gateDiskShortfall reads the free disk of the drive the run's checkout is on
+// against the disk floor, the one the fleet's home sets when this runs for a
+// home and the default otherwise, and says why the run does not fit, or ""
+// when it does.
+func gateDiskShortfall(runtime commandRuntime, dir string) (string, error) {
+	if runtime.gateDisk != nil {
+		d, err := runtime.gateDisk(dir)
+		return d.Shortfall(), err
+	}
+	settings := fleetconfig.Defaults()
+	if h, err := home.Resolve(); err == nil && home.IsPrimary(h) {
+		if settings, err = fleetconfig.Read(h.Root); err != nil {
+			return "", err
+		}
+	}
+	reading, err := disk.Read(dir)
+	if err != nil {
+		return "", err
+	}
+	return supervisor.Disk{Reading: reading, Floor: fleetconfig.Bytes(settings.DiskFloorGB)}.Shortfall(), nil
 }
 
 // gateBudget is how long the tests of a level may run: twice go test's 45

@@ -70,7 +70,7 @@ The fleet core is a compiled Go binary (`cfo.exe`). Goblins run as real Windows 
 
 ### Isolated work by default
 
-Every goblin receives its own in-repository git worktree at `<project>/.worktrees/gb-<id>`. Parallel workers do not edit the same checkout, and cleanup refuses to destroy unlanded work.
+Every goblin receives its own git worktree of your checkout in the CFO home, `worktrees\<project folder>\<id>`, and a scratch folder of its own for its temporary files, so your checkout gains no folder and no file. Parallel workers do not edit the same checkout, and cleanup refuses to destroy unlanded work.
 
 ### Harness-agnostic workers
 
@@ -128,7 +128,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 It ends with the [quick start](#quick-start) in that same window, where `goblins` works at once.
 Code Goblins in the Start menu runs the quick start again at any time, and opens the board in [the desktop app](#the-desktop-app) instead where the install put one.
 
-To work on Code Goblins itself, clone it and install from the clone, which needs Go:
+To work on Code Goblins itself, clone it and install from the clone, which needs Go and Node.js: `-Dev` builds the programs in a folder of its own and installs them into the same per-user home, so the clone keeps no program.
 
 ```powershell
 git clone https://github.com/fpresta0607/code-goblins.git
@@ -145,7 +145,7 @@ The one-line install runs it only when it matches the release's `SHA256SUMS`, an
 A `cfo.exe` saved from a browser gets SmartScreen's "Windows protected your PC" with an Unknown publisher, and Smart App Control, where it is on, blocks it until a signed release.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
-Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for the one-line install and the clone itself for `-Dev`, outside every project repository and kept by `goblins uninstall`.
+Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository and kept by `goblins uninstall`.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
@@ -255,7 +255,7 @@ Hook setup, evidence rules and terminal limits are in [the native board guide](d
 
 The board also runs in a desktop window of its own, `goblins-window.exe`: the same board in Microsoft's WebView2, with a tray icon and Windows notifications.
 It holds no fleet state, and quitting it leaves the supervisor, the CFO and every goblin running.
-Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home beside `goblins.exe`: `.\install.cmd -Dev` builds it there, unsigned, and says so, and the one-line install and `CodeGoblinsSetup.exe` put it there from a release that ships it, as releases from v0.4.0 on do.
+Its source is `cmd/goblins-window` in this repository, and it sits in the CFO home's `bin` beside `goblins.exe`: `.\install.cmd -Dev` builds it, unsigned, says so, and installs it there, and the one-line install and `CodeGoblinsSetup.exe` put it there from a release that ships it, as releases from v0.4.0 on do.
 Where an install put it in the home, opening it is enough: Code Goblins in the Start menu starts the window alone, with no terminal, and it finds the supervisor or starts it and shows the board, where the first-run page starts the CFO while none runs.
 A window the home only kept from before, under an install that ships none, still opens from Code Goblins, which then runs `goblins --window`.
 When the board cannot open, the window says why in a message of its own, in the words `goblins` would use in a terminal.
@@ -306,8 +306,9 @@ A move the board cannot save, such as one made while the CFO changed the queue, 
 
 The head of **Tasks** shows how much memory is free, as a number and a bar marked at the 4 GB floor and the 5 GB next-start mark.
 When free commit (memory plus page file) is the shorter of the two, the meter shows **Commit free (memory plus page file)** instead, with a line naming the three apps holding the most commit.
-A line also warns when the kernel's paged pool passes 4 GB, which means a driver is leaking memory and a reboot frees it.
+A line also warns when the kernel's paged pool passes 4 GB: Windows holds that memory, no goblin can use it, and restarting the PC frees it.
 The bar spans 10 GB, with amber below 5 GB and red below the floor.
+In the same box, under memory, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
 Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, with a tick at the 5 percent reserve.
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time and the reading's age.
 The first eligible task is marked **Next up**.
@@ -318,7 +319,7 @@ A blocked task has no Start button or Next up mark and adds no line about what i
 An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
-Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free), and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
+Start requires at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and waits while another task is starting or resuming; a refusal names whichever is short and appears on the card.
 
 In-progress cards have **Pause** and **Stop** icons, and paused cards have **Resume** and Stop, with tooltips on hover or keyboard focus.
 A queued card has **Remove** where they have Stop: a task that has not started has nothing to stop.
@@ -546,15 +547,16 @@ While it is on:
 - The CFO decides what you authorised by itself and logs each decision with its evidence.
   It gives the merge word for a goblin's pull request that is verified, green in CI on a head that holds main's tip and mergeable, names and verifies each deploy, applies a merged migration that adds or changes and reads it back, installs a merged build once the merge queue settles, and answers the goblin questions that are its own to answer.
 - These stay yours, always: a migration or command that drops or deletes data, deleting a branch, a teammate's branch or pull request, spend beyond your account's limits, your own sign-ins and identity checks, and anything a tool refuses.
-  They are never decided for you.
+  They are never decided for you, and while you are away you are not asked about them either: the CFO holds each for you with the choice it recommends, and you decide it when you are back.
 - The board does not prompt you: the Command Center does not open by itself, and the board shows no alert and sends no Windows notification.
   What would have waited on you is held for you instead, and a goblin blocked only on it moves to its next piece of work.
-  The CFO's bar says since when AFK is on and who turned it on, how much the CFO decided and how much is held, and **Held for you** under it lists each thing with what its goblin did meanwhile; the button on a row opens it in the Command Center.
+  The CFO's bar says since when AFK is on and who turned it on, how much the CFO decided and how much is held, and **Held for you** under it lists each thing with what was recommended for it and what its goblin did meanwhile; the button on a row opens it in the Command Center, where the recommended choice is marked.
   The list starts closed and opens only on your click.
   The desktop app is quiet too: its window claims what it would notify from the supervisor first, which hands out nothing in AFK mode.
 
 At your first click or key on the board after five minutes with none, the board offers to turn it off.
-Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you and what became of it, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
+When the CFO turned it on at your ask, your very first click or key offers it at once, quoting your words, so a switch made on your words meets you before anything else.
+Turning it off shows the report of the stretch on the board as one page: who turned it on and off, how much of each thing there is, what is held for you with what was recommended for it and what became of it, then what merged, deployed and installed, each with its link and its verification, what each goblin finished, and what was spent, read from `quota-axi` when it turned on and when it turned off.
 The button beside the toggle opens the last report again.
 Each time you open it, held items show their current disposition first.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what is held for you.
@@ -567,6 +569,7 @@ AFK mode was on from 2026-10-02 02:10 UTC to 2026-10-02 12:31 UTC (10h21m): turn
 
 Held for you (1), each as it stands now
 - question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?
+  The CFO recommends: Keep it held.
   Now: still waiting on you.
 
 Merged (1)
@@ -701,6 +704,12 @@ The board says when tickets wait: for that consent, or for an hour after GitHub 
 A ticket outlives the board's memory of its task: when a finished task's pull request merges weeks later, the ticket still closes.
 A project with no GitHub repository simply has no tickets.
 
+The board shows the same.
+A task's card carries its ticket's number, which opens the issue: green while it is open, purple once its task merged, grey once it closed otherwise.
+Beside it sits the avatar of each teammate whose open pull request, branch or issue meets a live goblin's branch, ringed in amber, opening that work.
+A goblin's panel names the people of its project beside the project's name, each with a GitHub avatar and username, whoever is in the goblin's area first.
+The people come from the same hourly read that decides whether a repository gets tickets, and the overlaps from the ten-minute pull request read below, so the board asks GitHub nothing of its own; a project only you work in shows neither.
+
 The same supervisor poll watches the health of every open pull request in its watched repositories, including teammates' and fork pull requests.
 It raises a `pr_health` wake for a conflict with the PR's base or a head that is behind the repository's current default branch, even while checks are pending, failed or absent.
 Each condition wakes once per head, survives a restart, and waits at least five minutes after that PR's previous health wake.
@@ -722,7 +731,8 @@ Fresh live evidence is required even after a goblin reports one PR done.
 Each item wakes once per goblin generation across restarts, acknowledgement, item closure and area changes.
 Unknown creation times, changing branch inputs and incomplete GitHub reads stay visible as unread evidence; readable overlaps can still wake, and the same repository allowance and refusal backoff applies.
 
-To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe`, restarts only the supervisor, and puts the previous build back if the new one does not serve.
+To install a newer build into a running home, run the candidate build itself with `update`: it swaps both `cfo.exe` and `goblins.exe` in the home's `bin`, restarts only the supervisor, and puts the previous build back if the new one does not serve; `bin` keeps the two builds before the current one and no more.
+A home an older build set up in a checkout is moved first, with `cfo home move` (see [Your data](#your-data)).
 A `goblins-window.exe` beside the candidate follows it into the home once the candidate serves; an open window keeps running the previous one until you quit it from its tray icon, and a window that could not be replaced leaves the update done and is named.
 If an update stops part way, it prints a recovery line that runs the candidate's kept copy and names the home and its state, so it works from any folder with both commands gone; paste it into Windows PowerShell as printed, for example:
 
@@ -732,12 +742,17 @@ $env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRID
 
 ## Your data
 
-Everything the fleet knows about your work lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins` for the one-line install, or the checkout you installed from.
-It stays local and private: nothing in it is pushed anywhere, and no project repository ever holds it.
+Everything the fleet writes lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins`, for every install.
+It stays local and private: nothing in it is pushed anywhere, and no repository ever holds it, the code-goblins clone included, which holds source only.
 
 ```text
 <CFO home>\
+  bin\                            cfo.exe, goblins.exe and the desktop window, on PATH; the current build and two before it
   state\                          the fleet's own record: tasks, status logs, the wake queue, the board
+  config\                         the gate policy, and fleet.json: the live goblin cap, the disk floor and the caches cap
+  worktrees\<project>\<task>\     each goblin's worktree of your checkout, and its extra worktrees beside it
+  scratch\<task>\                 each goblin's temporary files, which go with the task
+  caches\                         the package caches goblins share, kept under 20 GB
   data\                           your data
     backlog.md                    open work: Queued, Parked and Done
     overlord.md                   your standing directives
@@ -759,6 +774,14 @@ A home that already held data before this layout is left exactly as it is: `cfo 
 
 A private backup repository is optional.
 If you want one, make `data\` a git repository and push it to a private remote of your own; the fleet works the same without it, and no step depends on it.
+`data\.gitignore` keeps binaries, archives and logs out of it.
+
+The home stays small on its own: the binaries, records under 200 MB, capped caches, and about 0.2 GB for each running goblin, which leaves when its work merges.
+Once an hour the janitor removes what the fleet left behind: a worktree in the home no task owns once its work is on the default branch or kept as a local `archive/<branch>` tag, old builds past the two before the current one, temporary folders nothing has written to for a day, a retired task's scratch, logs and evidence (its brief, report, decisions, handoffs and status log stay, and so does anything it handed you), backups past the newest two of each kind, and cache space over the cap, using each tool's own prune.
+It never touches uncommitted work, your checkouts or Docker, and it reports what it will not remove: a worktree no task records, a new folder in your projects root that is no checkout, and a `data\` over 200 MB.
+`cfo runtime` shows what each part of the home holds, and the board shows free disk under free memory, in one box.
+
+A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 [AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
 
 ## Safety model

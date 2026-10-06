@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, poolWarning, refusalStands, startBlock, startOutcome, tighter } from "./start.ts";
-import { parseSnapshot, type Memory, type Snapshot, type Task } from "./types.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, holdersLine, memoryBlock, meterScale, meterState, nextChip, poolWarning, refusalStands, startBlock, startOutcome, tighter } from "./start.ts";
+import { parseSnapshot, type Disk, type Memory, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
@@ -85,9 +85,9 @@ test("the meter names the apps holding the most commit only while commit is the 
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
 
-test("a paged pool past 4 GB warns that a driver is leaking and a reboot frees it", () => {
+test("a paged pool past 4 GB says Windows holds it and a restart frees it", () => {
   assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: a driver is leaking memory; a reboot frees it.");
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.");
   assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
 });
 
@@ -146,4 +146,33 @@ test("a passing refusal lapses once a newer snapshot shows Start no longer block
     // Assert
     assert.equal(stands, want, name);
   }
+});
+
+// disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
+const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB });
+
+test("the disk meter says when no goblin starts and when the CFO is woken", () => {
+  assert.equal(diskState(disk(48)).tone, "ready");
+  assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
+  assert.equal(diskState(disk(15)).tone, "ready");
+  assert.deepEqual(diskState(disk(9.9)), { tone: "under", text: "Under the 10 GB mark: the CFO is woken, and nothing starts until disk frees." });
+});
+
+test("the disk bar spans twice the floor, with the mark and the floor inside it", () => {
+  assert.deepEqual(diskScale(disk(12)), { fill: 40, wake: 10 / 30 * 100, floor: 50 });
+  assert.deepEqual(diskScale(disk(400)), { fill: 100, wake: 10 / 30 * 100, floor: 50 });
+  assert.deepEqual(diskScale({ ...disk(5), total: 20 * GB }), { fill: 25, wake: 50, floor: 75 }, "a drive smaller than that spans its own size");
+});
+
+test("a start under the disk floor names the floor and the free disk", () => {
+  assert.equal(diskBlock(null), "");
+  assert.equal(diskBlock(disk(20)), "");
+  assert.equal(diskBlock(disk(13.85)), "15 GB of free disk (13.8 GB free)");
+  assert.equal(startBlock(task(), memory(8), false, disk(13.85)), "Needs 15 GB of free disk (13.8 GB free)");
+  assert.equal(startBlock(task(), memory(8), false, disk(30)), "");
+});
+
+test("a snapshot carries the disk reading, and none when the board cannot read it", () => {
+  assert.deepEqual(parseSnapshot({ healthy: true, disk: { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 } }).disk, { drive: "C:", free: 1, total: 2, floor: 3, wake: 4 });
+  assert.equal(parseSnapshot({ healthy: true }).disk, null);
 });

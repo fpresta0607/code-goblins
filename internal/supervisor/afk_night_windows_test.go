@@ -26,8 +26,10 @@ import (
 //   - A pull request passes the checks: the merge word is logged with its
 //     evidence, then its outcome, as cfo pr merge sends them (its checks are
 //     proven in cmd/cfo).
-//   - A migration that drops a table is asked about: it is held for him, an
-//     answer recorded as his is refused, and it is still waiting in the morning.
+//   - A migration that drops a table is his alone: the CFO holds it for him
+//     with its recommendation instead of asking, an answer recorded as his is
+//     refused, and it is still waiting in the morning beside what the CFO
+//     recommends.
 //   - He turns it off: the report says all of it.
 func TestANightUnderAFKMode(t *testing.T) {
 	// Arrange
@@ -71,9 +73,9 @@ func TestANightUnderAFKMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A migration that drops a table is the Overlord's alone: the CFO leaves
-	// it for him, and nothing answers it in his name.
-	if err := cfo.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, ""); err != nil {
+	// A migration that drops a table is the Overlord's alone: the CFO holds it
+	// for him with what it would choose, and nothing answers it in his name.
+	if err := cfo.PublishQuestion("drop-legacy-invoices", "Migration 0042 drops the legacy_invoices table. Apply it?", []string{"Apply it", "Keep it held"}, "Keep it held"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.holdForOverlord(time.Now()); err != nil {
@@ -118,8 +120,8 @@ func TestANightUnderAFKMode(t *testing.T) {
 	if len(report.Finished) != 1 || report.Finished[0].Task != meta.ID || report.Finished[0].PR != pr {
 		t.Errorf("finished = %+v, want the goblin's pull request", report.Finished)
 	}
-	if len(report.Held) != 1 || report.Held[0].Item != "question:drop-legacy-invoices" || !report.Held[0].Waiting {
-		t.Errorf("held = %+v, want only the migration, still waiting: the question the CFO answered is a decision", report.Held)
+	if len(report.Held) != 1 || report.Held[0].Item != "question:drop-legacy-invoices" || !report.Held[0].Waiting || report.Held[0].Recommendation != "Keep it held" {
+		t.Errorf("held = %+v, want only the migration, still waiting, with the CFO's recommendation: the question the CFO answered is a decision", report.Held)
 	}
 	if got := store.Snapshot().Questions; !slices.ContainsFunc(got, func(q Question) bool {
 		return q.ID == "drop-legacy-invoices" && q.Status == "pending" && q.AnsweredBy == ""
@@ -133,6 +135,9 @@ func TestANightUnderAFKMode(t *testing.T) {
 	var rendered bytes.Buffer
 	if err := afk.Render(&rendered, report); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), "The CFO recommends: Keep it held.") {
+		t.Errorf("the report does not say what the CFO recommends for the migration:\n%s", rendered.String())
 	}
 	t.Logf("the report the Overlord reads:\n%s", rendered.String())
 }

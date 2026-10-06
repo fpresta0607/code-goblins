@@ -63,8 +63,14 @@ func TestWorktreeTaskNamesTheGoblinWhoseWorktreeHoldsADirectory(t *testing.T) {
 		`C:\dev\app\.worktrees\gb-bad id`:                             "",
 		`C:\Users\op\AppData\Local\CodeGoblins`:                       "",
 		`C:\dev\code-goblins\.worktrees\gb-cfo-native-board\internal`: "cfo-native-board",
+		`C:\home\worktrees\app\task-3\web`:                            "task-3",
+		`C:\home\worktrees\app\task-3-proof`:                          "task-3",
+		`C:\home\worktrees\app\never-recorded`:                        "never-recorded",
+		`C:\home\worktrees\app`:                                       "",
+		`C:\home\scratch\task-3`:                                      "",
 	} {
-		if got := worktreeTask(dir); got != want {
+		owners := map[string]string{strings.ToLower(`C:\home\worktrees\app\task-3-proof`): "task-3"}
+		if got := worktreeTask(owners, `C:\home\worktrees`, dir); got != want {
 			t.Errorf("worktreeTask(%q) = %q, want %q", dir, got, want)
 		}
 	}

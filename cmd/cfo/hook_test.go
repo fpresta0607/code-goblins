@@ -26,12 +26,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
-// newPrimaryHome creates AGENTS.md, state/, and a plain git checkout in a
-// temp dir, sets CFO_HOME to it, and returns the dir.
+// newPrimaryHome creates AGENTS.md, state/, the marker cfo install writes
+// and a plain git checkout in a temp dir, sets CFO_HOME to it, and returns
+// the dir.
 func newPrimaryHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, home.InstalledMarker), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "state"), 0o755); err != nil {

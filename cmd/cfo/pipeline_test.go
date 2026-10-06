@@ -110,8 +110,16 @@ type pipelineSwitchGit struct {
 	worktree string
 }
 
-func (g pipelineSwitchGit) Acquire(context.Context, string, string) (string, error) {
+func (g pipelineSwitchGit) Acquire(context.Context, string, string, string) (string, error) {
 	return "", errors.New("unexpected worktree acquisition")
+}
+
+func (pipelineSwitchGit) Landing(context.Context, string) (worktree.Landing, error) {
+	return worktree.Landing{}, errors.New("unexpected landing check")
+}
+
+func (pipelineSwitchGit) ArchiveTag(context.Context, string, worktree.Landing, string) (string, error) {
+	return "", errors.New("unexpected archive tag")
 }
 
 func (g pipelineSwitchGit) WorktreeTop(context.Context, string) (string, error) {
@@ -141,7 +149,7 @@ func (pipelineSwitchAdapter) Validate(context.Context, execx.Runner) error {
 func (a pipelineSwitchAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	return harness.Launch{
 		Args:       []string{"--test"},
-		Env:        map[string]string{"GOTMPDIR": spec.GoTmp},
+		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMP": spec.Scratch},
 		PromptFile: spec.BriefPath,
 		Executable: string(a.kind),
 	}, nil

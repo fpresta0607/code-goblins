@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -139,7 +140,10 @@ func pauseNativeHandoff(t *testing.T, mode string) {
 	if (deliveryError == nil) != (mode == "slow") {
 		t.Fatalf("native delivery in %s mode: %v", mode, deliveryError)
 	}
-	if data, err := os.ReadFile(handoff); err != nil || string(data) != "Continue the retained branch." {
+	// The pause returns once the handoff's new name exists, which can be
+	// while the task's rename still holds it; it is read as fleet programs
+	// read, sharing deletion and waiting out the hold.
+	if data, err := fsx.ReadFile(handoff); err != nil || string(data) != "Continue the retained branch." {
 		t.Fatalf("the native task did not publish its final handoff: %q, %v", data, err)
 	}
 	if !record.HandoffSaved || record.Phase != "paused" || len(record.Problems) != 0 {

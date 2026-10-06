@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AfkActionsContext } from "./afk-actions";
 import { AfkOffer } from "./afk-offer";
-import { AFK_OFF, offersOff, turnedOff } from "./afk";
+import { AFK_OFF, offerFor, turnedOff, type Occasion } from "./afk";
 import { useAfkSwitch } from "./useAfkSwitch";
 import type { Afk, Snapshot } from "./types";
 
@@ -11,20 +11,21 @@ const AfkReportPage = lazy(() => import("./afk-report").then((module) => ({ defa
 // AFK mode over the whole board, whatever view it shows: the report, which
 // opens when AFK mode turns off and again when the CFO's bar asks, and the
 // offer to turn it off at the Overlord's first click or key after he has been
-// gone. Nothing here opens by itself while he is away: the report follows his
-// own off, and the offer his own click or key. Until the first snapshot comes
+// gone, or after the CFO turned it on at his ask. Nothing here opens by itself
+// while he is away: the report follows his own off, and the offer his own
+// click or key. Until the first snapshot comes
 // the board knows of no switch, which is off. onCommand opens the Command
 // Center at an item, or at the first that waits when it names none.
 export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Snapshot | null; now: number; onCommand: (item: string) => void; children: ReactNode }) {
   const afk = snapshot?.afk ?? AFK_OFF;
   const [prior, setPrior] = useState<Afk>(afk);
   const [reporting, setReporting] = useState(false);
-  const [offering, setOffering] = useState(false);
+  const [offering, setOffering] = useState<Occasion>("");
   const { pending, problem, turn, clear } = useAfkSwitch(snapshot?.instance ?? "");
   if (prior.state !== afk.state || prior.report !== afk.report) {
     setPrior(afk);
     if (turnedOff(prior, afk)) setReporting(true);
-    if (afk.state !== "on") setOffering(false);
+    if (afk.state !== "on") setOffering("");
   }
   // The newest AFK state, the last click or key and the newest onCommand, for
   // the listener and the actions below.
@@ -43,7 +44,8 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
     const touched = (event: Event) => {
       const at = Date.now();
       const onSwitch = event.target instanceof Element && !!event.target.closest(".afk-toggle, .afk-dialog");
-      if (!onSwitch && offersOff(latest.current, lastTouch.current, at)) setOffering(true);
+      const occasion = onSwitch ? "" : offerFor(latest.current, lastTouch.current, at);
+      if (occasion) setOffering(occasion);
       lastTouch.current = at;
     };
     window.addEventListener("click", touched, true);
@@ -53,7 +55,7 @@ export function AfkBoard({ snapshot, now, onCommand, children }: { snapshot: Sna
   const actions = useMemo(() => ({ openReport: () => setReporting(true), answer: (item: string) => command.current(item) }), []);
   return <AfkActionsContext.Provider value={actions}>
     {children}
-    {offering && away && <AfkOffer afk={afk} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => { setOffering(false); clear(); }} />}
+    {offering && away && <AfkOffer afk={afk} occasion={offering} now={now} pending={pending} problem={problem} onTurnOff={() => void turn(false)} onStay={() => { setOffering(""); clear(); }} />}
     {reporting && snapshot && <Suspense fallback={null}><AfkReportPage tasks={snapshot.tasks} now={now} onClose={() => setReporting(false)} onCommand={() => { setReporting(false); onCommand(""); }} /></Suspense>}
   </AfkActionsContext.Provider>;
 }

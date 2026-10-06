@@ -116,10 +116,9 @@ func startMenuEntry(t *testing.T, run startMenuInstall) (target, arguments strin
 	return target, arguments
 }
 
-// -Dev builds the desktop window into the clone itself, over one the clone
-// held, so Code Goblins in the Start menu starts that window alone, and cfo
-// install, which copies no window into a clone, is told the window there was
-// just built.
+// -Dev builds the desktop window beside its build of cfo.exe, outside the
+// clone, and cfo install puts it in the home's bin, so Code Goblins in the
+// Start menu starts that window alone; the clone keeps what it held.
 func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 	// Arrange: a folder the script takes for a clone, with the script in it,
 	// and a go whose build of cfo is the stand-in and whose build of the
@@ -152,15 +151,15 @@ func TestDevStartsAloneTheWindowItBuilt(t *testing.T) {
 
 	// Assert
 	target, arguments := startMenuEntry(t, run)
-	wantTarget := fsx.LongPath(filepath.Join(checkout, "goblins-window.exe"))
+	wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "bin", "goblins-window.exe"))
 	if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "" {
 		t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q alone:\n%s", target, arguments, wantTarget, run.output)
 	}
-	if !strings.Contains(run.record, "cfo install --window-built\r\n") {
-		t.Errorf("cfo install was not told the window was built here:\n%s\n%s", run.record, run.output)
+	if !strings.Contains(run.record, "cfo install\r\n") {
+		t.Errorf("cfo install was not run:\n%s\n%s", run.record, run.output)
 	}
-	if got, err := os.ReadFile(filepath.Join(checkout, "goblins-window.exe")); err != nil || string(got) != "the window this clone builds" {
-		t.Errorf("goblins-window.exe in the clone = %q (%v), want the window -Dev built", got, err)
+	if got, err := os.ReadFile(filepath.Join(checkout, "goblins-window.exe")); err != nil || string(got) != "a window from before" {
+		t.Errorf("goblins-window.exe in the clone = %q (%v), want the clone left as it was", got, err)
 	}
 }
 
@@ -194,10 +193,10 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			noWindow := test.delivered == nil && test.held == ""
 			seed := func(local, programs string) {
 				if test.held != "" {
-					if err := os.MkdirAll(filepath.Join(local, "CodeGoblins"), 0o755); err != nil {
+					if err := os.MkdirAll(filepath.Join(local, "CodeGoblins", "bin"), 0o755); err != nil {
 						t.Fatal(err)
 					}
-					if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "goblins-window.exe"), []byte(test.held), 0o755); err != nil {
+					if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "bin", "goblins-window.exe"), []byte(test.held), 0o755); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -215,9 +214,9 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			run := runInstallForStartMenu(t, base, nil, "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression", seed)
 
 			// Assert
-			home := filepath.Join(run.local, "CodeGoblins")
+			bin := filepath.Join(run.local, "CodeGoblins", "bin")
 			target, arguments := startMenuEntry(t, run)
-			wantTarget := fsx.LongPath(filepath.Join(home, test.program))
+			wantTarget := fsx.LongPath(filepath.Join(bin, test.program))
 			if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != test.arguments {
 				t.Errorf("Code Goblins in the Start menu runs %q with %q, want %q with %q:\n%s", target, arguments, wantTarget, test.arguments, run.output)
 			}
@@ -225,7 +224,7 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 				t.Errorf("want cfo install run as it is, told of no window built here:\n%s\n%s", run.record, run.output)
 			}
 			if test.held != "" {
-				if got, err := os.ReadFile(filepath.Join(home, "goblins-window.exe")); err != nil || string(got) != test.held {
+				if got, err := os.ReadFile(filepath.Join(bin, "goblins-window.exe")); err != nil || string(got) != test.held {
 					t.Errorf("goblins-window.exe in the home = %q (%v), want the script to leave it as %q", got, err, test.held)
 				}
 			}
@@ -244,9 +243,9 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 	var originalShortcut []byte
 	seed := func(local, programs string) {
 		for path, content := range map[string]string{
-			filepath.Join(local, "CodeGoblins", "goblins-window.exe"):       "retained older window",
-			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.exe"): "standalone window",
-			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.png"): "standalone picture",
+			filepath.Join(local, "CodeGoblins", "bin", "goblins-window.exe"): "retained older window",
+			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.exe"):  "standalone window",
+			filepath.Join(local, "CodeGoblinsWindow", "goblins-window.png"):  "standalone picture",
 		} {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
@@ -255,7 +254,7 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "goblins.exe"), standIn(t), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(local, "CodeGoblins", "bin", "goblins.exe"), standIn(t), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(programs, 0o755); err != nil {
@@ -279,7 +278,7 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 
 	// Assert
 	target, arguments := startMenuEntry(t, run)
-	wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "goblins.exe"))
+	wantTarget := fsx.LongPath(filepath.Join(run.local, "CodeGoblins", "bin", "goblins.exe"))
 	if !strings.EqualFold(fsx.LongPath(target), wantTarget) || arguments != "--window" {
 		t.Errorf("Code Goblins runs %q with %q, want %q with --window", target, arguments, wantTarget)
 	}
@@ -288,9 +287,9 @@ func TestCoreOnlyReinstallKeepsTheStandaloneShortcut(t *testing.T) {
 		t.Errorf("standalone shortcut changed or was removed: %v\n%s", err, run.output)
 	}
 	for path, want := range map[string]string{
-		filepath.Join(run.local, "CodeGoblins", "goblins-window.exe"):       "retained older window",
-		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.exe"): "standalone window",
-		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.png"): "standalone picture",
+		filepath.Join(run.local, "CodeGoblins", "bin", "goblins-window.exe"): "retained older window",
+		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.exe"):  "standalone window",
+		filepath.Join(run.local, "CodeGoblinsWindow", "goblins-window.png"):  "standalone picture",
 	} {
 		if got, err := os.ReadFile(path); err != nil || string(got) != want {
 			t.Errorf("%s = %q (%v), want it kept as %q", path, got, err, want)

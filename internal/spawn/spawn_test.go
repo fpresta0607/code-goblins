@@ -220,23 +220,26 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	if meta.TaskTmp == "" || meta.SpawnGen == "" {
 		t.Errorf("metadata = %+v, want tasktmp and spawn generation", meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "mode", "model", "project", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "mode", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree", "yolo"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("metadata keys = %v, want %v", got, want)
 	}
-	goTmp := goTmpDir(t, f.stateDir, meta.ID)
-	if info, statErr := os.Stat(goTmp); statErr != nil || !info.IsDir() {
-		t.Fatalf("GOTMPDIR = %q, stat = %v, want existing directory", goTmp, statErr)
+	scratch := taskScratch(f.stateDir, meta.ID)
+	if meta.Scratch != scratch {
+		t.Errorf("recorded scratch = %q, want %q", meta.Scratch, scratch)
 	}
-	// Go writes build and test temporaries under GOTMPDIR, t.TempDir()
-	// included. Pointed inside the checkout it made every test a goblin ran
-	// create files in the tree the goblin was editing.
+	if info, statErr := os.Stat(scratch); statErr != nil || !info.IsDir() {
+		t.Fatalf("scratch = %q, stat = %v, want existing directory", scratch, statErr)
+	}
+	// Go writes build and test temporaries under GOTMPDIR and everything else
+	// under TEMP, t.TempDir() included. Pointed inside the checkout they made
+	// every test a goblin ran create files in the tree it was editing.
 	for _, inside := range []string{f.stateDir, f.worktree, f.project} {
-		if rel, relErr := filepath.Rel(inside, goTmp); relErr == nil && !strings.HasPrefix(rel, "..") {
-			t.Errorf("GOTMPDIR = %q, want it outside %q", goTmp, inside)
+		if rel, relErr := filepath.Rel(inside, scratch); relErr == nil && !strings.HasPrefix(rel, "..") {
+			t.Errorf("scratch = %q, want it outside %q", scratch, inside)
 		}
 	}
 	env := named(f.events(t), "env")[0].Env
-	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": goTmp, "CFO_STATE_OVERRIDE": f.stateDir} {
+	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMP": scratch, "CFO_STATE_OVERRIDE": f.stateDir} {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
@@ -268,7 +271,7 @@ func TestSpawnScoutOmitsShipFields(t *testing.T) {
 	if result.Meta.Mode != "" || result.Meta.Yolo != "" {
 		t.Errorf("scout metadata = %+v, want omitted mode and yolo", result.Meta)
 	}
-	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "model", "project", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
+	if got, want := sortedKeys(t, f.stateDir, f.request.ID), []string{"backend", "brief", "effort", "endpoint_task_id", "harness", "kind", "model", "project", "scratch", "spawn_gen", "tasktmp", "window", "worktree"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("scout metadata keys = %v, want %v", got, want)
 	}
 }
@@ -318,39 +321,32 @@ func TestSpawnDisclosesATrackedMCPConfigOnlyWhenSomethingWasWithheld(t *testing.
 	}
 }
 
-func TestSpawnWarnsOnceWhenTheCheckoutDoesNotIgnoreWorktrees(t *testing.T) {
-	const warning = "does not ignore .worktrees/"
-
-	covered := newQuickFixture(t)
-	result, err := covered.service.Spawn(context.Background(), covered.request)
+// A goblin's worktree lives in the home, named for its project's folder and
+// its task, never in the project: the checkout gains no folder and no file.
+func TestSpawnPutsTheWorktreeUnderTheHomeAndLeavesTheProjectAlone(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	before, err := os.ReadDir(f.project)
 	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	if strings.Contains(result.Output, warning) {
-		t.Errorf("a checkout whose .gitignore covers .worktrees/ was warned:\n%s", result.Output)
+		t.Fatal(err)
 	}
 
-	uncovered := newQuickFixture(t)
-	uncovered.runner.worktreesUncovered = true
-	if result, err = uncovered.service.Spawn(context.Background(), uncovered.request); err != nil {
+	// Act
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
-	}
-	if got := strings.Count(result.Output, warning); got != 1 {
-		t.Errorf("the warning appears %d times, want exactly once:\n%s", got, result.Output)
-	}
-	if !strings.Contains(result.Output, filepath.Join(uncovered.project, ".gitignore")) {
-		t.Errorf("the warning does not name the file to edit:\n%s", result.Output)
 	}
 
-	// A checkout that already holds a worktree has had its warning.
-	later := newQuickFixture(t)
-	later.runner.worktreesUncovered = true
-	makeDir(t, filepath.Join(later.project, ".worktrees", "gb-earlier"))
-	if result, err = later.service.Spawn(context.Background(), later.request); err != nil {
-		t.Fatalf("Spawn: %v", err)
+	// Assert
+	want := filepath.Join(f.service.Worktrees.Root, "primary", "task-7")
+	if f.git.acquired != want {
+		t.Errorf("the worktree was asked for at %q, want %q", f.git.acquired, want)
 	}
-	if strings.Contains(result.Output, warning) {
-		t.Errorf("a checkout that already holds a worktree was warned again:\n%s", result.Output)
+	after, err := os.ReadDir(f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("the project holds %v after the spawn, want only what it held before, %v", after, before)
 	}
 }
 
@@ -415,7 +411,7 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{
-		"GOTMPDIR":                 goTmpDir(t, f.stateDir, result.Meta.ID),
+		"GOTMPDIR":                 taskScratch(f.stateDir, result.Meta.ID),
 		"CFO_STATE_OVERRIDE":       f.stateDir,
 		"CFO_ROLE":                 harness.RoleGoblin,
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
@@ -988,8 +984,15 @@ type fixture struct {
 	git      *worktreeGit
 }
 
-// goTmpDir returns the per-task Go temporary directory a spawn under the
-// isolated user cache directory creates.
+// taskScratch is the scratch folder a spawn makes for task id in the
+// fixture's home, beside its state folder.
+func taskScratch(stateDir, id string) string {
+	return filepath.Join(filepath.Dir(stateDir), "scratch", id)
+}
+
+// goTmpDir returns the Go temporary directory an older build gave a task,
+// under the isolated user cache directory, which a task recorded with no
+// scratch folder still uses.
 func goTmpDir(t *testing.T, stateDir, id string) string {
 	t.Helper()
 	dir, err := state.GoTmpDir(stateDir, id)
@@ -1033,7 +1036,10 @@ func newFixture(t *testing.T) *fixture {
 	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
 	// config.toml, which is never this machine's own.
 	t.Setenv("CODEX_HOME", t.TempDir())
-	root := t.TempDir()
+	// Canonical, as every folder made under it is, so the scratch and
+	// worktrees folders are spelled as the state folder is, short names in a
+	// runner's temp path included.
+	root := makeDir(t, t.TempDir())
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
 	project := makeDir(t, filepath.Join(root, "primary"))
@@ -1049,9 +1055,11 @@ func newFixture(t *testing.T) *fixture {
 		Worktrees: worktree.Service{
 			Commands: fixture.runner,
 			Git:      fixture.git,
+			Root:     filepath.Join(root, "worktrees"),
 			DataDir:  dataDir,
 			Sleep:    func(context.Context, time.Duration) error { return nil },
 		},
+		ScratchRoot: filepath.Join(root, "scratch"),
 		Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{
 			harness.Claude: fixtureAdapter{events: &fixture.events, specs: &fixture.specs},
 		}},
@@ -1135,28 +1143,38 @@ func (a fixtureAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
 	}
 	return harness.Launch{
 		Args:       []string{"--dangerously-skip-permissions"},
-		Env:        map[string]string{"GOTMPDIR": spec.GoTmp},
+		Env:        map[string]string{"GOTMPDIR": spec.Scratch, "TEMP": spec.Scratch, "TMP": spec.Scratch},
 		PromptFile: spec.BriefPath,
 	}, nil
 }
 
 type worktreeGit struct {
 	events    *[]string
+	acquired  string
 	top       string
 	topErr    error
 	returnErr error
 	returned  int
 }
 
-func (g *worktreeGit) Acquire(_ context.Context, project, holder string) (string, error) {
+func (g *worktreeGit) Acquire(_ context.Context, project, path, ref string) (string, error) {
 	*g.events = append(*g.events, "worktree-acquire")
-	if !strings.HasPrefix(holder, "gb-") {
-		return "", fmt.Errorf("unexpected holder %q", holder)
+	g.acquired = path
+	if !filepath.IsAbs(path) || ref != "" {
+		return "", fmt.Errorf("unexpected worktree %q on %q", path, ref)
 	}
 	if project == "" {
 		return "", fmt.Errorf("project is required")
 	}
 	return g.top, nil
+}
+
+func (g *worktreeGit) Landing(context.Context, string) (worktree.Landing, error) {
+	return worktree.Landing{Landed: true}, nil
+}
+
+func (g *worktreeGit) ArchiveTag(context.Context, string, worktree.Landing, string) (string, error) {
+	return "", fmt.Errorf("spawn never archives")
 }
 
 func (g *worktreeGit) WorktreeTop(context.Context, string) (string, error) {
@@ -1184,22 +1202,10 @@ type commandRunner struct {
 	installer       string
 	installerStderr string
 	mcpTracked      bool
-	// worktreesUncovered models a checkout whose own .gitignore says nothing
-	// about .worktrees/, so only the clone's info/exclude hides it.
-	worktreesUncovered bool
 }
 
 func (r *commandRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
-	if req.Name == "git" && len(req.Args) > 1 && req.Args[0] == "check-ignore" && req.Args[1] == "-v" {
-		// Spawn asks which file ignores .worktrees/; git answers with the
-		// deciding rule's source in front.
-		source := ".gitignore"
-		if r.worktreesUncovered {
-			source = ".git/info/exclude"
-		}
-		return execx.Result{Stdout: []byte(source + ":1:.worktrees/\t.worktrees/\n")}, nil
-	}
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
 	}

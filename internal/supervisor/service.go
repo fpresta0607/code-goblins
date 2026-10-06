@@ -126,6 +126,7 @@ type Service struct {
 	ciUnreadable    error
 	workProgress    map[string]WorkProgress
 	ciDurations     []CIDuration
+	sameArea        map[string]sameArea
 	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
@@ -421,7 +422,7 @@ func (s *Service) run(ctx context.Context) {
 func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
-	s.workProgress, s.ciDurations, s.progressReadErr = watched.Progress, watched.Durations, fleetReadErr
+	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	ingestErr := s.Store.Ingest()
@@ -917,6 +918,11 @@ type Task struct {
 	Switching     bool                `json:"switching,omitempty"`
 	Notes         []string            `json:"notes,omitempty"`
 	Progress      *WorkProgress       `json:"progress,omitempty"`
+	// Ticket is the task's issue in a repository other people work in, and
+	// Overlaps their open work in a live goblin's area, as its last overlap
+	// read found it.
+	Ticket   *TaskTicket `json:"ticket,omitempty"`
+	Overlaps []Overlap   `json:"overlaps,omitempty"`
 	Evaluation
 }
 
@@ -979,12 +985,18 @@ type Snapshot struct {
 	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory        *Memory             `json:"memory,omitempty"`
+	Memory *Memory `json:"memory,omitempty"`
+	// Disk is the free space of the home's drive for the meter beside
+	// memory, absent on a board that cannot read it.
+	Disk          *Disk               `json:"disk,omitempty"`
 	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
+	// Projects names who else works in each collaborative project on the
+	// board.
+	Projects []ProjectPeople `json:"projects"`
 }
 
 // setItems makes items the snapshot's Command Center items.
@@ -1000,7 +1012,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress := maps.Clone(s.workProgress)
+	progress, sameAreas := maps.Clone(s.workProgress), maps.Clone(s.sameArea)
 	out.CIDurations = slices.Clone(s.ciDurations)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
@@ -1013,8 +1025,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	s.mu.Unlock()
+	var taskTickets map[string]TaskTicket
+	out.Projects = []ProjectPeople{}
 	if s.tickets != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.tickets.Issues()...)
+		taskTickets, out.Projects = s.tickets.Shown()
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
@@ -1262,6 +1277,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			progress.Seconds = max(0, int64(out.At.Sub(progress.At)/time.Second))
 			task.Progress = &progress
 		}
+		if area, exists := sameAreas[task.ID]; exists && area.Generation == task.Generation && !task.Archived {
+			task.Overlaps = area.Overlaps
+		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
@@ -1279,6 +1297,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				}
 			}
 			out.Memory = &memory
+		}
+		if dispatch.Disk != nil {
+			if disk, err := dispatch.Disk(); err == nil {
+				out.Disk = &disk
+			}
 		}
 	}
 	for _, done := range history {
@@ -1305,6 +1328,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
 			task.Handoff = s.hasHandoff(id, archived)
+		}
+		if ticket, exists := taskTickets[id]; exists {
+			task.Ticket = &ticket
 		}
 	}
 	if len(out.Decisions) > 100 {

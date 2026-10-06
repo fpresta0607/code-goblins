@@ -12,6 +12,8 @@ import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { plainText, taskSummary, withoutHarness } from "./task-words";
 import { RawDetails } from "./raw-details";
+import { PeopleRow } from "./people-row";
+import { TicketLink } from "./ticket-link";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -53,7 +55,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
-      {!compact && task?.project && <p className="project-label">{task.project}</p>}
+      {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
       <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (withoutHarness(awaited.title) || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (withoutHarness(awaited.title) || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
       {!compact && !owner && node && task && <p className="muted">Part of {withoutHarness(task.title) || task.id}</p>}
       {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
@@ -68,6 +70,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
       {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+      {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
     </div>}
     {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
