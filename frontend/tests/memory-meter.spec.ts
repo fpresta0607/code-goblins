@@ -90,7 +90,7 @@ for (const width of [1440, 390]) {
 
     test("a leaking paged pool gets one warning line", async ({ page }) => {
       const meter = (await tasksColumn(page, states.pool)).getByRole("group", { name: "Memory" });
-      await expect(meter.locator(".memory-warning")).toHaveText("Paged pool 15.6 GB: a driver is leaking memory; a reboot frees it.");
+      await expect(meter.locator(".memory-warning")).toHaveText("Paged pool 15.6 GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.");
       await expect(meter.locator(".memory-holders")).toHaveCount(0);
     });
   });

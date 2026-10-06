@@ -62,7 +62,7 @@ export function holdersLine(memory: Memory): string {
 const PAGED_POOL_WARNING = 4 * 2 ** 30;
 
 export function poolWarning(memory: Memory): string {
-  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: a driver is leaking memory; a reboot frees it.` : "";
+  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.` : "";
 }
 
 // The disk meter under the memory meter: under the floor no goblin or gate

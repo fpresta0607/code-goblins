@@ -85,9 +85,9 @@ test("the meter names the apps holding the most commit only while commit is the 
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
 
-test("a paged pool past 4 GB warns that a driver is leaking and a reboot frees it", () => {
+test("a paged pool past 4 GB says Windows holds it and a restart frees it", () => {
   assert.equal(poolWarning({ ...memory(7), paged_pool: 4 * GB }), "");
-  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: a driver is leaking memory; a reboot frees it.");
+  assert.equal(poolWarning({ ...memory(7), paged_pool: 15.6 * GB }), "Paged pool 15.6 GB: Windows is holding this in its kernel paged pool, memory no goblin can use; restarting the PC frees it.");
   assert.match(poolWarning({ ...memory(7), paged_pool: 4 * GB + 1 }), /^Paged pool/);
 });
 
