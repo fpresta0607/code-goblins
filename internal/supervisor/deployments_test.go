@@ -74,7 +74,8 @@ func cardDeployment(t *testing.T, runs ...string) map[string]any {
 // A merged task's card says how the deploy its merge started stands, read
 // from the default branch's push runs: the newest run of each workflow whose
 // name says deploy, for its merge commit, merged or squashed. CI workflows
-// are not deploys, and another pull request's deploy is not this one's.
+// are not deploys, another pull request's deploy is not this one's, and a
+// deploy whose run was skipped deployed nothing.
 func TestDeploymentsReachTheCardOfTheMergedTask(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -92,6 +93,9 @@ func TestDeploymentsReachTheCardOfTheMergedTask(t *testing.T) {
 		{"a squashed merge, and only the newest run of a workflow", []string{pushRun(75, "Deploy", "Ship the export (#210)", "bbb222", "completed", "success"), pushRun(74, "Deploy", "Ship the export (#210)", "bbb222", "completed", "failure")},
 			`{"commit":"bbb222","link":"https://github.com/o/r/actions/runs/75","state":"deployed","workflows":["Deploy"]}`},
 		{"another pull request's deploy", []string{pushRun(76, "Deploy", "Merge pull request #211 from o/feat/other", "ccc333", "completed", "failure")}, `null`},
+		{"a skipped deploy deployed nothing", []string{pushRun(77, "Deploy", merged210, "aaa111", "completed", "skipped")}, `null`},
+		{"a skipped deploy beside one that ran", []string{pushRun(78, "Deploy worker", merged210, "aaa111", "completed", "skipped"), pushRun(71, "Deploy API", merged210, "aaa111", "completed", "success")},
+			`{"commit":"aaa111","link":"https://github.com/o/r/actions/runs/71","state":"deployed","workflows":["Deploy API"]}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act

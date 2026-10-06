@@ -9,11 +9,11 @@ import (
 
 // Deployment is how the deploy of a merged pull request stands: the newest
 // runs of the workflows on the default branch whose names say deploy, for the
-// commit its merge pushed, as the CI poll last read them. State is deploying
-// while one runs and none has failed, failed as soon as one has, cancelled
-// when they ended with one cancelled and none failed, and deployed when every
-// one succeeded. Link is the page of the first run that failed or was
-// cancelled, else of the newest run, and Workflows names them.
+// commit its merge pushed, as the CI poll last read them, a skipped run apart.
+// State is deploying while one runs and none has failed, failed as soon as
+// one has, cancelled when they ended with one cancelled and none failed, and
+// deployed when every one succeeded. Link is the page of the first run that
+// failed or was cancelled, else of the newest run, and Workflows names them.
 type Deployment struct {
 	Commit    string    `json:"commit"`
 	State     string    `json:"state"`
@@ -43,7 +43,9 @@ func recordDeployments(w *fleetWakes, runs []ghRun, now time.Time) {
 	read := map[string]*reading{}
 	var order []string
 	for _, run := range runs {
-		if !strings.Contains(strings.ToLower(run.Workflow), "deploy") {
+		// A run skipped, as a deploy whose condition did not hold is,
+		// deployed nothing.
+		if !strings.Contains(strings.ToLower(run.Workflow), "deploy") || run.Conclusion == "skipped" {
 			continue
 		}
 		match := mergedPullRequest.FindStringSubmatch(run.Title)
