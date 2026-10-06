@@ -40,6 +40,10 @@ on:
       - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
+  # A merge queue run checks both installs too. GitHub applies no path
+  # filter to it, so every queued group runs them.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       release:
@@ -49,8 +53,9 @@ on:
 
 concurrency:
   # A newer commit on a pull request supersedes the run on the older one,
-  # which is cancelled. Every other run, on main or started by hand, has a
-  # group of its own, so none is ever cancelled or held waiting.
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
@@ -76,11 +81,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - uses: actions/setup-node@v4
+        if: ${{ !inputs.release }}
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Serve this commit as the release
         if: ${{ !inputs.release }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory release | Out-Null
+          # cfo.exe embeds the board, which a release builds first.
+          npm --prefix frontend ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix frontend run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -o release/cfo.exe ./cmd/cfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $hash = (Get-FileHash release/cfo.exe -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -215,11 +231,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install from the clone
         run: |
           .\install.cmd -Dev | Tee-Object -Variable installed
           # A build from source is unsigned, and the install must say so.
           if (-not ($installed -match "These programs are unsigned")) { throw "the -Dev install did not say that its programs are unsigned" }
+          # cfo.exe embeds the board -Dev builds first, and without it serves a
+          # page saying the board was not built.
+          if (-not (Test-Path internal/boardweb/dist/board/index.html)) { throw "the -Dev install built no board for cfo.exe to embed" }
           # The install ends with goblins doctor, whose verdict the next step
           # reads line by line, as the one-line job's does.
           $global:LASTEXITCODE = 0

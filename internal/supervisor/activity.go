@@ -47,12 +47,12 @@ type BoardActivity struct {
 	Watch string `json:"watch,omitempty"`
 }
 
-// presentationURLProblem names the rule raw breaks, or returns "" for a URL
+// PresentationURLProblem names the rule raw breaks, or returns "" for a URL
 // the board may link to. Plain http is accepted only where it never crosses
 // an untrusted network: this machine's loopback, or the tailnet, whose
 // traffic Tailscale encrypts. So a Lavish link is kept exactly as Lavish
 // returns it, under its tailnet name, and opens on the Overlord's phone too.
-func presentationURLProblem(raw string) string {
+func PresentationURLProblem(raw string) string {
 	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00\\") {
 		return "must be one line of at most 2048 characters"
 	}
@@ -126,7 +126,7 @@ func (s *Store) retainActivity(a BoardActivity) error {
 		if a.State != "active" && a.State != "ended" {
 			return errors.New("presentation state must be active or ended")
 		}
-		if problem := presentationURLProblem(a.URL); problem != "" {
+		if problem := PresentationURLProblem(a.URL); problem != "" {
 			return errors.New("presentation URL " + problem)
 		}
 		if !a.Until.After(a.At) || a.Until.Sub(a.At) > 30*time.Minute {

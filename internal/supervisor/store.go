@@ -137,11 +137,12 @@ type Store struct {
 	Home home.Home
 	mu   sync.Mutex
 	// readers protects the committed view without waiting for file writes.
-	readers     sync.RWMutex
-	db          Database
-	committed   Database
-	changed     chan struct{}
-	inboxCursor string
+	readers       sync.RWMutex
+	db            Database
+	committed     Database
+	changed       chan struct{}
+	inboxCursor   string
+	deferredUntil map[string]time.Time
 	// failingSince is when saves started failing, in Unix nanoseconds; zero
 	// while they succeed.
 	failingSince atomic.Int64
@@ -592,6 +593,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
+		delete(s.deferredUntil, s.db.Actions[remove].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
 	}
 	a.Status = "queued"
@@ -725,6 +727,23 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 	}
 	completed := &s.db.Actions[i]
 	completed.UpdatedAt = time.Now().UTC()
+	if errors.Is(runErr, ErrDeferred) {
+		completed.Status = "queued"
+		completed.Message = bounded(runErr.Error(), 1200)
+		if result.Reason != "" {
+			completed.Message = bounded(result.Reason, 1200)
+		}
+		if s.deferredUntil == nil {
+			s.deferredUntil = make(map[string]time.Time)
+		}
+		s.deferredUntil[a.ID] = completed.UpdatedAt.Add(time.Second)
+		s.updateQuestionOutcomes()
+		if err := s.save(); err != nil {
+			return err
+		}
+		return runErr
+	}
+	delete(s.deferredUntil, a.ID)
 	if runErr != nil {
 		completed.Status = "failed"
 		if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
