@@ -1,6 +1,7 @@
 import type { PanelView } from "./GoblinPanel";
 import type { Session, Task } from "./types";
 import { sessionEnd } from "./session-end.ts";
+import { taskColumn } from "./workflow.ts";
 
 // How long a goblin's session has run, or a queued task has waited, in whole
 // minutes, hours or days; empty when the start is unknown, so a card never
@@ -14,6 +15,19 @@ export function clockText(since: string, now: number, kind: "running" | "waiting
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ${minutes % 60}m`;
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+// The supervisor raises a goblin to the CFO once it has gone this long
+// without real progress (PROGRESS_THRESHOLD in internal/supervisor/work_speed.go).
+const PROGRESS_THRESHOLD_MINUTES = 20;
+
+// How long a live goblin has gone without real progress (a commit, a push, a
+// gate step or a new status report), only once that passes the threshold; a
+// goblin making progress, or one that delivered, says nothing.
+export function stalledText(task: Task, now: number): string {
+  const since = task.progress?.at || "";
+  if (taskColumn(task) !== "In progress" || task.phase === "done" || !since || now - Date.parse(since) < PROGRESS_THRESHOLD_MINUTES * 60_000) return "";
+  return "No progress for " + clockText(since, now, "running");
 }
 
 // A goblin's description is cut to a few lines with Show more while it runs

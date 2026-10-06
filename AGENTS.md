@@ -285,7 +285,7 @@ They share the disk floor too: none starts while the home's drive has less free 
 The board shows disk free under memory, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is 5 percent remaining in a measured weekly window; the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
-The board snapshot includes pause conditions, capacity, time since real progress and recent CI/deploy durations; the visual presentation follows its mockup review.
+The board shows each paused card's reason and what resumes it in place of Paused, the goblins live against the cap under the memory meter, Next on the card the free-slot order takes first (a production defect says it jumps the queue), and a stall line on a live card past 20 minutes without progress; a CI or deploy wait names the repository's median measured run.
 The supervisor raises one `progress_stalled` check wake after 20 minutes without a new commit, push, gate-step change or changed status report, resets it on real progress, and suppresses it during intentional pauses.
 CI/deploy durations come from start and finish timestamps captured with `ci_finished`; unknown timestamps stay unmeasured, and check names containing `deploy` are classified as deploys.
 
