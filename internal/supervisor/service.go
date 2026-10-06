@@ -176,7 +176,8 @@ type Service struct {
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
 	// reads is what the snapshot remembers of the fleet's files.
-	reads keptReads
+	reads                keptReads
+	subscriptionReadings map[string]quota.WeeklyReading
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -319,6 +320,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	usageDone := make(chan struct{})
+	go func() {
+		defer close(usageDone)
+		s.keepSubscriptionUsage(ctx, time.Minute)
+	}()
+	defer func() { s.cancel(); <-usageDone }()
 	awakeDone := make(chan struct{})
 	go func() {
 		defer close(awakeDone)
@@ -663,7 +670,7 @@ func (s *Service) process(ctx context.Context) {
 		boundedCtx, cancel := context.WithTimeout(ctx, actionTimeout)
 		err := s.Store.ProcessOne(boundedCtx, s.execute)
 		cancel()
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrDeferred) {
 			s.publish(err)
 			return
 		}
@@ -675,7 +682,7 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	if a.Kind == "feedback" || a.Kind == "cfo_message" {
 		return Evaluation{}, fmt.Errorf("%w: obsolete action kind %q is not accepted", ErrRejected, a.Kind)
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
+	if a.Kind != "evaluate" && a.Kind != "review" && a.Kind != "cfo_answer" && a.Kind != "goblin_answer" && a.Kind != "answer_change" && a.Kind != "review_answer" && a.Kind != "review_clear" && a.Kind != "question_clear" && a.Kind != "run" {
 		return Evaluation{}, fmt.Errorf("%w: unsupported action kind %q", ErrRejected, a.Kind)
 	}
 	if a.Kind == "run" {
@@ -687,30 +694,37 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	// A clear closed its item when the board took it. The CFO asked a
 	// dismissed question, or holds the goblin's notify that did, so it hears
 	// here that the Overlord dismissed it.
-	tellDismissed := func(evaluation Evaluation, dismissed Question) Evaluation {
-		whose := "your question " + dismissed.ID
-		if dismissed.Task != "" {
-			whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", dismissed.Task, dismissed.ID, dismissed.Seq)
-		}
-		if err := s.tellCFO(ctx, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+dismissed.Text); err != nil {
-			evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
-		}
-		return evaluation
-	}
 	if a.Kind == "review_clear" || a.Kind == "question_clear" {
 		evaluation := Evaluation{Reason: "Cleared from the Command Center."}
 		if a.Kind == "question_clear" && len(a.Dismissed) > 0 {
 			evaluation.Reason = "Dismissed from the Command Center."
 		}
-		for _, q := range s.Store.Snapshot().Questions {
-			if slices.Contains(a.Dismissed, q.ID) {
-				evaluation = tellDismissed(evaluation, q)
+		var notices []string
+		for _, question := range s.Store.Snapshot().Questions {
+			if !slices.Contains(a.Dismissed, question.ID) {
+				continue
+			}
+			whose := "your question " + question.ID
+			if question.Task != "" {
+				whose = fmt.Sprintf("%s's question %s, whose notify %d still waits for you", question.Task, question.ID, question.Seq)
+			}
+			notices = append(notices, "The Overlord dismissed "+whose+" from the Command Center: answered elsewhere or no longer needed. It asked: "+question.Text)
+		}
+		if len(notices) > 0 {
+			if err := s.tellCFO(ctx, strings.Join(notices, "\n")); err != nil {
+				if errors.Is(err, ErrDeferred) {
+					return Evaluation{Reason: "Dismissed. The CFO will be told when its input is ready."}, err
+				}
+				evaluation.Reason += " The CFO could not be told: " + bounded(err.Error(), 300)
 			}
 		}
 		return evaluation, nil
 	}
 	if a.Kind == "goblin_answer" {
 		return s.answerGoblin(ctx, a)
+	}
+	if a.Kind == "answer_change" {
+		return s.changeAnswer(ctx, a)
 	}
 	if a.Kind == "cfo_answer" {
 		if s.Options.CFO == nil {
@@ -869,9 +883,12 @@ type Task struct {
 	Runtime      RuntimeEvidence `json:"runtime"`
 	// Activity is the task's own latest status line, and Report the kind of
 	// its latest report.
-	Activity   string    `json:"activity"`
-	Report     string    `json:"report"`
-	LastReport string    `json:"last_report"`
+	Activity   string `json:"activity"`
+	Report     string `json:"report"`
+	LastReport string `json:"last_report"`
+	// ReportedAt is when the goblin wrote its latest report, so the board
+	// can tell whether it reported since an answer it was given.
+	ReportedAt time.Time `json:"reported_at"`
 	Handoff    bool      `json:"handoff"`
 	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
@@ -949,8 +966,9 @@ type Snapshot struct {
 	CFOHarness string `json:"cfo_harness"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
-	Memory      *Memory      `json:"memory,omitempty"`
-	CIDurations []CIDuration `json:"ci_durations,omitempty"`
+	Memory        *Memory             `json:"memory,omitempty"`
+	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -1092,7 +1110,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			}
 		}
 		activity, pr := statusActivity(lines, spawned)
-		lastReport, _ := taskSessionSummary(lines, spawned)
+		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
@@ -1105,7 +1123,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, Mode: meta.Mode, Generation: meta.SpawnGen, Session: d.TaskSessions[id], Dependencies: []string{}, Runtime: runtime, Activity: activity, LastReport: lastReport, ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), Evaluation: evaluation})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -1286,5 +1304,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	return out, nil
 }

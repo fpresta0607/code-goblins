@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -137,11 +138,12 @@ type Store struct {
 	Home home.Home
 	mu   sync.Mutex
 	// readers protects the committed view without waiting for file writes.
-	readers     sync.RWMutex
-	db          Database
-	committed   Database
-	changed     chan struct{}
-	inboxCursor string
+	readers       sync.RWMutex
+	db            Database
+	committed     Database
+	changed       chan struct{}
+	inboxCursor   string
+	deferredUntil map[string]time.Time
 	// failingSince is when saves started failing, in Unix nanoseconds; zero
 	// while they succeed.
 	failingSince atomic.Int64
@@ -522,14 +524,15 @@ func (s *Store) queue(a Action) (Action, error) {
 		return existing, err
 	}
 	answer := a.Kind == "cfo_answer" || a.Kind == "goblin_answer"
+	change := a.Kind == "answer_change"
 	item := a.Kind == "review_answer" || a.Kind == "review_clear" || a.Kind == "question_clear" || a.Kind == "run"
 	if !item && a.RunID != "" {
 		return Action{}, errors.New("only a run action names a run item")
 	}
-	if !answer && a.AnswerKind != "" {
+	if !answer && !change && a.AnswerKind != "" {
 		return Action{}, errors.New("answer kind is only valid for a question")
 	}
-	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !item {
+	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !change && !item {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
 	if len(a.Text) > 16000 || len(a.File) > 4096 {
@@ -544,7 +547,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind == "review" && a.Generation == "" {
 		return Action{}, errors.New("task generation is required; refresh the board")
 	}
-	if answer {
+	if answer || change {
 		if a.Generation == "" || a.TaskID != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" {
 			return Action{}, errors.New("an answer requires only its recipient identity and text")
 		}
@@ -563,6 +566,11 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	if answer {
 		if err := s.questionAnswer(a); err != nil {
+			return Action{}, err
+		}
+	}
+	if change {
+		if err := s.questionChange(a); err != nil {
 			return Action{}, err
 		}
 	}
@@ -592,6 +600,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
+		delete(s.deferredUntil, s.db.Actions[remove].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
 	}
 	a.Status = "queued"
@@ -604,6 +613,11 @@ func (s *Store) queue(a Action) (Action, error) {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
 				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
 			}
+		}
+	}
+	if change {
+		if i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID }); i >= 0 {
+			s.db.Questions[i].ChangeID = a.ID
 		}
 	}
 	return a, nil
@@ -725,6 +739,23 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 	}
 	completed := &s.db.Actions[i]
 	completed.UpdatedAt = time.Now().UTC()
+	if errors.Is(runErr, ErrDeferred) {
+		completed.Status = "queued"
+		completed.Message = bounded(runErr.Error(), 1200)
+		if result.Reason != "" {
+			completed.Message = bounded(result.Reason, 1200)
+		}
+		if s.deferredUntil == nil {
+			s.deferredUntil = make(map[string]time.Time)
+		}
+		s.deferredUntil[a.ID] = completed.UpdatedAt.Add(time.Second)
+		s.updateQuestionOutcomes()
+		if err := s.save(); err != nil {
+			return err
+		}
+		return runErr
+	}
+	delete(s.deferredUntil, a.ID)
 	if runErr != nil {
 		completed.Status = "failed"
 		if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {
@@ -783,6 +814,21 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 			}
 		}
+		// His change to the CFO's answer makes the answer his once it is sent,
+		// keeping the CFO's choice it replaced; a change that failed leaves the
+		// CFO's answer standing.
+		q := &s.db.Questions[i]
+		change := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == q.ChangeID })
+		if q.ChangeID == "" || q.AnsweredBy != "cfo" || change < 0 || s.db.Actions[change].Status != "succeeded" && s.db.Actions[change].Awaiting == nil {
+			continue
+		}
+		a, at := s.db.Actions[change], s.db.Actions[change].UpdatedAt
+		q.ReplacedAnswer = cmp.Or(q.AnsweredOption, q.Answer)
+		q.Answer, q.AnswerKind, q.AnsweredOption = a.Text, a.AnswerKind, ""
+		if a.AnswerKind == "option" {
+			q.AnsweredOption = a.Text
+		}
+		q.AnsweredBy, q.AnsweredAt, q.AnsweredAway, q.Message = "overlord", &at, false, "You changed the CFO's answer."
 	}
 }
 
