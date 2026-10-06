@@ -1036,7 +1036,10 @@ func newFixture(t *testing.T) *fixture {
 	// A Codex spawn or switch reads the MCP servers of CODEX_HOME's
 	// config.toml, which is never this machine's own.
 	t.Setenv("CODEX_HOME", t.TempDir())
-	root := t.TempDir()
+	// Canonical, as every folder made under it is, so the scratch and
+	// worktrees folders are spelled as the state folder is, short names in a
+	// runner's temp path included.
+	root := makeDir(t, t.TempDir())
 	stateDir := makeDir(t, filepath.Join(root, "state"))
 	dataDir := makeDir(t, filepath.Join(root, "data"))
 	project := makeDir(t, filepath.Join(root, "primary"))
