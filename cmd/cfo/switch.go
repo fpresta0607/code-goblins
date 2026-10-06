@@ -68,20 +68,9 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		ForceDirty: *forceDirty,
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	}
-	if (request.Harness == "" || string(request.Harness) == meta.Harness) && (meta.Harness == "codex" || meta.Harness == "claude") {
-		data, readErr := fsx.ReadFile(filepath.Join(h.State, ".supervisor.json"))
-		if readErr == nil {
-			var database supervisor.Database
-			if err := json.Unmarshal(data, &database); err != nil {
-				fmt.Fprintf(stderr, "switch: read session ownership: %v\n", err)
-				return 1
-			}
-			session := database.Sessions[database.TaskSessions[meta.ID]]
-			if meta.SpawnGen != "" && session.TaskID == meta.ID && session.Generation == meta.SpawnGen && session.Harness == meta.Harness && session.Role == "goblin" {
-				request.ResumeSession = session.NativeID
-			}
-		} else if !errors.Is(readErr, os.ErrNotExist) {
-			fmt.Fprintf(stderr, "switch: read session ownership: %v\n", readErr)
+	if request.Harness == "" || string(request.Harness) == meta.Harness {
+		if request.ResumeSession, err = ownedSession(h.State, meta); err != nil {
+			fmt.Fprintf(stderr, "switch: %v\n", err)
 			return 1
 		}
 	}
@@ -95,4 +84,31 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stdout, hint)
 	}
 	return 0
+}
+
+// ownedSession is the conversation the board recorded for the task's goblin
+// of its current generation, in a harness that resumes one by its id, or none
+// when nothing proves that, so a switch never comes back on another task's
+// conversation. A record that cannot be read is an error, never taken as
+// none.
+func ownedSession(stateDir string, meta state.TaskMeta) (string, error) {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+		return "", nil
+	}
+	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read session ownership: %w", err)
+	}
+	var database supervisor.Database
+	if err := json.Unmarshal(data, &database); err != nil {
+		return "", fmt.Errorf("read session ownership: %w", err)
+	}
+	session := database.Sessions[database.TaskSessions[meta.ID]]
+	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
+		return "", nil
+	}
+	return session.NativeID, nil
 }

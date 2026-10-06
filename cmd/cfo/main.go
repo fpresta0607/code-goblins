@@ -55,7 +55,7 @@ commands:
   status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CFO starts as
-  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal; cfo resume <id> resumes a paused task
+  resume    with no task named, as goblins resume: restart a running CFO in its terminal on its conversation, as for a frozen screen, or bring a closed one back, never from inside the CFO's own terminal, then bring back every goblin whose terminal ended; cfo resume <id> resumes a paused task
   update    run by a verified candidate build: install it as this home's bin\cfo.exe and bin\goblins.exe, restart only the supervisor on it, and put the previous build back and restart that instead if anything fails; bin keeps the current build and the two before it; --recover finishes an update that stopped part way by putting the previous build back
   hooks     check|install <claude|codex|pi> native lifecycle hooks
   native-hook <harness>  bounded hook entry point (JSON on stdin)
@@ -175,6 +175,9 @@ type commandRuntime struct {
 	// restartCFO restarts the CFO running in native terminal cfo on its
 	// conversation and returns the conversation and whether it was resumed.
 	restartCFO func(h home.Home) (supervisor.CFOConversation, bool, error)
+	// admitLaunch says why the machine has no room yet for another harness,
+	// or nil when it has, as a spawn admits one.
+	admitLaunch func(h home.Home) error
 	// settleCFO answers the known startup dialogs of a CFO just started in
 	// native terminal cfo and returns what to tell the Overlord about them.
 	settleCFO func(ctx context.Context, stateDir, harness string) []string
@@ -341,15 +344,26 @@ func defaultCommandRuntime() commandRuntime {
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCFO:          settleNativeCFO,
 		restartCFO:         restartCFO,
-		setupAgent:         setupAgent,
-		choose:             onboarding.AskConsole,
-		repoActivity:       readRepositoryActivity,
-		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		availableMemory:    supervisor.MachineMemory,
-		gateWaitLimit:      time.Hour,
-		gateBudget:         gateBudget,
-		gateRun:            runGateCommand,
-		gateProgress:       5 * time.Second,
+		admitLaunch: func(h home.Home) error {
+			memory, err := supervisor.MachineMemory()
+			if err != nil {
+				return err
+			}
+			disk, err := supervisor.MachineDisk(h)
+			if err != nil {
+				return fmt.Errorf("free disk cannot be read, so nothing comes back: %w", err)
+			}
+			return supervisor.CheckLaunch(h, memory, disk)
+		},
+		setupAgent:      setupAgent,
+		choose:          onboarding.AskConsole,
+		repoActivity:    readRepositoryActivity,
+		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		availableMemory: supervisor.MachineMemory,
+		gateWaitLimit:   time.Hour,
+		gateBudget:      gateBudget,
+		gateRun:         runGateCommand,
+		gateProgress:    5 * time.Second,
 	}
 }
 
