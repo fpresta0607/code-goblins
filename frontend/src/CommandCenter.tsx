@@ -84,16 +84,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A change to the CFO's answer keeps its own draft, apart from the
   // question's, and is done once it is sent.
   const changeKey = (question: Question) => "change:" + question.id;
-  const changeDraft = (question: Question, from?: Draft) => drafts[changeKey(question)] || { ...EMPTY_DRAFT, selection: from?.selection || "", written: from?.written || "" };
+  const changeDraft = (question: Question) => drafts[changeKey(question)] || EMPTY_DRAFT;
   const isChanged = (question: Question) => {
     const submission = drafts[changeKey(question)]?.submission;
     const change = submission ? snapshot.actions.find((action) => action.id === submission.id) || drafts[changeKey(question)]?.receipt : undefined;
     return change?.status === "succeeded" || !!change?.awaiting;
   };
-  // His send met the CFO's answer at the same moment: the board refused his,
-  // or the supervisor sent nothing because the CFO had answered.
-  const crossed = item?.kind === "question" && item.question.answered_by === "cfo" && !item.question.answered_in && !!draft?.submission && (outcome ? outcome.status === "failed" : !!draft.error);
-  const changedHere = item?.kind === "question" && isChanged(item.question);
   // What the Overlord sent from this card shows as done the moment he sends
   // it; trouble keeps the card itself on screen with what went wrong. A run
   // keeps its card, which shows the command's result. An item he answered
@@ -102,7 +98,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // answered on another board, or taken back by its asker or the CFO.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
-  const finishing = !!item && item.kind !== "run" && (elsewhere || changedHere || !!sending && !sending.failed);
+  const finishing = !!item && item.kind !== "run" && (elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // Moving off a finishing card counts it as sent, so only a card on screen
   // from its Send to its delivery moves on by itself.
@@ -237,17 +233,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A document leaves the queue once he opens or downloads it, and says so.
   const clear = (target: Review, how?: "Opened" | "Downloaded") => void post("review:" + target.id, { kind: "review_clear", review_id: target.id, generation: target.identity, ...(how ? { text: how } : {}) });
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
-  // A crossed card starts from his pick on the question's own card.
-  const editChange = (target: Question, changes: Partial<Draft>, from?: Draft) => {
-    const draft = changeDraft(target, from);
-    update(changeKey(target), drafts[changeKey(target)] ? changes : { selection: draft.selection, written: draft.written, ...changes });
-  };
-  const change = (target: Question, from?: Draft) => {
-    const draft = changeDraft(target, from);
+  const change = (target: Question) => {
+    const draft = changeDraft(target);
     const payload = questionAnswer(target, draft.selection, draft.written);
-    if (!payload) return;
-    if (!drafts[changeKey(target)]) editChange(target, {}, from);
-    void post(changeKey(target), { ...payload, kind: "answer_change" });
+    if (payload) void post(changeKey(target), { ...payload, kind: "answer_change" });
   };
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
@@ -330,8 +319,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           ? <div className="card-stage">
             {isChangeDone
               ? <DoneCard key={"changed:" + changeQuestion.id} heading="Changed to your answer" label={(snapshot.tasks.find((task) => task.id === changeQuestion.task)?.title || changeQuestion.task) + " is told the answer is yours: " + changeQuestion.answer} />
-              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} crossed={false} draft={changeDraft(changeQuestion)}
-                onDraft={(changes) => editChange(changeQuestion, changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
+              : <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
+                onDraft={(changes) => update(changeKey(changeQuestion), changes)} onChange={() => change(changeQuestion)} onClose={() => setChanging("")} />}
           </div>
         : !item ? null
         : gallery !== null && images.length > 0
@@ -348,11 +337,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             }}>
             {allDone
               ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
-              : changedHere && item.kind === "question"
-              ? <DoneCard key={"changed:" + shownKey} heading="Changed to your answer" label={askerOf(item) + " is told the answer is yours: " + item.question.answer} pager={pager} />
-              : crossed && item.kind === "question"
-              ? <ChangeCard key={"crossed:" + shownKey} question={item.question} snapshot={snapshot} connected={connected} crossed draft={changeDraft(item.question, draft)}
-                onDraft={(changes) => editChange(item.question, changes, draft)} onChange={() => change(item.question, draft)} onClose={() => setLeaving(item.key)} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
