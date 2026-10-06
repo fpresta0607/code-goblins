@@ -36,6 +36,10 @@ var cacheVars = []struct {
 	{name: "npm_config_store_dir", dir: "pnpm"},
 	{name: "PLAYWRIGHT_BROWSERS_PATH", dir: "playwright"},
 	{name: "GOMODCACHE", dir: "go-mod"},
+	// Go's build cache and npm's cache are the two largest a goblin fills;
+	// in the home they are under the caches cap the janitor keeps.
+	{name: "GOCACHE", dir: "go-build"},
+	{name: "npm_config_cache", dir: "npm"},
 }
 
 // CacheEnv returns the shared cache redirects for a CFO home. A variable the

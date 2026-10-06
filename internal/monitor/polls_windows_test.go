@@ -257,7 +257,7 @@ func TestProcessPollsPlacesAPollByTheGoblinAboveIt(t *testing.T) {
 	pid := f.pollUnder(f.standIn("claude.exe"), worktree, elsewhere, false, "poll", filepath.Join(elsewhere, "plan.html"))
 
 	dir, err := proc.WorkingDirectory(pid)
-	if err != nil || worktreeTask(dir) != "" {
+	if err != nil || worktreeTask(nil, "", dir) != "" {
 		t.Fatalf("the poll runs in %q (%v); the fixture needs it outside every worktree", dir, err)
 	}
 	if poll, ok := listed(t, pid); !ok || poll.Task != "pollfix-2" {
@@ -278,7 +278,7 @@ func TestProcessPollsNeverListsAPollCFOStarted(t *testing.T) {
 	if err != nil || len(chain) != 2 || !strings.EqualFold(chain[1].ExeBase, "cfo.exe") {
 		t.Fatalf("chain = %+v (%v); the fixture needs the poll directly under cfo.exe", chain, err)
 	}
-	if dir, err := proc.WorkingDirectory(pid); err != nil || worktreeTask(dir) != "pollfix-3" {
+	if dir, err := proc.WorkingDirectory(pid); err != nil || worktreeTask(nil, "", dir) != "pollfix-3" {
 		t.Fatalf("the poll runs in %q (%v); the fixture needs it in gb-pollfix-3 so only cfo keeps it out", dir, err)
 	}
 	if poll, ok := listed(t, pid); ok {

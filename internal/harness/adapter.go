@@ -28,9 +28,10 @@ const (
 type LaunchSpec struct {
 	BriefPath string
 	TaskTmp   string
-	// GoTmp is the directory GOTMPDIR points at, created by the caller and
-	// deliberately outside the fleet checkout; see state.GoTmpDir.
-	GoTmp           string
+	// Scratch is the task's scratch folder, created by the caller, which the
+	// pane's TEMP, TMP and GOTMPDIR name: build output, test homes, logs and
+	// proof files land there, outside every checkout, and go with the task.
+	Scratch         string
 	TurnEndedPath   string
 	Model           string
 	Effort          string
@@ -154,12 +155,14 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 	if strings.TrimSpace(spec.TaskTmp) == "" || !filepath.IsAbs(spec.TaskTmp) {
 		return Launch{}, errors.New("harness: TaskTmp must be absolute")
 	}
-	if strings.TrimSpace(spec.GoTmp) == "" || !filepath.IsAbs(spec.GoTmp) {
-		return Launch{}, errors.New("harness: GoTmp must be absolute")
+	if strings.TrimSpace(spec.Scratch) == "" || !filepath.IsAbs(spec.Scratch) {
+		return Launch{}, errors.New("harness: Scratch must be absolute")
 	}
 	return Launch{
 		Env: map[string]string{
-			"GOTMPDIR": spec.GoTmp,
+			"GOTMPDIR": spec.Scratch,
+			"TEMP":     spec.Scratch,
+			"TMP":      spec.Scratch,
 			// Every goblin pane is stamped with its role, and the CFO's
 			// hooks read it to stay out of the way. It belongs in the launch
 			// contract rather than in the project credentials a preflight
