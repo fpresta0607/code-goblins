@@ -279,7 +279,7 @@ func readRunCommand(path string) (string, error) {
 	if len(data) > maxRunCommand {
 		return "", fmt.Errorf("the command file is over %d KiB", maxRunCommand>>10)
 	}
-	return string(data), nil
+	return strings.TrimPrefix(string(data), "\ufeff"), nil
 }
 
 func (s *Store) acceptRun(r Run) error {
@@ -582,7 +582,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	delivery := s.tellCFO(ctx, text)
-	if r.By == "cfo" && errors.Is(delivery, ErrRejected) {
+	if r.By == "cfo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	if delivery != nil {
@@ -601,6 +601,9 @@ func (s *Service) retellRuns(ctx context.Context) error {
 			continue
 		}
 		delivery := s.tellCFO(ctx, r.Untold)
+		if errors.Is(delivery, ErrDeferred) {
+			continue
+		}
 		if errors.Is(delivery, ErrRejected) {
 			return errors.Join(errs, delivery)
 		}

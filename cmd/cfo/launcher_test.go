@@ -167,9 +167,7 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 			f.nativeArgs = append(f.nativeArgs, strings.Join(args, " "))
 			// A resumed CFO's terminal runs on, unless its harness could not
 			// resume the conversation and ended at once.
-			if len(args) > 0 {
-				f.cfoTerminalRuns = !f.resumeEnds
-			}
+			f.cfoTerminalRuns = len(args) == 0 || !f.resumeEnds
 			return nil
 		},
 		attachNative: func(_, id string, _, _ io.Writer) int {
@@ -229,6 +227,9 @@ func newLauncherFixture(t *testing.T, start func(home.Home) (<-chan struct{}, er
 
 func (f *launcherFixture) launch(args ...string) (int, string, string) {
 	f.t.Helper()
+	// Each launch starts from the CFO state the case supplied.
+	terminalRuns := f.cfoTerminalRuns
+	defer func() { f.cfoTerminalRuns = terminalRuns }()
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime(args, &stdout, &stderr, f.runtime)
 	return exit, stdout.String(), stderr.String()

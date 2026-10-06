@@ -126,11 +126,31 @@ async function expectGone(page: Page, says: string) {
 }
 
 const WAYS = [
-  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sent" },
+  { name: "a question he answers", item: { questions: [question] }, says: ASKS, pick: "Merge it", press: "dialog.question-modal .send-decision", kind: "cfo_answer", heading: "Sending" },
   { name: "a question he dismisses", item: { questions: [question] }, says: ASKS, pick: "", press: 'dialog.question-modal [aria-label="Dismiss this question"]', kind: "question_clear", heading: "Dismissed" },
   { name: "a goblin's wait he dismisses", item: { reviews: [wait] }, says: WAITS, pick: "", press: "dialog.question-modal .status-dismiss", kind: "review_clear", heading: "Cleared" },
   { name: "a review he clears", item: { reviews: [proof] }, says: "Do the proof screenshots read well?", pick: "", press: 'dialog.question-modal [aria-label="Clear this item without answering"]', kind: "review_clear", heading: "Cleared" },
 ];
+
+test("an answer waiting for the Codex composer reads Queued with its reason", async ({ page, context }) => {
+  // Arrange
+  await standInStream(context);
+  await announcer(context);
+  const reason = "The CFO is typing. Your answer will wait.";
+  await context.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { ...route.request().postDataJSON(), status: "queued", message: reason } }));
+  await boardAsked(page, { questions: [question] }, ASKS);
+  await send(page, "snapshot", { ...asking({ questions: [question] }), cfo_harness: "codex", revision: 3 });
+  await openCard(page, ASKS);
+  await card(page).getByText("Merge it", { exact: true }).click();
+
+  // Act
+  await card(page).locator(".send-decision").click();
+
+  // Assert
+  await expect(card(page).locator(".done-card h3")).toHaveText("Queued");
+  await expect(card(page)).toContainText(reason);
+  await expect(card(page)).not.toContainText("CFO received");
+});
 
 for (const way of WAYS) {
   test(`${way.name} leaves its alert, the count and the CFO's bar in the frame he acts, before the board hears back`, async ({ page, context }) => {
@@ -221,7 +241,7 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     const shown = await clickAndLook(page, "dialog.question-modal .send-decision");
 
     // Assert
-    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sent" });
+    expect(shown).toEqual({ painted: false, toasts: 0, badge: "Command Center", bar: expect.stringContaining("All quiet"), command: "", card: "Sending" });
     await expect.poll(() => supervisor.posted.map((body) => body.kind)).toEqual(["cfo_answer"]);
     await testInfo.attach("the frame after his answer", { body: await page.screenshot(), contentType: "image/png" });
     await expectGone(page, ASKS);

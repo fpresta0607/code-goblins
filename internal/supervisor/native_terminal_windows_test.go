@@ -90,6 +90,33 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// hooked raises a native prompt hook for every line taken, as a harness
 	// with native hooks does, naming the terminal it runs in.
 	hooked := false
+	// composer is the harness whose composer the program draws: Claude Code's
+	// unless a draw line names another, for a terminal registered as it.
+	composer := "claude"
+	// A screen is drawn in one write, so a read never finds it half drawn. The
+	// turn's line reads as a turn to both Claude Code's and Codex's screens.
+	drawComposer := func(text string, isWorking bool) {
+		rows := []string{}
+		if isWorking {
+			rows = append(rows, "✽ Pondering… (esc to interrupt)")
+		}
+		rule := strings.Repeat("─", 80)
+		switch composer {
+		case "codex":
+			if text == "" {
+				text = "Ask Codex to do anything"
+			}
+			rows = append(rows, "› "+text, "100% context left")
+		case "pi":
+			if isWorking {
+				rows = append(rows, "── ⠸ Working ──")
+			}
+			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
+		default:
+			rows = append(rows, rule, "❯ "+text, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+		}
+		fmt.Print("\x1b[2J\x1b[H" + strings.Join(rows, "\r\n") + "\r\n")
+	}
 	lines := bufio.NewScanner(os.Stdin)
 	recordNativeExitPhase(t, phases, "scanner ready")
 	for lines.Scan() {
@@ -97,13 +124,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 		switch {
 		case line == "harness":
 			harness = true
-			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
+			drawComposer("", false)
 		case line == "hooked":
 			hooked = true
+			drawComposer("", false)
+		case strings.HasPrefix(line, "draw "):
+			composer = strings.TrimPrefix(line, "draw ")
+			drawComposer("", false)
 		case line == "turn":
 			harness, hooked = true, false
-			fmt.Println("⏵⏵ bypass permissions on (shift+tab to cycle)")
-			fmt.Println("✽ Pondering… (esc to interrupt)")
+			drawComposer("", true)
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {
 				record("ask error: " + err.Error())
@@ -141,6 +171,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			record("registered " + described)
+			drawComposer("", false)
 		case strings.HasPrefix(line, "orphaned "), strings.HasPrefix(line, "orphaned-in-herdr "):
 			// Git Bash runs an MSYS program such as timeout by replacing its own
 			// Windows process, so whatever timeout starts has a parent that
@@ -175,7 +206,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		default:
 			record(line)
 			if harness {
-				fmt.Println("✽ Pondering… (esc to interrupt)")
+				text := line
+				if line == "busy" {
+					text = ""
+				}
+				drawComposer(text, true)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
@@ -402,6 +437,27 @@ func (terminal hostedTerminal) startTurn(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("the terminal never showed a turn under way")
+		}
+	}
+}
+
+// drawsComposer has the terminal's program draw the empty composer of the
+// named harness, the one its CFO is registered as, and waits until that
+// harness's screen reads it as ready: a delivery types only into one.
+func (terminal hostedTerminal) drawsComposer(t *testing.T, name string) {
+	t.Helper()
+	terminal.typeLine(t, "draw "+name)
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Kind(name))
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if rows, err := host.ReadScreen(record); err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed an empty %s composer", name)
 		}
 	}
 }

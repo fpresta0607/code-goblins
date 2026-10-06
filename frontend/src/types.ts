@@ -125,7 +125,16 @@ export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
+export interface SubscriptionUsage {
+  provider: "claude" | "codex";
+  status: "available" | "unavailable" | "stale" | "auth_required";
+  percent_remaining: number | null;
+  read_at: string;
+  resets_at: string;
+  source: "oauth" | "api" | "";
+}
 export interface Snapshot {
+  subscriptions?: SubscriptionUsage[];
   activity?: BoardActivity[];
   example: boolean;
   instance: string;
@@ -211,6 +220,9 @@ export interface Question {
 // reporter withdraws it: an image review, a Lavish page, or a wait on him.
 export interface Review {
   id: string; identity: string; task: string; title: string; image_count: number; lavish: string;
+  // link is the web link a goblin's wait gave as the place to go, the only
+  // one its card opens.
+  link: string;
   // watched: the supervisor polls the item's Lavish page, so his answer or
   // end of the review there closes the item.
   watched: boolean;
@@ -430,7 +442,7 @@ function itemLists(v: Record<string, unknown>) {
     }),
     reviews: array(v.reviews).map((value) => {
       const r = object(value);
-      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), watched: string(r.lavish_page) !== "",
+      return { id: string(r.id), identity: string(r.identity), task: string(r.task), title: string(r.title), image_count: number(r.image_count), lavish: string(r.lavish), link: string(r.link), watched: string(r.lavish_page) !== "",
         document: r.document === undefined || r.document === null ? null : (({ name, size, kind, link }) => ({ name: string(name), size: number(size), kind: string(kind), link: string(link) }))(object(r.document)),
         state: string(r.state), answer: string(r.answer), answer_id: string(r.answer_id), delivered: r.delivered === undefined ? false : boolean(r.delivered), reason: string(r.reason),
         answered_by: string(r.answered_by), answered_in: string(r.answered_in), question: string(r.question), window_closed_at: string(r.window_closed_at),
@@ -455,6 +467,15 @@ export function parseItems(value: unknown): Items {
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
+      const usage = object(value);
+      if (usage.provider !== "claude" && usage.provider !== "codex") return [];
+      const status = usage.status === "available" || usage.status === "stale" || usage.status === "auth_required" ? usage.status : "unavailable";
+      const remaining = usage.percent_remaining;
+      const isMeasured = status === "available" && usage.source === "oauth" && typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0 && remaining <= 100;
+      return [{ provider: usage.provider, status: status === "available" && !isMeasured ? "unavailable" : status, percent_remaining: isMeasured ? remaining : null,
+        read_at: string(usage.read_at), resets_at: string(usage.resets_at), source: usage.source === "oauth" || usage.source === "api" ? usage.source : "" }];
+    }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),
     revision: number(v.revision),
