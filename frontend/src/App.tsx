@@ -14,7 +14,7 @@ import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
 import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
-import { CFO_KEY, MAXIMIZED_KEYS, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
+import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
 import { windowTarget } from "./terminalWindow";
@@ -32,6 +32,9 @@ import { watchTips } from "./tips";
 const TerminalDeck = lazy(() => import("./TerminalDeck").then((module) => ({ default: module.TerminalDeck })));
 
 const PANE_WIDTH_KEY = "cfo-pane-width";
+// Recorded once this browser has shown the board, so its first open, and
+// only that one, arranges the panel for him.
+const FIRST_OPEN_KEY = "cfo-first-open";
 
 // The board build this page was loaded with, which the supervisor names in
 // the page; a tab left open across an install keeps the older one.
@@ -87,6 +90,10 @@ export function App() {
   // startingShown is whether this page already opened the terminal of a CFO
   // that is starting, so closing it is not undone.
   const [startingShown, setStartingShown] = useState(false);
+  // opensFirst is whether this is the first time this browser shows the
+  // board. A first-open tour would start where it is spent, below.
+  const [opensFirst, setOpensFirst] = useState(() => firstOpen(stored(FIRST_OPEN_KEY), [stored(PANE_WIDTH_KEY), stored(MAXIMIZED_KEYS.task), stored(MAXIMIZED_KEYS.terminal)]));
+  useEffect(() => { if (!opensFirst) store(FIRST_OPEN_KEY, "shown"); }, [opensFirst]);
   // awaitingStart is the Start the Overlord made, until its task is up or a
   // snapshot of it shows it failed.
   const [awaitingStart, setAwaitingStart] = useState<AcceptedStart | null>(null);
@@ -150,12 +157,12 @@ export function App() {
     });
   };
   // A switch, by its keys or from the board, shows that terminal at once and
-  // hands it the keyboard.
-  const switchTo = (key: string) => {
+  // hands it the keyboard, unless the caller keeps the keyboard where it is.
+  const switchTo = (key: string, takesKeyboard = true) => {
     if (key === CFO_KEY) { setSelected(null); setCfoOpen(true); } else { setSelected({ task: key }); setCfoOpen(false); }
     setPanelView("terminal");
     setPaneOpen(true);
-    setSwitchFocus((prior) => prior + 1);
+    if (takesKeyboard) setSwitchFocus((prior) => prior + 1);
   };
   if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
   // A CFO starting in its terminal has not registered yet and may be asking
@@ -171,6 +178,15 @@ export function App() {
   if (awaitingStart && outcome !== "wait") { setAwaitingStart(null); if (outcome === "open") { setView("Board"); switchTo(awaitingStart.id); } }
   // The board's root is the first-run page whenever no CFO runs.
   const firstRun = !!snapshot && showsFirstRun({ cfoRuns: snapshot.cfo_runs, cfoClosed: snapshot.cfo_closed, choice: firstRunChoice });
+  // The first time this browser shows the board of a home whose CFO runs, it
+  // opens as the Overlord keeps his own: the Board with the CFO's terminal
+  // beside it and the keyboard in that terminal. A window too narrow for two
+  // columns shows the board with the panel under it, so there the keyboard
+  // stays where it is and the board stays in view.
+  if (opensFirst && snapshot && !firstRun) {
+    setOpensFirst(false);
+    if (snapshot.cfo_runs) { setView("Board"); switchTo(CFO_KEY, !compact); }
+  }
   useEffect(() => {
     if (!canvas.current) return;
     const observer = new ResizeObserver(([entry]) => setBoardNarrow(entry.contentRect.width > 0 && entry.contentRect.width <= KANBAN_NEEDS_OVER));
@@ -191,7 +207,10 @@ export function App() {
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizedChoice[maximizeView]);
-  const panelWide = paneOpen && maximized && !compact;
+  // Only a panel that shows something is maximized: with nothing chosen it
+  // shows the review placeholder, which takes no view's choice, so a
+  // terminal maximized before a reload never hides the board behind it.
+  const panelWide = showsPanel && maximized && !compact;
   // Back, on the panel of anything but the CFO, returns the panel to the
   // CFO's on the view it last showed, still maximized if it was, and hands
   // the keyboard back to where the panel was opened from, or to the panel
