@@ -302,7 +302,7 @@ Open in VS Code and Open folder require a deliberate click and resolve the selec
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
 Successful launch means the application was requested, not that a window was observed.
 Queued tasks show their known project and Not started yet, without querying nonexistent task metadata, and their panel is the Task view alone: the Terminal pill appears once the task has a terminal.
-Operational wake records remain intact; only a deliberate CFO question or a goblin's blocked notify that offers choices opens a modal.
+Operational wake records remain intact; only a deliberate CFO question is offered to the Overlord, and the Command Center opens when he chooses it.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence; a task no keyword classifies gets a stable artwork of its own instead of the shared app icon.
 
 Orchestration nodes use explicit native parent/root IDs and the launch environment's reported relationships.
@@ -720,7 +720,7 @@ The board has one dark theme, and status colors keep their meaning in it: workin
 
 ## Deliberate CFO questions
 
-Worker alerts and natural-language questions do not automatically become user modals; a goblin's blocked notify that offers choices is the one exception, described under Goblin questions.
+Worker alerts and natural-language questions stay with the CFO, including a goblin's blocked notify that offers choices.
 The registered CFO must deliberately publish a decision from its own process ancestry:
 
 ```powershell
@@ -783,7 +783,11 @@ Conflicting, corrupt or oversized inbox records leave bounded diagnostics and ca
 
 ## Goblin questions
 
-A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` also opens the modal, labelled with the goblin and its artwork; the first choice that ends with `(Recommended)` is shown first and marked, like a CFO recommendation, and the mark is stripped from every choice.
+A goblin's `cfo notify <id> --blocked "<question> options: <answer> (Recommended) | <answer>"` asks the CFO.
+It never appears in the Overlord's waiting count, shows him a toast or opens the Command Center; after it is answered, History shows who answered it.
+Once the CFO answers or acknowledges it, its notify still holds the task, blocked or failed with its words, until the goblin reports again, and the snapshot marks that task `report_handled`, so the board never tells him of it as the goblin's news; a block or failure the gate holds is never marked and is news.
+The CFO publishes a decision that needs the Overlord with `cfo question`.
+A question's first choice that ends with `(Recommended)` is shown first and marked, and the mark is stripped from every choice.
 The choices follow the last `options:` marker, so a question that names the marker in its own words, such as in a detail line, keeps its choices.
 The card shows the choices as a plain list of radio buttons, each the answer's own text with no A, B or C, because the Overlord picks an answer, not a letter.
 `cfo notify` and `cfo question` refuse, recording nothing, a choice that is only a letter or number, such as `a`, `B)`, `(c)` or `2`, and say to write the answer itself as the choice.
@@ -815,7 +819,6 @@ History marks who answered each question: a crown for the Overlord, the CFO's fa
 Each row gives when it closed and, on a line of its own, the reason the CFO gave with `--note` or the CFO's answer his change replaced; an answer that failed or is unconfirmed keeps its warning mark.
 His word outranks the CFO's: on a goblin's question the CFO answered, while the goblin that asked is still the one running and has written no report since (`reported_at` on its task, the time of the report `last_report` shows), History's pencil (tip: "Change the CFO's answer") opens the question with the CFO's choice marked, and Change to my answer queues an `answer_change`.
 The supervisor checks the same when it queues the change and again under the question's answer lock, then tells the goblin "The Overlord changed the answer to your question on the board" with the question and his answer, saying it replaces the CFO's; the question then reads as his answer, with `replaced_answer` naming the CFO's choice, and a change that fails leaves the CFO's answer standing.
-When his own send crosses the CFO's answer, so the board refuses it because the CFO had just answered, his card says "The CFO answered this at the same moment: <choice>." with his pick kept and Change to my answer, never a Retry; its close icon keeps the CFO's answer.
 An answer the Overlord gave somewhere else, such as in chat, closes its card once the registered CFO records it with `cfo answer <question-id> --option <choice> --record-only --in <where>`: the question reads `answered_by: overlord` and `answered_in` naming where, an open card finishes with the Answered check and "You answered in chat · recorded by the CFO", and nothing is sent to anyone.
 The CFO's own question takes only this form, since only the Overlord answers it, and `--in` is a few plain words.
 A question that closed without an answer, because its goblin restarted or ended, stays listed with its reason until the Overlord clears it (`question_clear`), or until 128 questions are held and it is the oldest superseded one, which makes room for a new question; a pending question is never dropped, so an unanswered decision is never hidden.
@@ -895,30 +898,28 @@ The Overlord can instead answer it (`review_answer`): his text goes once to the 
 An answer the goblin received also reaches the CFO as a `review` wake that asks nothing, so the CFO sees every answer the Overlord gives.
 The board sees each item in `snapshot.reviews` with an image count, never a path or a digest, and fetches image n at `/api/reviews/<id>/images/<n>`, checked again on every request.
 A new review item waits in the Command Center inbox under the badge instead of opening the stack, and the browser tab's title counts everything waiting, so a board in a background tab shows it too.
-The board alerts on what needs the Overlord or finished, comparing each snapshot with the one before (the first snapshot a page sees alerts nothing): a new question, review or run item or credential request, a goblin whose evidence reads blocked or failed or whose own latest report is failed, and a goblin done with its pull request, read from its evidence or its own report; a goblin blocked on its own question, which its task reads as Waiting on the CFO, does not alert, since the question it raises does.
-Each alert stands for one event and shows once, in one tab of the board, however often a snapshot, a supervisor restart or a reload brings it back.
-Before the board shows an alert, sends its Windows notification or opens the Command Center by itself on a new question, it claims the event through `POST /api/announce` (`keys` for items, `news` for a goblin's news) and announces only what the answer's `claimed` names.
-The supervisor hands each key to the first request that asks and keeps the record in its state (`announced`, for thirty days, at most 2048 keys), so another tab, another browser, a reload, a reconnect or a supervisor restart never announces the same item again; a goblin's news may be claimed again once five minutes have passed, the rule below.
-While [AFK mode](#afk-mode) is on it hands out nothing, and records what was asked about, so the board announces nothing while the Overlord is away, and what was asked about then is not announced once he is back.
-A tab that is hidden waits a second and a half before it asks, so a tab the Overlord is looking at claims first and shows the alert and the Command Center where he sees them; with no tab in view the hidden one claims after the wait and still sends its Windows notification.
-An alert is claimed as `alert:<key>` cut to 160 characters, so a goblin's long reason fits the endpoint's 512 byte bound per key and two long reasons that start alike are one event for five minutes; the Command Center's own opening is claimed as `open:<question key>`.
-A board that cannot reach the supervisor falls back on what its browser remembers.
-A question its page's card carries is claimed with the card, so it neither alerts nor opens the Command Center when the card closes and the question shows as a card of its own.
-A goblin blocked on a question with no choices does not alert either: that question is prose for the CFO, who is woken for it, and the goblin's card still reads Waiting on the CFO.
-A Command Center item alerts once by its own id.
-The same words from the same goblin within five minutes are one event, so a wait or a question filed again under a new id, or a goblin's news replayed by a supervisor restart or a flicker back to work, does not alert again.
-A wait or a question folded this way is remembered under its own id too, so it does not alert when a later snapshot brings it back.
-A goblin's news is its generation, its state and the news itself, its pull request or what it reported, so its next pull request alerts at once, and the same news, or a wait filed again, more than five minutes later alerts again.
-The browser remembers the last 100 alerts it showed.
-Each alert is a dialogue box at the bottom right, spoken by the goblin it is about or by the CFO: its portrait, one plain line that names who speaks, such as cg-board-kill asks: Which layout should I keep?, and one action.
-A goblin speaks by its title, as its card does, falling back to its id, cut to 60 characters in the line so what happened still shows; a goblin's wait says what it waits for once, without the Waiting on you: that heads its Command Center card.
-What needs the Overlord offers Open Command Center, filled lantern, on that item; a blocked goblin needs him too, so its alert opens its newest item waiting there, else the first item waiting or the inbox.
-A goblin's finished or failed news offers Open, outlined, on that goblin.
-Lantern means it needs the Overlord and nothing else.
-An alert steps up once as it arrives, or just appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
-While the tab is hidden or its window is not in front, each alert is also a Windows notification through the browser's Notification permission, asked for once, with the first alert; clicking one brings the board forward on that item and takes the alert off the board, and opening or dismissing the alert on the board closes its notification.
-An alert and its notification leave as soon as the board knows their item answered or cleared, wherever that happened: at his click on this board or another one open in the same browser, and otherwise with the supervisor's next items event, which does not wait for a snapshot.
-A click on one whose item is already closed opens the Command Center's list, never another item's card.
+An item addressed to the Overlord has one signal on a visible board: Open Command Center and its count.
+Only the CFO's own questions (`task` empty) wait on him; a goblin's blocked or failed question belongs to the CFO and enters History after it is answered.
+A goblin's explicit wait on the Overlord, review page, delivered file, run item and credential request still belong in his queue.
+No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
+A goblin's finished or failed news still shows a dialogue box with Open for that goblin; routine progress shows none.
+The first snapshot establishes the baseline for news and items.
+When unanswered blocked or failed wake records have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
+Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
+The board can announce that notice on its first snapshot, with Open the CFO's terminal; it never offers the goblins' questions to the Overlord.
+Before an announcement the board claims the event through `POST /api/announce` (`keys` for items and the quiet-CFO stretch, `news` for a goblin's news) and announces only what the answer's `claimed` names.
+The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item or stretch again.
+While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
+A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
+An announcement is claimed as `alert:<key>` cut to 160 characters, within the endpoint's 512 byte bound, and an unreachable supervisor falls back on what the browser remembers.
+An item's identity prevents repeats, and identical words from the same goblin within five minutes are one event.
+A goblin's next pull request alerts at once; the same news more than five minutes later can alert again.
+The browser remembers the last 100 announcements it showed.
+A toast steps up once as it arrives, or appears under reduced motion, leaves after eight seconds unless the pointer or keyboard rests on it, and can be dismissed; at most four show, newest at the bottom.
+Windows notifications require `document.hidden`: a hidden tab or minimized window, not an unfocused window that remains visible.
+The browser asks for notification permission once, with the first announcement, and a notification click opens its item or terminal.
+An announcement and its notification leave when their item closes or the quiet-CFO stretch ends.
+A click on an item already closed opens the Command Center's list, never another item's card.
 Its card shows the title, its images as thumbnails that open the same full-size gallery as a question's, and its own page, when it has one, as a preview named Scrawl page that opens the page with Open review and never repeats the title.
 An item whose page the supervisor watches (an HTML page given with `--lavish`) is answered on that page, so its card has no text box: it finishes when the Overlord sends or ends the review there, or he closes it with Clear.
 A goblin's pending question asked in the same generation as one of its open page items is that page's item, so the Command Center shows one card for the two: the snapshot names the item in the question's `page` and the newest such question in the item's `question`, the stack and the inbox list the page's card alone, and an alert or link to the question opens it.
@@ -1054,7 +1055,7 @@ It takes the save's checks (this machine only, the open request and its generati
 When the window finishes, the board checks each row it provably stored, a name the scope did not hold before and holds now, or every name it ran for when it finished cleanly, and tells the CFO the names; `cfo auth store` refreshed the project's goblins itself.
 A clean finish closes the request as saved, like a save; a window that failed or was closed leaves it open with what it stored recorded, unless every name is stored.
 
-On the board each open request is a card in the Command Center, announced like any new item by an alert and, while the board is out of sight, a Windows notification.
+On the board each open request is a card in the Command Center, counted under Open Command Center and eligible for a Windows notification only while the tab is hidden or the window is minimized.
 The card says who asks and for which project, and has a row per name: where its value goes (the repository, the credential scope, the env file the request names, shown as `File .env.docker.local · gitignored, checked · local dev`, and the goblins' `auth.ps1` and each `auth.json` service that reads it), what it is for, the page to get it from, and a hidden field to paste it into.
 A field never holds its value: what is pasted or typed is taken from the edit before it reaches the field and kept by the card in the page's memory, and the field is given one dot for each character, so copying out of it copies dots.
 Pasting those dots back into a field is refused: the field stays as it was and a note under it says to copy the value again from where it came from.

@@ -410,7 +410,7 @@ test("a goblin waiting on a question says who it is waiting on", () => {
     {id:"cfo-question", identity:"c", task:"", status:"pending", options:["A"]},
   ]});
   const [asks, cfo, stuck] = snapshot.tasks;
-  assert.equal(asksOverlord(snapshot, "asks"), true);
+  assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CFO's to answer");
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
   assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
   assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
