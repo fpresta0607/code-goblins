@@ -46,25 +46,27 @@ const shown = (page: Page) => panel(page).evaluate((region: HTMLElement) => {
 const STATES = [
   { state: "working", title: "An OpenClaw-style quick start in the goblins command", status: "Working",
     sentence: "334's red run was not a broken merge: every red job except the aggregate was cancelled after 15 minutes without ever getting a runner. It is now on main with build and vet passing and pushed once. 289 and 300 are next, waiting on their local Go runs.",
-    raw: "on main 04188dad", isFailure: false },
+    raw: "on main 04188dad", isFailure: false, isQuiet: true },
   { state: "waiting on you", title: "SIQstack colors and a clean browser tab for the board", status: "Waiting on the CFO",
-    sentence: "The three mockups are on the Scrawl page. Reply build or say what to change.", raw: "waiting on overlord: the three mockups", isFailure: false },
+    sentence: "The three mockups are on the Scrawl page. Reply build or say what to change.", raw: "waiting on overlord: the three mockups", isFailure: false, isQuiet: false },
   { state: "paused", title: "Memory and subscription dials in one header", status: "Paused",
-    sentence: "It stays paused until you resume it. The goblin's last saved notes are kept.", raw: "Stopping-point deadline reached or request failed; no new handoff was saved", isFailure: false },
+    sentence: "It stays paused until you resume it. The goblin's last saved notes are kept.", raw: "Stopping-point deadline reached or request failed; no new handoff was saved", isFailure: false, isQuiet: false },
   { state: "a pause that did not finish", title: "Paused goblins resume by themselves when the reason for the pause clears", status: "Pause failed",
-    sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: true },
+    sentence: "The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", raw: "context deadline exceeded", isFailure: true, isQuiet: true },
   { state: "failed", title: "PrecisionDocs-AI uses far fewer GitHub Actions minutes", status: "Failed",
-    sentence: "Go test billing failed: TestMeteredUsage timed out after 10m0s. Log at report.log.", raw: "failed: go test ./internal/billing failed at 9f3c2a1e", isFailure: true },
+    sentence: "Go test billing failed: TestMeteredUsage timed out after 10m0s. Log at report.log.", raw: "failed: go test ./internal/billing failed at 9f3c2a1e", isFailure: true, isQuiet: false },
 ];
 
 for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, height: 960 }, 1.5], ["a phone", { width: 390, height: 844 }, 2]] as const) {
   test.describe(`at ${size}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    test("each panel says its state once, as its one status, with one plain sentence and the raw words behind Details", async ({ page }) => {
+    // Under Working and Pause failed the Overlord wants no line (2026-10-05):
+    // what it would say is the first thing behind Details.
+    test("each panel says its state once, as its one status, with one plain sentence or none, and the raw words behind Details", async ({ page }) => {
       // Arrange
       await open(page);
-      for (const { state, title, status, sentence, raw, isFailure } of STATES) {
+      for (const { state, title, status, sentence, raw, isFailure, isQuiet } of STATES) {
         // Act
         await select(page, title);
         const header = panel(page).locator(".panel-header");
@@ -73,12 +75,14 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         // Assert
         await expect(header.locator("h2"), state).toHaveText(title);
         await expect(header.locator(".panel-status"), state).toHaveText(status);
-        await expect(header.locator(".panel-activity"), state).toHaveText(sentence);
+        if (isQuiet) await expect(header.locator(".panel-activity"), state).toHaveCount(0);
+        else await expect(header.locator(".panel-activity"), state).toHaveText(sentence);
         expect(text.split(status).length - 1, state + ": the status is said once").toBe(1);
         expect(text, state + ": no raw words outside Details").not.toMatch(/;|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|[A-Za-z]:\\|\/tasktmp\/|deadline|^\s*(working|waiting on|blocked|failed):/im);
         await expect(header.getByRole("button", { name: "Open the log" }), state).toHaveCount(isFailure ? 1 : 0);
         await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
         await expect(header.locator(".raw-details-text"), state).toContainText(raw);
+        if (isQuiet) await expect(header.locator(".raw-details-text p").first(), state).toHaveText(sentence);
         await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
         expect((await panel(page).locator(".lifecycle-details").allInnerTexts()).join(" "), state).not.toMatch(/Failed|Needs attention|Paused at/);
       }

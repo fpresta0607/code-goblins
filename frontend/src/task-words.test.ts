@@ -119,6 +119,22 @@ test("the panel says each state once: a sentence of its own, and the raw words b
   for (const [name, item, said] of cases) assert.deepEqual(taskSummary(item, [item]), said, name);
 });
 
+test("Working and Pause failed have no line under them; what it would say is the first thing behind Details", () => {
+  // The Overlord, 2026-10-05: "dont need text under working", "dont need
+  // text under pause fialed"; the other statuses keep their line.
+  const raw = "working: PRs 324 and 326 are green on main 13f9e0be; ready to pause";
+  const failed = task({ activity: raw, lifecycle: lifecycle({ phase: "failed", problems: ["context deadline exceeded"] }) });
+  const cases: [string, Task, string, { sentence: string; details: string[]; isFailure: boolean }][] = [
+    ["working", task({ activity: raw }), "Working", { sentence: "", details: ["PRs 324 and 326 are green on main. Ready to pause.", raw], isFailure: false }],
+    ["working, already plain", task({ activity: "working: Writing the tests." }), "Working", { sentence: "", details: ["Writing the tests."], isFailure: false }],
+    ["working with nothing to say", task({ activity: "" }), "Working", { sentence: "", details: [], isFailure: false }],
+    ["a pause that did not finish", failed, "Pause failed", { sentence: "", details: ["The pause did not finish, so the goblin is not paused. Its work is kept. Try Pause again.", "context deadline exceeded"], isFailure: true }],
+    ["a question to him keeps its line", task({ activity: raw }), "Waiting on the CFO", { sentence: "PRs 324 and 326 are green on main. Ready to pause.", details: [raw], isFailure: false }],
+    ["a failure keeps its line", task({ phase: "failed", report: "failed", activity: "failed: go test timed out" }), "Failed", { sentence: "Go test timed out.", details: [], isFailure: true }],
+  ];
+  for (const [name, item, status, said] of cases) assert.deepEqual(taskSummary(item, [item], status), said, name);
+});
+
 test("a paused goblin says what resumes it, in words, from its pause's condition", () => {
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
   const paused = (pause: Record<string, unknown>) => task({ phase: "paused", lifecycle: lifecycle({ pause: { at: "2026-10-05T16:30:06Z", ...pause } }) });

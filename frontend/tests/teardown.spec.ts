@@ -29,8 +29,13 @@ test("paused, resumed, stopped and restarted cards show Windows teardown at a re
     // The panel says it once, under the status, and names the process id
     // behind Details.
     const header = page.locator(".panel-header");
-    await expect(header.locator(".panel-activity")).toHaveText(phase === "paused" ? "It stays paused until you resume it. Windows is still closing chrome.exe." : "Windows is still closing chrome.exe.");
+    // Working has no line under it (the Overlord, 2026-10-05), so there the
+    // sentence is the first thing behind Details.
+    const isWorking = phase === "working" || phase === "restarted";
+    if (isWorking) await expect(header.locator(".panel-activity")).toHaveCount(0);
+    else await expect(header.locator(".panel-activity")).toHaveText(phase === "paused" ? "It stays paused until you resume it. Windows is still closing chrome.exe." : "Windows is still closing chrome.exe.");
     await header.locator(".raw-details > summary").click();
+    await expect(header.locator(".raw-details-text")).toContainText(isWorking ? "Windows is still closing chrome.exe." : "chrome.exe pid 42");
     await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
     if (phase === "working") {
       await expect(header.locator(".panel-status")).toHaveText("Working");

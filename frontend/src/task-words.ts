@@ -159,7 +159,17 @@ export interface Summary {
 // taskSummary is the one sentence the panel says under a task's status, which
 // never repeats the status: why it failed and what to do, what resumes it, or
 // its goblin's latest report.
-export function taskSummary(task: Task, tasks: Task[]): Summary {
+export function taskSummary(task: Task, tasks: Task[], status = ""): Summary {
+  const said = summaryOf(task, tasks);
+  return QUIET_STATUSES.has(status) && said.sentence ? { ...said, sentence: "", details: [said.sentence, ...said.details] } : said;
+}
+
+// The Overlord, 2026-10-05, on the review of these screens: "dont need text
+// under working" and "dont need text under pause fialed". Under these two the
+// panel says nothing; what it would say is the first thing behind Details.
+const QUIET_STATUSES = new Set(["Working", "Pause failed"]);
+
+function summaryOf(task: Task, tasks: Task[]): Summary {
   const record = task.lifecycle;
   const teardown = teardownSentence(task.teardown);
   const join = (...sentences: string[]) => sentences.filter(Boolean).join(" ");
