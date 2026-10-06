@@ -162,7 +162,7 @@ func TestAnAnswerOnThePageClosesTheQuestionItCarries(t *testing.T) {
 	store, h := testStore(t)
 	_, record, page := askOnAPage(t, store)
 	answer := "session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  \"\",Go with SQLite,\"\",message,Freeform message\n"
-	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, _ time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file, _ string, _ time.Duration) (axi.PagePoll, error) {
 		if file != page {
 			t.Errorf("polled %s, want %s", file, page)
 		}
@@ -238,20 +238,20 @@ func TestAPageWaitHandsWhatBecameOfThePageToTheCFO(t *testing.T) {
 		want   string
 		closed Review
 	}{
-		"an answer after a quiet poll":   {polls: []axi.PagePoll{{Status: "waiting"}, {Status: "feedback", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
-		"an answer that ends the review": {polls: []axi.PagePoll{{Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "he ended the review", closed: answered},
+		"an answer after a quiet poll":   {polls: []axi.PagePoll{{Status: "waiting"}, {Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
+		"an answer that ends the review": {polls: []axi.PagePoll{{Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "and ended the review", closed: answered},
 		"the Overlord ended the review":  {polls: []axi.PagePoll{{Status: "ended", EndedBy: "user"}}, want: "the Overlord ended the review of", closed: Review{State: "cleared", Reason: "You ended the review on its page."}},
 		"an agent ended the review":      {polls: []axi.PagePoll{{Status: "ended", EndedBy: "agent"}}, want: "an agent, not the Overlord, ended the review of", closed: Review{State: "withdrawn", Reason: "An agent ended the review on its page; the CFO was told."}},
 		// A closed review window is not the end of the review: his answers
 		// queue on the page, and reopening it resumes the same review.
-		"an answer after the window disconnected": {polls: []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "waiting"}, {Status: "feedback", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
+		"an answer after the window disconnected": {polls: []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "waiting"}, {Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}, want: "the Overlord answered on the page", closed: answered},
 		"a page that cannot be polled":            {err: errors.New("No active Lavish Editor session for this file"), want: "cannot poll the page", closed: Review{State: "withdrawn", Reason: "The page could not be polled; the CFO was told."}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
 			task, page := waitOnAPage(t, store)
 			polls := 0
-			s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, timeout time.Duration) (axi.PagePoll, error) {
+			s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file, _ string, timeout time.Duration) (axi.PagePoll, error) {
 				polls++
 				if file != page || timeout != pagePollTimeout {
 					t.Errorf("polled %s for %s, want %s for %s", file, timeout, page, pagePollTimeout)
@@ -313,8 +313,8 @@ func TestTheCFOsOwnPageReachesItAsAWakeKeyedByTheItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,Payments first\n"
-	polls := []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "feedback", Output: answer}}
-	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, _ time.Duration) (axi.PagePoll, error) {
+	polls := []axi.PagePoll{{Status: "browser_disconnected"}, {Status: "feedback", Ended: true, EndedBy: "user", Output: answer}}
+	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file, _ string, _ time.Duration) (axi.PagePoll, error) {
 		if file != page {
 			t.Errorf("polled %s, want the CFO's page %s", file, page)
 		}
@@ -345,7 +345,7 @@ func TestADisconnectedWindowLeavesItsItemOpenSayingWhenItClosed(t *testing.T) {
 	store, h := testStore(t)
 	task, _ := waitOnAPage(t, store)
 	polls := make(chan struct{}, 4)
-	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _ string, _ time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _, _ string, _ time.Duration) (axi.PagePoll, error) {
 		polls <- struct{}{}
 		if len(polls) == 1 {
 			return axi.PagePoll{Status: "browser_disconnected"}, nil
@@ -380,7 +380,7 @@ func TestAClosedPageWaitStopsItsPoller(t *testing.T) {
 	store, h := testStore(t)
 	task, _ := waitOnAPage(t, store)
 	polling := make(chan struct{})
-	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _ string, _ time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _, _ string, _ time.Duration) (axi.PagePoll, error) {
 		close(polling)
 		<-ctx.Done()
 		return axi.PagePoll{}, ctx.Err()
@@ -413,7 +413,7 @@ func TestPagesArePolledOncePerOpenWait(t *testing.T) {
 	store, _ := testStore(t)
 	waitOnAPage(t, store)
 	polls := make(chan struct{}, 4)
-	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _ string, _ time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{PollPage: func(ctx context.Context, _, _ string, _ time.Duration) (axi.PagePoll, error) {
 		polls <- struct{}{}
 		<-ctx.Done()
 		return axi.PagePoll{}, ctx.Err()
@@ -448,8 +448,8 @@ func TestAPageAnswerReachesTheCFOOnceTheWakeQueueTakesIt(t *testing.T) {
 	if err := os.Mkdir(ack, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, time.Duration) (axi.PagePoll, error) {
-		return axi.PagePoll{Status: "feedback", Output: "session:\n  status: feedback\n"}, nil
+	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+		return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: "session:\n  status: feedback\n"}, nil
 	}}}
 
 	s.watchPages(context.Background())
@@ -494,8 +494,8 @@ func TestAPageAnswerThatCannotBeSavedTravelsInTheWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	answer := "session:\n  status: feedback\nprompts[1]{id,text}:\n  p1,\"" + strings.Repeat("é", pageFeedbackInline) + " Ship option B\"\n"
-	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, time.Duration) (axi.PagePoll, error) {
-		return axi.PagePoll{Status: "feedback", Output: answer}, nil
+	s := &Service{Store: store, Options: Options{PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+		return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Output: answer}, nil
 	}}}
 
 	s.watchPages(context.Background())
@@ -531,7 +531,7 @@ func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 		return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Since: since}}, nil
 	}
 	polled := make(chan string, 4)
-	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file string, _ time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{PollPage: func(_ context.Context, file, _ string, _ time.Duration) (axi.PagePoll, error) {
 		polled <- file
 		return axi.PagePoll{Status: "feedback", Output: "Go with Postgres"}, nil
 	}}}
@@ -576,5 +576,126 @@ func TestABoardAnswerBehindAGoblinsTurnClosesItsPageOnceWhenSent(t *testing.T) {
 	}
 	if i := slices.IndexFunc(settled.Reviews, func(r Review) bool { return r.ID == "plan-later" }); i < 0 || settled.Reviews[i].State != "open" {
 		t.Errorf("a page the goblin opened after the answer was sent = %+v, want it still open", settled.Reviews)
+	}
+}
+
+// pageOfAGoblin makes the fixture's goblin wait on the Overlord with a Lavish
+// page, as waitOnAPage does, and returns the goblin, its terminal and
+// connection, and the page.
+func pageOfAGoblin(t *testing.T, store *Store) (state.TaskMeta, hostedTerminal, *CFOConnection, string) {
+	t.Helper()
+	meta, _, goblin, connection := goblinFixture(t, store)
+	page := filepath.Join(meta.Worktree, ".lavish", "plan.html")
+	if err := os.MkdirAll(filepath.Dir(page), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(store.Home.State, meta.ID, "waiting on overlord: pick a plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := PublishWait(store.Home, meta.ID, 7, "pick a plan", pageLink, page, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestReviews(); err != nil {
+		t.Fatal(err)
+	}
+	return meta, goblin, connection, page
+}
+
+// Item 3 of the review-flow brief: revisions sent from the editor update the
+// editor. What he sends on a goblin's page without ending the review is a
+// revision: the goblin gets it in its own terminal, the CFO is told, the item
+// waits on the goblin's next version, and the next poll tells him on the page
+// that it was received and what happens next. The review goes on.
+func TestARevisionOnAPageReachesTheGoblinAndSaysWhatHappensNext(t *testing.T) {
+	// Arrange
+	defer func(pause time.Duration) { pagePollPause = pause }(pagePollPause)
+	pagePollPause = time.Millisecond
+	store, h := testStore(t)
+	meta, goblin, connection, page := pageOfAGoblin(t, store)
+	revision := "session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  \"\",Make the cards bigger,\"\",message,Freeform message\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var replies []string
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(_ context.Context, file, reply string, _ time.Duration) (axi.PagePoll, error) {
+		replies = append(replies, reply)
+		if len(replies) == 1 {
+			return axi.PagePoll{Status: "feedback", Prompts: []string{"Make the cards bigger"}, Output: revision}, nil
+		}
+		cancel()
+		return axi.PagePoll{Status: "waiting"}, nil
+	}}}
+
+	// Act
+	s.watchPages(ctx)
+	s.pageWork.Wait()
+
+	// Assert
+	if len(replies) != 2 || replies[0] != "" || replies[1] != "Revision received. "+meta.ID+" makes the next version, which replaces this page." {
+		t.Fatalf("replies = %q, want none, then that the revision was received and what happens next", replies)
+	}
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+": Make the cards bigger") || !strings.Contains(told[0], "--lavish "+page) {
+		t.Fatalf("the goblin got %q, want the revision and how to send its next version", told)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "open" || got.RevisingSince == nil {
+		t.Fatalf("the wait = %+v, want it open, waiting on the goblin's next version", got)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "asked for a revision on the page "+page+", and "+meta.ID+" has it") {
+		t.Fatalf("review wakes = %+v, want the CFO told the goblin has the revision", wakes)
+	}
+}
+
+// The goblin's next version of the page replaces the page's item, the same
+// item, waiting on the Overlord again, never a second item.
+func TestTheNextVersionOfAPageReplacesItsItem(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	meta, _, _, page := pageOfAGoblin(t, store)
+	if err := store.reviseReview("waiting-"+meta.ID+"-7", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := PublishWait(store.Home, meta.ID, 9, "pick a plan, now with bigger cards", pageLink, page, "")
+	if err == nil {
+		err = store.ingestReviews()
+	}
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot().Reviews
+	if len(got) != 1 || got[0].ID != "waiting-"+meta.ID+"-7" || got[0].Title != "Waiting on you: pick a plan, now with bigger cards" || got[0].State != "open" || got[0].RevisingSince != nil {
+		t.Fatalf("reviews = %+v, want the one item, its next version waiting on the Overlord", got)
+	}
+}
+
+// His answer on a goblin's page, sent with Send & End, reaches the goblin in
+// its own terminal, and the CFO is told the goblin has it, so nobody has to
+// relay it (0e: it reaches the goblin automatically).
+func TestAnAnswerOnAPageReachesTheGoblinItself(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, goblin, connection, page := pageOfAGoblin(t, store)
+	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(context.Context, string, string, time.Duration) (axi.PagePoll, error) {
+		return axi.PagePoll{Status: "feedback", Ended: true, EndedBy: "user", Prompts: []string{"Approved as shown."}, Output: "session:\n  status: feedback\n"}, nil
+	}}}
+
+	// Act
+	s.watchPages(context.Background())
+	s.pageWork.Wait()
+
+	// Assert
+	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "answered on your review page "+page+": Approved as shown.") {
+		t.Fatalf("the goblin got %q, want his answer", told)
+	}
+	if got := store.Snapshot().Reviews[0]; got.State != "answered" || got.Reason != "You answered on its page; the goblin has it." {
+		t.Fatalf("the wait = %+v, want it answered, saying the goblin has it", got)
+	}
+	if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "the goblin has it: Approved as shown.") {
+		t.Fatalf("review wakes = %+v, want the CFO told the goblin has the answer", wakes)
 	}
 }

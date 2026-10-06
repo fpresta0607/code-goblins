@@ -362,6 +362,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .question-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 1.125rem; font-weight: 550; min-width: 0; overflow-wrap: anywhere; }
 .question-option small { flex-basis: 100%; color: #b3c0c7; font-size: 1rem; font-weight: 400; }
 .recommendation { color: var(--recommend-ink); background: var(--recommend-fill); padding: 2px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; }
+.cfo-answer { color: var(--mint); border: 1px solid var(--glass-border-hover); padding: 1px 9px; border-radius: 7px; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
   .question-modal { padding: 24px 18px; }
@@ -891,7 +892,16 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 .inbox-text strong { font-weight: 800; }
 .inbox-text small { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .inbox-list time { color: var(--muted); white-space: nowrap; }
-.inbox-history li { grid-template-columns: auto minmax(0, 1fr); }
+.inbox-history li { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; }
+.inbox-history li > time { padding-top: 2px; }
+.inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
+/* Who answered: the crown for him, the CFO's face for the CFO, with a moon
+   while he was away. */
+.answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
+.answer-mark.you { border-radius: 50%; border: 1px solid var(--amber); background: rgba(243, 197, 120, .1); color: var(--amber); }
+.answer-mark.you .icon { width: 22px; height: 22px; }
+.answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
+.answer-mark .away-badge .icon { width: 13px; height: 13px; }
 @media (max-width: 40rem) {
   .question-modal { padding: 20px 16px; }
   .command-center-heading .goblin-avatar { width: 56px; height: 56px; }

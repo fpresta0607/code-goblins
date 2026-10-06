@@ -3,11 +3,14 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -131,6 +134,124 @@ func TestAChoiceTheCFORecordsAfterwardsIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	entries := afkEntries(t, h.State)
 	if len(entries) != 2 || entries[1].Kind != afk.KindAnswer || entries[1].What != q.ID || entries[1].Task != meta.ID || !strings.Contains(entries[1].Evidence, "SQLite. decided out of band") {
 		t.Errorf("the AFK log = %+v, want the switch and the recorded choice", entries)
+	}
+}
+
+// The Command Center's History tells an answer the CFO gave while the
+// Overlord was away from one he could have seen. The supervisor marks it
+// from AFK mode's state when the answer arrives, whatever the sender says.
+func TestTheCFOsAnswerIsMarkedAsGivenWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
+	for name, test := range map[string]struct {
+		isAFKOn, isClaimedAway, wantAway bool
+	}{
+		"AFK mode on":                        {true, false, true},
+		"AFK mode off":                       {false, false, false},
+		"AFK mode off, the sender claims it": {false, true, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			q := surfaced(t, store, meta, record, connection)
+			if test.isAFKOn {
+				if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			err := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: q.ID, Option: "SQLite", Answer: "SQLite", Away: test.isClaimedAway, At: time.Now().UTC()}})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Questions[0]; got.AnsweredBy != "cfo" || got.AnsweredAway != test.wantAway {
+				t.Errorf("the question = %+v, want it answered by the CFO with answered_away %v", got, test.wantAway)
+			}
+		})
+	}
+}
+
+// A goblin question the CFO answered another way, such as with cfo send, and
+// then acked closes as the CFO's answer, marked the same way.
+func TestAQuestionTheCFOAckedIsMarkedAsAnsweredWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
+	for name, isAFKOn := range map[string]bool{"AFK mode on": true, "AFK mode off": false} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			surfaced(t, store, meta, record, connection)
+			if isAFKOn {
+				if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := wake.AckThrough(h.State, record.Seq); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := store.supersedeQuestions()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredAway != isAFKOn {
+				t.Errorf("the question = %+v, want it closed as the CFO's answer with answered_away %v", got, isAFKOn)
+			}
+		})
+	}
+}
+
+// An AFK switch that cannot be read cannot say whether he was away, so an
+// acked question stays open until it can; the questions of a goblin that
+// restarted are still superseded.
+func TestAnUnreadableAFKSwitchHoldsOnlyTheAckedQuestion(t *testing.T) {
+	for name, test := range map[string]struct {
+		change func(t *testing.T, h string, meta state.TaskMeta, record wake.Record)
+		want   string
+	}{
+		"a question the CFO acked": {func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) {
+			if err := wake.AckThrough(h, record.Seq); err != nil {
+				t.Fatal(err)
+			}
+		}, "pending"},
+		"a question of a goblin that restarted": {func(t *testing.T, h string, meta state.TaskMeta, _ wake.Record) {
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(h, meta); err != nil {
+				t.Fatal(err)
+			}
+		}, "superseded"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			surfaced(t, store, meta, record, connection)
+			if err := os.WriteFile(filepath.Join(h.State, "afk.json"), []byte(`{"on": tr`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			test.change(t, h.State, meta, record)
+
+			// Act
+			err := store.supersedeQuestions()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := store.Snapshot().Questions[0]; got.Status != test.want {
+				t.Errorf("the question = %+v, want it %s", got, test.want)
+			}
+		})
 	}
 }
 
