@@ -130,6 +130,9 @@ export interface Decision {
 }
 export interface BoardActivity {
   cfo_identity?:string; live?:boolean;
+  // watch is the line a goblin writes when it asks the Overlord to watch this
+  // presentation; only such a presentation reaches his Command Center.
+  watch?:string;
   id:string; kind:string; task_id:string; generation:string; source:string; target:string; state:string; url:string; at:string; until:string;
 }
 export interface SubscriptionUsage {
@@ -517,7 +520,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
-    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until)};}),
+    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
     ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
