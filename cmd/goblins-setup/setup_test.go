@@ -14,14 +14,10 @@ import (
 	"time"
 )
 
-// standInVariable names the file a stand-in for the app writes its arguments
-// to. Set, it makes this test binary that stand-in: copied into a home as
-// goblins-window.exe, it records how it was started and ends.
-const standInVariable = "GOBLINS_SETUP_TEST_STANDIN"
-
 // cfoStandInVariable makes this test binary a stand-in for a tool whose every
-// command succeeds, such as a release's cfo.exe; asked its version, it gives
-// the no-mistakes version the variable holds, as the managed no-mistakes.
+// command succeeds, such as a release's cfo.exe, which install puts in the
+// per-user home's bin as cfo install does; asked its version, it gives the
+// no-mistakes version the variable holds, as the managed no-mistakes.
 const cfoStandInVariable = "GOBLINS_SETUP_TEST_CFO"
 
 func TestMain(m *testing.M) {
@@ -29,15 +25,35 @@ func TestMain(m *testing.M) {
 		if len(os.Args) > 1 && os.Args[1] == "--version" {
 			fmt.Println("no-mistakes version v" + pin)
 		}
-		os.Exit(0)
-	}
-	if record := os.Getenv(standInVariable); record != "" {
-		if err := os.WriteFile(record, []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
-			os.Exit(90)
+		if len(os.Args) > 1 && os.Args[1] == "install" {
+			os.Exit(standInInstall())
 		}
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+// standInInstall puts this binary in the per-user home's bin under both the
+// binary's names.
+func standInInstall() int {
+	self, err := os.Executable()
+	if err != nil {
+		return 1
+	}
+	data, err := os.ReadFile(self)
+	if err != nil {
+		return 1
+	}
+	bin := filepath.Join(os.Getenv("LOCALAPPDATA"), "CodeGoblins", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		return 1
+	}
+	for _, name := range []string{"cfo.exe", "goblins.exe"} {
+		if err := os.WriteFile(filepath.Join(bin, name), data, 0o755); err != nil {
+			return 1
+		}
+	}
+	return 0
 }
 
 // published is a release of the test's own that publishes script as its
@@ -241,55 +257,6 @@ func TestTheSetupInstallsTheReleaseThatBuiltIt(t *testing.T) {
 				t.Errorf("scriptURL = %s, want %s", got, test.want)
 			}
 		})
-	}
-}
-
-// Once installed, the app in the home is opened on its own, with nothing
-// else: that is how it finds or starts the supervisor and shows the board.
-func TestTheSetupOpensTheAppTheInstallPutInTheHome(t *testing.T) {
-	// Arrange
-	home := t.TempDir()
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	program, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, appName), program, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	record := filepath.Join(t.TempDir(), "arguments")
-	t.Setenv(standInVariable, record)
-
-	// Act
-	err = openApp(home)
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ran []byte
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
-		if ran, err = os.ReadFile(record); err == nil || time.Now().After(deadline) {
-			break
-		}
-	}
-	if err != nil || string(ran) != "" {
-		t.Errorf("the app was started with %q (%v), want it started with no arguments", ran, err)
-	}
-}
-
-// A home with no app in it, as a release that ships none leaves, is said so
-// with what to do instead.
-func TestAHomeWithNoAppIsSaidSo(t *testing.T) {
-	home := t.TempDir()
-
-	err := openApp(home)
-
-	if err == nil || err.Error() != "Code Goblins is installed, but this release has no app to open; open Code Goblins from the Start menu." {
-		t.Errorf("openApp = %v, want it to say the release has no app and where to open it", err)
 	}
 }
 

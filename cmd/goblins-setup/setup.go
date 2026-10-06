@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -196,7 +195,7 @@ func (s Setup) keep(lines ...string) {
 	if len(lines) == 0 {
 		return
 	}
-	log, err := os.OpenFile(s.Log, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	log, err := fsx.OpenAppend(s.Log, 0o644)
 	if err != nil {
 		return
 	}
@@ -254,22 +253,4 @@ func version() string {
 		return "(latest release)"
 	}
 	return tag
-}
-
-// appName is the desktop app an install puts in the home; started with no
-// arguments it opens Code Goblins.
-const appName = "goblins-window.exe"
-
-// openApp starts the app the install put in home, and outlives this program.
-func openApp(home string) error {
-	app := filepath.Join(home, appName)
-	if _, err := os.Stat(app); errors.Is(err, fs.ErrNotExist) {
-		return errors.New("Code Goblins is installed, but this release has no app to open; open Code Goblins from the Start menu.")
-	}
-	command := execx.Command(app)
-	command.Dir = home
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("Code Goblins is installed, but its app did not open (%v); open Code Goblins from the Start menu.", err)
-	}
-	return command.Process.Release()
 }

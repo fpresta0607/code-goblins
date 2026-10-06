@@ -122,7 +122,7 @@ func TestTheSetupAndTheOneLineInstallSayTheSamePlainSteps(t *testing.T) {
 	// Arrange
 	base := standInRelease(t)
 	line, lineTemp := strippedInstall(t, base, installtest.WindowsPowerShell(),
-		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "irm "+base+"/install.ps1 | iex")
+		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "irm "+base+"/install.ps1 | iex; exit $LASTEXITCODE")
 	window, windowTemp := strippedInstall(t, base, installtest.WindowsPowerShell())
 	setup := Setup{
 		Script: base + "/install.ps1",
@@ -182,12 +182,15 @@ func TestTheWindowNamesTheScriptsSteps(t *testing.T) {
 	}
 
 	// Act
-	said := regexp.MustCompile(`Write-Step (\d) "([^"]+)"`).FindAllStringSubmatch(string(installScript(t)), -1)
+	list := regexp.MustCompile(`(?m)^\s*\$releaseSteps = @\((.*)\)`).FindSubmatch(installScript(t))
 
 	// Assert
+	if list == nil {
+		t.Fatal("install.ps1 lists no $releaseSteps")
+	}
 	var steps []string
-	for _, step := range said {
-		steps = append(steps, step[2])
+	for _, step := range regexp.MustCompile(`"([^"]+)"`).FindAllSubmatch(list[1], -1) {
+		steps = append(steps, string(step[1]))
 	}
 	if !slices.Equal(shown, steps) || len(steps) != len(plainSteps) {
 		t.Errorf("the window lists the steps %q, the install script says %q", shown, steps)

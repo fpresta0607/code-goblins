@@ -90,10 +90,6 @@ func main() {
 					call("setupNote", progress.Note)
 				}
 			})
-			if err == nil {
-				call("setupStep", 4)
-				err = openApp(plan.Folder)
-			}
 			// A window that was closed has nothing left to tell.
 			if ctx.Err() != nil {
 				return

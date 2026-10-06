@@ -47,7 +47,7 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 		"  throw \"offline: $Uri\"\n" +
 		"}\n" +
 		"function Start-Sleep { param([int]$Seconds) }\n"
-	cmd, local, _ := StrippedCommand(t, base, all, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", internet+command)
+	cmd, local, temp := StrippedCommand(t, base, all, WindowsPowerShell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", internet+command)
 	programs := ""
 	for _, variable := range cmd.Env {
 		if appData, found := strings.CutPrefix(variable, "APPDATA="); found {
@@ -65,7 +65,7 @@ func runInstallForStartMenu(t *testing.T, base string, stubs map[string]string, 
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return startMenuInstall{output: string(output), record: string(recorded), local: local, programs: programs}
+	return startMenuInstall{output: Said(output, temp), record: string(recorded), local: local, programs: programs}
 }
 
 // serveReleaseWithWindow serves a release holding binary as cfo.exe and, when
@@ -211,7 +211,7 @@ func TestOneLineInstallStartsAloneOnlyTheWindowItDelivered(t *testing.T) {
 			}
 
 			// Act
-			run := runInstallForStartMenu(t, base, nil, "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression", seed)
+			run := runInstallForStartMenu(t, base, nil, "Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE", seed)
 
 			// Assert
 			bin := filepath.Join(run.local, "CodeGoblins", "bin")
