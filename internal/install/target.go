@@ -16,23 +16,35 @@ type Target struct {
 	Update bool
 	// Kept says Root is a home in use outside the standard folder, which the
 	// install keeps rather than moves: moving a fleet is the person's choice,
-	// never a step of an install.
+	// made with cfo home move, never a step of an install.
 	Kept bool
+	// Checkout says Root is a code-goblins checkout an older build made the
+	// home.
+	Checkout bool
 }
 
 // FindTarget picks the home for an install: the one CFO_HOME names where a
 // fleet already lives there, whatever folder that is, and otherwise the
-// standard folder.
+// standard folder. A CFO_HOME naming a folder with no fleet in it is stale,
+// and the install takes the machine over from it.
 func FindTarget(env EnvStore, standard string) (Target, error) {
 	current, set, err := env.Get(homeVariable)
 	if err != nil {
 		return Target{}, err
 	}
 	if set && !sameDirectory(current, standard) && isDir(filepath.Join(current, "state")) {
-		return Target{Root: current, Update: true, Kept: true}, nil
+		root := filepath.Clean(current)
+		return Target{Root: root, Update: true, Kept: true, Checkout: isCheckout(root)}, nil
 	}
 	_, err = os.Stat(filepath.Join(standard, home.InstalledMarker))
 	return Target{Root: standard, Update: err == nil || isDir(filepath.Join(standard, "state"))}, nil
+}
+
+// isCheckout reports whether root is a code-goblins checkout, as the install
+// script recognises one: its contract and the source of cfo beside each other.
+func isCheckout(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "AGENTS.md"))
+	return err == nil && isDir(filepath.Join(root, "cmd", "cfo"))
 }
 
 func isDir(path string) bool {

@@ -521,10 +521,16 @@ func runsPreviousBuild(running serveProcess, journal *update.Journal) bool {
 }
 
 // homeProgram reports whether program is one of this home's: an alias in its
-// root, or a verified copy an update keeps.
+// bin, one at its root, where an older install put them and an install keeps
+// them current, or a verified copy an update keeps.
 func homeProgram(h home.Home, program string) bool {
 	directory := filepath.Clean(filepath.Dir(program))
-	return strings.EqualFold(directory, filepath.Clean(h.Bin())) || strings.EqualFold(directory, filepath.Clean(update.Dir(h.State)))
+	for _, folder := range []string{h.Bin(), h.Root, update.Dir(h.State)} {
+		if strings.EqualFold(directory, filepath.Clean(folder)) {
+			return true
+		}
+	}
+	return false
 }
 
 // endSupervisor asks the supervisor to stop and waits for it to exit,

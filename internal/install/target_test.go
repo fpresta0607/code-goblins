@@ -38,9 +38,14 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 			want:     func(standard, _ string) Target { return Target{Root: standard, Update: true} },
 		},
 		"a checkout made the home, CFO_HOME naming it": {
-			checkout: []string{"AGENTS.md", "state/", "data/", ".worktrees/", "cfo.exe"},
+			checkout: []string{"AGENTS.md", "cmd/cfo/", "state/", "data/", ".worktrees/", "cfo.exe"},
 			cfoHome:  "checkout",
-			want:     func(_, checkout string) Target { return Target{Root: checkout, Update: true, Kept: true} },
+			want:     func(_, checkout string) Target { return Target{Root: checkout, Update: true, Kept: true, Checkout: true} },
+		},
+		"a home of its own outside the standard folder, CFO_HOME naming it": {
+			checkout: []string{home.InstalledMarker, "AGENTS.md", "state/", "bin/"},
+			cfoHome:  "checkout",
+			want:     func(_, other string) Target { return Target{Root: other, Update: true, Kept: true} },
 		},
 		"CFO_HOME naming a folder with no fleet": {
 			checkout: []string{"AGENTS.md"},
