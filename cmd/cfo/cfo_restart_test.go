@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -79,6 +80,31 @@ func TestGoblinsResumeSaysTheRestartedCFOStartedANewConversation(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "CFO        restarted as Claude Code on a new conversation, in native terminal cfo\n") || !strings.Contains(stdout, "Its conversation a1b2c3d4-session could not be resumed, so the CFO starts a new one.") {
 		t.Errorf("stdout = %q, want the new conversation and the one left said", stdout)
+	}
+}
+
+// A restarted CFO can end while its startup dialogs are answered, as a fresh
+// one can; goblins resume then reports it ended rather than saying it was
+// restarted, and offers no terminal to attach to.
+func TestGoblinsResumeReportsARestartedCFOThatEndsWhileItsDialogsAreAnswered(t *testing.T) {
+	// Arrange
+	f := newSessionFixture(t)
+	f.nativeCFO = supervisor.NativeCFOTerminal
+	f.restartSession = "a1b2c3d4-session"
+	f.runtime.settleCFO = func(context.Context, string, string) []string {
+		f.cfoTerminalRuns = false
+		return []string{"Answered the update prompt in the CFO's terminal: Skip."}
+	}
+
+	// Act
+	exit, stdout, stderr := f.launch("resume")
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr, "the restarted CFO's native terminal ended during startup") {
+		t.Fatalf("exit=%d stderr=%q, want the ended restart reported", exit, stderr)
+	}
+	if strings.Contains(stdout, "CFO        restarted") || len(f.screens) != 0 || len(f.nativeAttached) != 0 {
+		t.Errorf("stdout=%q screens=%v attached=%q, want no restart claimed and nothing to attach to", stdout, f.screens, f.nativeAttached)
 	}
 }
 

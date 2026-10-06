@@ -63,6 +63,16 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 		switch {
 		case err == nil:
 			notes := runtime.settleCFO(ctx, h.State, conversation.Harness)
+			// A restarted harness can end while its startup dialogs are
+			// answered, as a fresh one can.
+			if !runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+				for _, note := range notes {
+					list.Note(note)
+				}
+				list.End()
+				fmt.Fprintln(stderr, "goblins: the restarted CFO's native terminal ended during startup")
+				return 1
+			}
 			if resumed {
 				list.Done("CFO", fmt.Sprintf("restarted on its conversation %s, in native terminal %s", conversation.Session, supervisor.NativeCFOTerminal))
 			} else {
