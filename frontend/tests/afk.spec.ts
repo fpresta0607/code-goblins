@@ -14,8 +14,8 @@ const question = (id: string, text: string, asker = "") => ({ id, text, options:
 // question is the CFO's to answer, never waits on him and is never held.
 const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "nw-checkout-tax asks: Delete the old branch fix/tax-rounding-v1?")];
 const HELD = [
-  { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "" },
-  { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path" },
+  { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it" },
+  { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
 ];
 let revision = 0;
 const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: ++revision, attention: [], tasks: TASKS, sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }], ...fields });
@@ -165,8 +165,10 @@ test("while AFK is on nothing glows on the bar though things wait on him, it lis
   const rows = bar(page).locator(".afk-held li");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("CFO");
+  await expect(rows.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
   await expect(rows.nth(0)).toContainText("Still waiting on you.");
   await expect(rows.nth(1)).toContainText("nw-checkout-tax");
+  await expect(rows.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommends: Hold it.");
   await expect(rows.nth(1)).toContainText("Still waiting on you. Meanwhile: working: moved on to the refund path.");
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
@@ -314,6 +316,30 @@ test("a stretch the CFO turned on at his ask says so on the bar, and the offer a
   await expect(report(page).locator(".afk-report-title")).toContainText("Turned on by the CFO at your ask: “I'm stepping away, turn AFK on”, off from your board.");
 });
 
+test("his first click or key after the CFO turned AFK on at his ask offers the switch back at once with his words, and the usual wait follows his answer", async ({ page }) => {
+  await page.clock.install();
+  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm heading to bed, turn AFK on" };
+  const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
+  const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CFO turned AFK on" });
+  // Nothing opens by itself after the switch.
+  await expect(switched).toHaveCount(0);
+
+  await page.locator(".task-card").filter({ hasText: "nw-search-index" }).first().click();
+  await expect(switched).toContainText("turned on by the CFO at your ask: “I'm heading to bed, turn AFK on”.");
+  await expect(offer(page)).toHaveCount(0);
+  await expect(switched).toBeFocused();
+  await switched.getByRole("button", { name: "Stay AFK" }).click();
+  await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
+  // The click that brought the offer opened the task he clicked.
+  await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
+
+  // He has answered it, so his next click and key offer nothing.
+  await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
+  await page.keyboard.press("Shift");
+  await expect(page.locator("dialog.afk-dialog")).toHaveCount(0);
+  expect(supervisor.asked).toEqual([]);
+});
+
 test("the report lists what is held first, then how much of each thing the CFO did, each decision with its link and what it stood on, and what was spent, and opens again from the header", async ({ page }) => {
   await open(page, snapshot({ afk: KEPT }));
   // A page that opens after AFK mode turned off shows no report by itself.
@@ -343,6 +369,8 @@ test("the report lists what is held first, then how much of each thing the CFO d
 
   const held = report(page).getByRole("region", { name: "Held for you" }).locator("li");
   await expect(held).toHaveCount(2);
+  await expect(held.nth(0).locator(".afk-recommends")).toHaveText("The CFO recommends: Hold it.");
+  await expect(held.nth(1).locator(".afk-recommends")).toHaveText("nw-checkout-tax recommended: Hold it.");
   await expect(held.nth(1)).toContainText("You answered it: Keep it for now.");
   await expect(report(page).getByRole("region", { name: "Spent" })).toContainText("claude week: 41% used when it turned on, 49% when it turned off (8 points)");
 

@@ -105,6 +105,36 @@ func TestTheReportSaysWhatWasDecidedFinishedHeldAndSpent(t *testing.T) {
 	}
 }
 
+// A held item says what was recommended for it and by whom, the CFO for its
+// own or the goblin whose question it is: in the present while it still waits
+// on the Overlord, in the past once it does not, and nothing for an item with
+// no recommendation.
+func TestAHeldItemSaysWhatWasRecommendedForIt(t *testing.T) {
+	// Arrange
+	report := Report{Session: "afk-1", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board", Held: []Held{
+		{Item: "question:drop-legacy", What: "Migration 0042 drops legacy_invoices. Apply it?", Waiting: true, Now: "still waiting on you", Recommendation: "Keep it held"},
+		{Item: "question:notify-pd-billing-12", Task: "pd-billing", What: "Delete fix/tax-rounding-v1?", Now: "you answered it: Delete it", Recommendation: "Keep the branch."},
+		{Item: "run:restart-db", What: "Restart the dev database", Waiting: true, Now: "still waiting for you to run it"},
+	}}
+	var out bytes.Buffer
+
+	// Act
+	err := Render(&out, report)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"  The CFO recommends: Keep it held.\n", "  pd-billing recommended: Keep the branch.\n"} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("the report does not say %q:\n%s", line, out.String())
+		}
+	}
+	if count := strings.Count(out.String(), "recommend"); count != 2 {
+		t.Errorf("the report says a recommendation %d times, want 2: the run had none:\n%s", count, out.String())
+	}
+}
+
 func TestAQuietStretchReportsNothingRatherThanNothingAtAll(t *testing.T) {
 	var out bytes.Buffer
 	if err := Render(&out, Report{Session: "afk-1", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board"}); err != nil {

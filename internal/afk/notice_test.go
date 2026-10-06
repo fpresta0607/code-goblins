@@ -54,7 +54,10 @@ func TestTheNoticeSaysWhoTurnedItOnWhenAndTheAuthoritysTerms(t *testing.T) {
 		"his alone: spend":               "any spend beyond his account's limits",
 		"his alone: identity":            "his own sign-ins and identity checks",
 		"his alone: a tool's refusal":    "anything a tool refuses",
-		"how to leave it for him":        "cfo run-request with the exact command",
+		"his alone: never asked":         "never asking him while he is away",
+		"his alone: held as a question":  "cfo question with --recommend naming the choice you would make",
+		"his alone: held as a command":   "cfo run-request with the exact command",
+		"his alone: where it waits":      "under Held for you with your recommendation until he is back",
 		"the goblin moves on":            "move to its next piece of work",
 		"the command that logs the rest": "cfo afk log --kind",
 	} {

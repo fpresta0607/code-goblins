@@ -153,7 +153,7 @@ func TestADecisionWithoutEvidenceOrOfAnUnknownKindIsRefused(t *testing.T) {
 
 func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	dir, on := turnedOn(t)
-	held := Entry{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?"}
+	held := Entry{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?", Recommendation: "Keep it held"}
 
 	if err := Hold(dir, held, night.Add(time.Minute)); err != nil {
 		t.Fatal(err)
@@ -162,6 +162,9 @@ func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 	entries, _, _ := Entries(dir, on.Session)
 	if len(entries) != 2 || entries[1].Kind != KindHeld || entries[1].Item != held.Item || entries[1].What != held.What || entries[1].Session != on.Session {
 		t.Errorf("log = %+v, want the held item in the stretch", entries)
+	}
+	if len(entries) == 2 && entries[1].Recommendation != held.Recommendation {
+		t.Errorf("held line = %+v, want it with what was recommended for it", entries[1])
 	}
 	if err := Hold(dir, Entry{What: "no item"}, night.Add(time.Minute)); err == nil {
 		t.Error("a held line that names no item was accepted")

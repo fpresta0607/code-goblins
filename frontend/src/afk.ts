@@ -109,20 +109,38 @@ export function heldSays(held: AfkHeld): string {
   return [sentence(held.now), held.meanwhile ? sentence("Meanwhile: " + held.meanwhile) : ""].filter(Boolean).join(" ");
 }
 
+// heldRecommends says what was recommended for a held item and by whom: the
+// CFO for its own item, or the goblin whose question it is. It is in the
+// present while the item still waits on him, in the past once it does not,
+// and empty when nothing was recommended.
+export function heldRecommends(held: AfkHeld): string {
+  if (!held.recommendation) return "";
+  return (held.task || "The CFO") + (held.waiting ? " recommends: " : " recommended: ") + held.recommendation.replace(/\.$/, "") + ".";
+}
+
 // AWAY_MS is how long the board sees no click or key before it takes the next
 // one for the Overlord coming back.
 export const AWAY_MS = 5 * 60 * 1000;
 
-// offersOff says whether a click or key at now is the Overlord coming back,
-// which is when the board offers to turn AFK mode off: AFK mode is on, and
-// nothing was clicked or typed on this page for AWAY_MS, counted from when it
-// turned on or from his last click or key (lastTouch, zero for none), the
-// later of the two. So the clicks he makes right after turning it on offer
-// nothing, and the first one after he has been gone does.
-export function offersOff(afk: Afk, lastTouch: number, now: number): boolean {
-  if (afk.state !== "on") return false;
-  const since = Date.parse(afk.since);
-  return now - Math.max(Number.isNaN(since) ? 0 : since, lastTouch) >= AWAY_MS;
+// Occasion is why a click or key brings the offer to turn AFK mode off:
+// "back" when he is back after the board saw none for a while, "asked" when it
+// is his first since the CFO turned it on at his ask, and "" when it brings
+// nothing.
+export type Occasion = "" | "back" | "asked";
+
+// offerFor is what a click or key at now is to the offer. While AFK mode is
+// on it is "back" when nothing was clicked or typed on this page for AWAY_MS,
+// counted from when it turned on or from his last click or key (lastTouch,
+// zero for none), the later of the two, and "asked" when the CFO turned it on
+// at his ask and this is his first click or key since, so a switch made on
+// his words meets him at once. The clicks he makes right after turning it on
+// himself bring nothing, and the first one after he has been gone does.
+export function offerFor(afk: Afk, lastTouch: number, now: number): Occasion {
+  if (afk.state !== "on") return "";
+  const parsed = Date.parse(afk.since);
+  const since = Number.isNaN(parsed) ? 0 : parsed;
+  if (now - Math.max(since, lastTouch) >= AWAY_MS) return "back";
+  return afk.asked && lastTouch < since ? "asked" : "";
 }
 
 // safeLink is url when it is a web link the board may open, and empty for

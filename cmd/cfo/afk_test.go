@@ -276,7 +276,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		}
 	}
 	for _, held := range []afk.Entry{
-		{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?"},
+		{Item: "question:drop-legacy-invoices", What: "Migration 0042 drops legacy_invoices. Apply it?", Recommendation: "Keep it held"},
 		{Item: "question:notify-pd-billing-12", Task: "pd-billing", What: "Which store?"},
 		{Item: "review:waiting-pd-auth-7", Task: "pd-auth", What: "Waiting on you: sign in to Vercel"},
 	} {
@@ -295,7 +295,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 	for _, phrase := range []string{
 		"AFK MODE IS ON", overlordsShell, "never decided for him",
 		"Decided so far (2)", "merge: " + pr + " (merged)", "answer: pd-billing: notify-pd-billing-12",
-		"Held for you so far (2)", "question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?", "review:waiting-pd-auth-7, pd-auth's: Waiting on you: sign in to Vercel",
+		"Held for you so far (2)", "question:drop-legacy-invoices, the CFO's: Migration 0042 drops legacy_invoices. Apply it?\n  The CFO recommends: Keep it held.\n", "review:waiting-pd-auth-7, pd-auth's: Waiting on you: sign in to Vercel",
 	} {
 		if !strings.Contains(stdout, phrase) {
 			t.Errorf("status does not say %q:\n%s", phrase, stdout)
