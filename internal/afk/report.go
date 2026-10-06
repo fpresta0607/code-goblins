@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -74,6 +75,27 @@ type Held struct {
 	Now     string `json:"now"`
 	// Meanwhile is what was done while it waited: its goblin's latest report.
 	Meanwhile string `json:"meanwhile,omitempty"`
+	// Recommendation is the choice recommended for it by whoever asked it,
+	// empty when nothing was.
+	Recommendation string `json:"recommendation,omitempty"`
+}
+
+// Recommends says what was recommended for a held item and by whom: the CFO
+// for its own item, or task, the goblin whose question it is. It is in the
+// present while the item still waits on the Overlord, in the past once it
+// does not, and empty when nothing was recommended.
+func Recommends(task, recommendation string, waiting bool) string {
+	if recommendation == "" {
+		return ""
+	}
+	who, verb := "The CFO", " recommended: "
+	if task != "" {
+		who = task
+	}
+	if waiting {
+		verb = " recommends: "
+	}
+	return who + verb + strings.TrimSuffix(recommendation, ".") + "."
 }
 
 // Decisions folds a stretch's log lines into its decisions, in the order they
@@ -226,6 +248,9 @@ func Render(w io.Writer, r Report) error {
 			whose = held.Task + "'s"
 		}
 		say("- %s, %s: %s", held.Item, whose, held.What)
+		if recommends := Recommends(held.Task, held.Recommendation, held.Waiting); recommends != "" {
+			say("  %s", recommends)
+		}
 		line := "  Now: " + held.Now + "."
 		if held.Meanwhile != "" {
 			line += " Meanwhile: " + held.Meanwhile + "."

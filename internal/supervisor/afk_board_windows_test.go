@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -494,6 +495,38 @@ func TestTheSnapshotShowsWhatWasDecidedAndWhatIsHeldWhileAFKModeIsOn(t *testing.
 	}
 }
 
+// What the Overlord would have been asked while he is away is held with the
+// choice recommended for it, so the board's list of what is held says it;
+// an item that recommends nothing says nothing.
+func TestTheSnapshotSaysWhatWasRecommendedForEachHeldItem(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := boardService(store)
+	if _, _, err := afk.TurnOn(h.State, "his own board (goblins-window.exe pid 4242)", nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	waitingItems(t, store)
+	if err := s.holdForOverlord(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := s.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	recommended := map[string]string{}
+	for _, one := range snapshot.AFK.Held {
+		recommended[one.Item] = one.Recommendation
+	}
+	want := map[string]string{"question:drop-legacy-invoices": "Keep it held", "review:waiting-task-1-7": "", "run:delete-merged-branches": ""}
+	if !maps.Equal(recommended, want) {
+		t.Errorf("held recommendations = %q, want %q", recommended, want)
+	}
+}
+
 // A command the board made itself, for a credential card's terminal or a
 // connection's repair, is ready only for the moment after the Overlord's own
 // click. It never waited on him, so it is not held.
@@ -603,8 +636,8 @@ func TestTheReportReadLaterShowsEachHeldItemAsItStandsNow(t *testing.T) {
 			t.Errorf("before he acted, %s = %+v, want it still waiting on him", item, one)
 		}
 	}
-	if question := after["question:drop-legacy-invoices"]; question.Waiting || question.Now != "you answered it: Keep it held" {
-		t.Errorf("the question after his answer = %+v, want that he answered it", question)
+	if question := after["question:drop-legacy-invoices"]; question.Waiting || question.Now != "you answered it: Keep it held" || question.Recommendation != "Keep it held" {
+		t.Errorf("the question after his answer = %+v, want that he answered it, beside what the CFO recommended", question)
 	}
 	if wait := after["review:waiting-task-1-7"]; wait.Waiting || wait.Now != "withdrawn: task-1 reported again: working" {
 		t.Errorf("the wait after it was withdrawn = %+v, want it withdrawn", wait)
