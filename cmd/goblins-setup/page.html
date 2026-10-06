@@ -4,71 +4,201 @@
 <meta charset="utf-8">
 <title>Code Goblins Setup</title>
 <style>
-  :root { color-scheme: dark; }
+  /* The board's look: its ground, mint accent, hairlines and pill buttons,
+     in Windows' own face, which stays sharp at every display scale. */
+  :root {
+    color-scheme: dark;
+    --ground: #03050a;
+    --text: #edf4f3;
+    --muted: #a3b3c2;
+    --green: #00e59b;
+    --green-deep: #00c97f;
+    --ink: #03130c;
+    --red: #ef8e83;
+    --hairline: rgba(163, 179, 194, 0.14);
+    --edge: rgba(0, 229, 155, 0.16);
+    --edge-strong: rgba(0, 229, 155, 0.32);
+    --surface: linear-gradient(135deg, rgba(0, 229, 155, 0.05) 0%, rgba(3, 5, 10, 0.8) 50%, rgba(0, 140, 255, 0.03) 100%), #04060a;
+  }
+  * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: #0b1118;
-    color: #d7e0ea;
-    font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
-    display: flex;
-    flex-direction: column;
-    padding: 24px 28px;
-    box-sizing: border-box;
+    background: radial-gradient(ellipse at 0 0, rgba(0, 229, 155, 0.07), transparent 50%), radial-gradient(ellipse at 100% 0, rgba(0, 140, 255, 0.05), transparent 50%), var(--ground);
+    color: var(--text);
+    font: 400 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
   }
-  h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
-  #now { color: #9fb0c3; min-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #bar { height: 4px; margin: 16px 0; border-radius: 2px; background: #1b2633; overflow: hidden; }
-  #bar i { display: block; width: 30%; height: 100%; background: #5fd38d; animation: run 1.6s linear infinite; }
-  body.ended #bar i { animation: none; width: 100%; }
-  body.failed #bar i { background: #e5674f; }
-  @keyframes run { from { margin-left: -30%; } to { margin-left: 100%; } }
-  #lines {
-    flex: 1;
-    overflow: auto;
-    margin: 0;
-    padding: 12px 14px;
-    background: #070b10;
-    border: 1px solid #1b2633;
-    border-radius: 6px;
-    font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  #end { display: none; margin-top: 14px; }
-  body.ended #end { display: block; }
-  #why { white-space: pre-wrap; margin: 0 0 6px; }
-  #log { color: #9fb0c3; font-size: 13px; margin: 0; }
+  main { display: flex; flex-direction: column; gap: 22px; height: 100%; padding: 28px 32px 24px; }
+  header { display: flex; align-items: center; gap: 16px; }
+  .mark { width: 52px; height: 52px; flex: none; }
+  h1 { margin: 0; font: 600 22px/1.25 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; }
+  #lead { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+  .path { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+
+  .facts { display: grid; gap: 0; margin: 0; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
+  .facts div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 16px; padding: 12px 16px; }
+  .facts div + div { border-top: 1px solid var(--hairline); }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; }
+  .note { display: flex; gap: 10px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(0, 229, 155, 0.06); color: #c9f2e2; }
+  .note::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: var(--green); }
+
+  .steps { display: grid; gap: 14px; margin: 0; padding: 4px 0 0; list-style: none; }
+  .steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 14px; align-items: center; color: var(--muted); }
+  .steps li.done, .steps li.now { color: var(--text); }
+  .steps li.now .name { font-weight: 600; }
+  .steps .doing { grid-column: 2; color: var(--muted); font-size: 13.5px; min-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .steps li:not(.now) .doing { display: none; }
+  .icon { width: 24px; height: 24px; }
+  .icon * { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon .ring { stroke: rgba(163, 179, 194, 0.35); }
+  .icon .arc, .icon .tick, .icon .cross { display: none; }
+  li.now .icon .ring { stroke: rgba(0, 229, 155, 0.22); }
+  li.now .icon .arc { display: inline; stroke: var(--green); stroke-dasharray: 18 100; transform-origin: 12px 12px; animation: turn 0.9s linear infinite; }
+  li.done .icon .ring { stroke: var(--green); fill: var(--green); }
+  li.done .icon .tick { display: inline; stroke: var(--ink); stroke-width: 2.4; }
+  li.failed .icon .ring { stroke: var(--red); fill: var(--red); }
+  li.failed .icon .cross { display: inline; stroke: var(--ink); stroke-width: 2.4; }
+  @keyframes turn { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { li.now .icon .arc { animation: none; stroke-dasharray: none; } }
+
+  #details { flex: 1; min-height: 72px; margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--hairline); border-radius: 10px; background: #070b10; color: #c3d0dc; font: 12.5px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
+  footer { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+  footer .push { flex: 1; }
+  button { min-height: 38px; padding: 0 20px; border: 1px solid var(--edge-strong); border-radius: 999px; background: rgba(3, 5, 10, 0.5); color: #dff7ee; font: 600 14px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  button:hover { border-color: var(--green); background: rgba(0, 229, 155, 0.08); }
+  button:focus-visible { outline: 3px solid #008cff; outline-offset: 2px; }
+  button.primary { border-color: var(--green); background: var(--green); color: var(--ink); font-weight: 700; }
+  button.primary:hover { border-color: var(--green-deep); background: var(--green-deep); }
+
+  /* Each screen shows only what is its own. */
+  body:not([data-screen="start"]) #plan,
+  body[data-screen="start"] .steps,
+  body:not([data-screen="failed"]) .on-failure,
+  body:not([data-screen="start"]) .on-start,
+  body:not(.showing-details) #details,
+  #note:empty, body[data-screen="installing"] #note, body[data-screen="failed"] #note { display: none; }
+  body[data-screen="failed"] h1 { color: var(--red); }
 </style>
 </head>
-<body>
-<h1 id="title">Installing Code Goblins</h1>
-<div id="now" role="status">Starting ...</div>
-<div id="bar"><i></i></div>
-<pre id="lines" aria-label="What the install has done"></pre>
-<div id="end">
-  <p id="why"></p>
-  <p id="log"></p>
-</div>
+<body data-screen="start">
+<main>
+  <header>
+    <img class="mark" src="goblin.png" alt="">
+    <div>
+      <h1 id="title">Install Code Goblins</h1>
+      <p id="lead" role="status">The app and the cfo command line, together in one folder.</p>
+    </div>
+  </header>
+
+  <section id="plan">
+    <dl class="facts">
+      <div><dt>Folder</dt><dd id="folder" class="path"></dd></div>
+      <div><dt>Adds</dt><dd>The cfo command line to your PATH, and Code Goblins to the Start menu</dd></div>
+      <div><dt>Tools</dt><dd>Git, GitHub CLI, Claude Code and the others goblins use, where they are missing</dd></div>
+    </dl>
+  </section>
+
+  <ol class="steps" aria-label="Steps">
+    <li data-step="1"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Download Code Goblins</span><span class="doing"></span></li>
+    <li data-step="2"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Check the download</span><span class="doing"></span></li>
+    <li data-step="3"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Install Code Goblins and its tools</span><span class="doing"></span></li>
+    <li data-step="4"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="ring" cx="12" cy="12" r="10"/><circle class="arc" cx="12" cy="12" r="10"/><path class="tick" d="M7.5 12.5l3 3 6-6.5"/><path class="cross" d="M8.5 8.5l7 7m0-7l-7 7"/></svg><span class="name">Open Code Goblins</span><span class="doing"></span></li>
+  </ol>
+
+  <p id="note" class="note"></p>
+
+  <pre id="details" aria-label="Details"></pre>
+
+  <footer>
+    <button class="on-failure" id="show-details" type="button">Show details</button>
+    <button class="on-failure" type="button" data-send="log">Open the log</button>
+    <span class="push"></span>
+    <button class="on-start" type="button" data-send="cancel">Cancel</button>
+    <button class="on-start primary" id="install" type="button" data-send="install">Install</button>
+    <button class="on-failure primary" type="button" data-send="install">Try again</button>
+  </footer>
+</main>
 <script>
-  // The setup program calls these as the install goes: each line the install
-  // prints, then how it ended.
-  const lines = document.getElementById("lines");
-  function setupLine(text) {
-    document.getElementById("now").textContent = text;
-    lines.textContent += text + "\n";
-    lines.scrollTop = lines.scrollHeight;
+  // The setup program calls these as it goes, and hears each button through
+  // the window's message channel.
+  const body = document.body;
+  const text = (id, value) => { document.getElementById(id).textContent = value; };
+  let updating = false;
+  let folder = "";
+
+  // setupPlan shows what the install will do before it starts: the folder,
+  // whether it updates Code Goblins already there, and a line about it.
+  function setupPlan(plan) {
+    folder = plan.folder;
+    updating = plan.update;
+    text("folder", folder);
+    text("note", plan.note || "");
+    text("title", updating ? "Update Code Goblins" : "Install Code Goblins");
+    text("install", updating ? "Update" : "Install");
   }
-  function setupDone(text) {
-    document.body.classList.add("ended");
-    document.getElementById("title").textContent = "Code Goblins is installed";
-    document.getElementById("now").textContent = text;
+
+  function setupStarted() {
+    body.dataset.screen = "installing";
+    body.classList.remove("showing-details");
+    text("title", updating ? "Updating Code Goblins" : "Installing Code Goblins");
+    text("lead", (updating ? "In " : "Into ") + folder);
+    for (const step of document.querySelectorAll(".steps li")) {
+      step.className = "";
+      step.querySelector(".doing").textContent = "";
+    }
   }
-  function setupFailed(why, log) {
-    document.body.classList.add("ended", "failed");
-    document.getElementById("title").textContent = "Code Goblins was not installed";
-    document.getElementById("now").textContent = "Close this window, fix what it names, and run the setup again.";
-    document.getElementById("why").textContent = why;
-    document.getElementById("log").textContent = "Everything the install printed is in " + log;
+
+  // setupStep marks step number as the one under way and those before it
+  // done.
+  function setupStep(number) {
+    for (const step of document.querySelectorAll(".steps li")) {
+      const at = Number(step.dataset.step);
+      step.className = at < number ? "done" : at === number ? "now" : "";
+    }
+  }
+
+  // setupDoing says what the step under way is doing now.
+  function setupDoing(doing) {
+    const now = document.querySelector(".steps li.now .doing");
+    if (now) now.textContent = doing;
+  }
+
+  // setupNote is a sentence the install said to know, shown once it is done.
+  function setupNote(note) {
+    text("note", note);
+  }
+
+  function setupDone() {
+    body.dataset.screen = "done";
+    for (const step of document.querySelectorAll(".steps li")) step.className = "done";
+    text("title", updating ? "Code Goblins is up to date" : "Code Goblins is installed");
+    text("lead", "It is opening now. This window closes by itself.");
+  }
+
+  // setupFailed says in one sentence what happened and what to do, and keeps
+  // the log's last lines behind Show details.
+  function setupFailed(sentence, details) {
+    body.dataset.screen = "failed";
+    const now = document.querySelector(".steps li.now");
+    if (now) now.className = "failed";
+    text("title", updating ? "Code Goblins was not updated" : "Code Goblins was not installed");
+    text("lead", sentence);
+    text("details", details);
+  }
+
+  document.getElementById("show-details").addEventListener("click", (event) => {
+    const showing = body.classList.toggle("showing-details");
+    event.currentTarget.textContent = showing ? "Hide details" : "Show details";
+    if (showing) {
+      const details = document.getElementById("details");
+      details.scrollTop = details.scrollHeight;
+    }
+  });
+  for (const button of document.querySelectorAll("[data-send]")) {
+    button.addEventListener("click", () => window.chrome?.webview?.postMessage("setup:" + button.dataset.send));
   }
 </script>
 </body>
