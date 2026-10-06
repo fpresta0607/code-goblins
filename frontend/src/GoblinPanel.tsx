@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
 import { PanelHeader } from "./PanelHeader";
 import { TaskView } from "./Details";
@@ -29,16 +29,22 @@ export function GoblinPanel({ task, node, snapshot, connected, reviews, view, no
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   const terminal = panelViews(task, node).includes("terminal");
+  // A failure's Open the log opens the Activity section and brings it into view.
+  const [isLogOpen, setLogOpen] = useState(false);
+  const openLog = () => {
+    setLogOpen(true);
+    requestAnimationFrame(() => document.getElementById("task-activity")?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  };
   return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow view={terminal ? view : undefined} onView={onView} {...row} />
-    <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} />
+    <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
         <TaskControls task={task} snapshot={snapshot} labelled />
         <LifecycleDetails task={task} />
         {task.phase === "queued" && <TaskAdjustment task={task} snapshot={snapshot} />}
       </div>}
-      {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} onRepair={onAnswer} />
+      {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} onRepair={onAnswer} /> : <div className="panel-content"><WorkspaceDetails task={task} node={node} runs={snapshot.runs} instance={snapshot.instance} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
           <p className="column-hint">Top starts first, when memory allows.</p>

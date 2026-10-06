@@ -108,5 +108,5 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
 
 // The chip on the top queued task, the one the CFO starts next.
 export function nextChip(memory: Memory | null): string {
-  return memory && memoryBlock(memory) ? `Next, at ${gigabytes(memory.next)} GB free` : "Next up";
+  return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
 }

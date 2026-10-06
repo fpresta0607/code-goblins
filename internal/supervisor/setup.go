@@ -37,11 +37,14 @@ type FirstRun struct {
 	SetProjectsRoot func(root string) error
 	// CFORuns says a CFO is registered or its native terminal is up;
 	// StartCFO starts agent as the CFO in native terminal cfo, in the home;
-	// ReopenCFO brings the home's closed CFO back as goblins does.
-	CFORuns   func() bool
-	StartCFO  func(agent string) error
-	ReopenCFO func() error
-	mu        sync.Mutex
+	// ReopenCFO brings the home's closed CFO back as goblins does;
+	// RestartCFO restarts the running one on its conversation as goblins
+	// resume does, and says whether it came back on that conversation.
+	CFORuns    func() bool
+	StartCFO   func(agent string) error
+	ReopenCFO  func() error
+	RestartCFO func() (CFOConversation, bool, error)
+	mu         sync.Mutex
 }
 
 // StartRefusal is a start the board cannot make, of the CFO from the
@@ -235,6 +238,52 @@ func (f *FirstRun) Reopen() error {
 		return fmt.Errorf("the CFO could not be reopened: %w", err)
 	}
 	return nil
+}
+
+// Restart restarts the CFO that runs in native terminal cfo on its
+// conversation, as goblins resume does for a CFO whose screen froze, and
+// returns that conversation and whether the CFO came back on it. It restarts
+// nothing while no CFO runs.
+func (f *FirstRun) Restart() (CFOConversation, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.CFORuns() {
+		return CFOConversation{}, false, StartRefusal{Reason: "No CFO runs to restart"}
+	}
+	conversation, resumed, err := f.RestartCFO()
+	if err != nil {
+		return CFOConversation{}, false, fmt.Errorf("the CFO could not be restarted: %w", err)
+	}
+	return conversation, resumed, nil
+}
+
+// restartCFO serves POST /api/cfo/restart, the board's Restart for a CFO
+// that runs.
+func (h *HTTP) restartCFO(w http.ResponseWriter, r *http.Request) {
+	var input struct{}
+	if err := decodeBody(w, r, &input, 4096); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.Service.Options.FirstRun == nil {
+		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		return
+	}
+	conversation, resumed, err := h.Service.Options.FirstRun.Restart()
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.As(err, new(StartRefusal)) {
+			status = http.StatusConflict
+		}
+		apiError(w, status, err.Error())
+		return
+	}
+	h.Service.notify()
+	respond(w, http.StatusOK, struct {
+		Restarted bool   `json:"restarted"`
+		Resumed   bool   `json:"resumed"`
+		Session   string `json:"session"`
+	}{true, resumed, conversation.Session})
 }
 
 // reopenCFO serves POST /api/cfo/reopen, the board's Reopen for a closed CFO.

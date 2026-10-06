@@ -8,6 +8,7 @@ import { RenderBoundary } from "./render-boundary";
 import { orderShown, pendingSettled, rankLabel } from "./priority";
 import { useFit } from "./useFit";
 import { useSortable } from "./useSortable";
+import { plainText, withoutHarness } from "./task-words";
 
 // A board list whose order is its priority, top first: a number on each card
 // shows its place and turns into a grip on hover or focus. Dropping a card
@@ -37,7 +38,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   const fit = useFit(listed.map((task, index) => fitKey(task.id, index)), frameRef, listRef, list === "queued");
   const save = async (order: string[], moved: string) => {
     const before = listed.findIndex((task) => task.id === moved);
-    const title = listed[before]?.title || moved;
+    const title = withoutHarness(listed[before]?.title || "") || moved;
     latest.current = order;
     setPending({ order, revision: Number.MAX_SAFE_INTEGER });
     setError("");
@@ -83,7 +84,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       </div>}
     </div>
     <Pager ref={pagerRef} start={fit.start} end={fit.end} count={shown.length} onTurn={fit.turn} />
-    {error && <p className="order-error" role="alert">{error}</p>}
+    {error && <p className="order-error" role="alert">{plainText(error)}</p>}
     <p className="sr-only" role="status">{note}</p>
   </>;
 }

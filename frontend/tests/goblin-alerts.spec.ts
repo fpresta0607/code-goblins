@@ -72,7 +72,7 @@ test("each goblin's news opens its goblin, and its question for the CFO shows no
   await open(page);
   const cases: [string, string, boolean][] = [
     ["cg-board-kill finished: code-goblins #204 is ready.", "Open", false],
-    ["pd-billing-admin failed: its checks failed", "Open", false],
+    ["pd-billing-admin failed: Its checks failed.", "Open", false],
   ];
   for (const [text, action, isFilled] of cases) {
     const alert = page.locator(".toasts .dialogue").filter({ hasText: text });

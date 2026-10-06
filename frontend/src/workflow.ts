@@ -1,5 +1,6 @@
 import type { Session, Snapshot, Task } from "./types.ts";
 import { lineageRoots, ownsTaskSession, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
+import { withoutHarness } from "./task-words.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -134,8 +135,20 @@ export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined 
 const WAITS: Record<string, string> = { overlord: "the CFO", ci: "CI", deploy: "deploy", memory: "memory" };
 const GATE_STEPS: Record<string, string> = { review: "code review", lint: "lint", push: "push", test: "tests", ci: "CI", pr: "PR", document: "docs" };
 
+// A pause, resume or stop that did not finish is the task's state until the
+// next one starts, whatever its goblin last reported.
+const FAILED_ACTIONS: Record<string, string> = { pause: "Pause failed", resume: "Resume failed", stop: "Stop failed" };
+const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pausing", "resuming", "stopping"].includes(task.phase) ? FAILED_ACTIONS[task.lifecycle.action] || "" : "";
+
+// statusPhase is the phase a task's status is drawn in, failed for an action
+// that did not finish.
+export function statusPhase(task: Task): string {
+  return actionFailed(task) ? "failed" : task.phase;
+}
+
 export function nodeStatus(node: WorkflowNode, asking = false): string {
   if (node.status) return node.status;
+  if (node.task && actionFailed(node.task)) return actionFailed(node.task);
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
   if (node.task && ownsTaskSession(node.session, node.task)) {
@@ -178,7 +191,7 @@ export function workflowNodes(snapshot: Snapshot): WorkflowNode[] {
       };
     }),
     ...tasksWithoutSession(snapshot.tasks.filter((task) => !task.archived && task.phase !== "queued"), snapshot.sessions).map((task) => ({
-      id: "task:" + task.id, title: task.title || task.id, task, relation: "Session unreported",
+      id: "task:" + task.id, title: withoutHarness(task.title) || task.id, task, relation: "Session unreported",
     })),
   ];
   // Every live task record was dispatched by the CFO through cfo spawn, so a

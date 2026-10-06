@@ -5,28 +5,34 @@ import { Avatar } from "./Avatar";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { asksOverlord, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, statusPhase, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { plainMessage } from "./messageText";
-import { ShowMore } from "./ShowMore";
 import { AfkToggle } from "./afk-toggle";
+import { plainText, taskSummary, withoutHarness } from "./task-words";
+import { RawDetails } from "./raw-details";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
-// it. The CFO drawn without a task has no worktree to open; its header carries
-// the AFK toggle beside its status.
-export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void }) {
+// it. Its status is the one place the panel says the task's state, with one
+// plain sentence under it and the words that sentence leaves out behind
+// Details; a failure links to the task's log. The CFO drawn without a task has
+// no worktree to open; its header carries the AFK toggle beside its status.
+export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [outcome, setOutcome] = useState("");
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
   const asking = owner && asksOverlord(snapshot, task.id);
   const cfoSession = snapshot.sessions.find((session) => session.role === "cfo");
-  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task?.title || task?.id || "";
+  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : withoutHarness(task?.title || "") || task?.id || "";
   const status = cfo
     ? nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" })
     : nodeStatus({ id: title, title, task, session: node, relation: "" }, asking);
-  const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? task.phase : node?.runtime?.state || node?.phase || "";
+  const phase = cfo ? (snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working") : owner ? statusPhase(task) : node?.runtime?.state || node?.phase || "";
+  const said = owner ? taskSummary(task, snapshot.tasks, status) : undefined;
+  // What a queued task's wait line leaves out: the CFO's note on it.
+  const note = owner && task.phase === "queued" && task.dependencies.length ? withoutHarness(task.reason) : "";
   const pr = owner ? safePullRequest(task.pr) : "";
   const badge = pullRequestBadge(pr);
   const awaited = owner ? waitingTarget(snapshot, task) : undefined;
@@ -40,7 +46,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     try {
       const result = object(await request("/api/workspace/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, target }) }));
       setOutcome(string(result.message));
-    } catch (error: unknown) { setOutcome(message(error) + " Nothing is retried automatically."); }
+    } catch (error: unknown) { setOutcome(plainText(message(error)) + " Nothing is retried automatically."); }
     finally { setOpening(false); }
   };
   return <header className={"panel-header" + (compact ? " compact" : "")}>
@@ -48,15 +54,20 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     <div className="panel-identity">
       <h2 id="panel-title">{title}</h2>
       {!compact && task?.project && <p className="project-label">{task.project}</p>}
-      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (awaited.title || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (awaited.title || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
-      {!compact && !owner && node && task && <p className="muted">Part of {task.title || task.id}</p>}
-      {!compact && owner && task.activity && <ShowMore text={task.activity} className="panel-activity" />}
+      <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaited && <button className="status-link" aria-label={"Open " + (withoutHarness(awaited.title) || awaited.id) + ", which this goblin is waiting on"} data-tip={"Open " + (withoutHarness(awaited.title) || awaited.id)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+      {!compact && !owner && node && task && <p className="muted">Part of {withoutHarness(task.title) || task.id}</p>}
+      {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
+      {!compact && said && (said.details.length > 0 || said.isFailure || note) && <div className="panel-details-row">
+        <RawDetails lines={said.details} />
+        <RawDetails lines={note ? [note] : []} label="More" />
+        {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
+      </div>}
     </div>
     {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />}
     {owner && !!task.generation && <div className="panel-actions">
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" data-tip-align="start" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
       <button className="icon-button raised" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} data-tip="Answer in the Command Center" onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
       {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
     </div>}
     {outcome && <p className="workspace-outcome" role="status">{outcome}</p>}
