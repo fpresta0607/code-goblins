@@ -639,7 +639,7 @@ func TestConfigFromEnvInstallsStructuralProber(t *testing.T) {
 	if native, ok := backends.Native.(monitor.NativeProber); !ok || native.StateDir != dir {
 		t.Errorf("ConfigFromEnv native prober = %#v, want a monitor.NativeProber reading this home's hosts", backends.Native)
 	}
-	if progress, ok := cfg.Monitor.Progress.(monitor.HostProgress); !ok || progress.StateDir != dir {
+	if progress, ok := cfg.Monitor.Progress.(*monitor.HostProgress); !ok || progress.StateDir != dir {
 		t.Errorf("ConfigFromEnv Progress = %#v, want monitor.HostProgress reading this home's hosts", cfg.Monitor.Progress)
 	}
 	if cfg.Monitor.StateDir != dir {

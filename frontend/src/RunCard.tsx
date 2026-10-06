@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { request } from "./api";
+import { copyText } from "./clipboard";
 import { object, string, type Run } from "./types";
 import { Icon } from "./Icon";
 import { ConnectorMark } from "./ConnectorMark";
@@ -35,7 +36,7 @@ export function RunCard({ run, connected, sending, error, onRun, pager }: { run:
   // The screen follows the newest output, as a terminal does.
   useEffect(() => { if (screen.current) screen.current.scrollTop = screen.current.scrollHeight; }, [output]);
   const mark = runMark(run);
-  const copy = () => navigator.clipboard.writeText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
+  const copy = () => copyText(run.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }, () => {});
   return <article className="run-card" aria-labelledby={"run-" + run.id}>
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />

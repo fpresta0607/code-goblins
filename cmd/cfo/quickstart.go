@@ -228,9 +228,14 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		if err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
+		// A resumed harness can also end while its startup dialogs are
+		// answered, so it is back only if its terminal still runs after them.
+		var notes []string
 		if held {
+			notes = runtime.settleCFO(ctx, h.State, agent)
+		}
+		if held && runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
 			supervisor.ClearCFOConversationLeft(h.State)
-			notes := runtime.settleCFO(ctx, h.State, agent)
 			list.Done("CFO", fmt.Sprintf("back as %s on its conversation %s, in native terminal %s", onboarding.Name(agent), conversation, supervisor.NativeCFOTerminal))
 			for _, note := range append(wakePath(agent), notes...) {
 				list.Note(note)
@@ -251,6 +256,12 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	}
 	// Its startup dialogs are answered before the line says it started.
 	notes := runtime.settleCFO(ctx, h.State, agent)
+	if !runtime.nativeTerminalRuns(h.State, supervisor.NativeCFOTerminal) {
+		for _, note := range append(said, notes...) {
+			list.Note(note)
+		}
+		return cfoSession{}, false, errors.New("the CFO's native terminal ended during startup")
+	}
 	list.Done("CFO", fmt.Sprintf("started as %s in %s, in native terminal %s", onboarding.Name(agent), h.Root, supervisor.NativeCFOTerminal))
 	for _, note := range append(append(said, wakePath(agent)...), notes...) {
 		list.Note(note)

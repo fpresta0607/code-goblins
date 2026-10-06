@@ -330,3 +330,39 @@ func TestReadReachesProductionAndExternalTestImportersTransitively(t *testing.T)
 			plan.Choices, plan.Everything, plan.Level, plan.Required, plan.Vet, plan.Tests, plan.Left, wantChoices, wantPackages)
 	}
 }
+
+// The repository's go.mod keeps ./... out of frontend/node_modules, where
+// npm installs the frontend's packages: one of them ships Go code, which
+// would become a package of this module that the full level vets and tests,
+// and the plan's go list would walk every installed package. The module is
+// copied beside such a package so the check holds on a machine with no
+// node_modules too.
+func TestTheModuleNeverReachesTheFrontendsInstalledPackages(t *testing.T) {
+	// Arrange
+	repository := filepath.Join("..", "..")
+	dir := t.TempDir()
+	for _, name := range []string{"go.mod", "go.sum"} {
+		data, err := os.ReadFile(filepath.Join(repository, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(dir, name), string(data))
+	}
+	write(t, filepath.Join(dir, "a", "a.go"), "package a\n")
+	write(t, filepath.Join(dir, "frontend", "node_modules", "flatted", "golang", "flatted.go"), "package flatted\n")
+	command := exec.Command("go", "list", "-e", "-f", "{{.ImportPath}}", "./...")
+	command.Dir = dir
+	command.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off", "GOWORK=off")
+
+	// Act
+	out, err := command.Output()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	listed := strings.Fields(string(out))
+	if want := []string{"github.com/fpresta0607/code-goblins/a"}; !slices.Equal(listed, want) {
+		t.Errorf("go list ./... = %q; want %q, and nothing under frontend/node_modules", listed, want)
+	}
+}

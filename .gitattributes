@@ -1,8 +1,6 @@
 # Vite preserves template newlines. Keep clean Windows builds reproducible.
 frontend/index.html text eol=lf
 internal/boardweb/dist/index.html text eol=lf
-internal/boardweb/dist/**/*.js text eol=lf
-internal/boardweb/dist/**/*.css text eol=lf
 *.cmd text eol=crlf
 # go run ./tools/notices -check compares this file byte for byte.
 THIRD_PARTY_NOTICES text eol=lf

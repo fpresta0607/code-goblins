@@ -65,6 +65,7 @@ func primaryFixture(t *testing.T, store *Store) (primaryRegistration, string, ho
 	t.Helper()
 	cfo := hostTerminal(t, store.Home.State, "cfo")
 	cfo.typeLine(t, "hooked")
+	cfo.drawsComposer(t, "codex")
 	cfo.standIn(t)
 	process, err := lock.Acquire(store.Home.State)
 	if err != nil {

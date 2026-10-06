@@ -7,6 +7,7 @@ import { age } from "./presentation";
 import { answeredBy, answeredLabel, chosenOption, outcomeIcon, questionOutcome } from "./commandQueue";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { messageElements } from "./messageText";
+import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 
 export interface Draft { selection: string; written: string; submission: Submission | null; sending: boolean; error: string; receipt?: Action }
@@ -37,7 +38,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
-    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text)}</div>
+    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
     {review && <a className="icon-button raised pill-link open-inline" href={review.url} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
       {images.map((choice, index) => <button type="button" key={choice.value} aria-label={"View the image for " + choice.text + " full size"} onClick={() => onImage(index)}>

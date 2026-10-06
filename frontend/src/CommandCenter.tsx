@@ -5,7 +5,7 @@ import { deliveryMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answeredElsewhere, asItems, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answeredElsewhere, asItems, cardKey, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, openKeys, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
 import { publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { CredentialCard } from "./credential-card";
@@ -245,7 +245,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const dismiss = (target: Question) => void post("question:" + target.id, { kind: "question_clear", question_id: target.id, generation: target.identity });
   const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : "";
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
-  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? candidate.review.title : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.title;
+  const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
   const iconOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
@@ -334,7 +334,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
               : finishing && sending
               ? <DoneCard key={shownKey} heading={sending.heading}
-                label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : sending.confirmed ? mark?.label || "" : ""} pager={pager} />
+                label={sending.cleared ? sending.heading !== "Cleared" ? "It moves to your history." : "" : mark?.label !== sending.heading ? mark?.label || "" : ""} pager={pager} />
               : item.kind === "question"
               ? <QuestionCard key={shownKey} question={item.question} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} review={pageFor(item.question)}
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onDismiss={() => dismiss(item.question)} onImage={setGallery} pager={pager} />
