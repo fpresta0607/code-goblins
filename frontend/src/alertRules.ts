@@ -1,6 +1,6 @@
 import { isOpen, itemFor, newestItemOf, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
 import { credentialAsk } from "./credentials.ts";
-import { messageBlocks } from "./messageText.ts";
+import { messageBlocks, plainMessage } from "./messageText.ts";
 import type { Snapshot, Task } from "./types.ts";
 import { pullRequestLabel } from "./workflow.ts";
 import { plainText, reportBody, withoutHarness } from "./task-words.ts";
@@ -48,12 +48,14 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CFO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
-    // details that follow.
-    const [lead] = messageBlocks(item.question.text);
+    // details or tables of values around it.
+    const lead = messageBlocks(item.question.text).find((block) => block.kind !== "table");
     const spans = !lead ? [] : lead.kind === "paragraph" ? lead.spans : lead.items[0];
     return alert(item.question.task, asker(item.question.task) + " asks: " + spans.map((span) => span.text).join("").replace(/\s+/g, " ").trim());
   }
-  if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + waitReason(item.review) : " wants your review: " + item.review.title));
+  // A wait reads as its goblin's reason in plain words, without the queue's
+  // prefix, its page's link or a table of values its card shows.
+  if (item.kind === "review") return alert(item.review.task, asker(item.review.task) + (waitsOnOverlord(item.review) ? " is waiting on you: " + plainMessage(waitReason(item.review)) : " wants your review: " + plainMessage(item.review.title)));
   if (item.kind === "credential") return alert(item.request.task, asker(item.request.task) + " asks: " + credentialAsk(item.request));
   return alert("", "A command waits for you to run it: " + item.run.title);
 }

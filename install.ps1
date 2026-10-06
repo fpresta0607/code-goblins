@@ -152,11 +152,25 @@
         }
     }
 
+    # Get-UserEnvironment returns the user-scope variable $Name. Where
+    # CFO_USER_ENV_FILE is set it reads that file, which stands in for the
+    # user-scope environment as it does for Add-UserPath and cfo install, so a
+    # test's install never reads the machine's own user environment.
+    function Get-UserEnvironment([string]$Name) {
+        if (-not $env:CFO_USER_ENV_FILE) {
+            return [Environment]::GetEnvironmentVariable($Name, "User")
+        }
+        if (-not (Test-Path -LiteralPath $env:CFO_USER_ENV_FILE)) {
+            return $null
+        }
+        return (Get-Content -Raw -LiteralPath $env:CFO_USER_ENV_FILE | ConvertFrom-Json).$Name
+    }
+
     # Read-ProjectsRoot asks once for the folder that holds the user's
     # checkouts and returns cfo install's argument for it. A recorded folder is
     # kept on every rerun.
     function Read-ProjectsRoot {
-        if ([Environment]::GetEnvironmentVariable("CFO_PROJECTS_ROOT", "User")) {
+        if (Get-UserEnvironment "CFO_PROJECTS_ROOT") {
             return @()
         }
         if ([Console]::IsInputRedirected) {
@@ -206,6 +220,10 @@
             Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
             throw "-Dev builds cfo.exe from this clone, which needs Go."
         }
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Host "Install Node.js with: winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
+            throw "-Dev builds the board cfo.exe embeds from this clone, which needs Node.js."
+        }
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
@@ -221,11 +239,17 @@
             }
         }
 
-        Write-Host "Building cfo.exe and the desktop window from $InstallDir ..."
+        Write-Host "Building the board, cfo.exe and the desktop window from $InstallDir ..."
         $built = Join-Path $InstallDir "cfo.exe.new"
         $builtWindow = Join-Path $InstallDir "goblins-window.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
+            # cfo.exe embeds the board npm builds from frontend, and without it
+            # serves a page saying the board was not built.
+            npm.cmd --prefix frontend ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci in frontend failed" }
+            npm.cmd --prefix frontend run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build in frontend failed" }
             go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
             # -H windowsgui: the window is a program with no console.
@@ -670,7 +694,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     if ($installedAny) {
         Write-Host ""
         Write-Host "Refreshing PATH so newly installed tools are visible in this session ..."
-        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([Environment]::GetEnvironmentVariable("Path", "User") -split ';')
+        $parts = @($env:Path -split ';') + @([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') + @([string](Get-UserEnvironment "Path") -split ';')
         $env:Path = ($parts | Where-Object { $_ -ne "" } | Select-Object -Unique) -join ';'
     }
 

@@ -92,6 +92,13 @@ test("a goblin waiting on the Overlord says so once, and a review item asks for 
   assert.equal(plan.text, "Goblin a wants your review: Review the plan");
 });
 
+test("a wait that carries a table alerts with its words on one line, without the table, the queue's prefix or its page", () => {
+  const page = "http://127.0.0.1:4387/session/f26e";
+  const records = { ...review("waiting-a-4"), title: "Waiting on you: Add the DNS records in **Cloudflare**\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nthen tell me (page " + page + ")", lavish: page };
+  const [alert] = boardAlerts(snapshot({}), snapshot({ reviews: [records] }));
+  assert.equal(alert.text, "Goblin a is waiting on you: Add the DNS records in Cloudflare then tell me");
+});
+
 test("a goblin's own question alerts once, as its question, whichever reaches the board first", () => {
   // As the supervisor serves it: the goblin's blocked notify sets its task
   // blocked, Waiting on the CFO, before or as its question reaches the
@@ -287,6 +294,11 @@ test("fresh alerts stack below the ones on screen, at most four, the oldest leav
   const full = arrive(first, ["r1", "r2", "r3"].map((key) => alert("item:" + key)));
   assert.deepEqual(full.map((toast) => toast.key), ["item:q1", "item:r1", "item:r2", "item:r3"]);
   assert.deepEqual(arrive(first, [alert("task:a")]).map((toast) => toast.key), ["item:q1", "task:a"], "news that comes again takes its toast's place");
+});
+
+test("a question that opens with a table of values alerts with its first words, not the table", () => {
+  const [alert] = boardAlerts(snapshot({}), snapshot({ questions: [question("q1", { text: "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nMay I add these records?" })] }));
+  assert.equal(alert.text, "Goblin a asks: May I add these records?");
 });
 
 test("an alert names who asks and what, in a few words", () => {

@@ -58,7 +58,7 @@ func validDocument(d ReviewDocument) error {
 		return errors.New("invalid document type")
 	}
 	if d.Link != "" {
-		if problem := presentationURLProblem(d.Link); problem != "" {
+		if problem := PresentationURLProblem(d.Link); problem != "" {
 			return errors.New("a document's link " + problem)
 		}
 	}

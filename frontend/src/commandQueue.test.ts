@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answeredBy, answeredElsewhere, answeredLabel, cardKey, chosenOption, closedElsewhere, documentFacts, holdsUnsent, itemFor, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
 import { parseSnapshot, type BoardActivity } from "./types.ts";
 
@@ -17,7 +17,7 @@ test("a goblin's wait on the Overlord is a status card, anything else under revi
   for (const [name, fields, want] of cases) assert.equal(waitsOnOverlord(fields as Review), want, name);
 });
 
-test("a goblin's wait says what it waits on and opens it: its page, its own question, a file it delivered, or a link it names", () => {
+test("a goblin's wait says what it waits on and opens it: its page, its own question, a file it delivered, or the link it gave", () => {
   const wait = (title: string, extra: Record<string, unknown> = {}) => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title: "Waiting on you: " + title, ...extra });
   const target = (item: ReturnType<typeof wait>, others: { questions?: unknown[]; reviews?: unknown[] } = {}) => {
     const snapshot = parseSnapshot({ healthy: true, questions: others.questions || [], reviews: [item, ...(others.reviews || [])] });
@@ -29,9 +29,12 @@ test("a goblin's wait says what it waits on and opens it: its page, its own ques
     { kind: "item", key: "question:notify-billing-6", label: "Open its question", says: "It waits on your answer to its question." }, "its newest open question, never another goblin's or an answered one");
   assert.deepEqual(target(wait("read the report"), { reviews: [review("report-billing", "billing", "2026-09-27T09:00:00Z", "open", { document: { name: "report.pdf", size: 10, kind: "pdf", link: "" } }), review("report-notes", "notes", "2026-09-27T09:00:00Z", "open", { document: { name: "notes.pdf", size: 10, kind: "pdf", link: "" } })] }),
     { kind: "item", key: "review:report-billing", label: "Open the file", says: "It waits on you to open report.pdf." });
-  assert.deepEqual(target(wait("sign in at https://dashboard.stripe.com/login, then tell me")), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
+  assert.deepEqual(target(wait("sign in to Stripe, then tell me", { link: "https://dashboard.stripe.com/login" })), { kind: "page", url: "https://dashboard.stripe.com/login", label: "Open the link", says: "It waits on you at dashboard.stripe.com." });
   assert.equal(target(wait("log in to Stripe")), null, "a wait that names nothing to open offers nothing");
-  assert.equal(target(wait("open file:///C:/secret.txt")), null, "only a web link opens");
+  // The Overlord, 2026-09-28: a card offered Open the link for a hostname the
+  // goblin only named in its prose. Only the link the goblin gave opens.
+  assert.equal(target(wait("so https://mcp.precisiondocs.ai serves the connector")), null, "a web address in the prose is not the link");
+  assert.equal(target(wait("open it", { link: "file:///C:/secret.txt" })), null, "only a web link opens");
 });
 
 test("a wait's card reads the goblin's reason, without the queue's prefix or the page it already opens", () => {
@@ -40,6 +43,7 @@ test("a wait's card reads the goblin's reason, without the queue's prefix or the
   assert.equal(reason("Waiting on you: log in to Stripe"), "log in to Stripe");
   assert.equal(reason("Waiting on you: pick a plan (page " + page + ")", page), "pick a plan");
   assert.equal(reason("A title without the prefix"), "A title without the prefix");
+  assert.equal(reason("Waiting on you: Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |"), "Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |");
 });
 
 test("goblins' items follow the In progress order, then unplaced goblins', each by longest wait", () => {
@@ -301,26 +305,40 @@ test("a document item reads as its file: its type, its size and who sent it", ()
 const action = (id: string, kind: string, status: string) => ({ id, kind, status, question_id: "", answer_kind: "", task_id: "", generation: "", message: "", text: "", file: "", line: 0, side: "", updated_at: "" }) as Action;
 const submitted = (id: string, payload: Record<string, unknown>) => ({ id, payload: JSON.stringify(payload) });
 
-test("a send shows as done at once, confirmed once delivered, and failed only when refused or not delivered", () => {
+test("a send shows as done at once, Sent once delivered, and failed only when refused or not delivered", () => {
   const answer = submitted("a1", { kind: "goblin_answer", text: "SQLite" });
   const opened = submitted("c1", { kind: "review_clear", review_id: "doc", text: "Downloaded" });
   const cleared = submitted("c2", { kind: "review_clear", review_id: "look" });
   const dismissed = submitted("c3", { kind: "question_clear", question_id: "herdr-strays-20260929" });
   const cases: [string, Parameters<typeof sendState>, ReturnType<typeof sendState>][] = [
     ["nothing sent", [{ submission: null, sending: false, error: "" }, []], undefined],
-    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
-    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, confirmed: false, heading: "Sent", cleared: false }],
-    ["delivered", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
-    ["the request refused", [{ submission: answer, sending: false, error: "that review is not open" }, []], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
+    ["just clicked, no receipt yet", [{ submission: answer, sending: true, error: "" }, []], { failed: false, heading: "Sending", cleared: false }],
+    ["queued behind the goblin's turn", [{ submission: answer, sending: false, error: "", receipt: action("a1", "goblin_answer", "queued") }, []], { failed: false, heading: "Queued", cleared: false }],
+    ["delivered", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, heading: "Sent", cleared: false }],
+    ["the request refused", [{ submission: answer, sending: false, error: "that review is not open" }, []], { failed: true, heading: "Sent", cleared: false }],
     ["edited after a refusal", [{ submission: answer, sending: false, error: "" }, []], undefined],
-    ["an ambiguous error, then delivered", [{ submission: answer, sending: false, error: "network error" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, confirmed: true, heading: "Sent", cleared: false }],
-    ["delivery failed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
-    ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, confirmed: false, heading: "Sent", cleared: false }],
-    ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Downloaded", cleared: true }],
-    ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Cleared", cleared: true }],
-    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, confirmed: false, heading: "Dismissed", cleared: true }],
+    ["an ambiguous error, then delivered", [{ submission: answer, sending: false, error: "network error" }, [action("a1", "goblin_answer", "succeeded")]], { failed: false, heading: "Sent", cleared: false }],
+    ["delivery failed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "failed")]], { failed: true, heading: "Sent", cleared: false }],
+    ["delivery unconfirmed", [{ submission: answer, sending: false, error: "" }, [action("a1", "goblin_answer", "uncertain")]], { failed: true, heading: "Sent", cleared: false }],
+    ["a document downloaded", [{ submission: opened, sending: true, error: "" }, []], { failed: false, heading: "Downloaded", cleared: true }],
+    ["an item cleared", [{ submission: cleared, sending: true, error: "" }, []], { failed: false, heading: "Cleared", cleared: true }],
+    ["a question dismissed", [{ submission: dismissed, sending: true, error: "" }, []], { failed: false, heading: "Dismissed", cleared: true }],
   ];
   for (const [name, args, want] of cases) assert.deepEqual(sendState(...args), want, name);
+});
+
+test("a CFO reply is queued until transport confirms it was submitted", () => {
+  // Arrange
+  const submission = { id: "answer", payload: JSON.stringify({ kind: "cfo_answer", text: "Reply received" }) };
+  const draft = { submission, sending: false, error: "" };
+  const queued = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "queued", message: "The CFO is typing. Your answer will wait." }] }).actions;
+  const submitting = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "running" }] }).actions;
+  const submitted = parseSnapshot({ healthy: true, actions: [{ id: "answer", kind: "cfo_answer", status: "running", awaiting: { host: "cfo", since: "2026-10-03T06:20:00Z" } }] }).actions;
+
+  // Act and assert
+  assert.equal(sendState(draft, queued)?.heading, "Queued");
+  assert.equal(sendState(draft, submitting)?.heading, "Sending");
+  assert.equal(sendState(draft, submitted)?.heading, "Sent");
 });
 
 test("every open item is one the board has announced, a question its page's card carries too, and nothing closed", () => {
@@ -456,4 +474,21 @@ test("a run item the CFO withdrew leaves the Command Center, and its history say
   // Assert
   assert.deepEqual(waiting, []);
   assert.deepEqual(settled.map((item) => settledLabel(item, [])), ["Withdrawn by the CFO: the candidate binary is gone"]);
+});
+
+test("a wait's one-line row reads the goblin's words alone, and any other review item keeps its title", () => {
+  // Arrange
+  const page = "http://127.0.0.1:4387/session/f26e";
+  const table = "| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |";
+  const wait = (title: string, lavish = "") => review("waiting-billing-7", "billing", "2026-09-27T10:00:00Z", "open", { title, lavish }) as unknown as Review;
+
+  // Act
+  const endsWithTable = reviewLine(wait("Waiting on you: Add the **records**\n" + table + " (page " + page + ")", page));
+  const opensWithTable = reviewLine(wait("Waiting on you: " + table + "\nAdd these records (page " + page + ")", page));
+  const other = reviewLine(review("plan-billing", "billing", "2026-09-27T10:00:00Z", "open", { title: "Look at the **plan**" }) as unknown as Review);
+
+  // Assert
+  assert.equal(endsWithTable, "Add the records");
+  assert.equal(opensWithTable, "Add these records");
+  assert.equal(other, "Look at the plan");
 });
