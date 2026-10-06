@@ -114,7 +114,12 @@ So when a Code Goblins release moves the pin forward, rerunning the install is h
 
 ## Updating
 
-`goblins update`, run in a terminal of your own, updates the home to the newest published release without touching your goblins or the CFO.
+The board looks for a newer release when it starts and every six hours, and brings one to you as its own item in the Command Center, **Update Code Goblins**: the version you run and the new one, what is new, what the update checks, and one **Update** button, with a slim banner at the top that points to it.
+**Update** runs `goblins update` for that release out of sight, and the card shows each of the steps below as it goes, then how it ended; the board is away for a few seconds and reloads on the new version.
+Only you press it, from a board of your own; `"check_for_updates": false` in the home's `config\fleet.json` turns the look off.
+[Update Code Goblins](native-board.md#update-code-goblins) says all it does.
+
+`goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CFO.
 It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
 
 1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub and downloads its `cfo.exe`, its desktop window `goblins-window.exe` where the release ships one, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.

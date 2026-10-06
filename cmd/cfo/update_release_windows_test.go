@@ -15,10 +15,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
@@ -241,7 +243,7 @@ func TestUpdateCheckSaysHowThisBuildStands(t *testing.T) {
 			var output bytes.Buffer
 
 			// Act
-			code := releaseUpdate(h, true, "", &output, &output)
+			code := releaseUpdate(h, true, "", "", &output, &output)
 
 			// Assert
 			if code != c.code || !strings.Contains(output.String(), c.says) {
@@ -259,7 +261,7 @@ func TestUpdateCheckNamesWhatIsNew(t *testing.T) {
 	h := releaseHome(t, server, "v0.4.2")
 	var output bytes.Buffer
 
-	releaseUpdate(h, true, "", &output, &output)
+	releaseUpdate(h, true, "", "", &output, &output)
 
 	if !strings.Contains(output.String(), "What's new:\n  - An update arrives in the Command Center\n") {
 		t.Fatalf("update --check did not list what is new:\n%s", output.String())
@@ -276,7 +278,7 @@ func TestAnUpdateToAReleaseNoLongerTheNewestChangesNothing(t *testing.T) {
 	t.Cleanup(func() { updaterRefusal = before })
 	var output bytes.Buffer
 
-	code := releaseUpdate(h, false, "v0.5.0", &output, &output)
+	code := releaseUpdate(h, false, "v0.5.0", "", &output, &output)
 
 	if code != 1 || !strings.Contains(output.String(), "the newest release is now v0.5.1, not v0.5.0, so nothing was changed") {
 		t.Fatalf("update --to v0.5.0 exited %d:\n%s", code, output.String())
@@ -296,7 +298,7 @@ func TestAnUpdateFromAReleaseIsRefusedToAnAgent(t *testing.T) {
 	t.Setenv("CLAUDECODE", "1")
 	var output bytes.Buffer
 
-	code := releaseUpdate(h, false, "", &output, &output)
+	code := releaseUpdate(h, false, "", "", &output, &output)
 
 	if code != 1 || !strings.Contains(output.String(), "updating Code Goblins is the Supreme Overlord's alone") {
 		t.Fatalf("an agent's update exited %d:\n%s", code, output.String())
@@ -324,5 +326,52 @@ func TestTheHomesOwnProgramsAreItsInstalledBuild(t *testing.T) {
 		if got := installedBuild(h, program); got != want {
 			t.Errorf("installedBuild(%s) = %v, want %v", program, got, want)
 		}
+	}
+}
+
+// The Update item the Overlord pressed runs goblins update with --run: the
+// grant the board wrote for his click stands for him in place of a terminal
+// of his own, once, for that item and release alone; with no grant for it,
+// nothing is read or downloaded.
+func TestAnUpdatePressedInTheCommandCenterRunsOnItsGrant(t *testing.T) {
+	cases := []struct {
+		name  string
+		grant *supervisor.UpdateGrant
+		code  int
+		says  string
+	}{
+		{"no grant", nil, 1, "Failed: no Update was pressed for this item in the Command Center. Nothing was changed."},
+		{"a grant for another release", &supervisor.UpdateGrant{Run: "update-v0.5.0-1", Tag: "v0.4.9", GrantedAt: time.Now()}, 1, "not this one"},
+		{"its own grant", &supervisor.UpdateGrant{Run: "update-v0.5.0-1", Tag: "v0.5.0", GrantedAt: time.Now()}, 0, "Code Goblins v0.5.0 runs here, the newest release; nothing to update."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: an agent's environment, which the terminal proof
+			// refuses, so only the grant lets the command through.
+			server := newReleaseServer(t, "v0.5.0", map[string][]byte{"cfo.exe": []byte("v0.5.0")})
+			h := releaseHome(t, server, "v0.5.0")
+			t.Setenv("CLAUDECODE", "1")
+			if c.grant != nil {
+				data, err := json.Marshal(c.grant)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(update.Dir(h.State), "grant.json"), data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var output bytes.Buffer
+
+			// Act
+			code := releaseUpdate(h, false, "v0.5.0", "update-v0.5.0-1", &output, &output)
+
+			// Assert
+			if code != c.code || !strings.Contains(output.String(), c.says) {
+				t.Fatalf("update --run exited %d, want %d saying %q:\n%s", code, c.code, c.says, output.String())
+			}
+			if server.downloads.Load() != 0 {
+				t.Fatalf("it downloaded %d files", server.downloads.Load())
+			}
+		})
 	}
 }

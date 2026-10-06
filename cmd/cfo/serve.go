@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/release"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
 	"github.com/fpresta0607/code-goblins/internal/voice"
@@ -155,6 +156,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 	}
+	// The board looks for a newer release of Code Goblins; an example board
+	// looks only at a release source it is pointed at.
+	var releases *supervisor.Releases
+	if source, err := release.SourceFromEnvironment(); err != nil {
+		fmt.Fprintf(stderr, "cfo serve: the update check is off: %v\n", err)
+	} else if !*example || os.Getenv(release.APIVariable) != "" {
+		releases = &supervisor.Releases{Source: source, Version: version, Client: http.DefaultClient}
+	}
 	var dictation supervisor.Dictation
 	if speech := dictationEngine(h, stderr); speech != nil {
 		dictation = speech
@@ -184,6 +193,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
+		Releases:           releases,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

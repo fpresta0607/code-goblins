@@ -1011,6 +1011,27 @@ It can also spoof the CFO's live presentation notices (`cfo present` without `--
 It can rewrite the supervisor's own database file (`state/.supervisor.json`) while `cfo serve` is stopped, and anything it runs as a descendant of the CFO's harness process is the CFO by this proof.
 It can also debug or inject into the CFO process itself: the pipe closes the file inbox path and the pipe squat, not the same-user boundary.
 
+## Update Code Goblins
+
+A newer release of Code Goblins reaches the Overlord as an item of its own in the Command Center, the Update item, and only he presses it.
+The supervisor reads the latest release of `fpresta0607/code-goblins` from GitHub's API when it starts and every six hours after, with the ETag of the answer it keeps in `state\update\release.json`, so an unchanged release costs nothing against GitHub's limit; a look that fails keeps what the last one found and says nothing.
+`"check_for_updates": false` in `config\fleet.json` turns the look off, and an item still waiting then leaves with that reason.
+`CODE_GOBLINS_RELEASE_API` points the look at a stub release server, whose host the release's page and files must then be on; an example board (`serve --example`) looks only when it is set.
+A release newer than the build the board runs, compared by its `vMAJOR.MINOR.PATCH` tag part by part, gets one item, a run item of its own kind, which the board makes itself and the CFO cannot withdraw.
+Its card wears the electric ring instead of the glass border, with the release goblin in place of an asker: Code Goblins, when the release was published, a New version chip, its state, Update Code Goblins as its title, the version the board runs and the new one in the display face, up to three lines of what is new, read from the release notes' What's Changed list without who made each change, a What's new link to the notes, and a line on what the update checks: an unsigned release says so and that the update installs it only when each file matches the release's SHA-256, naming the one its notes list for `cfo.exe`, and a signed one names its publisher.
+It shows no command, and its one button, **Update**, sends the item's ID and identity like Run, through the same action checks.
+The supervisor then also proves the request comes from a board of the Overlord's own, as AFK mode's switch is proven (the program that holds the connection, started from the desktop, with nothing that marks an agent's above it), and refuses anything else, the CFO's or an agent's browser included, with `Updating Code Goblins is the Supreme Overlord's alone`; nothing presses it for him, in AFK mode or out of it, and while AFK mode is on it is held for him and announced to no one.
+Pressed, the supervisor writes a grant for exactly that item and release to `state\update\grant.json` and runs the item's command out of sight, `goblins update --to <tag> --run <item>` with the home named, which takes the grant once, within two minutes, in place of a terminal of his own.
+The card follows it as a run card follows its command, from what it prints each second: Download, Check each file's SHA-256, Restart the board on the new version and Bring the CFO's contract and skills up to date, each done, under way or failed, with its output under Output.
+The board is away for the few seconds the update restarts it, and the supervisor that comes back finishes the item.
+It ends Updated, and the page reloads on the new board after a moment; Rolled back, with the line the update ended on, when the new build did not serve and the previous one serves again; or Not updated, with why, when it stopped before anything changed, such as a download that failed its checksum.
+An update that did not install has the board look again at once, and a new item for the same release follows, which the card's **Try again** opens.
+A newer release published meanwhile replaces a waiting item, which reads Replaced with why, as does one whose release the board now runs; an item waits for him until then and never expires after a day as a command does.
+The Command Center lists it as Code Goblins with the release goblin, `Update to <new> from <old>`, a download icon and the same ring, the bar's alert announces it once as Code Goblins, and History keeps how it ended.
+A slim banner under the header points to the item while it waits or runs: `Code Goblins <new> is ready · you run <old>`, What's new, **Open**, which shows the item, and a close button that hides it until the next version in this browser; it shows nothing in AFK mode.
+A board built from a clone, whose version is not a release's, gets no item: its banner says the release is out and that the clone updates it, with `git pull` and `.\install.cmd -Dev`.
+The desktop window follows the update into `bin`, and an open one keeps showing the board on the new build until it is quit from its tray icon and opened again, which the updated card says.
+
 ## Credential requests
 
 When the CFO or a goblin needs a secret the project's scope does not hold, such as `STRIPE_SECRET_KEY`, it asks for it by name and the Overlord pastes the value on the board; nobody asks for a value in chat or puts one in a brief:

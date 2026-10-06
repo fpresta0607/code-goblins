@@ -99,20 +99,37 @@ func LogAFKDecision(h home.Home, entry afk.Entry) error {
 // words it: the command at the other end of the pipe, or the program that
 // shows the board.
 type asker struct {
+	// what opens every refusal with whose act it is, and only ends it with
+	// who may do it.
+	what, only string
 	// runs opens a refusal that says where it runs.
 	runs string
 	// cut says whose parents stop short of the desktop, and the way out.
 	cut string
 }
 
+const afkWhat = "AFK mode is the Supreme Overlord's switch"
+
 var (
 	askingCommand = asker{
+		what: afkWhat,
+		only: onlyHis,
 		runs: "this command runs",
 		cut:  "as it cannot those of a command run in Git Bash or under a program that replaces its own process, so nothing says it is his: run it in PowerShell or cmd",
 	}
 	askingBoard = asker{
+		what: afkWhat,
+		only: onlyHis,
 		runs: "the program that shows this board runs",
 		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop, or run cfo afk on in PowerShell or cmd",
+	}
+	// updatingBoard asks for the Update item: updating Code Goblins is his
+	// alone, in AFK mode or out of it.
+	updatingBoard = asker{
+		what: "Updating Code Goblins is the Supreme Overlord's alone",
+		only: ": he presses Update on a board of his own, or runs goblins update in a terminal of his own",
+		runs: "the program that shows this board runs",
+		cut:  "as it cannot those of a browser whose opener has since exited, so nothing says it is his: open the board in the Code Goblins window or a browser he starts from the desktop",
 	}
 )
 
@@ -143,17 +160,17 @@ func (s *Service) overlordsOwn(pid int, asked time.Time, who asker) ([]proc.Entr
 	// supervisor cannot read, and it is the Overlord who meets that, so the
 	// refusal says so.
 	if err != nil || len(ancestry) == 0 || ancestry[0].Start.After(asked) {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + onlyHis)
+		return nil, errors.New(who.what + ", and the supervisor could not read the process that asked for it, as it cannot one run as administrator, so nothing says it is his" + who.only)
 	}
 	if where := agentMark(s.Store.Home.State, ancestry, env); where != "" {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and " + who.runs + " " + where + onlyHis)
+		return nil, errors.New(who.what + ", and " + who.runs + " " + where + who.only)
 	}
 	// The same cut with those variables removed too, as Git Bash's env leaves
 	// a command, has nothing left that marks an agent. Parents that stop short
 	// of the desktop are parents the supervisor could not read, and Git Bash
 	// cuts the Overlord's own the same way, so the refusal names the way out.
 	if fromDesktop(ancestry) < 0 {
-		return nil, errors.New("AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop, " + who.cut + onlyHis)
+		return nil, errors.New(who.what + ", and the supervisor could not follow its parents to the desktop, " + who.cut + who.only)
 	}
 	return ancestry, nil
 }

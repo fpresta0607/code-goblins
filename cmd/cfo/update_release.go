@@ -76,14 +76,23 @@ func installedBuild(h home.Home, program string) bool {
 // supervisor and rolls back a build that does not serve, and finally brings
 // the home's contract, skills and hooks up to date with the new build's
 // install. to, when given, names the release the Overlord chose, and a newer
-// one published since is refused rather than installed in its place.
-func releaseUpdate(h home.Home, check bool, to string, stdout, stderr io.Writer) int {
+// one published since is refused rather than installed in its place. pressed
+// names the Update item he pressed in the Command Center, which ran this
+// command: the grant the board wrote for his click stands for him there, in
+// place of a terminal of his own.
+func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr io.Writer) int {
 	source, err := release.SourceFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo update: %v\n", err)
 		return 1
 	}
-	if !check {
+	switch {
+	case pressed != "":
+		if err := supervisor.TakeUpdateGrant(h.State, pressed, to); err != nil {
+			fmt.Fprintf(stderr, "Failed: %v. Nothing was changed.\n", err)
+			return 1
+		}
+	case !check:
 		if err := updaterRefusal(h); err != nil {
 			fmt.Fprintf(stderr, "cfo update: %v\n", err)
 			return 1

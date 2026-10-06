@@ -3,6 +3,7 @@ import { object, string, type Action, type BoardActivity, type CredentialRequest
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
 import { plainMessage } from "./messageText.ts";
+import { updateOutcome } from "./update-progress.ts";
 
 // Everything the board holds as an item lives in one queue: a goblin's or the
 // CFO's question, a review item (images, a Lavish page, or a wait on him), a
@@ -289,7 +290,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
   if (item.kind === "credential") return credentialSettled(item.request);
   const advice = (answer: string) => actions.find((action) => action.id === answer)?.advice || "";
   if (item.kind === "question") return questionOutcome(item.question) === "uncertain" && advice(item.question.answer_id) || answeredLabel(item.question);
-  if (item.kind === "run") return runMark(item.run).label + (item.run.reason ? ": " + item.run.reason : "");
+  if (item.kind === "run") return (item.run.update ? updateOutcome(item.run).label + " " + item.run.update.to : runMark(item.run).label) + (item.run.reason ? ": " + item.run.reason : "");
   const { state, answer, reason, task } = item.review;
   const asker = task ? "the goblin" : "the CFO";
   if (state === "withdrawn") return "Withdrawn: " + reason;
@@ -314,7 +315,7 @@ export function settledIcon(item: Item, actions: Action[]): { icon: IconName; to
     if (outcome === "answered" && item.question.status !== "succeeded") return { icon: "check", tone: "queued" };
     return { icon: outcomeIcon(outcome), tone: outcome === "answered" ? "succeeded" : outcome };
   }
-  if (item.kind === "run") return { icon: runMark(item.run).icon, tone: item.run.state };
+  if (item.kind === "run") return { icon: (item.run.update ? updateOutcome(item.run) : runMark(item.run)).icon, tone: item.run.state };
   if (item.review.state !== "answered") return { icon: "close", tone: item.review.state };
   if (answeredElsewhere(item)) return { icon: "check-double", tone: "succeeded" };
   const outcome = answerOutcome(item.review, actions);

@@ -74,6 +74,7 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	recover := f.Bool("recover", false, "finish an update that ended part way by putting the previous build back")
 	check := f.Bool("check", false, "say whether a newer release is published, and change nothing")
 	to := f.String("to", "", "the release to update to, refused unless it is still the newest one published")
+	pressed := f.String("run", "", "the Update item the Overlord pressed in the Command Center, whose grant this run takes in place of his terminal")
 	if err := f.Parse(args); err != nil || f.NArg() != 0 {
 		return 2
 	}
@@ -96,12 +97,12 @@ func runUpdate(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 1
 	}
 	installed := !*recover && installedBuild(h, program)
-	if !installed && (*check || *to != "") {
-		fmt.Fprintln(stderr, "cfo update: --check and --to update a home from a release, so run them as the home's own goblins or cfo")
+	if !installed && (*check || *to != "" || *pressed != "") || *pressed != "" && (*to == "" || *check) {
+		fmt.Fprintln(stderr, "cfo update: --check, --to and --run update a home from a release, so run them as the home's own goblins or cfo, and --run goes with --to")
 		return 2
 	}
 	if installed {
-		return releaseUpdate(h, *check, *to, stdout, stderr)
+		return releaseUpdate(h, *check, *to, *pressed, stdout, stderr)
 	}
 	// One update owns a home at a time, and its recovery the same.
 	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), ".lock"); err != nil {

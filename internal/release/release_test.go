@@ -362,3 +362,27 @@ func TestWhatsNewTakesTheChangesInPlainWords(t *testing.T) {
 		t.Fatalf("WhatsNew of notes with no changes = %q, want none", lines)
 	}
 }
+
+// The release workflow opens every release's notes with whether it is signed
+// and by whom, then a table of each file's SHA-256 (release.yml).
+func TestNotesSayWhetherTheReleaseIsSignedAndWhatItsProgramHashesTo(t *testing.T) {
+	sum := strings.Repeat("3f", 32)
+	cases := []struct {
+		name, notes, signing, publisher, cfo string
+	}{
+		{"unsigned", "**This release is unsigned.** Code Goblins has no code-signing identity yet.\n\n| File | SHA-256 |\n| --- | --- |\n| `cfo.exe` | `" + sum + "` |\n", "unsigned", "", sum},
+		{"signed", "The programs of this release are code-signed by **SIQstack LLC**, and the install refuses a download that is not.\n\n| `cfo.exe` | `" + sum + "` |\n", "signed", "SIQstack LLC", sum},
+		{"notes that say neither", "## What's Changed\n* a change\n", "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			signing, publisher := Signing(c.notes)
+			if signing != c.signing || publisher != c.publisher {
+				t.Fatalf("Signing = %q, %q; want %q, %q", signing, publisher, c.signing, c.publisher)
+			}
+			if got := NotedSum(c.notes, Program); got != c.cfo {
+				t.Fatalf("NotedSum = %q, want %q", got, c.cfo)
+			}
+		})
+	}
+}

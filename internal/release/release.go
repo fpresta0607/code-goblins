@@ -282,3 +282,33 @@ func WhatsNew(notes string, max int) []string {
 	}
 	return lines
 }
+
+// signedBy and unsigned are how the release workflow opens a release's notes.
+var (
+	signedBy = regexp.MustCompile(`code-signed by \*\*([^*\r\n]+)\*\*`)
+	unsigned = regexp.MustCompile(`This release is unsigned`)
+)
+
+// Signing is what a release's notes say of its signature: "signed" and by
+// whom, "unsigned", or nothing when they say neither. It describes the
+// release to the Overlord; what an update checks is what its install.ps1
+// names (Fetch).
+func Signing(notes string) (string, string) {
+	if match := signedBy.FindStringSubmatch(notes); match != nil {
+		return "signed", strings.TrimSpace(match[1])
+	}
+	if unsigned.MatchString(notes) {
+		return "unsigned", ""
+	}
+	return "", ""
+}
+
+// NotedSum is the SHA-256 a release's notes list for name in their table of
+// files, or empty when they list none.
+func NotedSum(notes, name string) string {
+	match := regexp.MustCompile(`\| ` + "`" + regexp.QuoteMeta(name) + "`" + ` \| ` + "`" + `([0-9a-f]{64})` + "`" + ` \|`).FindStringSubmatch(notes)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}

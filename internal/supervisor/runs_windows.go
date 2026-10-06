@@ -78,7 +78,13 @@ func (OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) 
 		}
 		startup := windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
 		var info windows.ProcessInformation
-		if err := windows.CreateProcess(application, commandLine, nil, nil, false, createNewConsole, nil, dir, &startup, &info); err != nil {
+		// A hidden item gets a console no one sees, which outlives the
+		// supervisor that started it as a window does.
+		console := uint32(createNewConsole)
+		if l.Hidden {
+			console = createNoWindow
+		}
+		if err := windows.CreateProcess(application, commandLine, nil, nil, false, console, nil, dir, &startup, &info); err != nil {
 			return RunStarted{}, err
 		}
 		windows.CloseHandle(info.Thread)
@@ -135,6 +141,14 @@ func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 			"Write-Host ''\r\n" +
 			"Write-Host \"Finished with exit code $code. " + stays + "\"\r\n"), []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", runner}
 	}
+	// A window waits for the Overlord to close it; a hidden item, which has
+	// none, ends with its command.
+	closing := "Write-Host ''\r\n" +
+		"Write-Host \"Finished with exit code $code. Press Enter to close this window.\"\r\n" +
+		"[void][Console]::ReadLine()\r\n"
+	if l.Hidden {
+		closing = ""
+	}
 	return []byte("\xef\xbb\xbf" +
 		"$ErrorActionPreference = 'Stop'\r\n" +
 		"$start = [System.Diagnostics.ProcessStartInfo]::new(" + quote(shell) + ", " + quote(`-NoProfile -ExecutionPolicy Bypass -File "`+l.Script+`"`) + ")\r\n" +
@@ -164,9 +178,7 @@ func runnerScript(l RunLaunch, shell string) ([]byte, []string) {
 		"$code = $process.ExitCode\r\n" +
 		"$log.Dispose()\r\n" +
 		"[System.IO.File]::WriteAllText(" + quote(exit) + ", \"$code\", $utf8)\r\n" +
-		"Write-Host ''\r\n" +
-		"Write-Host \"Finished with exit code $code. Press Enter to close this window.\"\r\n" +
-		"[void][Console]::ReadLine()\r\n"), []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runner}
+		closing), []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runner}
 }
 
 // elevateScript asks Windows to start the runner elevated. A declined prompt

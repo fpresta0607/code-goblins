@@ -17,6 +17,7 @@ import { PANEL_IMPORTANCE, PanelRow, type PanelControl } from "./panel-row";
 import { CFO_KEY, MAXIMIZED_KEYS, firstOpen, maximizedFor, maximizedView, paneTrack, switchOrder } from "./terminalOrder";
 import { useSwitchKeys } from "./useSwitchKeys";
 import { unsentComment, updateAction } from "./boardUpdate";
+import { ReleaseBanner } from "./release-banner";
 import { windowTarget } from "./terminalWindow";
 import { message, request } from "./api";
 import { FirstRun } from "./FirstRun";
@@ -284,6 +285,7 @@ export function App() {
       </div>
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
+    {snapshot && !updated && <ReleaseBanner snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else if (target.kind === "cfo") { setView("Board"); switchTo(CFO_KEY); } else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}
