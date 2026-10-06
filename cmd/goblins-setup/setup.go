@@ -90,6 +90,8 @@ type Setup struct {
 	Log string
 	// Client downloads the script.
 	Client *http.Client
+	// Env is the environment the script runs in; nil is this program's own.
+	Env []string
 }
 
 // Install downloads the install script and runs it out of sight, handing
@@ -117,7 +119,11 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 	// own. With no console and no input it asks nothing.
 	command := execx.CommandContext(ctx, s.Shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script)
 	command.Dir = folder
-	command.Env = append(os.Environ(), logVariable+"="+s.Log)
+	environment := s.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	command.Env = append(environment, logVariable+"="+s.Log)
 	// Closing this program ends the install and everything it started.
 	command.Cancel = func() error {
 		return execx.Command("taskkill", "/PID", strconv.Itoa(command.Process.Pid), "/T", "/F").Run()

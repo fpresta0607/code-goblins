@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +19,18 @@ import (
 // goblins-window.exe, it records how it was started and ends.
 const standInVariable = "GOBLINS_SETUP_TEST_STANDIN"
 
+// cfoStandInVariable makes this test binary a stand-in for a tool whose every
+// command succeeds, such as a release's cfo.exe; asked its version, it gives
+// the no-mistakes version the variable holds, as the managed no-mistakes.
+const cfoStandInVariable = "GOBLINS_SETUP_TEST_CFO"
+
 func TestMain(m *testing.M) {
+	if pin := os.Getenv(cfoStandInVariable); pin != "" {
+		if len(os.Args) > 1 && os.Args[1] == "--version" {
+			fmt.Println("no-mistakes version v" + pin)
+		}
+		os.Exit(0)
+	}
 	if record := os.Getenv(standInVariable); record != "" {
 		if err := os.WriteFile(record, []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
 			os.Exit(90)
