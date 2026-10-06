@@ -127,6 +127,7 @@ type Service struct {
 	workProgress    map[string]WorkProgress
 	ciDurations     []CIDuration
 	sameArea        map[string]sameArea
+	hostedChecks    map[string]HostedChecks
 	progressReadErr error
 	// runRequests takes one run request at a time, so two with one ID never
 	// both write a script.
@@ -423,6 +424,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
+	s.hostedChecks = watched.Hosted
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
 	ingestErr := s.Store.Ingest()
@@ -926,6 +928,9 @@ type Task struct {
 	// read found it.
 	Ticket   *TaskTicket `json:"ticket,omitempty"`
 	Overlaps []Overlap   `json:"overlaps,omitempty"`
+	// HostedChecks is what its pull request's hosted checks said at the last
+	// CI poll.
+	HostedChecks *HostedChecks `json:"hosted_checks,omitempty"`
 	Evaluation
 }
 
@@ -1015,7 +1020,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	d := s.Store.Snapshot()
 	s.mu.Lock()
 	out := Snapshot{Example: s.Options.Example, Instance: s.Instance, Revision: s.revision, Started: s.Started, At: time.Now().UTC(), Reconciled: s.reconciled, Error: s.lastError, Tasks: []Task{}, Attention: []string{}, Sessions: []Session{}, Retired: d.Retired, Actions: d.Actions, Issues: d.Issues}
-	progress, sameAreas := maps.Clone(s.workProgress), maps.Clone(s.sameArea)
+	progress, sameAreas, hostedChecks := maps.Clone(s.workProgress), maps.Clone(s.sameArea), maps.Clone(s.hostedChecks)
 	out.CIDurations = slices.Clone(s.ciDurations)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
@@ -1282,6 +1287,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if area, exists := sameAreas[task.ID]; exists && area.Generation == task.Generation && !task.Archived {
 			task.Overlaps = area.Overlaps
+		}
+		if hosted, exists := hostedChecks[task.PR]; exists && task.PR != "" && !task.Archived {
+			task.HostedChecks = &hosted
 		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
