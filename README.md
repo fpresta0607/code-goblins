@@ -110,23 +110,25 @@ All other content is preserved.
 `cfo watch`, hooks, `cfo reap`, durable wake events, harness health, and explicit task states are designed around unattended operation. The system detects work that needs intervention and wakes the CFO instead of making the user stare at terminals.
 A goblin is judged stalled by evidence rather than by how long its turn has run: its harness's transcript writes and the processor use of the processes its harness started, so a long refactor, a long test run, or a goblin waiting on its own background job or monitor stays quiet, and the CFO hears about it once that evidence stops.
 A pane that shows a tool or a turn running, whichever harness drew it, keeps the goblin read as working until that evidence stops, and a goblin sitting at its prompt with nothing running, nothing asked and nothing reported wakes the CFO after three minutes as `goblin_idle`, read from its own screen and processes, so a Codex or pi goblin without its hooks wakes the same as a Claude Code one.
+One whose last reply asks the CFO something or offers it a choice, instead of asking with `cfo notify --blocked`, wakes it with that question quoted as `goblin_asks`, read from Claude Code's conversation, Codex's rollout or pi's screen, and the board shows it waiting on the CFO with the question.
 `cfo doctor` prints how many stale wakes the monitor raised and how many it held back, and why.
 
 ## Quick start
 
 ### Install
 
-There are two ways in.
-
-To use Code Goblins, download [`CodeGoblinsSetup.exe`](https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe) from the latest release and open it: it installs the CLI and the desktop app with no terminal, puts Code Goblins in the Start menu and opens the app ([the install guide](docs/install.md#to-use-it) says what it does).
-Or run this one line in any PowerShell window, the same install in that window; it needs no clone and no Go:
+Download [`CodeGoblinsSetup.exe`](https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe) from the latest release and open it, or run this one line in any PowerShell window; it needs no clone and no Go:
 
 ```powershell
 irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
 
-It ends with the [quick start](#quick-start) in that same window, where `goblins` works at once.
-Code Goblins in the Start menu runs the quick start again at any time, and opens the board in [the desktop app](#the-desktop-app) instead where the install put one.
+Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
+Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds that folder to your PATH and Code Goblins to the Start menu, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
+Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
+Run either again at any time to update: it never asks you to run anything first.
+Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
+[Which home it installs](docs/install.md#which-home-it-installs) lists every case.
 
 To work on Code Goblins itself, clone it and install from the clone, which needs Go and Node.js: `-Dev` builds the programs in a folder of its own and installs them into the same per-user home, so the clone keeps no program.
 
@@ -136,7 +138,7 @@ cd code-goblins
 .\install.cmd -Dev
 ```
 
-Both put `cfo` and `goblins` on your PATH, install the tools, skills and hooks the fleet needs, add Code Goblins to the Start menu, run `goblins doctor` and end with the quick start; run either again at any time to update.
+It does everything the one-line install does, with the clone's build in place of the download.
 no-mistakes, the gate every goblin's work passes, comes from the release `install.ps1` pins, downloaded from its GitHub release page with a bounded retry and installed only when it matches that release's `checksums.txt`.
 Rerunning either install updates an older no-mistakes to the pinned release, once no gate is running.
 

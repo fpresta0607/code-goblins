@@ -10,7 +10,7 @@
         "description": "Code Goblins Setup",
         "minimum-os": "win10",
         "execution-level": "as invoker",
-        "dpi-awareness": "unaware"
+        "dpi-awareness": "per monitor v2"
       }
     }
   },

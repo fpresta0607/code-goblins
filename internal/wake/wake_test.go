@@ -554,3 +554,28 @@ func TestAnsweredNotifyNamesWhoAnswered(t *testing.T) {
 		})
 	}
 }
+
+// A goblin that asked in prose filed no notify, but the monitor's record of its
+// ask is a question owed all the same, and it carries the goblin's own words
+// for the board.
+func TestAProseAskIsAQuestionOwedWithItsWords(t *testing.T) {
+	// Arrange
+	asked := Record{Kind: "stale", Key: "g1", Detail: `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Should I open the PR? It says "ready" now."`}
+	idle := Record{Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}
+
+	// Act
+	question, ok := ProseAsk(asked, "g1")
+	_, otherGoblin := ProseAsk(asked, "g2")
+	_, idleAsks := ProseAsk(idle, "g1")
+
+	// Assert
+	if !AwaitingAnswerStall(asked, "g1") {
+		t.Error("a prose ask is not counted as an answer owed")
+	}
+	if !ok || question != `Should I open the PR? It says "ready" now.` {
+		t.Errorf("question = %q (%t), want the goblin's words whole", question, ok)
+	}
+	if otherGoblin || idleAsks {
+		t.Errorf("another goblin's ask or an idle wake read as this goblin's question: %t %t", otherGoblin, idleAsks)
+	}
+}

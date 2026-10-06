@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -31,7 +33,8 @@ type Spec struct {
 // Console is one running pseudo console and the process in it. The process
 // and everything it starts share a job object, so Close ends them all, except
 // a process that asks to break away (a goblin host, a detached serve), which
-// leaves the job and outlives Close.
+// leaves the job and outlives Close. The console's input waker runs in the
+// job too.
 type Console struct {
 	pc         windows.Handle
 	in         *os.File
@@ -42,6 +45,22 @@ type Console struct {
 	pid        int
 	done       chan struct{}
 	code       uint32
+
+	// waker wakes the process when input written to it stays unread, and
+	// typed tells the waker of input written, or of a resize. closing
+	// closes when Close begins.
+	waker   *waker
+	typed   chan struct{}
+	closing chan struct{}
+
+	// writing holds each write whole, and with it what writes keep: whether
+	// a key event was written as Windows sends it, after which conhost holds
+	// an Escape that ends an input, and such an ending held back meanwhile,
+	// with the number of the hold that kept it.
+	writing                  sync.Mutex
+	isWindowsKeyEventWritten bool
+	held                     []byte
+	holds                    int
 
 	mu     sync.Mutex
 	closed bool
@@ -83,9 +102,11 @@ func Start(spec Spec) (*Console, error) {
 		return nil, fmt.Errorf("conpty: output pipe: %w", err)
 	}
 	c := &Console{
-		in:   os.NewFile(uintptr(inWrite), "conpty-input"),
-		out:  os.NewFile(uintptr(outRead), "conpty-output"),
-		done: make(chan struct{}),
+		in:      os.NewFile(uintptr(inWrite), "conpty-input"),
+		out:     os.NewFile(uintptr(outRead), "conpty-output"),
+		typed:   make(chan struct{}, 1),
+		closing: make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 	err = createInteractiveConsole(windows.Coord{X: int16(spec.Cols), Y: int16(spec.Rows)}, inRead, outWrite, &c.pc)
 	// The pseudo console holds its own copies of these ends.
@@ -102,15 +123,17 @@ func Start(spec Spec) (*Console, error) {
 		c.out.Close()
 		return nil, err
 	}
+	go c.waker.relay(c.typed, c.done, c.closing)
 	go c.wait()
 	return c, nil
 }
 
 // startProcess starts the process suspended, puts it in a job that ends
-// every process in it when the job's last handle closes, and only then lets
-// it run, so nothing it starts escapes the job unless it asks to: a process
-// started with CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a
-// CFO in this terminal launches must, to outlive the terminal.
+// every process in it when the job's last handle closes, starts the console's
+// input waker in the same job, and only then lets the process run, so
+// nothing it starts escapes the job unless it asks to: a process started with
+// CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a CFO in this
+// terminal launches must, to outlive the terminal.
 func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -165,15 +188,25 @@ func (c *Console) startProcess(commandLine, dir, env *uint16) error {
 		windows.CloseHandle(job)
 		return err
 	}
+	waker, err := startWaker(c.pc, job)
+	if err != nil {
+		windows.TerminateJobObject(job, 1)
+		scheduling.close()
+		windows.CloseHandle(info.Process)
+		windows.CloseHandle(job)
+		return err
+	}
 	if _, err := windows.ResumeThread(info.Thread); err != nil {
 		windows.TerminateJobObject(job, 1)
 		scheduling.close()
+		waker.typed.Close()
+		waker.report.Close()
 		windows.CloseHandle(info.Process)
 		windows.CloseHandle(job)
 		return fmt.Errorf("conpty: resume process: %w", err)
 	}
 	c.process, c.job, c.pid = info.Process, job, int(info.ProcessId)
-	c.scheduling = scheduling
+	c.scheduling, c.waker = scheduling, waker
 	return nil
 }
 
@@ -200,12 +233,74 @@ func (c *Console) Read(p []byte) (int, error) {
 	return c.out.Read(p)
 }
 
-// Write types p into the terminal as the process's input.
+// heldEndingWait is how long an ending conhost would hold waits for the next
+// write: cfo attach writes what its console reads 4 KiB at a time, so a key
+// event can be split across two writes, and the rest follows at once, while
+// an Escape typed alone has nothing after it.
+const heldEndingWait = 100 * time.Millisecond
+
+// Write types p into the terminal as the process's input, and tells the
+// console's input waker, which wakes the process if the input stays unread.
+// Once a key event has been written as Windows sends it, an ending conhost
+// would hold is held back: written on with the next input when that comes
+// within heldEndingWait, as the rest of a split key event does, and
+// otherwise as the key events it stands for.
 func (c *Console) Write(p []byte) (int, error) {
 	if err := c.scheduling.reconcile(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	return c.in.Write(p)
+	c.writing.Lock()
+	defer c.writing.Unlock()
+	input := p
+	if c.held != nil {
+		input = append(c.held, p...)
+		c.held = nil
+	}
+	if windowsKeyEvent.Match(input) {
+		c.isWindowsKeyEventWritten = true
+	}
+	if ending := heldEnding(input); c.isWindowsKeyEventWritten && ending > 0 {
+		c.held = slices.Clone(input[len(input)-ending:])
+		input = input[:len(input)-ending]
+		c.holds++
+		hold := c.holds
+		time.AfterFunc(heldEndingWait, func() { c.release(hold) })
+	}
+	if len(input) == 0 {
+		return len(p), nil
+	}
+	n, err := c.in.Write(input)
+	if n > 0 {
+		c.wake()
+	}
+	if err != nil {
+		return min(n, len(p)), err
+	}
+	return len(p), nil
+}
+
+// release writes the ending hold kept back as the key events it stands for,
+// unless a write since took it on.
+func (c *Console) release(hold int) {
+	c.writing.Lock()
+	defer c.writing.Unlock()
+	if hold != c.holds || c.held == nil {
+		return
+	}
+	keys := asKeyEvents(c.held)
+	c.held = nil
+	if _, err := c.in.Write(keys); err == nil {
+		c.wake()
+	}
+}
+
+// wake tells the console's input waker that the console has input it did not
+// have before, without ever waiting on the waker.
+func (c *Console) wake() {
+	select {
+	case c.typed <- struct{}{}:
+	default:
+	}
 }
 
 // Resize changes the terminal's size in character cells.
@@ -218,7 +313,13 @@ func (c *Console) Resize(cols, rows int) error {
 	if c.closed {
 		return errors.New("conpty: the console has closed")
 	}
-	return windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)})
+	// A resize reaches the process as an input event, which can be left
+	// unread as typed input can.
+	if err := windows.ResizePseudoConsole(c.pc, windows.Coord{X: int16(cols), Y: int16(rows)}); err != nil {
+		return err
+	}
+	c.wake()
+	return nil
 }
 
 // Done is closed once the process has exited and its pseudo console has
@@ -240,6 +341,7 @@ func (c *Console) ExitCode() uint32 {
 // console; the console's owner calls it once. Closing the pseudo console can
 // wait for its output to be read, so the output is drained here too.
 func (c *Console) Close() error {
+	close(c.closing)
 	err := windows.TerminateJobObject(c.job, 1)
 	go func() {
 		buffer := make([]byte, 32<<10)

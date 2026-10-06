@@ -887,6 +887,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"the Overlord personally (his sign-in, his click, his page)",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
 		"the CFO answers it, and his answer arrives here as a message",
+		"Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",
 	} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q", instruction, want)

@@ -160,18 +160,22 @@ func ConfigFromEnv(h home.Home) Config {
 	// socket, found once through Herdr's status, rather than starting a
 	// herdr process each time.
 	sockets := herdr.NewSocketCache()
+	// The harnesses' transcripts tell both how a goblin's work moves and what
+	// it last said.
+	transcripts := &monitor.HostProgress{
+		Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
+		StateDir: h.State,
+		Home:     userHome,
+	}
 	cfg.Monitor = &monitor.Service{
 		StateDir: h.State,
 		Probe: monitor.BackendProber{
 			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
 			Native: monitor.NativeProber{StateDir: h.State},
 		},
-		Gate: &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
-		Progress: &monitor.HostProgress{
-			Panes:    &herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets},
-			StateDir: h.State,
-			Home:     userHome,
-		},
+		Gate:         &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
+		Progress:     transcripts,
+		Replies:      transcripts,
 		Polls:        monitor.ProcessPolls{StateDir: h.State, Worktrees: h.Worktrees()},
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
