@@ -80,14 +80,18 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 
 // Every test waits for room before it starts. A test's own context has its
 // pages served; a test that opens another context serves that one itself.
-export const test = base.extend<{ room: Room; paced: void }>({
+// Its browser has had the board's quick tour, so no tour covers the board
+// on a first open, unless the test sets hadTour to false.
+export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
   room: [MACHINE, { option: true }],
+  hadTour: [true, { option: true }],
   paced: [async ({ room }, use) => {
     await roomForATest(room);
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
-  context: async ({ context }, use) => {
+  context: async ({ context, hadTour }, use) => {
     await servePages(context);
+    if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
     await use(context);
   },
 });
