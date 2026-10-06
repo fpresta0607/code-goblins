@@ -35,6 +35,10 @@ const closed = (item: Item) => Date.parse(closedAt(item)) || 0;
 export const isOpen = (item: Item) => item.kind === "credential" ? item.request.state === "open" : item.kind === "question" ? item.question.status === "pending"
   : item.kind === "review" ? item.review.state === "open" : item.run.state === "ready" || item.run.state === "running";
 
+// An open item waits on him, except a page he sent a revision on: that waits
+// on its goblin's next version, which replaces the page in the same item.
+const waitsOnHim = (item: Item) => isOpen(item) && !(item.kind === "review" && item.review.revising_since);
+
 // An item the Overlord answered outside the Command Center, such as on its own
 // page or in chat as the CFO recorded: its card finishes as one he answered
 // from it does.
@@ -97,7 +101,7 @@ export function cardKey(snapshot: Snapshot, key: string): string {
 export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new Set()): Item[] {
   const place = (item: Item) => { const at = snapshot.attention.indexOf(task(item)); return at < 0 ? snapshot.attention.length : at; };
   return asItems(snapshot)
-    .filter((item) => forOverlord(item) && (isOpen(item) || kept.has(item.key)))
+    .filter((item) => forOverlord(item) && (waitsOnHim(item) || kept.has(item.key)))
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
@@ -116,7 +120,7 @@ export function newestItemOf(snapshot: Snapshot, id: string): Item | undefined {
 // so. Null means nothing else waits on him.
 export function nextOpenKey(stack: Item[], key: string, sent: ReadonlySet<string> = new Set()): string | null {
   const index = stack.findIndex((item) => item.key === key);
-  const waiting = (item: Item) => item.key !== key && isOpen(item) && !sent.has(item.key);
+  const waiting = (item: Item) => item.key !== key && waitsOnHim(item) && !sent.has(item.key);
   return (stack.slice(index + 1).find(waiting) || stack.slice(0, Math.max(0, index)).find(waiting))?.key || null;
 }
 

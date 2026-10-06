@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -204,6 +205,12 @@ func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {
 
 // The readers below are the snapshot's: each reads as the function it names
 // does, once per state of its file.
+
+func (s *Service) cfoConversationLeft() string {
+	path := cfoConversationLeftPath(s.Store.Home.State)
+	data, _ := kept(&s.reads, "cfo-conversation-left", []string{path}, func() ([]byte, error) { return fsx.ReadFile(path) })
+	return cfoConversationLeftNotice(data)
+}
 
 func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	directory := s.Store.Home.State

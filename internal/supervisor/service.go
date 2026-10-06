@@ -59,7 +59,7 @@ type Options struct {
 	Runs RunLauncher
 	// PollPage waits up to a timeout for the Overlord's feedback on a Lavish
 	// page; without it no page is polled.
-	PollPage func(ctx context.Context, file string, timeout time.Duration) (axi.PagePoll, error)
+	PollPage func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error)
 	// FirstRun is what the first-run page reads and changes on this
 	// machine; without it the board can start no CFO.
 	FirstRun *FirstRun
@@ -964,6 +964,10 @@ type Snapshot struct {
 	// yet; the board opens that terminal for whatever it asks there, and no
 	// registration problem is shown while it lasts.
 	CFOStarting bool `json:"cfo_starting"`
+	// CFOClosed says the home's CFO registered and has since ended, with no
+	// terminal up for a new one. The board then shows no first-run page and
+	// no registration problem: it says the CFO is closed and offers Reopen.
+	CFOClosed bool `json:"cfo_closed"`
 	// CFOTerminal names the native terminal the board shows the CFO in (see
 	// cfoState), and is empty while the CFO runs in Herdr or not at all.
 	CFOTerminal string `json:"cfo_terminal"`
@@ -971,6 +975,9 @@ type Snapshot struct {
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
 	CFOHarness string `json:"cfo_harness"`
+	// CFOConversationLeft names the conversation the CFO could not resume
+	// when it last came back, and is empty when it came back on its own.
+	CFOConversationLeft string `json:"cfo_conversation_left"`
 	// Memory is the machine's free memory for the Tasks meter, absent on a
 	// board that cannot start goblins or cannot read it.
 	Memory        *Memory             `json:"memory,omitempty"`
@@ -1011,7 +1018,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Issues = append(slices.Clone(out.Issues), s.tickets.Issues()...)
 	}
 	cfo := readCFOState(s.Store.Home.State)
-	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.harness
+	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness
+	out.CFOConversationLeft = s.cfoConversationLeft()
 	// The registration problem comes from the same read as the rest, so the
 	// board never shows a running CFO beside the problem of one it replaced.
 	// What the recovery cycle found is added only for the registration it

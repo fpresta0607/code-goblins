@@ -258,8 +258,9 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			// environment first, and it still holds the old root.
 			return os.Setenv(install.ProjectsRootVariable, root)
 		},
-		CFORuns:  func() bool { return supervisor.CFORuns(h.State) },
-		StartCFO: func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
+		CFORuns:   func() bool { return supervisor.CFORuns(h.State) },
+		StartCFO:  func(agent string) error { return startNativeCFO(h, h.Root, agent, nil) },
+		ReopenCFO: func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
 	}
 }
 
