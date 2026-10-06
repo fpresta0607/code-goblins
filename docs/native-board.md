@@ -262,6 +262,7 @@ The status line and the pull request come from the current generation's lines on
 Cards state progress in plain words, never engine words: Not started, Working, In review gate (with its step, such as In review gate: tests), Waiting on the CFO, Waiting on a goblin by its id, Waiting on CI, Waiting on deploy, Checks passed, Delivered and No fresh evidence.
 A goblin waiting on another goblin names it once, in its card's status line, and links to it from its panel: a button beside its status there opens the goblin it waits on, and Orchestration draws a dashed line from the waiting card to that goblin's card, apart from the family tree.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
+A goblin whose last reply asked the CFO something in prose, which the monitor reads and wakes the CFO with as `goblin_asks`, shows Waiting on the CFO with that question, as a goblin that asked with `cfo notify --blocked` does, until it reports again or the CFO acks the wake.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
 It keeps its phase's colour, without the amber emphasis that belongs to the CFO's bar, so a wait on the Overlord, a goblin, CI or a deploy is shown in the same calmer sand colour.
 The CFO is pinned above the Board's columns in a plain bar, a card like the columns under it: the CFO's portrait, its harness mark, a line that says how many goblins the CFO supervises, and one icon button for its terminal.
@@ -912,7 +913,7 @@ A goblin's explicit wait on the Overlord, review page, delivered file, run item 
 No item shows an in-page toast or opens the Command Center by itself, including while the CFO's terminal is open.
 A goblin's finished or failed news still shows a dialogue box with Open for that goblin; routine progress shows none.
 The first snapshot establishes the baseline for news and items.
-When unanswered blocked or failed wake records have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
+When unanswered blocked or failed wake records, or `goblin_asks` records of a question a goblin asked in prose, have waited on the CFO for ten minutes, `cfo_quiet` gives one notice with their count and the oldest age in seconds.
 Its `since` is saved once for that stretch and remains the same through answers, reloads, reconnects and supervisor restarts until no question has waited ten minutes.
 The board can announce that notice on its first snapshot, with Open the CFO's terminal; it never offers the goblins' questions to the Overlord.
 Before an announcement the board claims the event through `POST /api/announce` (`keys` for items and the quiet-CFO stretch, `news` for a goblin's news) and announces only what the answer's `claimed` names.

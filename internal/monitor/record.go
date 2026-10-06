@@ -110,6 +110,10 @@ const (
 	// nothing asked and nothing reported for the idle window, read from its
 	// own screen and processes whatever harness it runs, hooks or none.
 	GoblinIdle Reason = "goblin_idle"
+	// GoblinAsks is a goblin at its prompt whose last reply asks the CFO
+	// something, or offers it a choice, in prose instead of with cfo notify
+	// --blocked, so it waits on an answer no question records.
+	GoblinAsks Reason = "goblin_asks"
 )
 
 type EventSource string
@@ -378,7 +382,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthStale:
-		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle) {
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle && observation.Reason != GoblinAsks) {
 			return errors.New("monitor: stale observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {

@@ -166,6 +166,26 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 	}
 }
 
+// A goblin that asked the CFO in prose waits on its answer as one that filed
+// a blocked notify does, so the checkpoint lists its question rather than
+// saying no goblin waits.
+func TestACheckpointListsAQuestionAGoblinAskedInProse(t *testing.T) {
+	// Arrange
+	h := newDigestHome(t)
+	if _, err := wake.Append(h.State, "stale", "cg-wakes", `goblin_asks: cg-wakes ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send cg-wakes "<your answer>" (cfo answer takes only a notify's question). It asked: "Should I open the PR?"`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	checkpoint := readCheckpoint(t, h, time.Now())
+
+	// Assert
+	questions := section(t, checkpoint, "== OPEN QUESTIONS ==")
+	if !strings.Contains(questions, "cg-wakes Should I open the PR?") || strings.Contains(questions, "No goblin waits on your answer.") {
+		t.Errorf("OPEN QUESTIONS does not list the prose question:\n%s", questions)
+	}
+}
+
 // A file the checkpoint cannot read is named with its error in its own
 // section, and the rest of the checkpoint is still written.
 func TestACheckpointNamesWhatItCouldNotRead(t *testing.T) {

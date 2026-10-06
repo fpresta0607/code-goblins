@@ -29,6 +29,7 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 	none := RuntimeEvidence{State: "unknown", Reason: "Current Herdr liveness evidence is unavailable"}
 	ready := Evaluation{Phase: "ready", Generation: "gen2", PR: "https://example/pr/1"}
 	question := []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b"}}
+	asked := []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: proseAsk}}
 	for _, c := range []struct {
 		name       string
 		evaluation Evaluation
@@ -41,6 +42,8 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 		{"another task's question does not block this one", ready, busy, []wake.Record{{Kind: "notify", Key: "g2", Detail: "blocked: other"}}, "ready", ""},
 		{"a question answered on the board no longer blocks", ready, busy, []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b", Answered: "b"}}, "ready", ""},
 		{"a done notify is not a question", Evaluation{}, busy, []wake.Record{{Kind: "notify", Key: "g1", Detail: "done: PR https://example/pr/1"}}, "working", "Herdr reports busy"},
+		{"a question asked in prose waits like a notify", ready, busy, asked, "blocked", "Waiting on the CFO: Which layout do you want?"},
+		{"an idle goblin asked nothing", Evaluation{}, idle, []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}}, "idle", "Herdr reports idle"},
 		{"the gate outranks the pane", ready, busy, nil, "ready", ""},
 		{"a busy pane is working", Evaluation{Phase: "review", Generation: "gen2"}, busy, nil, "working", "Herdr reports busy"},
 		{"an idle pane is awaiting input", Evaluation{}, idle, nil, "idle", "Herdr reports idle"},
@@ -93,6 +96,43 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	}
 	if got := view.Tasks[0]; got.Phase != "blocked" || got.Activity != "Which schema?" {
 		t.Fatalf("waiting task = phase %q activity %q, want blocked showing its question", got.Phase, got.Activity)
+	}
+}
+
+// proseAsk is the monitor's wake for a goblin that ended its turn asking in
+// prose, as it raises it.
+const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Which layout do you want?"`
+
+// A goblin that ended its turn asking in prose shows on the board as waiting
+// on the CFO with its question, as one that asked with cfo notify --blocked
+// does, until it reports again.
+func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n")
+	if _, err := wake.Append(h.State, "stale", "task-1", strings.ReplaceAll(proseAsk, "g1", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store}
+
+	// Act
+	view, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n"+now.Add(time.Minute).Format(time.RFC3339)+" working: grid layout, as the CFO answered\n")
+	after, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if got := view.Tasks[0]; got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which layout do you want?" || got.Activity != "Which layout do you want?" {
+		t.Fatalf("asking task = phase %q reason %q activity %q, want it waiting on the CFO with its question", got.Phase, got.Reason, got.Activity)
+	}
+	if got := after.Tasks[0]; got.Phase == "blocked" {
+		t.Fatalf("after its next report the task still reads %q: %q", got.Phase, got.Reason)
 	}
 }
 

@@ -18,7 +18,11 @@ func cfoQuietNotice(records []wake.Record, now time.Time) *CFOQuiet {
 	count := 0
 	var oldest time.Time
 	for _, record := range records {
-		if _, isQuestion := wake.BlockingNotify(record); !isQuestion || record.AnsweredBy != "" || record.Time.IsZero() {
+		// A goblin's question is its blocked or failed notify, or one the
+		// monitor read in its last reply when it asked in prose instead.
+		_, isNotify := wake.BlockingNotify(record)
+		_, isProse := wake.ProseAsk(record, record.Key)
+		if !isNotify && !isProse || record.AnsweredBy != "" || record.Time.IsZero() {
 			continue
 		}
 		count++

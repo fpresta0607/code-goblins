@@ -63,6 +63,10 @@ func TestSnapshotNoticesOnlyUnansweredQuestionsThatHaveWaitedTenMinutesOnTheCFO(
 			{Seq: 1, Kind: "notify", Key: "task-1", Detail: "blocked: Which store?", Time: now.Add(-11 * time.Minute)},
 			{Seq: 2, Kind: "notify", Key: "task-2", Detail: "failed: Which fix?", Time: now.Add(-time.Minute)},
 		}, 2},
+		"a question asked in prose": {[]wake.Record{
+			{Seq: 1, Kind: "stale", Key: "task-1", Detail: `goblin_asks: task-1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send task-1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Which store do you want?"`, Time: now.Add(-11 * time.Minute)},
+			{Seq: 2, Kind: "stale", Key: "task-2", Detail: "goblin_idle: at its prompt for 3m", Time: now.Add(-time.Hour)},
+		}, 1},
 		"news and a wait on him are not questions": {[]wake.Record{
 			{Seq: 1, Kind: "notify", Key: "task-1", Detail: "done: PR https://github.com/o/r/pull/1", Time: now.Add(-time.Hour)},
 			{Seq: 2, Kind: "notify", Key: "task-2", Detail: "waiting on overlord: Sign in", Time: now.Add(-time.Hour)},
