@@ -220,6 +220,10 @@
             Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
             throw "-Dev builds cfo.exe from this clone, which needs Go."
         }
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Host "Install Node.js with: winget install -e --id OpenJS.NodeJS.LTS, then open a new terminal and run this again."
+            throw "-Dev builds the board cfo.exe embeds from this clone, which needs Node.js."
+        }
 
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
@@ -235,11 +239,17 @@
             }
         }
 
-        Write-Host "Building cfo.exe and the desktop window from $InstallDir ..."
+        Write-Host "Building the board, cfo.exe and the desktop window from $InstallDir ..."
         $built = Join-Path $InstallDir "cfo.exe.new"
         $builtWindow = Join-Path $InstallDir "goblins-window.exe.new"
         Push-Location -LiteralPath $InstallDir
         try {
+            # cfo.exe embeds the board npm builds from frontend, and without it
+            # serves a page saying the board was not built.
+            npm.cmd --prefix frontend ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci in frontend failed" }
+            npm.cmd --prefix frontend run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build in frontend failed" }
             go build -trimpath -o $built ./cmd/cfo
             if ($LASTEXITCODE -ne 0) { throw "go build failed" }
             # -H windowsgui: the window is a program with no console.
