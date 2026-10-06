@@ -540,6 +540,21 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
   assert.equal(statusText("waiting"), "Waiting");
 });
 
+test("a goblin's command the goblin moved past reads withdrawn, without naming the CFO", () => {
+  // Arrange
+  const snapshot = parseSnapshot({ healthy: true, runs: [
+    { id: "run-billing-7", task: "billing", interactive: true, state: "withdrawn", reason: "billing reported again: working: pushing without it" },
+    { id: "install-main", state: "withdrawn", reason: "the candidate binary is gone" },
+  ] });
+
+  // Act
+  const labels = (snapshot.runs ?? []).map((run) => runMark(run).label);
+
+  // Assert
+  assert.deepEqual(labels, ["Withdrawn", "Withdrawn by the CFO"]);
+  assert.deepEqual((snapshot.runs ?? []).map((run) => [run.task, run.interactive]), [["billing", true], ["", false]]);
+});
+
 test("a run item states its progress in plain words with its exit code", () => {
   const snapshot = parseSnapshot({ healthy: true, runs: [
     { id: "a", identity: "cfo-1", title: "Rebuild the index", shell: "pwsh", admin: false, command: "Get-Date", cwd: "C:\\work", state: "ready" },

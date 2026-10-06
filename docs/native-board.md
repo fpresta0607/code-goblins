@@ -935,11 +935,13 @@ The API contract for the board is `data/board-ui/api-contract.md`.
 
 ## Run items
 
-A run item is a command the CFO needs the Overlord to run, such as a PowerShell or Git Bash script or a step that needs administrator rights; he runs it with one click from the Command Center instead of copying and pasting it:
+A run item is a command the CFO, or a goblin, needs the Overlord to run, such as a PowerShell or Git Bash script, a sign-in or a step that needs administrator rights; he runs it with one click from the Command Center instead of copying and pasting it:
 
 ```powershell
 cfo run-request --id install-tool-1 --title "Install the tool the build needs" --shell powershell --command-file C:\temp\install.ps1
 cfo run-request --id fix-acl-1 --title "Grant the service account access" --shell powershell --admin --command-file C:\temp\acl.ps1
+cfo run-request --id gh-sign-in-1 --title "Sign in to GitHub" --shell powershell --interactive --command-file C:\temp\sign-in.ps1
+cfo notify <task-id> --waiting-on overlord "Sign in to GitHub so I can push" --run C:\work\sign-in.ps1
 ```
 
 `cfo run-request` hands the item to the supervisor over its named pipe, and the supervisor itself proves the sending process runs under the registered primary CFO, the proof `cfo question` uses: it walks up from that process to the CFO, each ancestor created before its child, since Windows reuses PIDs.
@@ -957,7 +959,7 @@ The ID follows the review item rule: republishing it with the same text changes 
 The board sees each item in `snapshot.runs` with its exact command, shell, folder and whether it needs administrator rights, and Run sends only the item's ID and identity through the board's action checks (exact Host and Origin plus the per-session token), never command text.
 On the board a run item is a card in the Command Center stack, counted in the header badge while it is ready or running.
 The card shows why the CFO needs it, the shell with its mark (the GNU Bash mark for Git Bash, a terminal glyph for either PowerShell, since Simple Icons carries no PowerShell mark), an Admin badge with a shield when it runs elevated, the exact command in a monospace block that wraps and has a copy button, and the folder it runs in.
-One button runs it, enabled only while the item is ready and the board is connected: **Run**, or **Run as administrator** with a note that Windows will ask to confirm.
+One button runs it, enabled only while the item is ready and the board is connected, and it says where the command runs: **Run in PowerShell**, **Run in PowerShell 7** or **Run in Git Bash**, or **Run as administrator** with a note that Windows will ask to confirm.
 The card then says Running, and Finished or Failed with the exit code, or Expired or Withdrawn by the CFO; its output shows as a terminal shows it, read every second from `GET /api/runs/<id>/output` while the command runs and kept with its exit code after, newest at the bottom; a finished item moves to the inbox's history with the same words.
 A goblin's wait on the Overlord himself (`cfo notify --waiting-on overlord`, a review item whose id is `waiting-<task>-<n>`) shows as a status card: who waits and what for, in the goblin's own words, and no answer box; it closes by itself once the goblin reports again, other than with a question, or the CFO answers it.
 Its words show once: a wait with a page opens it from the card's one Open review button and shows no page preview, which would repeat them and open the page a second time.
@@ -967,6 +969,12 @@ The Command Center's list rows, the pinned CFO bar, alerts and the Answer button
 The card opens what the wait points at, as its main button, with Dismiss beside it: the page the goblin named with `--lavish` (Open the page), else that goblin's newest question still waiting in the Command Center (Open its question), else a file it delivered with `cfo deliver` (Open the file), else the link it gave with `--link` (Open the link); a wait that names none of these offers Dismiss alone.
 A web address the goblin only names in its words is never offered as the link, and `--link` must be https (or plain http on this machine or the tailnet) with no credentials, query or fragment, checked before anything is recorded.
 The board never opens a path from a wait's text, only the link the goblin gave or an item it already holds.
+An interactive item (`cfo run-request --interactive`, and every goblin's command) runs its script in the window itself, with nothing between it and the console, so a sign-in, `cfo attach` or anything else that needs a real terminal works there; its exit code is recorded when the script ends, the shell stays open for him to use until he closes the window, and nothing of its output is kept, so its card says it runs in its own window and shows no output.
+A goblin hands him a command with `cfo notify <task-id> --waiting-on overlord "<why>" --run <file>` (or on a `--blocked` question): a `.ps1` file runs in Windows PowerShell and a `.sh` file in Git Bash, in the goblin's worktree, never elevated, and the file is read before anything is recorded.
+A wait that carries a command is that run card alone, named for the goblin (`<goblin> asks you to run this`), with the goblin's words as its title; a question keeps its own card beside it.
+The goblin's notify leaves the command in `state/goblin-runs-inbox`, and the supervisor takes from there only what can be a live goblin's own item: it names a task whose running goblin has that identity, its ID is `run-<task>-<notify>`, and it never asks for administrator rights; its folder is set to the goblin's worktree and it is always interactive, whatever the record says, and anything else is refused, said once among the board's issues, and removed.
+The CFO's own run items still reach the board only over the supervisor's pipe, and the folder they once came through stays unread.
+When the command ends the goblin, not the CFO, is told that he ran it and its exit code; a goblin's command nobody ran is withdrawn once its goblin reports anything newer, is replaced or is gone, as its wait would be, and reads Withdrawn.
 An item runs once and expires 24 hours after it was created; running it again needs a new item.
 The registered CFO withdraws an item nobody ran with `cfo run-request --withdraw <id> --reason "<why>"`, over the same pipe and proof: the item reads Withdrawn by the CFO with the reason, leaves the Command Center for the inbox's history, and `state/runs.audit` records the withdrawal on its own line (when, the item, its script digest, `withdrawn` and the reason); Run on it is refused with that reason from then on.
 Replacing an item is withdrawing it and publishing the new command under a new ID, and an item that already ran or expired cannot be withdrawn.

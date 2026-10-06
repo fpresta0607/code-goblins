@@ -441,11 +441,13 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.finishRuns(ctx))
 	reconcileErr = errors.Join(reconcileErr, s.Store.retireItems())
+	reconcileErr = errors.Join(reconcileErr, s.Store.retireGoblinRuns())
 	if cfo := readCFOState(s.Store.Home.State); cfo.registered && cfo.problem == "" {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}

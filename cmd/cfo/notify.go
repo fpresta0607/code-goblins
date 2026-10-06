@@ -32,6 +32,14 @@ import (
 //	cfo notify <task-id> --waiting-on <task-id|overlord|ci|deploy|memory> "<why>"
 //	cfo notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	cfo notify <task-id> --waiting-on overlord "<why>" --link <https-url>
+//	cfo notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
+//
+// A wait or a question whose answer is a command the Overlord must run, such
+// as a sign-in, names the command's file with --run: his Command Center shows
+// the exact command on a run card named for the goblin, and one click runs it
+// in a window that stays open and usable. A .ps1 file runs in Windows
+// PowerShell and a .sh file in Git Bash, in the goblin's worktree, never
+// elevated; the goblin is told how it ended.
 //
 // A wait on the Overlord leads with one sentence, and the values he must
 // enter somewhere follow it as a Markdown table, each value in backticks:
@@ -67,6 +75,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	lavish := fs.String("lavish", "", "with --waiting-on overlord, the HTML file of the Scrawl page the Overlord answers on")
 	link := fs.String("link", "", "with --waiting-on overlord, the https link the Overlord goes to, which his card opens; an address only named in the text is never opened")
+	run := fs.String("run", "", "with --waiting-on overlord or --blocked, a .ps1 or .sh file holding a command the Overlord must run, such as a sign-in: his card shows the exact command and runs it with one click in a window he can use")
 	var images []string
 	fs.Func("image", "a review image for a --blocked question's choice; repeat it once for each choice, in order", func(v string) error {
 		images = append(images, v)
@@ -138,6 +147,38 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
+	// The command is read before anything is recorded, so a file that
+	// cannot be run fails the notify instead of leaving a wait on a card
+	// with nothing to run.
+	var runShell, runCommand string
+	if *run != "" {
+		switch {
+		case verb != "waiting on overlord" && verb != "blocked":
+			fmt.Fprintln(stderr, "cfo notify: --run goes with --waiting-on overlord or --blocked: it names a command the Overlord runs")
+			return 2
+		case *lavish != "":
+			fmt.Fprintln(stderr, "cfo notify: --run and --lavish do not go together: he answers on the page or runs the command")
+			return 2
+		}
+		switch strings.ToLower(filepath.Ext(*run)) {
+		case ".ps1":
+			runShell = "powershell"
+		case ".sh":
+			runShell = "bash"
+		default:
+			fmt.Fprintln(stderr, "cfo notify: --run takes a .ps1 file, which runs in Windows PowerShell, or a .sh file, which runs in Git Bash")
+			return 2
+		}
+		var err error
+		if runCommand, err = supervisor.ReadRunCommand(*run); err != nil {
+			fmt.Fprintf(stderr, "cfo notify: --run %v\n", err)
+			return 2
+		}
+		if strings.TrimSpace(runCommand) == "" {
+			fmt.Fprintf(stderr, "cfo notify: --run %s is empty\n", *run)
+			return 2
+		}
+	}
 	var page, pageURL string
 	if *lavish != "" {
 		if verb != "waiting on overlord" {
@@ -167,6 +208,9 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	line := verb + ": " + state.NormalizeStatusDetail(detail)
 	if *link != "" {
 		line += " (link " + *link + ")"
+	}
+	if *run != "" {
+		line += " (runs " + filepath.Base(*run) + ")"
 	}
 	// Images are checked before anything is recorded, so a bad path fails the
 	// whole notify instead of waking the CFO with a question the Overlord
@@ -203,7 +247,18 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	// The CFO is already woken; the Command Center copy is a second route
 	// to the Overlord, so its failure is reported and never fails the notify,
 	// except for a page: only its item gets the page polled.
-	if verb == "waiting on overlord" {
+	// A command rides on its own card, the run card: a wait that carries one
+	// is that card alone, and a question keeps its card beside it.
+	if runCommand != "" {
+		why, _, _ := strings.Cut(strings.TrimSpace(detail), "\n")
+		if err := supervisor.PublishGoblinRun(h, id, record.Seq, why, runShell, runCommand); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this command, the CFO still has it: "+err.Error())
+		}
+	}
+	switch {
+	case verb == "waiting on overlord" && runCommand != "":
+		// Its run card is the wait.
+	case verb == "waiting on overlord":
 		if err := supervisor.PublishWait(h, id, record.Seq, strings.TrimSpace(detail), pageURL, page, *link); err != nil {
 			if page != "" {
 				fmt.Fprintf(stderr, "cfo notify: the Command Center cannot show this wait (%v), so nothing watches the page %s and the Overlord's answer on it reaches nobody; the CFO has the wait, ask in text with --blocked instead\n", err, page)
@@ -211,8 +266,10 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this wait, the CFO still has it: "+err.Error())
 		}
-	} else if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
-		fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
+	default:
+		if err := supervisor.SurfaceNotify(h.State, id, record, verb+": "+strings.TrimSpace(detail), images); err != nil {
+			fmt.Fprintln(stderr, "cfo notify: the Command Center cannot show this question, the CFO still has it: "+err.Error())
+		}
 	}
 	// The board shows the report now, not at its next refresh.
 	supervisor.Reported(h.State)

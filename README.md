@@ -506,7 +506,8 @@ A goblin waiting on you offers **Answer** in its panel, which opens the stack at
 A question with images shows a thumbnail per choice that opens a full-size, swipeable, zoomable gallery.
 An answer to the CFO goes to the same verified CFO session, and an answer to a goblin goes to that goblin's own terminal, each exactly once; no answer approves a gate or merges anything.
 Each live page offers **Open review** or **Open page** and **Keep in background**; neither pauses work.
-A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one **Run** button; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
+A command the CFO needs you to run arrives as a run card with its shell, an **Admin** badge when it runs elevated, the exact command with a copy button, and one button that says where it runs, such as **Run in PowerShell**; once it runs, the card shows its output as a terminal does, live while it runs, and its exit code when it ends.
+A goblin can hand you a command the same way, on a run card that names the goblin: a sign-in or anything else that needs a real terminal runs in its own window, which stays open for you, and the goblin is told how it ended.
 
 <p align="center">
   <img src="docs/images/run-card.webp" alt="A run card: the Windows PowerShell command the CFO needs run and its folder, then after Run, Finished with exit 0 and the captured output" width="560" />
@@ -645,14 +646,14 @@ cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]
 cfo drain
-cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>]
+cfo notify <id> --done --pr <url> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]
 cfo question --id <stable-id> --text "<question>" [--option "<choice>"]... [--recommend "<exact-choice>"]
 cfo answer <question-id|wake-seq> --option <choice> [--note "<text>"]
 cfo answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]
 cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file>]
 cfo review --clear <stable-id> --reason "<why>"
 cfo deliver --id <stable-id> --title "<what it is>" --file <path> [--url <link>] [--task <id>]
-cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>
+cfo run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--interactive] [--cwd <dir>] --command-file <path>
 cfo run-request --withdraw <id> --reason "<why>"
 ```
 

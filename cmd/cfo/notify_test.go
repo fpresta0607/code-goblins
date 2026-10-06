@@ -583,6 +583,67 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 	}
 }
 
+// A wait or a question can carry a command for the Overlord to run with one
+// click (his words, 2026-10-02: "run in powershell button"): --run names its
+// file, checked before anything is recorded, and the wake tells the CFO a
+// command rides with it.
+func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	command := write("sign-in.ps1", "gh auth login\n")
+	page := write("plan.html", "<html></html>")
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"a command on a CI wait":        {[]string{"g1", "--waiting-on", "ci", "checks", "--run", command}, "--run goes with --waiting-on overlord or --blocked"},
+		"a command on a working report": {[]string{"g1", "--working", "building", "--run", command}, "--run goes with --waiting-on overlord or --blocked"},
+		"a command beside a page":       {[]string{"g1", "--waiting-on", "overlord", "sign in", "--lavish", page, "--run", command}, "--run and --lavish"},
+		"a file that is not there":      {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", filepath.Join(dir, "missing.ps1")}, "--run"},
+		"a file of another kind":        {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("sign-in.txt", "gh auth login\n")}, ".ps1"},
+		"an empty command":              {[]string{"g1", "--waiting-on", "overlord", "sign in", "--run", write("empty.ps1", "  \n")}, "empty"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr); exit != 2 || !strings.Contains(stderr.String(), c.says) {
+			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q", name, exit, stderr.String(), c.says)
+		}
+	}
+	if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+		t.Fatalf("status = %q after refused notifies, want nothing recorded", lines)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "Sign in to GitHub so I can push", "--run", command}, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	want := "waiting on overlord: Sign in to GitHub so I can push (runs sign-in.ps1)"
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {
+		t.Fatalf("wake records = %+v %v, want the wait naming its command", records, err)
+	}
+	// No goblin runs here, so the board cannot take the command, and the
+	// notify says so instead of failing: the CFO has the wait.
+	if !strings.Contains(stderr.String(), "the Command Center cannot show this command") {
+		t.Errorf("stderr = %q, want it said that the command is not on the board", stderr.String())
+	}
+}
+
 // While AFK mode is on a goblin that reports a wait on the Overlord is told he
 // is away and to move to work that does not depend on it, so it does not sit
 // all night on something only he can do. While it is off the notify says

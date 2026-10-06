@@ -276,6 +276,9 @@ export interface Run {
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
+  // task is the goblin whose own command this is, empty for the CFO's. An
+  // interactive item runs in its own window, which keeps its output.
+  task: string; interactive: boolean;
 }
 // A request for credential values by name: the Overlord pastes each value on
 // its card, and the board stores it in the project's credential scope. It
@@ -481,7 +484,8 @@ function itemLists(v: Record<string, unknown>) {
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
-        credential_request: string(r.credential_request), credential_names: strings(r.credential_names) };
+        credential_request: string(r.credential_request), credential_names: strings(r.credential_names),
+        task: string(r.task), interactive: r.interactive === undefined ? false : boolean(r.interactive) };
     }),
     credentials: array(v.credentials).map(parseCredentialRequest),
     actions: array(v.actions).map(parseAction),

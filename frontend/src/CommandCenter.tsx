@@ -283,7 +283,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     if (!drafts[changeKey(target)]) editChange(target, {}, from);
     void post(changeKey(target), { ...payload, kind: "answer_change" });
   };
-  const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : "";
+  const taskOf = (candidate: Item) => candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
   const askerOf = (candidate: Item) => taskOf(candidate) ? snapshot.tasks.find((task) => task.id === taskOf(candidate))?.title || taskOf(candidate) : "The CFO";
   const textOf = (candidate: Item) => candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
@@ -394,7 +394,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               : item.kind === "credential"
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} pager={pager} />
               : item.kind === "run"
-              ? <RunCard key={shownKey} run={item.run} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
+              ? <RunCard key={shownKey} run={item.run} goblin={item.run.task ? snapshot.tasks.find((task) => task.id === item.run.task) : undefined} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} pager={pager} />
               : item.review.document
               ? <DocumentCard key={shownKey} review={item.review} document={item.review.document} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT} onOpened={(how) => clear(item.review, how)} onClear={() => clear(item.review)} pager={pager} />
               : <ReviewCard key={shownKey} review={item.review} snapshot={snapshot} connected={connected} draft={drafts[item.key] || EMPTY_DRAFT}
