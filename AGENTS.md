@@ -476,7 +476,7 @@ The commands hold what they can check: while it is on `cfo pr merge` never delet
 
 The board does not prompt him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
-Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
+Every item that waits on him, a question you ask him, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report; a goblin's question is yours to answer, so it is never held for him.
 What the board asked to announce while he was away is not announced once he is back either.
 Nothing glows on the CFO's bar whatever waits on him: it says since when it is on and who turned it on, how much you decided and how much is held, and lists what is held under itself, each with the choice recommended for it; a held item opens in the Command Center when he asks for it.
 At his first click or key on the board after five minutes with none, the board offers him the switch back, and says who turned it on, with his words when you did.
