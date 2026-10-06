@@ -1079,7 +1079,11 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 						return data, err
 					}
 				}
-				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				// The stand-in Git is a fresh copy of this test binary, and a
+				// loaded machine can take seconds to start it. The handler
+				// bounds the custody check with a deadline of its own, so the
+				// wait lasts until Git enters or the request ends without it.
+				for {
 					data, err := readEntry(entry)
 					if err == nil {
 						if got := strings.TrimSpace(string(data)); got != "--no-pager -c core.quotepath=false symbolic-ref --short HEAD" {
@@ -1091,8 +1095,10 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 					if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
 						t.Fatal(err)
 					}
-					if time.Now().After(deadline) {
-						t.Fatal("the owned custody Git never recorded entry")
+					select {
+					case <-ended:
+						t.Fatalf("the custody request ended before its owned Git recorded entry: %d %s", response.Code, response.Body.String())
+					case <-time.After(10 * time.Millisecond):
 					}
 				}
 				if test.shouldLockEntry && !isSharingViolationObserved {
