@@ -99,6 +99,10 @@ export interface Memory {
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
+// Disk is the free space of the home's drive in bytes beside the floor under
+// which no goblin or gate test run starts and the lower mark at which the CFO
+// is woken.
+export interface Disk { drive: string; free: number; total: number; floor: number; wake: number }
 export interface Session {
   runtime?: RuntimeEvidence;
   id: string;
@@ -211,6 +215,8 @@ export interface Snapshot {
   credentials?: CredentialRequest[];
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
+  // disk is absent on a board that cannot read it.
+  disk: Disk | null;
   afk: Afk;
   // projects names who else works in each collaborative project, by the
   // project name tasks carry.
@@ -218,10 +224,10 @@ export interface Snapshot {
 }
 // AfkHeld is an item held for the Overlord while AFK mode is on: its key in
 // the Command Center, its goblin (empty for the CFO's own), what it asks,
-// whether it still waits on him and what became of it, and what its goblin
-// reported meanwhile.
+// whether it still waits on him and what became of it, what its goblin
+// reported meanwhile, and the choice its asker recommends, empty for none.
 export interface AfkHeld {
-  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string;
+  item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string;
 }
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
@@ -464,7 +470,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
 }
 export function parseAfkHeld(value: unknown): AfkHeld {
   const h = object(value);
-  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile) };
+  return { item: string(h.item), task: string(h.task), what: string(h.what), at: string(h.at), waiting: h.waiting === undefined ? false : boolean(h.waiting), now: string(h.now), meanwhile: string(h.meanwhile), recommendation: string(h.recommendation) };
 }
 // A supervisor from before AFK mode reached the board sends none, which is off.
 function parseAfk(value: unknown): Afk {
@@ -548,6 +554,9 @@ export function parseSnapshot(value: unknown): Snapshot {
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), floor: number(floor), next: number(next),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+    }))(object(v.disk)),
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     retired: strings(v.retired),
     issues: strings(v.issues),

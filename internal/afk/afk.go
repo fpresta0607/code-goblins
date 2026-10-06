@@ -106,6 +106,9 @@ type Entry struct {
 	// held item's key in the Command Center.
 	Task string `json:"task,omitempty"`
 	Item string `json:"item,omitempty"`
+	// Recommendation is the choice recommended for a held question by whoever
+	// asked it: the CFO for its own, or the goblin whose question it is.
+	Recommendation string `json:"recommendation,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.

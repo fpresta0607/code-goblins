@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 )
 
 // Report is the typed answer to all five questions, shared by the JSON and
@@ -26,6 +28,12 @@ type Report struct {
 	Folded []Folded `json:"folded"`
 	// Headroom is what the machine has left to give.
 	Headroom Machine `json:"headroom"`
+	// Storage is what the CFO home holds on disk, by bucket: each task's
+	// worktrees and scratch folder, each cache, the binaries, the state and
+	// the data. Docker's share is in Headroom.
+	Storage janitor.Buckets `json:"storage"`
+	// Janitor is the janitor's last sweep, absent before the first.
+	Janitor *janitor.Record `json:"janitor,omitempty"`
 	// Dispatch says whether the headroom has room for the next goblin.
 	Dispatch Dispatch `json:"dispatch"`
 	// Limits is the memory each running stack declared, so a dispatch
@@ -174,6 +182,8 @@ func Build(home string, inv Inventory) Report {
 		Servers:      buildServers(inv, attribution),
 		Folded:       buildFolded(inv),
 		Headroom:     inv.Machine,
+		Storage:      inv.Storage,
+		Janitor:      inv.Janitor,
 		Dispatch:     inv.Machine.Dispatch(),
 		Projects:     inv.Projects,
 		Notes:        inv.Notes,
@@ -367,7 +377,7 @@ func directoryKind(listener Listener, attribution Attribution) DirectoryKind {
 	if _, live := attribution.taskIn(listener.WorkDir); live {
 		return DirLiveWorktree
 	}
-	if taskID, ok := worktreeTaskID(listener.WorkDir); ok {
+	if taskID, ok := attribution.worktreeTaskID(listener.WorkDir); ok {
 		if attribution.retired[taskID] {
 			return DirRetiredWorktree
 		}

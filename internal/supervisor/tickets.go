@@ -509,7 +509,7 @@ func (k *ticketKeeper) ticketedRepository(ctx context.Context, id string, now ti
 			return ""
 		}
 		if !isAllowed {
-			k.note("public:"+known.Repository, fmt.Sprintf("Tickets in %s are held: it is public, and an issue there is public. Run cfo tickets \"%s\" --allow-public-tickets to keep them there.", known.Repository, project))
+			k.note("public:"+known.Repository, fmt.Sprintf("Task tickets are not filed in %s, because it is a public repository and anyone could read them. To file them there anyway: cfo tickets \"%s\" --allow-public-tickets", known.Repository, project))
 			return ""
 		}
 	}

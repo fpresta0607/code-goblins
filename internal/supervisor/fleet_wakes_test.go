@@ -69,6 +69,59 @@ func readMemory(t *testing.T, s *Service, h home.Home, meter *memoryReadings, no
 	return len(fleetWakeRecords(t, h, "memory")) - before
 }
 
+// disk_low wakes the CFO once when free disk falls under the mark, and again
+// only after a reading back at or above the floor and a fall under the mark,
+// never twice within the gap.
+func TestDiskLowWakesOnceUnderTheMarkAndAgainOnlyAfterTheFloor(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	var free []float64
+	s.Options.Dispatch = &Dispatch{
+		Memory: func() (Memory, error) {
+			return Memory{Available: 2 * gigabyte, CommitAvailable: 2 * gigabyte, Total: 32 * gigabyte}, nil
+		},
+		Disk: func() (Disk, error) {
+			next := free[0]
+			free = free[1:]
+			return diskWithFree(uint64(next * gigabyte)), nil
+		},
+	}
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	read := func(readings ...float64) int {
+		before := len(fleetWakeRecords(t, h, "disk"))
+		free = append(free, readings...)
+		for range readings {
+			now = now.Add(time.Minute)
+			if err := s.checkFleet(context.Background(), now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return len(fleetWakeRecords(t, h, "disk")) - before
+	}
+
+	// Act and Assert
+	if woke := read(12); woke != 0 {
+		t.Fatalf("free disk under the floor but over the mark woke %d times, want none", woke)
+	}
+	if woke := read(9); woke != 1 {
+		t.Fatalf("free disk under the mark woke %d times, want one", woke)
+	}
+	detail := fleetWakeRecords(t, h, "disk")[0].Detail
+	for _, want := range []string{"disk_low:", "9.0 GB, under the 10 GB mark", "under the 15 GB floor"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("disk wake %q lacks %q", detail, want)
+		}
+	}
+	now = now.Add(diskWakeGap)
+	if woke := read(8, 12, 9); woke != 0 {
+		t.Fatalf("staying under the floor woke %d times, want none", woke)
+	}
+	now = now.Add(diskWakeGap)
+	if woke := read(16, 9); woke != 1 {
+		t.Fatalf("back at the floor and under the mark again woke %d times, want one", woke)
+	}
+}
+
 // memory_ready wakes once memory and commit both read at or above the 5 GB
 // mark on two readings in a row while a task waits in the queue, then not
 // again until a reading falls under the 4 GB floor and crosses back.

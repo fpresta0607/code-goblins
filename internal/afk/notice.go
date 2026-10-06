@@ -32,7 +32,7 @@ func Notice(state State) []string {
 		"- Installing a merged build through <candidate> update once the merge queue settles. Log it with --kind install.",
 		"- A goblin's question that is yours to answer. cfo answer logs it.",
 		"These stay his alone and are never decided for him, in AFK mode or out of it: a migration or command that drops or deletes data, deleting a branch, pushing to a teammate's branch or merging a teammate's pull request, any spend beyond his account's limits, his own sign-ins and identity checks, and anything a tool refuses.",
-		"Leave each of those for him as a cfo question, or as a cfo run-request with the exact command, and tell a goblin blocked only on it to move to its next piece of work.",
+		"Hold each of those for him, never asking him while he is away: publish it as a cfo question with --recommend naming the choice you would make, or as a cfo run-request with the exact command, and it waits under Held for you with your recommendation until he is back. Tell a goblin blocked only on it to move to its next piece of work.",
 	}
 }
 
