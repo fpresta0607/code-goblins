@@ -98,6 +98,9 @@ type fleetWakes struct {
 	OverlapPolled  map[string]time.Time     `json:"overlap_polled,omitempty"`
 	OverlapUnread  map[string]string        `json:"overlap_unread,omitempty"`
 	OverlapNotices map[string]overlapNotice `json:"overlap_notices,omitempty"`
+	// SameArea holds, by task, the teammates' open work each live goblin's
+	// area meets, for its card.
+	SameArea map[string]sameArea `json:"same_area,omitempty"`
 	// Repos holds each repository watched and when a live goblin was last
 	// seen working in it.
 	Repos    map[string]time.Time `json:"repos,omitempty"`
@@ -463,6 +466,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		}
 		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
 	}
+	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
+		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return goblin.id == id })
+	})
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
 			delete(w.Checks, url)

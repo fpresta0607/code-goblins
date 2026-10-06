@@ -1,0 +1,24 @@
+/* People and tickets: GitHub avatars, a task's ticket and the people whose
+   work meets a goblin's branch. */
+.person-avatar { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1d3b45; color: #dff7ee; font-size: .8125rem; font-weight: 800; line-height: 1; object-fit: cover; }
+
+/* GitHub's colors for an open issue, one closed as completed and one closed
+   as not planned. */
+.ticket-open .icon { color: #3fb950; }
+.ticket-merged .icon { color: var(--merged); }
+.ticket-closed .icon { color: var(--muted); }
+.card-ticket { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #dff7ee; text-decoration: none; }
+.card-ticket .icon { width: 18px; height: 18px; }
+.card-ticket:hover, .card-ticket:focus-visible { text-decoration: underline; }
+
+.same-area-avatars { display: inline-flex; align-items: center; gap: 6px; }
+.same-area-person { display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 2px var(--amber); }
+
+/* A goblin's project and its people share a line, wrapping under it when
+   the panel is narrow. */
+.project-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; min-width: 0; }
+.people-row { display: flex; flex: 1 1 14rem; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.people-row .person a, .people-row .person > span { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: #c8d6e0; font-size: .9375rem; text-decoration: none; }
+.people-row .person a:hover .person-name, .people-row .person a:focus-visible .person-name { text-decoration: underline; }
+.people-row .person-name { overflow-wrap: anywhere; }
+.people-row .same-area .person-avatar { box-shadow: 0 0 0 2px var(--amber); }
