@@ -397,7 +397,7 @@ While [AFK mode](#afk-mode) is on, merge authority is your own merge word for a 
 ## User decisions on the board
 
 The registered primary CFO in any supported harness (Claude Code, Codex, Pi) must publish deliberate user questions with `cfo question --id <stable-id> --text "<question>" --option "<choice>" --recommend "<exact-choice>"`.
-Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended.
+Repeat `--option` for actual choices; omit `--recommend` when no choice is recommended, except while [AFK mode](#afk-mode) is on, when a question with choices is held for him and carries the one you would make.
 Write every question to the Overlord, the CFO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
 The Command Center shows it as body text: a blank line starts a paragraph, a `- ` line is a bullet, `**text**` is bold, and anything else, markup included, is shown exactly as written.
 Other always accepts a written answer, and no answer is selected automatically.
@@ -457,18 +457,20 @@ While it is on you decide these yourself, without waiting, and each is logged wi
 - A goblin's question that is yours to answer: `cfo answer` logs it.
 
 These stay his alone and are never decided for him, in AFK mode or out of it: a migration or command that drops or deletes data, deleting a branch, pushing to a teammate's branch or merging a teammate's pull request, any spend beyond his account's limits, his own sign-ins and identity checks, and anything a tool refuses.
-Leave each for him as a `cfo question`, or as a `cfo run-request` with the exact command, and tell a goblin blocked only on it to move to its next piece of work; `cfo notify --waiting-on overlord` tells a goblin the same while AFK mode is on.
+Hold each for him, never asking him while he is away: publish it as a `cfo question` with `--recommend` naming the choice you would make, or as a `cfo run-request` with the exact command, and it waits under Held for you with your recommendation until he is back; while AFK mode is on `cfo question` refuses a question with choices and no `--recommend`.
+Tell a goblin blocked only on it to move to its next piece of work; `cfo notify --waiting-on overlord` tells a goblin the same while AFK mode is on.
 The commands hold what they can check: while it is on `cfo pr merge` never deletes a branch and never merges a teammate's pull request, and `cfo answer --record-only --in <where>` records no answer as his, so a question only he answers stays open until he does.
 
 The board does not prompt him while it is on.
 The board is handed nothing to announce, so it shows no alert, sends no Windows notification and never opens the Command Center by itself.
 Every item that waits on him, a question, a review item or a goblin's wait, a command to run or a credential request, is recorded as held for him and is in the report.
 What the board asked to announce while he was away is not announced once he is back either.
-Nothing glows on the CFO's bar whatever waits on him: it says since when it is on and who turned it on, how much you decided and how much is held, and lists what is held under itself; a held item opens in the Command Center when he asks for it.
+Nothing glows on the CFO's bar whatever waits on him: it says since when it is on and who turned it on, how much you decided and how much is held, and lists what is held under itself, each with the choice recommended for it; a held item opens in the Command Center when he asks for it.
 At his first click or key on the board after five minutes with none, the board offers him the switch back, and says who turned it on, with his words when you did.
+After a switch you made at his ask, his very first click or key on the board offers it at once, so a switch made on his words meets him before anything else.
 The desktop window is silenced with it: before `goblins-window.exe` notifies what its own look at the board found, it claims it through `/api/announce`, which hands out nothing while AFK mode is on.
 
-Turning it off produces the report of the stretch, which the board shows him as one page, `cfo afk off` prints for him and `cfo afk report` prints again: who turned it on and off, with his words for a switch you made, then what is held for him with what became of it, as it stands whenever the report is read, and what its goblin did meanwhile, which he reads first, then what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
+Turning it off produces the report of the stretch, which the board shows him as one page, `cfo afk off` prints for him and `cfo afk report` prints again: who turned it on and off, with his words for a switch you made, then what is held for him with the choice recommended for it and what became of it, as it stands whenever the report is read, and what its goblin did meanwhile, which he reads first, then what you merged, deployed, migrated, installed and answered, each with its link and evidence, any merge word whose merge was not recorded, what each goblin reported done, and the allowance `quota-axi` read when it turned on beside the reading when it turned off.
 You are woken when it turns off: write that report into your terminal with `cfo afk report`.
 
 When the digest or `cfo drain` says `AFK MODE: UNREADABLE`, whether he is away is unknown: decide nothing under its authority, and expect `cfo pr merge` to refuse.
