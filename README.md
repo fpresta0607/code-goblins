@@ -128,6 +128,9 @@ Each puts the Code Goblins app and the `cfo` command line (also called `goblins`
 Each says the same four steps as it goes (download, check, install, open) and keeps every detail in `%TEMP%\CodeGoblinsInstall.log`; a failure says in one sentence what happened and what to do.
 Run either again at any time to update: it never asks you to run anything first.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button, and a slim banner at the top points to it ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
+
+<img src="docs/images/update-item.png" alt="The Update Code Goblins item in the Command Center: v0.4.2 to v0.5.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
+
 Or run `goblins update` in a terminal of your own: it downloads the newest release, installs it only when each program matches the release's `SHA256SUMS`, restarts only the board on it, rolls back a build that does not start, and leaves your goblins and the CFO running ([Updating](docs/install.md#updating) says each step).
 Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
 [Which home it installs](docs/install.md#which-home-it-installs) lists every case.
