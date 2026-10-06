@@ -518,7 +518,7 @@ func TestOnlyTheOverlordsOffResetsASwitchThatCannotBeRead(t *testing.T) {
 func waitingItems(t *testing.T, store *Store) {
 	t.Helper()
 	now := time.Now().UTC()
-	if err := store.acceptQuestion(Question{ID: "drop-legacy-invoices", Identity: strings.Repeat("c", 64), Text: "Migration 0042 drops legacy_invoices. Apply it?", Options: []string{"Apply it", "Keep it held"}, CreatedAt: now}); err != nil {
+	if err := store.acceptQuestion(Question{ID: "drop-legacy-invoices", Identity: strings.Repeat("c", 64), Text: "Migration 0042 drops legacy_invoices. Apply it?", Options: []string{"Apply it", "Keep it held"}, Recommended: "Keep it held", CreatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.acceptReview(Review{ID: "waiting-task-1-7", Identity: strings.Repeat("d", 64), Task: "task-1", Title: "Waiting on you: sign in to Vercel", State: "open", CreatedAt: now, UpdatedAt: now}); err != nil {
@@ -558,14 +558,14 @@ func TestAnItemThatWaitsOnTheOverlordWhileAFKModeIsOnIsHeldOnceAndNotAnnounced(t
 	if len(held) != 3 {
 		t.Fatalf("held = %+v, want the question, the wait and the run item, each once", held)
 	}
-	if held[0].Item != "question:drop-legacy-invoices" || held[0].What != "Migration 0042 drops legacy_invoices. Apply it?" || held[0].Task != "" {
-		t.Errorf("held question = %+v, want the CFO's question with its text", held[0])
+	if held[0].Item != "question:drop-legacy-invoices" || held[0].What != "Migration 0042 drops legacy_invoices. Apply it?" || held[0].Task != "" || held[0].Recommendation != "Keep it held" {
+		t.Errorf("held question = %+v, want the CFO's question with its text and its recommendation", held[0])
 	}
-	if held[1].Item != "review:waiting-task-1-7" || held[1].What != "Waiting on you: sign in to Vercel" || held[1].Task != "task-1" {
-		t.Errorf("held wait = %+v, want the goblin's wait with its reason", held[1])
+	if held[1].Item != "review:waiting-task-1-7" || held[1].What != "Waiting on you: sign in to Vercel" || held[1].Task != "task-1" || held[1].Recommendation != "" {
+		t.Errorf("held wait = %+v, want the goblin's wait with its reason and no recommendation", held[1])
 	}
-	if held[2].Item != "run:delete-merged-branches" || held[2].What != "Run delete-merged-branches" {
-		t.Errorf("held run item = %+v, want the command left for him with its title", held[2])
+	if held[2].Item != "run:delete-merged-branches" || held[2].What != "Run delete-merged-branches" || held[2].Recommendation != "" {
+		t.Errorf("held run item = %+v, want the command left for him with its title and no recommendation", held[2])
 	}
 }
 
