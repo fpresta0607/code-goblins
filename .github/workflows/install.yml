@@ -40,12 +40,24 @@ on:
       - internal/doctor/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
+  # A merge queue run checks both installs too. GitHub applies no path
+  # filter to it, so every queued group runs them.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       release:
         description: Install the latest published release instead of this commit's build
         type: boolean
         default: false
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

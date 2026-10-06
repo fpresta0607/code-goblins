@@ -4,9 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on main's tip before it
+  # merges them, and needs the required test check to report on that run.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. Every other run, on main, in the merge queue or
+  # started by hand, has a group of its own, so none is ever cancelled or
+  # held waiting.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 # The work runs as parallel jobs so a run takes as long as its slowest job,
 # not the sum: the frontend, each slow Go package, and every other Go package
