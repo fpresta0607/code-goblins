@@ -128,10 +128,11 @@ type Linker func(link, target string) error
 // did not write is left as it is and named in the result, as is an entry in
 // Claude Code's folder that is not a junction to the shared copy. It returns
 // the skills it installed and what it left alone and why.
-func InstallSkills(skills fs.FS, m Map, link Linker) (installed, kept []string, err error) {
+func InstallSkills(skills fs.FS, m Map, link Linker) (SkillInstall, error) {
+	var result SkillInstall
 	names, err := fs.ReadDir(skills, ".")
 	if err != nil {
-		return nil, nil, err
+		return result, err
 	}
 	claude, _ := m.Harness("claude")
 	for _, entry := range names {
@@ -142,34 +143,46 @@ func InstallSkills(skills fs.FS, m Map, link Linker) (installed, kept []string, 
 		shared := filepath.Join(m.SharedSkills, name)
 		ours, err := isOurs(shared)
 		if err != nil {
-			return installed, kept, err
+			return result, err
 		}
 		if !ours {
-			kept = append(kept, shared+": a skill of that name is already there and Code Goblins did not put it there")
+			result.Kept = append(result.Kept, shared+": a skill of that name is already there and Code Goblins did not put it there")
 			continue
 		}
-		if err := writeSkill(skills, name, shared); err != nil {
-			return installed, kept, err
+		changed, err := writeSkill(skills, name, shared)
+		if err != nil {
+			return result, err
 		}
-		installed = append(installed, name)
-		if claude.Skills == "" {
-			continue
+		result.Names = append(result.Names, name)
+		if claude.Skills != "" {
+			junction := filepath.Join(claude.Skills, name)
+			switch target, err := os.Readlink(junction); {
+			case err == nil && sameDir(target, shared):
+			case errors.Is(err, fs.ErrNotExist):
+				if err := os.MkdirAll(claude.Skills, 0o755); err != nil {
+					return result, err
+				}
+				if err := link(junction, shared); err != nil {
+					return result, fmt.Errorf("harnessmap: link %s to %s: %w", junction, shared, err)
+				}
+				changed = true
+			default:
+				result.Kept = append(result.Kept, junction+": something other than a junction to "+shared+" is there, so Claude Code reads that instead")
+			}
 		}
-		junction := filepath.Join(claude.Skills, name)
-		switch target, err := os.Readlink(junction); {
-		case err == nil && sameDir(target, shared):
-		case errors.Is(err, fs.ErrNotExist):
-			if err := os.MkdirAll(claude.Skills, 0o755); err != nil {
-				return installed, kept, err
-			}
-			if err := link(junction, shared); err != nil {
-				return installed, kept, fmt.Errorf("harnessmap: link %s to %s: %w", junction, shared, err)
-			}
-		default:
-			kept = append(kept, junction+": something other than a junction to "+shared+" is there, so Claude Code reads that instead")
+		if changed {
+			result.Changed = append(result.Changed, name)
 		}
 	}
-	return installed, kept, nil
+	return result, nil
+}
+
+// SkillInstall is what InstallSkills did: the skills it installed, those of
+// them whose files or junction it wrote, and what it found and kept as it was.
+type SkillInstall struct {
+	Names   []string
+	Changed []string
+	Kept    []string
 }
 
 // RemoveSkills removes each named skill Code Goblins installed: Claude Code's
@@ -216,11 +229,13 @@ func isOurs(path string) (bool, error) {
 
 // writeSkill writes the skill folder name of skills to dest, removes the files
 // an earlier install wrote there that this one does not, and writes the owner
-// file last.
-func writeSkill(skills fs.FS, name, dest string) error {
+// file last, and reports whether it wrote or removed anything.
+func writeSkill(skills fs.FS, name, dest string) (bool, error) {
+	changed := false
 	previous := map[string]bool{}
-	if data, err := fsx.ReadFile(filepath.Join(dest, ownerFile)); err == nil {
-		_, list, _ := strings.Cut(strings.ReplaceAll(string(data), "\r\n", "\n"), "wrote:\n")
+	owner, ownerErr := fsx.ReadFile(filepath.Join(dest, ownerFile))
+	if ownerErr == nil {
+		_, list, _ := strings.Cut(strings.ReplaceAll(string(owner), "\r\n", "\n"), "wrote:\n")
 		for _, line := range strings.Split(list, "\n") {
 			if line != "" {
 				previous[line] = true
@@ -245,24 +260,30 @@ func writeSkill(skills fs.FS, name, dest string) error {
 			if err := fsx.AtomicWriteFile(target, data); err != nil {
 				return err
 			}
+			changed = true
 		}
 		written = append(written, rel)
 		delete(previous, rel)
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("harnessmap: install the skill %s: %w", name, err)
+		return false, fmt.Errorf("harnessmap: install the skill %s: %w", name, err)
 	}
 	for rel := range previous {
 		local := filepath.FromSlash(rel)
 		if filepath.IsLocal(local) {
 			if err := os.Remove(filepath.Join(dest, local)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
+				return false, err
 			}
+			changed = true
 		}
 	}
 	sort.Strings(written)
-	return fsx.AtomicWriteFile(filepath.Join(dest, ownerFile), []byte(ownerText+strings.Join(written, "\r\n")+"\r\n"))
+	text := ownerText + strings.Join(written, "\r\n") + "\r\n"
+	if ownerErr == nil && string(owner) == text {
+		return changed, nil
+	}
+	return true, fsx.AtomicWriteFile(filepath.Join(dest, ownerFile), []byte(text))
 }
 
 func sameDir(a, b string) bool {

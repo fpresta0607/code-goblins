@@ -1,11 +1,14 @@
 // Package janitor keeps the CFO home small without anyone asking. The
-// watcher's sweep runs it: it removes the worktrees no task owns once their
-// work is safe (on the default branch, or kept as a local archive tag first),
-// keeps bin to the current build and the two before it, removes the fleet's
-// temporary folders a day after anything last touched them, trims the shared
-// caches back under their cap with each tool's own prune, and reports what it
-// must not touch: a worktree holding uncommitted work, a worktree no task
-// records, and a new folder or file in the projects root that is no checkout.
+// watcher's sweep runs it: it removes the worktrees in its home no task owns
+// once their work is safe (on the default branch, or kept as a local archive
+// tag first), keeps bin to the current build and the two before it, removes
+// the fleet's temporary folders a day after anything last touched them, keeps
+// a retired task's folders to their text record and deliverables, keeps the
+// newest two backups of each kind, trims the shared caches back under their
+// cap with each tool's own prune, and reports what it must not touch: a
+// worktree holding uncommitted work, a worktree no task records, a retired
+// task's folder holding a git repository, a data folder over 200 MB, and a
+// new folder or file in the projects root that is no checkout.
 // It never touches Docker, the Overlord's checkouts or files, or anything
 // holding uncommitted or unpushed work, and every check that decides a removal
 // refuses when it cannot read what it checks.
@@ -129,6 +132,8 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	processes, ok := cfg.readableProcesses(&record)
 	if ok {
 		cfg.removeTempLeaks(processes, &record)
+		cfg.trimRetiredTasks(processes, &record)
+		cfg.keepRecentBackups(processes, &record)
 	}
 	cfg.trimCaches(ctx, &record)
 	cfg.reportProjectsRoot(&record)
@@ -137,6 +142,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		metas = append(metas, task.Meta)
 	}
 	record.Buckets = Measure(cfg.Home, metas)
+	cfg.reportDataSize(&record)
 	if reading, err := disk.Read(cfg.Home.Root); err == nil {
 		record.Disk = reading
 	} else {

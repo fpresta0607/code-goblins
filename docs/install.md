@@ -16,8 +16,9 @@ In order, it:
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
 2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` when the release lists one, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
 3. Asks once for [your projects folder](#your-projects-folder).
-4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, its skills, the default policy, the program as `cfo.exe` and `goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one.
-   `CFO_HOME` and the home's place on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
+4. Sets up the CFO home at `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
+   The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
+   `CFO_HOME` and the home's `bin` on your PATH are set for your user, and the CFO's hooks are merged into your `~/.claude/settings.json`, which is backed up first and keeps your own hooks.
 5. Installs each missing tool the fleet drives: git and gh with winget, Claude Code and Herdr with their own installers, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
    The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
@@ -107,20 +108,21 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds `cfo.exe` from the clone, puts it beside itself as `goblins.exe`, and builds the desktop window, `goblins-window.exe`, beside them.
-  A copy still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
+- It builds `cfo.exe` and the desktop window, `goblins-window.exe`, from the clone into a temporary folder of its own, runs that build's `cfo install`, which sets up the same per-user home the one-line install does, and removes the folder, so the clone keeps only its source.
+  A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.
-- The clone becomes the CFO home, on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
-  While another CFO home is in use, such as one the one-line install set up, it refuses before changing your environment or settings; run `goblins uninstall` from that home first, then run it again.
-- It makes `.claude\skills` a junction to `.agents\skills`, so Claude Code sees this repository's skills; [load-map.md](load-map.md) shows where each harness looks for skills.
+- The home's `bin` goes on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
+  While `CFO_HOME` names another folder that holds a fleet's state, such as a clone an older build made its home, it refuses before changing your environment or settings: run `cfo home move` with the new build to bring that fleet into the per-user home, or `goblins uninstall` from that home first to start anew.
+- It installs this repository's skills the same way, once in `~\.agents\skills` with a junction from Claude Code's skills folder; [load-map.md](load-map.md) shows where each harness looks for skills.
 
 Rerun it after you pull, to rebuild.
 
 ## Where your data lives
 
-The fleet keeps its state and data in the CFO home: `%LOCALAPPDATA%\CodeGoblins` for the one-line install, and the clone itself for `-Dev`, in its `state` and `data` folders, which git ignores.
-The home is outside every project repository: goblins work in git worktrees of your checkouts, in each checkout's ignored `.worktrees` folder, and the fleet's own state and data stay in the home.
+The fleet keeps everything it writes in the CFO home, `%LOCALAPPDATA%\CodeGoblins`, for every install, `-Dev` included.
+The home is outside every repository: goblins work in git worktrees of your checkouts, kept in the home's `worktrees` folder, so a checkout gains no folder and no file, and each goblin's temporary files go to the home's `scratch` folder and leave with the task.
+The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
 `goblins uninstall` removes the hooks, the board's native hooks, the environment and the Start-menu shortcut the install set, and the desktop window's Start at login entry where it starts a program in that home, and keeps the home folder, with its state and data, until you delete it.

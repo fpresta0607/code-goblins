@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -21,16 +21,23 @@ import (
 // orphan.
 const worktreeGrace = time.Hour
 
-// tidyWorktrees removes every fleet worktree no task owns, its work kept
-// first: one that is clean and on the default branch goes, one with commits
-// of its own is archived as a local tag and then goes, and one with
-// uncommitted work is never touched and is reported. A folder its project
-// does not register goes only when it is empty. Every fleet worktree no task
-// records that is still there afterwards is a stray.
+// tidyWorktrees removes every worktree in this home's worktrees folder that no
+// task owns, its work kept first: one that is clean and on the default branch
+// goes, one with commits of its own is archived as a local tag and then goes,
+// and one with uncommitted work is never touched and is reported. A folder its
+// project does not register goes only when it is empty. A worktree an older
+// build put in a checkout's .worktrees is never removed here: it is found
+// through the projects root every home on the machine shares, so nothing says
+// it is this home's rather than another's, and cfo cleanup and cfo reap are
+// left to it. Every fleet worktree no task records that is still there
+// afterwards is a stray.
 func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	git := worktree.RunnerGit{Commands: cfg.Commands}
 	gone := map[string]bool{}
 	for _, dir := range reap.Unowned(cfg.Inventory) {
+		if rel, err := filepath.Rel(cfg.Home.Worktrees(), dir.Path); err != nil || !filepath.IsLocal(rel) {
+			continue
+		}
 		if reason := cfg.notYetOrphaned(dir); reason != "" {
 			record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Detail: reason})
 			continue
@@ -46,7 +53,6 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 			}
 			gone[strings.ToLower(dir.Path)] = true
 			record.Removed = append(record.Removed, Item{Kind: "worktree", Path: dir.Path, Detail: "an empty folder its project does not register"})
-			cfg.removeEmptyLegacyFolder(dir.Path)
 			continue
 		}
 		bytes := Size(dir.Path)
@@ -57,7 +63,6 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 		}
 		gone[strings.ToLower(dir.Path)] = true
 		record.Removed = append(record.Removed, Item{Kind: "worktree", Path: dir.Path, Bytes: bytes, Detail: detail})
-		cfg.removeEmptyLegacyFolder(dir.Path)
 	}
 	for _, dir := range cfg.Inventory.Worktrees {
 		if gone[strings.ToLower(dir.Path)] || reap.Recorded(cfg.Inventory, dir.Path) {
@@ -119,20 +124,8 @@ func (cfg Config) returnWorktree(ctx context.Context, git worktree.RunnerGit, di
 	return detail, nil
 }
 
-// removeEmptyLegacyFolder removes the .worktrees folder an older build made
-// in a checkout once its last worktree is gone.
-func (cfg Config) removeEmptyLegacyFolder(path string) {
-	parent := filepath.Dir(path)
-	if !strings.EqualFold(filepath.Base(parent), home.LegacyWorktreesDir) {
-		return
-	}
-	if empty, err := isEmpty(parent); err == nil && empty {
-		_ = os.Remove(parent)
-	}
-}
-
 func isEmpty(dir string) (bool, error) {
-	file, err := os.Open(dir)
+	file, err := fsx.Open(dir)
 	if err != nil {
 		return false, err
 	}

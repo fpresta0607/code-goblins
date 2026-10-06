@@ -25,10 +25,10 @@ func profile(t *testing.T) (string, Map) {
 }
 
 var shipped = fstest.MapFS{
-	"lavish/SKILL.md":         {Data: []byte("lavish v2")},
-	"lavish/references/a.md":  {Data: []byte("a")},
-	"stow/SKILL.md":           {Data: []byte("stow")},
-	"README-not-a-skill.txt":  {Data: []byte("x")},
+	"lavish/SKILL.md":        {Data: []byte("lavish v2")},
+	"lavish/references/a.md": {Data: []byte("a")},
+	"stow/SKILL.md":          {Data: []byte("stow")},
+	"README-not-a-skill.txt": {Data: []byte("x")},
 }
 
 func TestFindReadsEachHarnessFromItsVariableOrItsDefault(t *testing.T) {
@@ -62,14 +62,14 @@ func TestInstallSkillsKeepsOneCopyAndAJunctionForClaude(t *testing.T) {
 	_, m := profile(t)
 
 	// Act
-	installed, kept, err := InstallSkills(shipped, m, mklink)
+	result, err := InstallSkills(shipped, m, mklink)
 
 	// Assert
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(installed, ",") != "lavish,stow" || len(kept) != 0 {
-		t.Fatalf("installed %v, kept %v; want lavish and stow installed", installed, kept)
+	if strings.Join(result.Names, ",") != "lavish,stow" || strings.Join(result.Changed, ",") != "lavish,stow" || len(result.Kept) != 0 {
+		t.Fatalf("installed %+v; want lavish and stow installed and written", result)
 	}
 	claude, _ := m.Harness("claude")
 	for _, name := range []string{"lavish", "stow"} {
@@ -103,7 +103,7 @@ func TestInstallSkillsNeverTouchesASkillItDidNotPutThere(t *testing.T) {
 	}
 
 	// Act
-	installed, kept, err := InstallSkills(shipped, m, mklink)
+	result, err := InstallSkills(shipped, m, mklink)
 
 	// Assert
 	if err != nil {
@@ -112,20 +112,31 @@ func TestInstallSkillsNeverTouchesASkillItDidNotPutThere(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(own, "SKILL.md")); string(got) != "his own" {
 		t.Errorf("his SKILL.md = %q, want it untouched", got)
 	}
-	if strings.Join(installed, ",") != "stow" || len(kept) != 1 || !strings.Contains(kept[0], own) {
-		t.Errorf("installed %v, kept %v; want stow installed and his lavish named as kept", installed, kept)
+	if strings.Join(result.Names, ",") != "stow" || len(result.Kept) != 1 || !strings.Contains(result.Kept[0], own) {
+		t.Errorf("installed %+v; want stow installed and his lavish named as kept", result)
 	}
 }
 
+// A re-run of the same build writes nothing and says so; a build that ships
+// a skill changed updates it and drops what it no longer ships.
 func TestReinstallUpdatesItsOwnSkillAndDropsWhatItNoLongerShips(t *testing.T) {
 	_, m := profile(t)
-	if _, _, err := InstallSkills(shipped, m, mklink); err != nil {
+	if _, err := InstallSkills(shipped, m, mklink); err != nil {
 		t.Fatal(err)
+	}
+	same, err := InstallSkills(shipped, m, mklink)
+	if err != nil || len(same.Changed) != 0 {
+		t.Fatalf("a re-run of the same skills changed %v, %v; want nothing", same.Changed, err)
 	}
 	next := fstest.MapFS{"lavish/SKILL.md": {Data: []byte("lavish v3")}}
 
-	if _, _, err := InstallSkills(next, m, mklink); err != nil {
+	updated, err := InstallSkills(next, m, mklink)
+	if err != nil {
 		t.Fatal(err)
+	}
+
+	if strings.Join(updated.Changed, ",") != "lavish" {
+		t.Errorf("changed %v, want lavish", updated.Changed)
 	}
 
 	if got, _ := os.ReadFile(filepath.Join(m.SharedSkills, "lavish", "SKILL.md")); string(got) != "lavish v3" {
@@ -138,7 +149,7 @@ func TestReinstallUpdatesItsOwnSkillAndDropsWhatItNoLongerShips(t *testing.T) {
 
 func TestRemoveSkillsTakesOnlyWhatItInstalled(t *testing.T) {
 	_, m := profile(t)
-	if _, _, err := InstallSkills(shipped, m, mklink); err != nil {
+	if _, err := InstallSkills(shipped, m, mklink); err != nil {
 		t.Fatal(err)
 	}
 	his := filepath.Join(m.SharedSkills, "his-skill")

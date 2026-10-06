@@ -203,6 +203,11 @@ type Machine struct {
 	DiskTotal       int64  `json:"disk_total"`
 	DiskFree        int64  `json:"disk_free"`
 	DiskName        string `json:"disk_name"`
+	// DiskFloor is the free disk on the home's drive under which spawn and
+	// Start refuse, from config/fleet.json, and DiskFloorUnread says why that
+	// file could not be read, which refuses every start.
+	DiskFloor       int64  `json:"disk_floor"`
+	DiskFloorUnread string `json:"disk_floor_unread,omitempty"`
 	// WSL is the working set of the WSL virtual machine, the footprint that
 	// has starved this fleet before by growing without anything on the
 	// Windows side accounting for it.
@@ -223,7 +228,8 @@ type Dispatch struct {
 }
 
 // Dispatch reads the machine against the mark at which the next goblin
-// starts, rounding down so a reading just under the mark never shows as it.
+// starts and the disk floor, rounding down so a reading just under the mark
+// never shows as it.
 func (m Machine) Dispatch() Dispatch {
 	gigabytes := func(bytes int64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
 	const wait = "Dispatch: wait, only %s free; the next goblin starts at 5 GB of both"
@@ -234,6 +240,10 @@ func (m Machine) Dispatch() Dispatch {
 		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of memory is", gigabytes(m.MemoryAvailable)))}
 	case m.CommitAvailable < dispatchNext:
 		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of commit (memory plus page file) is", gigabytes(m.CommitAvailable)))}
+	case m.DiskFloorUnread != "":
+		return Dispatch{Line: "Dispatch: wait, the disk floor cannot be read, so nothing starts: " + m.DiskFloorUnread}
+	case m.DiskFree < m.DiskFloor:
+		return Dispatch{Line: fmt.Sprintf("Dispatch: wait, only %.1f GB of disk is free on %s; the next goblin starts at the %.0f GB disk floor", gigabytes(m.DiskFree), m.DiskName, float64(m.DiskFloor)/(1<<30))}
 	}
 	return Dispatch{Ready: true, Line: fmt.Sprintf("Dispatch: ready, %.1f GB of memory and %.1f GB of commit are free", gigabytes(m.MemoryAvailable), gigabytes(m.CommitAvailable))}
 }

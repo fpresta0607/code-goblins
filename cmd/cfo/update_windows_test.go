@@ -29,6 +29,7 @@ import (
 type updateHome struct {
 	t         *testing.T
 	root      string
+	bin       string
 	state     string
 	candidate string
 	previous  []byte
@@ -60,12 +61,14 @@ func newUpdateHome(t *testing.T, previous, candidate string) *updateHome {
 
 func newUpdateHomeIn(t *testing.T, root, previous, candidate string) *updateHome {
 	t.Helper()
-	u := &updateHome{t: t, root: root, state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
-	if err := os.MkdirAll(u.state, 0o700); err != nil {
-		t.Fatal(err)
+	u := &updateHome{t: t, root: root, bin: filepath.Join(root, "bin"), state: filepath.Join(root, "state"), started: map[*exec.Cmd]time.Time{}}
+	for _, folder := range []string{u.state, u.bin} {
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, name := range update.Aliases {
-		u.previous = writeBuild(t, filepath.Join(root, name), previous)
+		u.previous = writeBuild(t, filepath.Join(u.bin, name), previous)
 	}
 	u.candidate = filepath.Join(root, "cfo.exe.held-candidate")
 	writeBuild(t, u.candidate, candidate)
@@ -100,8 +103,8 @@ func (u *updateHome) running(cmd *exec.Cmd) bool {
 // terminal host, and waits until the supervisor serves.
 func (u *updateHome) serving() (supervisor, cfoHost *exec.Cmd) {
 	u.t.Helper()
-	supervisor = u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
-	cfoHost = u.start(filepath.Join(u.root, "cfo.exe"), "host", "--id", "cfo")
+	supervisor = u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	cfoHost = u.start(filepath.Join(u.bin, "cfo.exe"), "host", "--id", "cfo")
 	u.awaitBoard()
 	return supervisor, cfoHost
 }
@@ -146,7 +149,7 @@ func (u *updateHome) awaitBoard() boardRecord {
 func (u *updateHome) aliasesAre(want []byte, what string) {
 	u.t.Helper()
 	for _, name := range update.Aliases {
-		got, err := os.ReadFile(filepath.Join(u.root, name))
+		got, err := os.ReadFile(filepath.Join(u.bin, name))
 		if err != nil {
 			u.t.Fatalf("read %s: %v", name, err)
 		}
@@ -246,7 +249,7 @@ func TestUpdateCarriesTheDesktopWindowBesideTheCandidate(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(release, "goblins-window.exe"), []byte("window 2"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			window := filepath.Join(u.root, "goblins-window.exe")
+			window := filepath.Join(u.bin, "goblins-window.exe")
 			test.held(t, window)
 			u.serving()
 
@@ -531,7 +534,7 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 				if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.root, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
+				journal := strings.NewReplacer("ROOT", strings.ReplaceAll(u.bin, `\`, `\\`), "STATE", strings.ReplaceAll(u.state, `\`, `\\`)).Replace(test.journal)
 				if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), []byte(journal), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -579,7 +582,7 @@ func TestUpdateRefusesAJournalItCannotTrust(t *testing.T) {
 // with, it serves another.
 func (u *updateHome) strangerServing() *exec.Cmd {
 	u.t.Helper()
-	stranger := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	stranger := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	stranger.Dir = u.root
 	stranger.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_STATE_OVERRIDE="+filepath.Join(u.t.TempDir(), "state"))
 	if err := stranger.Start(); err != nil {
@@ -611,7 +614,7 @@ func TestUpdateRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 		}
 	}
 	u.aliasesAre(u.previous, "previous")
-	if staged, _ := filepath.Glob(filepath.Join(u.root, "*.update-*")); len(staged) != 0 {
+	if staged, _ := filepath.Glob(filepath.Join(u.bin, "*.update-*")); len(staged) != 0 {
 		t.Errorf("the refused update touched the aliases: %v", staged)
 	}
 	if !u.running(stranger) {
@@ -664,7 +667,7 @@ func TestRecoverRefusesASupervisorItCannotProveThisHomes(t *testing.T) {
 // the line that finishes it, which then does, and cleans up.
 func TestARollbackItCannotRecordKeepsItsFilesAndStaysRecoverable(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
-	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	u.awaitBoard()
 
 	code, output := u.run([]string{"CFO_TEST_UPDATE_FAIL_RECORD=rolled-back"})
@@ -718,8 +721,8 @@ func TestRecoverRefusesAJournalNamingAFileAnUpdateNeverMovedAside(t *testing.T) 
 		aside func(u *updateHome) string
 	}{
 		{"outside the home", func(u *updateHome) string { return filepath.Join(u.t.TempDir(), "sentinel.txt") }},
-		{"another alias's", func(u *updateHome) string { return filepath.Join(u.root, "goblins.exe.1.update-old") }},
-		{"no number", func(u *updateHome) string { return filepath.Join(u.root, "cfo.exe.abc.update-old") }},
+		{"another alias's", func(u *updateHome) string { return filepath.Join(u.bin, "goblins.exe.1.update-old") }},
+		{"no number", func(u *updateHome) string { return filepath.Join(u.bin, "cfo.exe.abc.update-old") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			u := newUpdateHome(t, "previous", "candidate")
@@ -762,11 +765,11 @@ func TestARollbackRemovesOnlyTheFilesItMovedAside(t *testing.T) {
 	kept := map[string][]byte{}
 	for _, name := range []string{"cfo.exe.1.update-old", "goblins.exe.1.update-old", "my-build.exe"} {
 		kept[name] = []byte("not this update's " + name)
-		if err := os.WriteFile(filepath.Join(u.root, name), kept[name], 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(u.bin, name), kept[name], 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	u.start(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	u.start(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	u.awaitBoard()
 
 	code, output := u.run(nil)
@@ -776,12 +779,12 @@ func TestARollbackRemovesOnlyTheFilesItMovedAside(t *testing.T) {
 	}
 	u.previousServes()
 	for name, want := range kept {
-		if got, err := os.ReadFile(filepath.Join(u.root, name)); err != nil || !bytes.Equal(got, want) {
+		if got, err := os.ReadFile(filepath.Join(u.bin, name)); err != nil || !bytes.Equal(got, want) {
 			t.Errorf("%s, not this update's, was changed or removed (%v)", name, err)
 		}
 	}
 	for _, pattern := range []string{"*.update-old", "*.update-new", "*.update-restore"} {
-		matches, _ := filepath.Glob(filepath.Join(u.root, pattern))
+		matches, _ := filepath.Glob(filepath.Join(u.bin, pattern))
 		for _, match := range matches {
 			if _, ok := kept[filepath.Base(match)]; !ok {
 				t.Errorf("the rollback left %s behind", filepath.Base(match))
@@ -837,7 +840,7 @@ func TestASecondUpdateOfAHomeIsRefusedWhileOneRuns(t *testing.T) {
 // previous build, which then serves.
 func TestRollbackTakesTheLockFromAHookBeforeStartingThePreviousBuild(t *testing.T) {
 	u := newUpdateHome(t, "previous", "crash")
-	hook := u.start(filepath.Join(u.root, "cfo.exe"), "hook", "stop-autoarm")
+	hook := u.start(filepath.Join(u.bin, "cfo.exe"), "hook", "stop-autoarm")
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
 		if _, err := lock.AcquireNamedOwner(u.state, ".watch.lock", hook.Process.Pid, watch.WatcherSession); err == nil {
 			break
@@ -945,7 +948,7 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 		{"the same relative state from the home's own root", root, []string{`CFO_STATE_OVERRIDE=my-home\state`}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			program := filepath.Join(root, "goblins.exe")
+			program := filepath.Join(root, "bin", "goblins.exe")
 			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:0"}, Directory: test.directory, Environment: test.environment}
 
 			err := homeServe(h)(identity)
@@ -977,7 +980,7 @@ func TestAnUpdateNamedByRelativePathsInstallsIntoItsHome(t *testing.T) {
 				parent := t.TempDir()
 				u := newUpdateHomeIn(t, filepath.Join(parent, "my-home"), "previous", "candidate")
 				if isRelativeSupervisor {
-					running := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+					running := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 					running.Dir = parent
 					running.Env = append(environmentWithout("CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_TEST_UPDATE_ROOT"), test.environment(u)...)
 					running.Env = append(running.Env, "CFO_TEST_UPDATE_RESOLVE=1")
@@ -1390,7 +1393,7 @@ func TestThePrintedRecoveryLineRecoversFromAnotherFolder(t *testing.T) {
 		t.Fatalf("the update printed no recovery line:\n%s", output)
 	}
 	for _, name := range update.Aliases {
-		if err := os.Remove(filepath.Join(root, name)); err != nil {
+		if err := os.Remove(filepath.Join(root, "bin", name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1510,7 +1513,7 @@ func TestRollbackLeavesASupervisorOfAnotherStateRunning(t *testing.T) {
 			t.Fatal("the update never stopped the supervisor")
 		}
 	}
-	foreign := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	foreign := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	foreign.Dir = u.root
 	foreign.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+other, "CFO_STATE_OVERRIDE="+filepath.Join(other, "state"))
 	if err := foreign.Start(); err != nil {
@@ -1553,7 +1556,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.root, "goblins.exe")})
+	journal.Attempts = append(journal.Attempts, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: `C:\Windows\System32\cmd.exe`}, update.Attempt{PID: stranger.Process.Pid, Start: strangerStart, Program: filepath.Join(u.bin, "goblins.exe")})
 	if err := update.Record(u.state, &journal, journal.Phase, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1575,7 +1578,7 @@ func TestRecoverLeavesAProcessAMalformedAttemptNamesRunning(t *testing.T) {
 // update stops it and serves the candidate.
 func TestUpdateStopsTheHomesSupervisorStartedElsewhereWithCFOHome(t *testing.T) {
 	u := newUpdateHome(t, "previous", "candidate")
-	elsewhere := exec.Command(filepath.Join(u.root, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
+	elsewhere := exec.Command(filepath.Join(u.bin, "goblins.exe"), "serve", "--listen", "127.0.0.1:0")
 	elsewhere.Dir = t.TempDir()
 	elsewhere.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_HOME="+u.root)
 	if err := elsewhere.Start(); err != nil {
@@ -1604,7 +1607,7 @@ func TestARunningSupervisorIsTheBuildItLoadedNotWhatItsAliasHoldsNow(t *testing.
 	u := newUpdateHome(t, "previous", "candidate")
 	candidate, _ := os.ReadFile(u.candidate)
 	journal := &update.Journal{Aliases: []update.Alias{{Name: "goblins.exe", Previous: hashOf(u.previous)}}}
-	alias := filepath.Join(u.root, "goblins.exe")
+	alias := filepath.Join(u.bin, "goblins.exe")
 	if err := os.WriteFile(alias+".update-new", candidate, 0o755); err != nil {
 		t.Fatal(err)
 	}

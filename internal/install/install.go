@@ -105,7 +105,8 @@ func (s Service) Install(out io.Writer) error {
 	if s.Contract == nil || s.Policy == nil || s.Skills == nil || s.Binary == "" {
 		return errors.New("install: the contract, the policy, the skills and the running binary are all required to set up a home")
 	}
-	if err := s.refuseAnotherHome(); err != nil {
+	former, err := s.formerHome()
+	if err != nil {
 		return err
 	}
 	if err := s.writeUserHooks(report); err != nil {
@@ -123,7 +124,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.setHome(report); err != nil {
 		return err
 	}
-	if err := s.addToPath(report); err != nil {
+	if err := s.addToPath(report, former); err != nil {
 		return err
 	}
 	if err := s.setProjectsRoot(report); err != nil {
@@ -148,7 +149,7 @@ func (s Service) Uninstall(out io.Writer) error {
 	if _, _, err := s.Env.Get(homeVariable); err != nil {
 		return err
 	}
-	if err := s.refuseAnotherHome(); err != nil {
+	if _, err := s.formerHome(); err != nil {
 		return err
 	}
 	if err := s.removeUserHooks(report); err != nil {
@@ -421,19 +422,22 @@ func AddToUserPath(dir string) error {
 
 // addToPath puts the home's bin folder on the user PATH, where the hooks and
 // every terminal find cfo and goblins, and takes off the home's root, where an
-// older install put the binaries.
-func (s Service) addToPath(report *reporter) error {
+// older install put the binaries, and the root of the former home it takes
+// over from, so neither an older build left there nor a cfo.exe built in that
+// checkout ever runs before this home's bin.
+func (s Service) addToPath(report *reporter, former string) error {
 	raw, _, err := s.Env.Get(pathVariable)
 	if err != nil {
 		return err
 	}
 	entries := pathEntries(raw)
 	kept := make([]string, 0, len(entries)+1)
-	present, dropped := false, false
+	present := false
+	var dropped []string
 	for _, entry := range entries {
 		switch {
-		case samePathEntry(entry, s.Root):
-			dropped = true
+		case samePathEntry(entry, s.Root) || former != "" && samePathEntry(entry, former):
+			dropped = append(dropped, entry)
 		case samePathEntry(entry, s.bin()):
 			present = true
 			kept = append(kept, entry)
@@ -441,7 +445,7 @@ func (s Service) addToPath(report *reporter) error {
 			kept = append(kept, entry)
 		}
 	}
-	if present && !dropped {
+	if present && len(dropped) == 0 {
 		report.same("PATH", "already contains "+s.bin())
 		return nil
 	}
@@ -455,8 +459,8 @@ func (s Service) addToPath(report *reporter) error {
 	if !present {
 		report.change("PATH", fmt.Sprintf("appended %s, keeping the %d other entries already there", s.bin(), len(kept)-1))
 	}
-	if dropped {
-		report.change("PATH", "removed "+s.Root+", where an older install put the binaries")
+	for _, entry := range dropped {
+		report.change("PATH", "removed "+entry+", where an older build's binaries were")
 	}
 	return nil
 }

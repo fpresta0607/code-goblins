@@ -50,7 +50,7 @@ type Collector struct {
 	Panes     PaneReader
 	Processes ProcessLister
 	// Commands runs git, which is the only source that can say whether a
-	// directory under .worktrees/ is a worktree at all.
+	// directory among the worktrees is a worktree at all.
 	Commands execx.Runner
 	// StatusTail bounds how much of each status log is read to find the
 	// latest verb, matching crewstate.Resolve's own window.
@@ -71,7 +71,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 		return Inventory{}, nil, errors.New("reap: home state directory is required")
 	}
 	var notes []string
-	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State}
+	inv := Inventory{SelfPIDs: selfAncestry(), Session: c.Session, StateDir: c.Home.State, ScratchRoot: c.Home.Scratch()}
 
 	scan, err := state.ScanIDs(c.Home.State)
 	if err != nil {
@@ -459,7 +459,7 @@ func checkoutOf(worktree string) (string, bool) {
 // as "answered, and does not list this".
 func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) ([]os.FileInfo, bool) {
 	if c.Commands == nil {
-		*notes = append(*notes, "no command runner configured; no directory under .worktrees/ can be confirmed to be a worktree")
+		*notes = append(*notes, "no command runner configured; no directory among the worktrees can be confirmed to be a worktree")
 		return nil, false
 	}
 	// The query asks a directory what it registers, which is only a question

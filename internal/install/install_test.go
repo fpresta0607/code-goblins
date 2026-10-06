@@ -680,6 +680,25 @@ func TestInstallSetsHomeAndPath(t *testing.T) {
 	}
 }
 
+// An install that takes over from the home CFO_HOME names once cfo home move
+// has carried its state away takes that home's root off PATH, so neither an
+// older build left there nor a cfo.exe built in that checkout ever runs before
+// the new home's bin. Any other entry stays.
+func TestInstallTakingOverFromAFormerHomeTakesItsRootOffPath(t *testing.T) {
+	// Arrange
+	former := filepath.Join(t.TempDir(), "code-goblins")
+	writeFile(t, filepath.Join(former, "AGENTS.md"), "contract")
+	f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": former, "Path": `C:\Windows;` + former + `;C:\Tools`})
+
+	// Act
+	f.install()
+
+	// Assert
+	if got, want := f.env.values["Path"], `C:\Windows;C:\Tools;`+f.bin; got != want {
+		t.Errorf("PATH = %q, want %q", got, want)
+	}
+}
+
 func TestInstallLeavesAnAlreadyCorrectEnvironmentAlone(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 	f.env.values["CFO_HOME"] = f.root + `\`

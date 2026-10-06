@@ -32,7 +32,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath:       `C:\briefs\task.md`,
 		TaskTmp:         `C:\tasks\task`,
-		Scratch:           `C:\gotmp\task`,
+		Scratch:         `C:\gotmp\task`,
 		TurnEndedPath:   `C:\tasks\task\turn-ended`,
 		Model:           "gpt-5.2-codex",
 		Effort:          "high",

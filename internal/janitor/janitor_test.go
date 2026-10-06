@@ -107,6 +107,31 @@ func TestSweepRemovesACleanExtraWorktreeWhoseWorkIsOnTheDefaultBranch(t *testing
 	}
 }
 
+// A worktree an older build put in a checkout's .worktrees is found through
+// the projects root, which every home on the machine shares, so no record of
+// this home says it is this fleet's rather than another home's: the janitor
+// reports it and leaves it to cfo cleanup and cfo reap, however clean and
+// merged it is. A scratch home's janitor must never return a live fleet's
+// worktree.
+func TestSweepOnlyReportsACleanWorktreeOutsideItsOwnHome(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	path := filepath.Join(f.project, ".worktrees", "gb-another-homes-task")
+	gitIn(t, f.project, "worktree", "add", "-q", "--detach", path, "origin/main")
+	legacy := reap.WorktreeDir{Path: path, Project: f.project, TaskID: "another-homes-task", Registration: reap.RegistrationListed, Created: f.now.Add(-2 * time.Hour)}
+
+	// Act
+	record := Sweep(context.Background(), f.config(reap.Inventory{Worktrees: []reap.WorktreeDir{legacy}}))
+
+	// Assert
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("a worktree outside the home was removed: %v; removed %+v", err, record.Removed)
+	}
+	if _, ok := has(record.Strays, path); !ok {
+		t.Errorf("strays = %+v, want the worktree reported", record.Strays)
+	}
+}
+
 func TestSweepTagsThenRemovesACleanExtraWorktreeWithWorkOfItsOwn(t *testing.T) {
 	// Arrange
 	f := newSweepFixture(t)

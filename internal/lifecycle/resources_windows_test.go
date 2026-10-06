@@ -178,9 +178,9 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 		}
 	}
 	for name, change := range map[string]func(*state.TaskMeta){
-		"a worktree outside the home":     func(m *state.TaskMeta) { m.Worktree = filepath.Join(root, "elsewhere", "g1") },
-		"an extra of another task":        func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "app", "g2-proof")} },
-		"an extra in another project":     func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "web", "g1-proof")} },
+		"a worktree outside the home":      func(m *state.TaskMeta) { m.Worktree = filepath.Join(root, "elsewhere", "g1") },
+		"an extra of another task":         func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "app", "g2-proof")} },
+		"an extra in another project":      func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "web", "g1-proof")} },
 		"a scratch folder of another task": func(m *state.TaskMeta) { m.Scratch = filepath.Join(root, "scratch", "g2") },
 	} {
 		changed := meta

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -49,9 +50,9 @@ type Collector struct {
 // Collect reads every source once.
 func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	inv := Inventory{
-		Containers: []Container{},
-		Volumes:    []Volume{},
-		Listeners:  []Listener{},
+		Containers:    []Container{},
+		Volumes:       []Volume{},
+		Listeners:     []Listener{},
 		Retired:       map[string]bool{},
 		Present:       map[string]bool{},
 		SystemRoot:    os.Getenv("SystemRoot"),
@@ -117,6 +118,11 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 			machine.DockerBuildCache = inv.Machine.DockerBuildCache
 			machine.DockerReclaimable = inv.Machine.DockerReclaimable
 			inv.Machine = machine
+		}
+		if settings, err := fleetconfig.Read(c.Home.Root); err != nil {
+			inv.Machine.DiskFloorUnread = err.Error()
+		} else {
+			inv.Machine.DiskFloor = int64(fleetconfig.Bytes(settings.DiskFloorGB))
 		}
 	} else {
 		inv.Notes = append(inv.Notes, "SERVERS UNREADABLE: no system source configured")

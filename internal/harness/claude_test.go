@@ -34,7 +34,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath: `C:\briefs\task.md`,
 		TaskTmp:   `C:\tasks\task`,
-		Scratch:     `C:\gotmp\task`,
+		Scratch:   `C:\gotmp\task`,
 		Model:     "sonnet",
 		Effort:    "xhigh",
 	})

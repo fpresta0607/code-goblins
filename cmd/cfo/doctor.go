@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
@@ -70,11 +72,54 @@ func runDoctor(stdout io.Writer, runtime commandRuntime) int {
 	reportDictation(stdout)
 	reportCFOHarness(stdout)
 	reportStaleWakes(stdout)
+	reportHarnessMap(stdout)
+	reportLongPaths(stdout)
 
 	if !healthy {
 		return 1
 	}
 	return 0
+}
+
+// reportHarnessMap prints where each harness keeps its configuration and
+// skills on this machine, the map cfo install records in the home's
+// state\harnesses.json, and flags a harness folder that is missing, a skill
+// kept as a real folder in more than one skills folder, and a junction whose
+// target is gone. None of it counts against the health verdict: a harness
+// this machine does not use has no folder, and the rest is the operator's to
+// tidy.
+func reportHarnessMap(stdout io.Writer) {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(stdout, "harnesses: the user's profile folder could not be read: %v\n", err)
+		return
+	}
+	m := harnessmap.Find(os.Getenv, userHome)
+	for _, root := range m.Roots {
+		state := "present"
+		if !root.Present {
+			state = "missing"
+		}
+		fmt.Fprintf(stdout, "harness: %-6s %s (%s, %s); skills in %s\n", root.Harness, root.Path, root.Source, state, root.Skills)
+	}
+	fmt.Fprintf(stdout, "harness: shared skills in %s, which Codex and Pi read themselves and Claude Code reads through a junction per skill\n", m.SharedSkills)
+	for _, problem := range harnessmap.Check(m) {
+		fmt.Fprintf(stdout, "harness: %s: %s\n", strings.ToUpper(problem.Kind), problem.Detail)
+	}
+}
+
+// reportLongPaths says when git's core.longpaths is off: a worktree under the
+// home is a few folders deeper than one in a checkout, and a node_modules
+// inside it can pass Windows' 260-character limit. cfo's own worktree commands
+// turn it on for themselves; a goblin's git commands read the setting. It never
+// counts against the health verdict.
+func reportLongPaths(stdout io.Writer) {
+	result, err := execx.OSRunner{}.Run(context.Background(), execx.Request{Name: "git", Args: []string{"config", "--global", "--get", "core.longpaths"}})
+	if err == nil && strings.TrimSpace(string(result.Stdout)) == "true" {
+		fmt.Fprintln(stdout, "git: core.longpaths is on")
+		return
+	}
+	fmt.Fprintln(stdout, "git: core.longpaths is off, so a goblin's git can fail on a file deeper than 260 characters in its worktree; turn it on with: git config --global core.longpaths true")
 }
 
 // reportDictation prints the speech model dictation runs on, its version and

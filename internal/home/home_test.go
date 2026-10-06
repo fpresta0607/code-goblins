@@ -340,11 +340,11 @@ func restoreInheritedDefault(root string) {
 func TestLocateWorktreeReadsBothLayouts(t *testing.T) {
 	root := `C:\Users\op\AppData\Local\CodeGoblins\worktrees`
 	cases := map[string]WorktreePlace{
-		root + `\app\task-1`:                              {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
-		root + `\app\task-1\web\src`:                      {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
-		root + `\app\task-1-proof`:                        {Root: root + `\app\task-1-proof`, Project: "app", Name: "task-1-proof"},
-		`C:\dev\app\.worktrees\gb-task-2`:                 {Root: `C:\dev\app\.worktrees\gb-task-2`, Project: "app", Name: "task-2"},
-		`c:\DEV\app\.WORKTREES\GB-Task-3\internal`:        {Root: `c:\DEV\app\.WORKTREES\GB-Task-3`, Project: "app", Name: "Task-3"},
+		root + `\app\task-1`:                                   {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
+		root + `\app\task-1\web\src`:                           {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
+		root + `\app\task-1-proof`:                             {Root: root + `\app\task-1-proof`, Project: "app", Name: "task-1-proof"},
+		`C:\dev\app\.worktrees\gb-task-2`:                      {Root: `C:\dev\app\.worktrees\gb-task-2`, Project: "app", Name: "task-2"},
+		`c:\DEV\app\.WORKTREES\GB-Task-3\internal`:             {Root: `c:\DEV\app\.WORKTREES\GB-Task-3`, Project: "app", Name: "Task-3"},
 		`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`: {Root: `C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`, Project: "x", Name: "inner"},
 	}
 	for dir, want := range cases {

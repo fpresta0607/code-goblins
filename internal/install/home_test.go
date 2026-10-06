@@ -213,13 +213,13 @@ func TestReinstallUpdatesTheContractAndTheSkillsAndKeepsTunedPolicy(t *testing.T
 	output := f.install()
 
 	for path, want := range map[string]string{
-		filepath.Join(f.root, "AGENTS.md"):                                   "contract 2",
-		filepath.Join(f.profile, ".agents", "skills", "stow", "SKILL.md"):    "skill 2",
-		filepath.Join(f.profile, ".claude", "skills", "stow", "SKILL.md"):    "skill 2",
-		filepath.Join(f.root, "config", "pipeline.json"):                     "tuned",
-		filepath.Join(f.root, "data", "routing.json"):                        "lanes 2",
-		filepath.Join(f.bin, "cfo.exe"):                                      "build 2",
-		filepath.Join(f.bin, "goblins.exe"):                                  "build 2",
+		filepath.Join(f.root, "AGENTS.md"):                                "contract 2",
+		filepath.Join(f.profile, ".agents", "skills", "stow", "SKILL.md"): "skill 2",
+		filepath.Join(f.profile, ".claude", "skills", "stow", "SKILL.md"): "skill 2",
+		filepath.Join(f.root, "config", "pipeline.json"):                  "tuned",
+		filepath.Join(f.root, "data", "routing.json"):                     "lanes 2",
+		filepath.Join(f.bin, "cfo.exe"):                                   "build 2",
+		filepath.Join(f.bin, "goblins.exe"):                               "build 2",
 	} {
 		if got := readFile(t, path); got != want {
 			t.Errorf("%s = %q, want %q", path, got, want)
@@ -269,23 +269,57 @@ func TestOutsideACheckoutAHomeInUseIsLeftAlone(t *testing.T) {
 
 // An install refuses while CFO_HOME names another home in use: moving
 // CFO_HOME would leave that home's binaries first on PATH and its fleet's
-// state unreachable.
+// state unreachable. A folder holding a fleet's state is in use whether an
+// install set it up or an older build made a checkout its home without the
+// marker, and the refusal names the move that brings the fleet along. A
+// CFO_HOME left naming a folder with no state is no home, and the install
+// takes over.
 func TestInstallRefusesWhileAnotherHomeIsInUse(t *testing.T) {
-	inUse := t.TempDir()
-	makePrimaryHome(t, inUse)
-	f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": inUse, "Path": `C:\Windows;` + inUse})
-
-	var out strings.Builder
-	err := f.service.Install(&out)
-
-	if err == nil || !strings.Contains(err.Error(), inUse) || !strings.Contains(err.Error(), "goblins uninstall") {
-		t.Fatalf("Install = %v, want a refusal naming the home in use and goblins uninstall\n%s", err, out.String())
+	tests := []struct {
+		name    string
+		arrange func(t *testing.T, root string)
+		refused bool
+	}{
+		{name: "a home an install set up", refused: true, arrange: makePrimaryHome},
+		{name: "a checkout an older build made its home", refused: true, arrange: func(t *testing.T, root string) {
+			writeFile(t, filepath.Join(root, "AGENTS.md"), "contract")
+			writeFile(t, filepath.Join(root, "state", "g1.meta"), "id=g1\n")
+			if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "a folder with no state", arrange: func(t *testing.T, root string) {
+			writeFile(t, filepath.Join(root, "AGENTS.md"), "contract")
+		}},
 	}
-	if len(f.env.setCalls) != 0 || f.env.values["CFO_HOME"] != inUse || f.env.values["Path"] != `C:\Windows;`+inUse {
-		t.Errorf("the refused install changed the environment: %v", f.env.setCalls)
-	}
-	if got := readFile(t, f.user); got != adopterSettings {
-		t.Errorf("the refused install rewrote the user settings:\n%s", got)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			inUse := t.TempDir()
+			test.arrange(t, inUse)
+			f := newFixture(t, adopterSettings, map[string]string{"CFO_HOME": inUse, "Path": `C:\Windows;` + inUse})
+
+			// Act
+			var out strings.Builder
+			err := f.service.Install(&out)
+
+			// Assert
+			if !test.refused {
+				if err != nil {
+					t.Fatalf("Install = %v, want the install to take over from a folder that holds no fleet\n%s", err, out.String())
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), inUse) || !strings.Contains(err.Error(), "cfo home move") || !strings.Contains(err.Error(), "goblins uninstall") {
+				t.Fatalf("Install = %v, want a refusal naming the home in use, cfo home move and goblins uninstall\n%s", err, out.String())
+			}
+			if len(f.env.setCalls) != 0 || f.env.values["CFO_HOME"] != inUse || f.env.values["Path"] != `C:\Windows;`+inUse {
+				t.Errorf("the refused install changed the environment: %v", f.env.setCalls)
+			}
+			if got := readFile(t, f.user); got != adopterSettings {
+				t.Errorf("the refused install rewrote the user settings:\n%s", got)
+			}
+		})
 	}
 }
 

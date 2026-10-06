@@ -89,6 +89,8 @@ func TestNotifyTargetsStateOverrideWithoutCFOHome(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("CFO_HOME", "")
 	t.Setenv("CFO_STATE_OVERRIDE", stateDir)
+	// With no CFO_HOME the home is the per-user one, here the test's own.
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Chdir(worktree)
 
 	var stdout, stderr bytes.Buffer

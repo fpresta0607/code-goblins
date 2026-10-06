@@ -43,7 +43,7 @@ Options:
 	explicit, err := adapter.Build(LaunchSpec{
 		BriefPath:       `C:\briefs\task.md`,
 		TaskTmp:         `C:\tasks\task`,
-		Scratch:           `C:\gotmp\task`,
+		Scratch:         `C:\gotmp\task`,
 		Model:           "openai/gpt-5.2-codex",
 		Effort:          "xhigh",
 		PiExtensionPath: `C:\extensions\task.ts`,
@@ -178,7 +178,7 @@ Examples:
 	_, err = adapter.Build(LaunchSpec{
 		BriefPath:       `C:\briefs\task.md`,
 		TaskTmp:         `C:\tasks\task`,
-		Scratch:           `C:\gotmp\task`,
+		Scratch:         `C:\gotmp\task`,
 		Model:           "candidate",
 		Effort:          "high",
 		PiExtensionPath: `C:\extensions\task.ts`,

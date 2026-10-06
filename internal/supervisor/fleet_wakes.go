@@ -427,7 +427,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	w.CIPolled = now
 	goblins := ciGoblins(ctx, runner, s.Store.Home.State)
 	errs := s.pollAwaitedRuns(ctx, w, now)
-	for _, repo := range w.watch(goblins, s.Store.Home.Root, now) {
+	for _, repo := range w.watch(goblins, now) {
 		if currentTime().Before(w.BackOff[repo]) {
 			continue
 		}
@@ -551,9 +551,9 @@ func ciGoblins(ctx context.Context, runner execx.Runner, stateDir string) []ciGo
 }
 
 // watch records the repositories live goblins work in, forgets those no
-// goblin has worked in for repoWatchFor, and returns the ones to poll: those
-// and this home, when it is a checkout, in name order.
-func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) []string {
+// goblin has worked in for repoWatchFor, and returns the ones to poll, in
+// name order.
+func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 	if w.Repos == nil {
 		w.Repos = map[string]time.Time{}
 	}
@@ -568,9 +568,6 @@ func (w *fleetWakes) watch(goblins []ciGoblin, homeRoot string, now time.Time) [
 	}
 	for _, goblin := range goblins {
 		seen(goblin.repo)
-	}
-	if homeRoot != "" && exists(filepath.Join(homeRoot, ".git")) {
-		seen(filepath.Clean(homeRoot))
 	}
 	repos := make([]string, 0, len(w.Repos))
 	for repo, last := range w.Repos {

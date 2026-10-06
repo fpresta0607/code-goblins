@@ -51,38 +51,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	settings, err := install.UserSettingsPath()
+	service, err := installService(root)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	userHome, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo install: find the user's profile folder: %v\n", err)
-		return 1
-	}
-	skills, err := iofs.Sub(codegoblins.Skills, ".agents/skills")
-	if err != nil {
-		fmt.Fprintf(stderr, "cfo install: read the skills this build ships: %v\n", err)
-		return 1
-	}
-	commands := execx.OSRunner{}
-	service := install.Service{
-		Root:         root,
-		UserSettings: settings,
-		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
-		Env:          install.NewEnvStore(commands),
-		Contract:     codegoblins.Contract,
-		Policy:       codegoblins.Policy,
-		Skills:       skills,
-		Harnesses:    harnessmap.Find(os.Getenv, userHome),
-		Link:         junction(commands),
-		// The desktop window's Start at login entry, which an uninstall
-		// removes and an install takes over from an earlier copy.
-		StartAtLoginKey: install.StartAtLoginKey,
-	}
-	if service.Binary, err = os.Executable(); err != nil {
-		fmt.Fprintf(stderr, "cfo install: find the running binary: %v\n", err)
 		return 1
 	}
 	if *projectsRoot != "" {
@@ -121,6 +92,43 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
 	return 0
+}
+
+// installService is the install of this binary into the home at root, against
+// this machine's user environment, Claude Code settings and harness folders.
+func installService(root string) (install.Service, error) {
+	settings, err := install.UserSettingsPath()
+	if err != nil {
+		return install.Service{}, err
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return install.Service{}, fmt.Errorf("cfo install: find the user's profile folder: %w", err)
+	}
+	skills, err := iofs.Sub(codegoblins.Skills, ".agents/skills")
+	if err != nil {
+		return install.Service{}, fmt.Errorf("cfo install: read the skills this build ships: %w", err)
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		return install.Service{}, fmt.Errorf("cfo install: find the running binary: %w", err)
+	}
+	commands := execx.OSRunner{}
+	return install.Service{
+		Root:         root,
+		UserSettings: settings,
+		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
+		Env:          install.NewEnvStore(commands),
+		Contract:     codegoblins.Contract,
+		Policy:       codegoblins.Policy,
+		Skills:       skills,
+		Binary:       binary,
+		Harnesses:    harnessmap.Find(os.Getenv, userHome),
+		Link:         junction(commands),
+		// The desktop window's Start at login entry, which an uninstall
+		// removes and an install takes over from an earlier copy.
+		StartAtLoginKey: install.StartAtLoginKey,
+	}, nil
 }
 
 // installRoot is the home install wires in: CFO_HOME's own value is never

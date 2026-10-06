@@ -30,8 +30,8 @@ Claude reads a managed policy file if one exists, then `~/.claude/CLAUDE.md`, th
 A `CLAUDE.md` in a subdirectory loads when Claude first reads a file there.
 Claude never reads `AGENTS.md` on its own: this repository's `CLAUDE.md` links to `AGENTS.md`, so the CFO reads the contract with a file read rather than having it injected.
 
-A goblin's worktree sits inside the project checkout at `<project>/.worktrees/gb-<id>` and has its own `.git` file.
-Claude stops its upward walk there: a live probe showed that a nested worktree loads neither the enclosing checkout's `CLAUDE.md` nor its `.claude/skills`.
+A goblin's worktree sits in the CFO home at `$CFO_HOME\worktrees\<project folder>\<id>`, outside the project checkout, and has its own `.git` file.
+Claude stops its upward walk there: a live probe showed that a worktree loads neither the `CLAUDE.md` nor the `.claude/skills` of a folder above it, so the CFO contract at the home's top never reaches a goblin.
 
 **Rules.**
 Every file in `~/.claude/rules/` and then `.claude/rules/` loads at startup unless its frontmatter names `paths:`, in which case it loads when Claude reads a matching file.
@@ -40,7 +40,7 @@ Only Claude reads these directories.
 
 **Skills.**
 Claude lists skills from `~/.claude/skills`, the project's `.claude/skills`, nested `.claude/skills` below the working directory, enabled plugins (namespaced `plugin:skill`) and skills synced from claude.ai.
-It does not read `.agents/skills`; `install.cmd -Dev` makes `.claude/skills` a junction to `.agents/skills` so the CFO sees this repository's skills.
+It does not read `.agents/skills`; `cfo install` puts the skills Code Goblins ships once in `~/.agents/skills`, with a junction to each from `~/.claude/skills`, so Claude Code sees them too.
 When a user skill and a project skill share a name, the user copy wins and the listing shows one entry, so a project skill can be silently shadowed.
 `skillOverrides` in settings sets a skill to `on`, `name-only`, `user-invocable-only` or `off`.
 Every listed description is paid for in every session; a skill body loads only when used.
@@ -119,7 +119,7 @@ Pi has no hooks file: extensions play that role, from `~/.pi/agent/extensions`, 
 Pi has no MCP support.
 
 **Trust.**
-Pi asks only when the project has `.pi` resources or an `.agents/skills` directory in the working directory or an ancestor; a trusted parent directory covers its worktrees.
+Pi asks only when the project has `.pi` resources or an `.agents/skills` directory in the working directory or an ancestor; a trusted parent directory covers the folders under it, and spawn answers for a goblin's worktree, which sits outside its project, for that run only.
 
 ## Kimi Code
 
@@ -145,9 +145,9 @@ The trust dialog appears in every new working directory and gates only project M
 
 Everything in the user rows above still loads for a goblin; spawn adds the following on top.
 
-1. **The worktree.** `<project>/.worktrees/gb-<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
+1. **The worktree.** `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
-2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `GOTMPDIR`, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
+2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMP` and `GOTMPDIR` in the task's scratch folder, the shared cache roots, and the project's declared credentials, sourced from a file rather than typed.
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`, so it draws in Claude's classic interface whatever the operator's `tui` setting and its history stays in the terminal's own scrollback.
    Codex: `--dangerously-bypass-approvals-and-sandbox --no-alt-screen`, so it draws inline and its history stays in the terminal's own scrollback, where a drag selects text as it does for Claude.
    Pi: `--tui-mode regular`.
@@ -199,7 +199,8 @@ A copy inside this repository would reach only sessions opened in this checkout,
 
 ## Keeping it clean
 
-- One skill, one directory: a skill this repository owns lives in `.agents/skills/` and nowhere else, and a third-party skill is installed once at user scope from its owner.
+- One skill, one directory: a skill this repository owns lives in `.agents/skills/` in the source and is installed once, into `~/.agents/skills`, with a junction from `~/.claude/skills`, and a third-party skill is installed once at user scope from its owner.
+- `cfo doctor` prints where each harness keeps its configuration and skills, and flags a skill kept as a real folder in more than one skills folder, a junction whose target is gone, and a harness folder that is missing.
 - A rule every harness should follow belongs in the global instruction file each harness reads (keep those files identical with hardlinks), not in `~/.claude/rules`, which only Claude reads.
 - `SessionStart` output is paid for in every session and every goblin; a hook that repeats a skill description adds cost and nothing else.
 - Keep `AGENTS.md` under 32 KiB so Codex reads all of it.

@@ -201,7 +201,6 @@
     }
 
     if ($Dev) {
-        $InstallDir = $scriptFolder
         if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
             Write-Host "Install Go with: winget install -e --id GoLang.Go, then open a new terminal and run this again."
             throw "-Dev builds cfo.exe from this clone, which needs Go."
@@ -210,7 +209,7 @@
         # A clone bootstrapped before the Lavish ruling still has the retired review
         # surface binary here, where nothing builds it and nothing ignores it any
         # more; left alone it sits untracked forever and can be committed by accident.
-        $retiredSurface = Join-Path $InstallDir "showcase-axi.exe"
+        $retiredSurface = Join-Path $scriptFolder "showcase-axi.exe"
         if (Test-Path $retiredSurface) {
             Remove-Item $retiredSurface -Force -ErrorAction SilentlyContinue
             if (Test-Path $retiredSurface) {
@@ -221,60 +220,38 @@
             }
         }
 
-        Write-Host "Building cfo.exe and the desktop window from $InstallDir ..."
-        $built = Join-Path $InstallDir "cfo.exe.new"
-        $builtWindow = Join-Path $InstallDir "goblins-window.exe.new"
-        Push-Location -LiteralPath $InstallDir
+        # The clone holds source only: the build goes to a folder of its own,
+        # and cfo install puts it in the per-user home, as the one-line
+        # install does.
+        $build = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-build-" + [Guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $build | Out-Null
         try {
-            go build -trimpath -o $built ./cmd/cfo
-            if ($LASTEXITCODE -ne 0) { throw "go build failed" }
-            # -H windowsgui: the window is a program with no console.
-            go build -trimpath -o $builtWindow -ldflags "-H windowsgui" ./cmd/goblins-window
-            if ($LASTEXITCODE -ne 0) { throw "go build of the desktop window failed" }
-        }
-        finally {
-            Pop-Location
-        }
-        # cfo.exe and goblins.exe are one program under two names, and the
-        # desktop window sits beside them. A build still running from here,
-        # such as a supervisor, a terminal's host or an open window, cannot be
-        # overwritten but can be renamed, so each old copy moves aside under a
-        # name of its own and goes once nothing runs it, on this run or a
-        # later one.
-        foreach ($program in @{ Name = "cfo.exe"; Built = $built }, @{ Name = "goblins.exe"; Built = $built }, @{ Name = "goblins-window.exe"; Built = $builtWindow }) {
-            $target = Join-Path $InstallDir $program.Name
-            $aside = $null
-            if (Test-Path -LiteralPath $target) {
-                $aside = "$target.$([Guid]::NewGuid().ToString("N")).old"
-                Move-Item -LiteralPath $target -Destination $aside
-            }
+            Write-Host "Building cfo.exe and the desktop window from $scriptFolder ..."
+            $dest = Join-Path $build "cfo.exe"
+            Push-Location -LiteralPath $scriptFolder
             try {
-                Copy-Item -LiteralPath $program.Built -Destination $target
+                go build -trimpath -o $dest ./cmd/cfo
+                if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+                # -H windowsgui: the window is a program with no console.
+                go build -trimpath -o (Join-Path $build "goblins-window.exe") -ldflags "-H windowsgui" ./cmd/goblins-window
+                if ($LASTEXITCODE -ne 0) { throw "go build of the desktop window failed" }
             }
-            catch {
-                if ($aside) { Move-Item -LiteralPath $aside -Destination $target -Force }
-                throw
+            finally {
+                Pop-Location
             }
-            Get-ChildItem -LiteralPath $InstallDir -Filter "$($program.Name).*.old" | Remove-Item -Force -ErrorAction SilentlyContinue
-        }
-        Remove-Item -LiteralPath $built, $builtWindow -Force
-        $dest = Join-Path $InstallDir "cfo.exe"
-        Write-Host "Built cfo.exe, goblins.exe and goblins-window.exe -> $InstallDir"
-        # Said plainly, because nothing else will: a build from source has no
-        # publisher, and no release is signed yet.
-        Write-Host "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
-        Write-Host "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
+            # Said plainly, because nothing else will: a build from source has no
+            # publisher, and no release is signed yet.
+            Write-Host "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
+            Write-Host "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
-        # From the clone: run there, cfo install makes the clone the CFO home.
-        $projectsRoot = Read-ProjectsRoot
-        Push-Location -LiteralPath $InstallDir
-        try {
+            $projectsRoot = Read-ProjectsRoot
             & $dest install @projectsRoot
             if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
         }
         finally {
-            Pop-Location
+            Remove-Item -LiteralPath $build -Recurse -Force -ErrorAction SilentlyContinue
         }
+        $InstallDir = Join-Path $env:LOCALAPPDATA "CodeGoblins"
     }
     else {
         $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
@@ -286,87 +263,26 @@
             }
 
             $projectsRoot = Read-ProjectsRoot
-            # From a neutral folder: run inside a checkout, cfo install would
-            # wire that checkout instead of setting up the per-user home.
-            Push-Location -LiteralPath $download
-            try {
-                & $downloaded install @projectsRoot
-                if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
-            }
-            finally {
-                Pop-Location
-            }
+            & $downloaded install @projectsRoot
+            if ($LASTEXITCODE -ne 0) { throw "cfo install exited with code $LASTEXITCODE" }
         }
         finally {
             Remove-Item -LiteralPath $download -Recurse -Force -ErrorAction SilentlyContinue
         }
 
         $InstallDir = Join-Path $env:LOCALAPPDATA "CodeGoblins"
-        $dest = Join-Path $InstallDir "goblins.exe"
     }
     # cfo install set both at user scope; this session needs them now.
     $env:CFO_HOME = $InstallDir
-    $env:Path = "$InstallDir;$env:Path"
+    $env:Path = "$(Join-Path $InstallDir "bin");$env:Path"
+    # What follows runs the build the home now holds.
+    $dest = Join-Path $InstallDir "bin\cfo.exe"
 
     # From here on, native stderr (npm progress, installer notes, mklink) must
     # not abort the install. Real failures are detected explicitly via exit
     # codes and existence checks instead.
     $ErrorActionPreference = "Continue"
 
-    # Claude reads project skills only from .claude/skills, so a junction points it
-    # at .agents/skills; codex, pi and kimi read .agents/skills directly, and a
-    # .codex/skills link would only give codex a second route to the same skills,
-    # so one an earlier install made is removed.
-    # A junction keeps one copy tracked in git (no developer-mode symlinks).
-    function Ensure-SkillJunctions {
-        param([string]$Root)
-        $source = Join-Path $Root ".agents\skills"
-        if (-not (Test-Path $source)) {
-            Write-Host "WARN     skills           .agents\skills not found; skipping skill junctions"
-            return
-        }
-        foreach ($rel in @(".claude\skills")) {
-            $link = Join-Path $Root $rel
-            if (Test-Path $link) {
-                $item = Get-Item $link -Force
-                if ($item.LinkType -eq "Junction") {
-                    Write-Host ("ok       {0,-20} skill junction present" -f $rel)
-                }
-                else {
-                    Write-Host ("WARN     {0,-20} exists and is not a junction; leaving it alone" -f $rel)
-                }
-                continue
-            }
-            $parent = Split-Path -Parent $link
-            if (-not (Test-Path $parent)) {
-                New-Item -ItemType Directory -Path $parent -Force | Out-Null
-            }
-            $mklinkOut = cmd /c mklink /J `"$link`" `"$source`" 2>&1
-            if (Test-Path $link) {
-                Write-Host ("ok       {0,-20} skill junction created" -f $rel)
-            }
-            else {
-                Write-Host ("WARN     {0,-20} could not create skill junction ({1}); run: cmd /c mklink /J {0} .agents\skills" -f $rel, ($mklinkOut -join "; "))
-            }
-        }
-        $rel = ".codex\skills"
-        $link = Join-Path $Root $rel
-        if (Test-Path $link) {
-            $item = Get-Item $link -Force
-            if ($item.LinkType -eq "Junction" -and [IO.Path]::GetFullPath(@($item.Target)[0]).TrimEnd("\") -eq [IO.Path]::GetFullPath($source).TrimEnd("\")) {
-                $rmdirOut = cmd /c rmdir `"$link`" 2>&1
-                if (Test-Path $link) {
-                    Write-Host ("WARN     {0,-20} could not remove stale skill junction ({1}); run: cmd /c rmdir {0}" -f $rel, ($rmdirOut -join "; "))
-                }
-                else {
-                    Write-Host ("ok       {0,-20} stale skill junction removed" -f $rel)
-                }
-            }
-            else {
-                Write-Host ("WARN     {0,-20} exists and is not a junction to .agents\skills; leaving it alone" -f $rel)
-            }
-        }
-    }
 
     # Add-UserPath puts $Folder on this session's PATH and on the user's, where
     # every new terminal finds it, and returns whether the user's PATH changed.
@@ -687,12 +603,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         $failedInstalls += "claude: npm.cmd uninstall -g @anthropic-ai/claude-code"
     }
 
-    # Point Claude Code's project skills directory at the clone's .agents/skills.
-    if ($Dev) {
-        Write-Host ""
-        Ensure-SkillJunctions -Root $InstallDir
-    }
-
     # The tools the fleet drives publish their own skills, installed once at
     # user scope so every harness and every project sees them.
     Write-Host ""
@@ -731,8 +641,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # supervisor and the CFO when they are not running and ends on a screen
     # that offers the CFO's terminal and the board. In a terminal, goblins is
     # the quick start either way.
-    $goblins = Join-Path $InstallDir "goblins.exe"
-    $opensWindow = Test-Path -LiteralPath (Join-Path $InstallDir "goblins-window.exe")
+    $goblins = Join-Path $InstallDir "bin\goblins.exe"
+    $opensWindow = Test-Path -LiteralPath (Join-Path $InstallDir "bin\goblins-window.exe")
     $programs = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
     $shortcutPath = Join-Path $programs "Code Goblins.lnk"
     try {
@@ -787,7 +697,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     Write-Host ""
     if ($Dev) {
-        Write-Host "Code Goblins is built and installed from $InstallDir, which is your CFO home. Code Goblins in the Start menu starts it again; open a new terminal so cfo and goblins are on your PATH."
+        Write-Host "Code Goblins is built from $scriptFolder and installed in $InstallDir, your CFO home; the clone keeps only its source. Code Goblins in the Start menu starts it again; open a new terminal so cfo and goblins are on your PATH."
     }
     else {
         Write-Host "Code Goblins is installed in $InstallDir. Code Goblins in the Start menu starts it again, and goblins works in this window and in any new one."

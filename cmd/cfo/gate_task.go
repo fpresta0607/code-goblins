@@ -66,7 +66,11 @@ func gateWorktreeTask(h home.Home, project, worktree string) (string, error) {
 	if !known {
 		return "", errors.New("the gate's source worktree belongs to no fleet task")
 	}
-	if !fsx.SamePath(owner.Meta.Project, project) {
+	// A name alone is no proof: the owner's record must name its own
+	// worktree where spawn puts it, in the home or where an older build did.
+	own := filepath.Join(h.Worktrees(), filepath.Base(filepath.Clean(project)), owner.ID)
+	legacy := filepath.Join(project, home.LegacyWorktreesDir, home.LegacyWorktreePrefix+owner.ID)
+	if !fsx.SamePath(owner.Meta.Project, project) || !fsx.SamePath(owner.Meta.Worktree, own) && !fsx.SamePath(owner.Meta.Worktree, legacy) {
 		return "", errors.New("task metadata does not match the gate's source project and worktree")
 	}
 	return owner.ID, nil

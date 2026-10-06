@@ -25,19 +25,25 @@ const markerText = "This folder is a Code Goblins CFO home that cfo install set 
 	"Below are the contract files it wrote; the next install removes any its binary no longer ships.\r\n" +
 	"\r\n"
 
-// refuseAnotherHome keeps an install from taking the machine from a home
-// still in use. CFO_HOME naming another primary home means a fleet lives
-// there: moving CFO_HOME would start every new session in an empty home,
-// leave that home first on PATH, and leave its fleet's state unreachable.
-func (s Service) refuseAnotherHome() error {
+// formerHome is the folder CFO_HOME names when it is not this home: the home
+// this install takes the machine over from, or "" when there is none. It
+// refuses while that folder holds a fleet's state, whether an install set it
+// up or an older build made a checkout its home without the marker: moving
+// CFO_HOME would start every new session in an empty home, leave that home
+// first on PATH, and leave its fleet's state unreachable. Once cfo home move
+// has carried the state away, the install takes over.
+func (s Service) formerHome() (string, error) {
 	current, set, err := s.Env.Get(homeVariable)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !set || sameDirectory(current, s.Root) || !home.IsPrimary(home.Home{Root: current, State: filepath.Join(current, "state")}) {
-		return nil
+	if !set || sameDirectory(current, s.Root) {
+		return "", nil
 	}
-	return fmt.Errorf("install: CFO_HOME is %s, a home in use; run this from that home to keep it, or run goblins uninstall there first, then run this again to move to %s", current, s.Root)
+	if info, err := os.Stat(filepath.Join(current, "state")); err != nil || !info.IsDir() {
+		return current, nil
+	}
+	return "", fmt.Errorf("install: CFO_HOME is %s, a home in use; run cfo home move to bring its fleet to %s, or run goblins uninstall there first, then run this again to start anew in %s", current, s.Root, s.Root)
 }
 
 // homeFolders are the folders every home holds beside data\, which the
@@ -405,18 +411,20 @@ func appendGlob(paths []string, pattern string) ([]string, error) {
 // in Claude Code's, never a second copy and never over a skill the user put
 // there. It records where each harness keeps its configuration in the home.
 func (s Service) installSkills(report *reporter) error {
-	installed, kept, err := harnessmap.InstallSkills(s.Skills, s.Harnesses, s.Link)
+	result, err := harnessmap.InstallSkills(s.Skills, s.Harnesses, s.Link)
 	if err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
-	if len(installed) > 0 {
-		report.same("skills", strings.Join(installed, ", ")+" in "+s.Harnesses.SharedSkills+", each with a junction from Claude Code's skills folder")
+	if len(result.Changed) > 0 {
+		report.change("skills", "wrote "+strings.Join(result.Changed, ", ")+" into "+s.Harnesses.SharedSkills+", each with a junction from Claude Code's skills folder")
+	} else if len(result.Names) > 0 {
+		report.same("skills", strings.Join(result.Names, ", ")+" in "+s.Harnesses.SharedSkills+", each with a junction from Claude Code's skills folder")
 	}
-	for _, note := range kept {
+	for _, note := range result.Kept {
 		report.same("skills", "kept "+note)
 	}
 	m := s.Harnesses
-	m.Installed = installed
+	m.Installed = result.Names
 	if err := harnessmap.Write(filepath.Join(s.Root, "state"), m); err != nil {
 		return fmt.Errorf("install: record where each harness keeps its configuration: %w", err)
 	}

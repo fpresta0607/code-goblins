@@ -61,7 +61,7 @@ commands:
   register  make this session the primary CFO the board delivers to; the SessionStart hooks do it, run it by hand when the board says the registration is stale
   install   wire the CFO home into the machine (CFO_HOME, PATH, and the Claude Code hooks in your user settings) so a session in any repo is supervised: from any folder, a checkout included, it sets up %LOCALAPPDATA%\CodeGoblins from this binary (the CFO's contract, the default policy, the binary as bin\cfo.exe and bin\goblins.exe, the skills once in ~\.agents\skills with a junction from Claude Code's skills folder, and state\harnesses.json naming where each harness keeps its configuration); --projects-root <dir> records the folder that holds your checkouts so --project can take a bare name; --uninstall reverses the wiring, the board's native hooks, the Start-menu shortcut and the skills it installed included, and keeps the home's files
   uninstall the same as install --uninstall
-  home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes
+  home      migrate [--apply --plan <digest>] [--memory-from <dir>]: lay out a home whose data predates the layout; without --apply a dry run that lists every file it would move, create or change, proves none is dropped and prints the plan digest --apply --plan makes; move [--to <dir>] [--apply --plan <digest>]: move an older build's home, such as a checkout, to the per-user home, with the same dry run, digest and read-back
   doctor    check the tools cfo needs (git, gh, claude, herdr, codex, pi, kimi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi)
   pipeline  config-drift | config-apply | migrate <id> | run <id> --intent <text> | respond <id> --action <fix|approve> [--findings <ids>] [--instructions <text>] | recover <id>
   drain     print or acknowledge the wake queue and recovery episode
@@ -206,10 +206,10 @@ type commandRuntime struct {
 	availableMemory func() (supervisor.Memory, error)
 	// gateDisk reads the free disk a gate test run in a folder has beside its
 	// floor; nil reads the machine's.
-	gateDisk func(dir string) (supervisor.Disk, error)
-	gateWaitLimit   time.Duration
-	gateBudget      func(gatetest.Level) time.Duration
-	gateRun         func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
+	gateDisk      func(dir string) (supervisor.Disk, error)
+	gateWaitLimit time.Duration
+	gateBudget    func(gatetest.Level) time.Duration
+	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 }
 
 // resolveProject turns a --project argument into a checkout directory: a path
