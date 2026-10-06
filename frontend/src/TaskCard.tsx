@@ -7,7 +7,7 @@ import { clockText } from "./cards";
 import { harnessMark } from "./connectors";
 import { TaskControls } from "./task-controls";
 import { asksOverlord, harnessTip, nodeStatus, personaFor, pullRequestIcon, pullRequestLabel, safePullRequest, statusPhase, taskColumn } from "./workflow";
-import { plainText, teardownSentence, waitLine, withoutHarness } from "./task-words";
+import { plainText, teardownSentence, withoutHarness } from "./task-words";
 
 // A task's card on the board: its title, up to three lines, then a muted line
 // with the repo and the status, both wrapping onto further lines, and a quiet
@@ -18,8 +18,8 @@ import { plainText, teardownSentence, waitLine, withoutHarness } from "./task-wo
 // mark of the harness it runs in the corner: every part of the card has its own
 // place, so none is drawn over another, and a part's tip floats clear of the
 // card. The goblin it waits on is named in its status line only. A queued
-// task's wait is one plain line, its note in its panel behind More; a paused
-// or finished task shows when, and its status says what.
+// task says nothing of what it waits for, whose note is in its panel behind
+// More; a paused or finished task shows when, and its status says what.
 export interface CardStart { blocked: string; problem: string; onStart: (source: HTMLElement) => void }
 export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, start, onSelect, onTerminal }: {
   task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
@@ -42,7 +42,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const column = taskColumn(task);
   const clock = column === "Completed" || column === "Paused" ? "" : clockText(task.since, now, waiting ? "waiting" : "running");
   const clockBadge = clock && <span className="card-clock"><Icon name="clock" /><span className="sr-only">{waiting ? "Waiting for" : "Running for"} </span>{clock}</span>;
-  const wait = waitLine(task, snapshot.tasks);
   const ended = (column === "Paused" || column === "Completed") && task.at ? new Date(task.at) : null;
   const content = <>
     <Avatar persona={personaFor(task)} />
@@ -50,7 +49,6 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {rank && <span className="sr-only">, {rank}</span>}
       <span className="card-meta">{task.project && <span className="card-repo">{task.project}</span>}<span className={"plain-status phase-" + statusPhase(task) + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{nodeStatus({ id: task.id, title: task.title, task, relation: "" }, asking)}</span></span></span>
       {clockBadge}
-      {wait && <span className="queue-block">{wait}</span>}
       {task.pending_engine && <span className="card-secondary">{task.pending_engine.when === "resume" ? "Resume with" : "Pending:"} {task.pending_engine.model} {task.pending_engine.effort}</span>}
       {task.switching && <span className="card-secondary">Switching engine...</span>}
       {ended && Number.isFinite(ended.getTime()) && <span className="card-clock"><Icon name="clock" /><time dateTime={task.at}>{ended.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></span>}

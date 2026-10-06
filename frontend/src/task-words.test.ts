@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { listItem, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence, waitLine } from "./task-words.ts";
+import { listItem, plainText, reportBody, summary, taskSummary, withoutHarness, teardownSentence } from "./task-words.ts";
 import { parseSnapshot, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -82,21 +82,13 @@ test("Windows teardown names the programs it still closes, never their process i
   assert.equal(teardownSentence(["uv.exe pid 1", "node.exe pid 2", "uv.exe pid 3"]), "Windows is still closing uv.exe and node.exe.");
 });
 
-test("a queued task's wait is one plain line: short on its card, naming the task it waits on in its panel", () => {
+test("a queued task adds no line about what it waits for, whatever it waits on", () => {
+  // The Overlord, 2026-10-05: "waits for a task doesnt make sens dont ened
+  // any addiioantional text".
   const blocker = task({ id: "cg-goblins-quickstart", title: "An OpenClaw-style quick start; Claude Code" });
   const queued = (dependencies: string[], reason = "") => task({ id: "q", title: "q", phase: "queued", generation: "", dependencies, reason });
-  const cases: [string, Task, string, string][] = [
-    ["a task on the board", queued(["cg-goblins-quickstart"], "default first-open layout must land"), "Waits for a task", "Waits for an OpenClaw-style quick start"],
-    ["more than one", queued(["cg-goblins-quickstart", "other"]), "Waits for 2 tasks", "Waits for an OpenClaw-style quick start and 1 more"],
-    ["memory", queued(["memory"], "next start at 5 GB free; Claude Code"), "Waits for memory", "Waits for memory"],
-    ["its turn", queued(["priority"], "cg-hardening retired 2026-09-28 03:11Z with a handoff"), "Waits for its turn", "Waits for its turn"],
-    ["a set time", queued(["time"]), "Waits until later", "Waits until later"],
-    ["a task no longer on the board", queued(["cg-hardening"]), "Waits for a task", "Waits for a task"],
-    ["nothing", queued([]), "", ""],
-  ];
-  for (const [name, item, card, panel] of cases) {
-    assert.equal(waitLine(item, [blocker, item]), card, name + " on its card");
-    assert.equal(waitLine(item, [blocker, item], true), panel, name + " in its panel");
+  for (const item of [queued(["cg-goblins-quickstart"], "default first-open layout must land"), queued(["memory"], "next start at 5 GB free; Claude Code"), queued(["priority"]), queued([])]) {
+    assert.deepEqual(taskSummary(item, [blocker, item]), { sentence: "", details: [], isFailure: false }, item.dependencies.join(",") || "nothing");
   }
 });
 

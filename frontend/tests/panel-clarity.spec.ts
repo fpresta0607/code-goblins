@@ -84,31 +84,41 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       }
     });
 
-    test("the Tasks list says each wait in one line, its chip on one line, and its titles without the harness", async ({ page }) => {
+    test("the Tasks list adds no wait line, keeps its chip on one line, and shows its titles without the harness", async ({ page }) => {
       // Arrange
       await open(page);
       const tasks = page.getByRole("region", { name: "Tasks", exact: true });
       const card = (title: string) => tasks.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(title, { exact: true }) });
+      const blocked = "A very quick tour for new users: how Code Goblins works and how to use the board, on first open";
 
       // Act
-      const lines = async (selector: string, title: string) => card(title).locator(selector).evaluate((element) => Math.round(element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight)));
+      const next = card("Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too)").locator(".next-chip");
 
-      // Assert
+      // Assert: the Overlord, 2026-10-05: "waits for a task doesnt make sens
+      // dont ened any addiioantional text". A waiting card says nothing about
+      // its wait, and the CFO's note on it stays in its panel behind More.
       await expect(tasks.locator(".card-title")).toHaveText([
-        "A very quick tour for new users: how Code Goblins works and how to use the board, on first open",
+        blocked,
         "Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too)",
         "The already-pushed skip design for tests-kept and the other open hardening items",
       ]);
-      await expect(card("A very quick tour for new users: how Code Goblins works and how to use the board, on first open").locator(".queue-block")).toHaveText("Waits for a task");
-      await expect(card("The already-pushed skip design for tests-kept and the other open hardening items").locator(".queue-block")).toHaveText("Waits for its turn");
-      const wait = card("A very quick tour for new users: how Code Goblins works and how to use the board, on first open").locator(".queue-block");
-      expect(await lines(".queue-block", "A very quick tour for new users: how Code Goblins works and how to use the board, on first open")).toBe(1);
-      expect(await wait.evaluate((line) => line.scrollWidth <= line.clientWidth), "the wait line is whole, not cut short").toBe(true);
-      const next = card("Updates arrive as their own special Overlord command in the Command Center, with one Update button (checksum-verified, safe swap and rollback, goblins untouched, the desktop window too)").locator(".next-chip");
+      await expect(page.locator(".task-board")).not.toContainText(/Waits (for|until)/);
+      await expect(tasks).not.toContainText("cg-hardening retired");
+      await expect(tasks).not.toContainText("default first-open layout");
       await expect(next).toHaveText("Next at 5 GB");
       expect(await next.evaluate((chip) => chip.scrollWidth <= chip.clientWidth && chip.getClientRects().length === 1 && chip.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(chip).lineHeight))).toBe(true);
-      await expect(tasks).not.toContainText("cg-hardening retired");
       await expect(page.locator(".task-board")).not.toContainText("; Claude Code");
+
+      // Act: open the waiting task.
+      await select(page, blocked);
+      const header = panel(page).locator(".panel-header");
+
+      // Assert: its status alone, and its note behind More.
+      await expect(header.locator(".panel-status")).toHaveText("Not started");
+      await expect(header.locator(".panel-activity")).toHaveCount(0);
+      await expect(header).not.toContainText(/Waits (for|until)/);
+      await header.locator(".raw-details > summary").filter({ hasText: "More" }).click();
+      await expect(header.locator(".raw-details-text")).toHaveText("default first-open layout must land and the generated mockup must be approved");
     });
   });
 }

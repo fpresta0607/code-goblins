@@ -98,22 +98,8 @@ export function teardownSentence(labels: string[]): string {
   return "Windows is still closing " + (names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names.at(-1)) + ".";
 }
 
-// Short enough for a queued card's narrowest copy column.
-const WAITS_FOR: Record<string, string> = { memory: "Waits for memory", priority: "Waits for its turn", time: "Waits until later" };
-
 // A title read inside a sentence starts with a small article.
 const inSentence = (title: string) => title.replace(/^(?:A|An|The)\b/, (article) => article.toLowerCase());
-
-// waitLine is a queued task's wait in one line, never the CFO's note on it:
-// on its card a short line, and in its panel the task it waits on by title.
-export function waitLine(task: Task, tasks: Task[], isNamed = false): string {
-  if (task.phase !== "queued" || !task.dependencies.length) return "";
-  const [first, ...rest] = task.dependencies;
-  const blocker = tasks.find((candidate) => candidate.id === first && !candidate.archived);
-  if (!WAITS_FOR[first] && !(blocker && isNamed)) return rest.length ? "Waits for " + task.dependencies.length + " tasks" : "Waits for a task";
-  const line = blocker && isNamed ? "Waits for " + inSentence(withoutHarness(blocker.title) || blocker.id) : WAITS_FOR[first];
-  return rest.length ? line + " and " + rest.length + " more" : line;
-}
 
 function when(at: string): string {
   const date = new Date(at);
@@ -171,8 +157,8 @@ export interface Summary {
 }
 
 // taskSummary is the one sentence the panel says under a task's status, which
-// never repeats the status: why it failed and what to do, what resumes it,
-// what it waits for, or its goblin's latest report.
+// never repeats the status: why it failed and what to do, what resumes it, or
+// its goblin's latest report.
 export function taskSummary(task: Task, tasks: Task[]): Summary {
   const record = task.lifecycle;
   const teardown = teardownSentence(task.teardown);
@@ -180,7 +166,8 @@ export function taskSummary(task: Task, tasks: Task[]): Summary {
   if (record?.phase === "failed" && FAILED_ACTION[record.action]) return { sentence: join(FAILED_ACTION[record.action], teardown), details: [...record.problems, ...task.teardown], isFailure: true };
   if (task.phase === "paused") return { sentence: join(resumes(record?.pause, tasks), record && !record.handoff_saved ? "The goblin's last saved notes are kept." : "", teardown), details: [...(record?.problems || []), ...task.teardown], isFailure: false };
   if (["pausing", "resuming", "stopping", "stopped"].includes(task.phase)) return { sentence: teardown, details: task.teardown, isFailure: false };
-  if (task.phase === "queued") return { sentence: waitLine(task, tasks, true), details: [], isFailure: false };
+  // A queued task's status says it all; the Overlord wants no wait line.
+  if (task.phase === "queued") return { sentence: "", details: [], isFailure: false };
   // A failed or blocked task with no report of its own says its evidence.
   const said = reportSaid(reportBody(task.activity) || !["failed", "blocked"].includes(task.phase) ? task.activity : task.reason);
   return { sentence: join(said.sentence, teardown), details: [...said.details, ...task.teardown], isFailure: task.phase === "failed" };

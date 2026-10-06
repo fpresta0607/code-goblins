@@ -1051,8 +1051,6 @@ a.wait-open { min-height: 44px; border: 1px solid var(--accent-green); border-ra
 /* On a phone a row of two still fits on one line. */
 @media (max-width: 40rem) { .labelled-button { gap: 6px; padding-inline: 10px 12px; } }
 .card-secondary { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
-/* A queued task's wait is one line. */
-.queue-block { min-width: 0; color: var(--amber); font-size: 1rem; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phase-paused, .phase-pausing, .phase-resuming { color: var(--amber); }
 .phase-paused .status-dot, .phase-pausing .status-dot, .phase-resuming .status-dot { background: var(--amber); }
 .phase-stopped, .phase-stopping { color: var(--muted); }

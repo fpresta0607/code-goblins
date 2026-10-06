@@ -300,7 +300,7 @@ The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the oldest pause whose condition has cleared, then for the queue in the Overlord's order.
 A future date, an unanswered question or an Overlord pause does not hold the queue.
 The Overlord's own Start or Resume overrides that ordering; a queued row marked `(priority: production-defect)` also goes first, with a notify explaining that it jumped the order.
-A blocked task says what it waits for in one short line, such as **Waits for a task** or **Waits for memory**, and has no Start button or Next up mark; its panel names the task it waits on, with the CFO's note on the wait behind **More**.
+A blocked task has no Start button or Next up mark and adds no line about what it waits for; the CFO's note on the wait is in its panel behind **More**.
 An eligible queued card has a **Start** play icon with a tooltip.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its terminal once its session is up.
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
