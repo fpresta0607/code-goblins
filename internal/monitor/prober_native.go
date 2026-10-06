@@ -47,9 +47,9 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		return unknown(fmt.Sprintf("native task %s runs %s, whose screen the monitor cannot read", meta.ID, meta.Harness)), nil
 	}
 	// A native terminal ends with its harness, and a reboot or sign-out
-	// ends every one; switch restarts the harness in place with its own
-	// resume.
-	resume := fmt.Sprintf("cfo switch %s restarts its harness in place, resuming its session", meta.ID)
+	// ends every one; goblins resume brings them all back in place on their
+	// own resume, and switch one alone.
+	resume := fmt.Sprintf("goblins resume brings it back in place, resuming its session, as cfo switch %s --harness %s does for it alone", meta.ID, meta.Harness)
 	record, err := host.ReadRecord(p.StateDir, meta.ID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s has no running host; %s", meta.ID, resume)}, nil
