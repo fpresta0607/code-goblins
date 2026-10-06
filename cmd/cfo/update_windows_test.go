@@ -242,8 +242,11 @@ func TestUpdateCarriesTheDesktopWindowBesideTheCandidate(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: a candidate in a folder of its own, its window beside it.
-			u := newUpdateHome(t, "previous", "candidate")
+			// The update runs the candidate from there, so the folder goes once
+			// Windows lets go of it, after the home's programs are ended.
 			release := t.TempDir()
+			standin.RemoveAtCleanup(t, release)
+			u := newUpdateHome(t, "previous", "candidate")
 			u.candidate = filepath.Join(release, "cfo.exe")
 			candidate := writeBuild(t, u.candidate, "candidate")
 			if err := os.WriteFile(filepath.Join(release, "goblins-window.exe"), []byte("window 2"), 0o755); err != nil {
