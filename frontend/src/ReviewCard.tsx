@@ -4,9 +4,9 @@ import { deliveryMark } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
+import { reviewLine, settledIcon, settledLabel, waitReason, waitsOnOverlord, waitTarget, type Item } from "./commandQueue";
 import { personaFor } from "./workflow";
-import { inlineElements, leadAndRest, messageElements, plainMessage } from "./messageText";
+import { inlineElements, leadAndRest, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import type { Draft } from "./QuestionCard";
 
@@ -16,9 +16,10 @@ export const reviewImages = (review: Review) => Array.from({ length: review.imag
 // then Clear to close it. A page the supervisor watches is answered on the
 // page itself, so its preview is the one way in and the card has no text box;
 // a goblin waiting on the Overlord is a status with no text box that says
-// what it waits on and opens it (its page, question, file or link), with
-// Dismiss beside it; anything else takes a written answer that goes to the
-// asker once.
+// what it waits on and opens it (its page, question, file or link) from its
+// one action button, with Dismiss beside it, and shows no page preview, which
+// would say its words and open its page a second time; anything else takes a
+// written answer that goes to the asker once.
 export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend, onClear, onOpen, onImage, pager }: {
   review: Review; snapshot: Snapshot; connected: boolean; draft: Draft;
   onDraft: (changes: Partial<Draft>) => void; onSend: () => void; onClear: () => void; onOpen: (key: string) => void; onImage: (index: number) => void; pager?: ReactNode;
@@ -48,13 +49,15 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       : <h3 id={"review-" + review.id} tabIndex={-1}>{inlineElements(lead, copyValues)}</h3>}
     {!asked && lead && rest && <div className="question-body">{messageElements(rest, copyValues)}</div>}
     {target && !review.watched && <p className="wait-target">{target.says}</p>}
-    {review.lavish && (!status || review.watched) && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + plainMessage(review.title)}>
-      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>{plainMessage(waitReason(review))}</strong><span>Review page</span></span>
+    {review.lavish && !status && <a className="page-preview" href={review.lavish} target="_blank" rel="noreferrer" aria-label={"Open review: " + reviewLine(review)}>
+      <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>Scrawl page</strong></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">{closedAt
-      ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
-      : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
+    {review.lavish && pending && review.watched && <p className="review-status">{review.revising_since
+      ? <><Icon name="check" />Revision received: the next version replaces this page.</>
+      : closedAt
+        ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
+        : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>

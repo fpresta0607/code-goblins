@@ -39,7 +39,7 @@ func TestACancelledLavishPollEndsItsWholeProcessTree(t *testing.T) {
 	defer cancel()
 	polled := make(chan error, 1)
 	go func() {
-		_, err := (Lavish{Commands: execx.OSRunner{}}).Poll(ctx, "plan.html", time.Minute)
+		_, err := (Lavish{Commands: execx.OSRunner{}}).Poll(ctx, "plan.html", "", time.Minute)
 		polled <- err
 	}()
 	pid := 0
