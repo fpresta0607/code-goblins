@@ -53,9 +53,11 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
       <span className="page-shot" aria-hidden="true"><Icon name="comment" /><strong>Scrawl page</strong></span>
       <span className="open-overlay"><Icon name="external" />Open review</span>
     </a>}
-    {review.lavish && pending && review.watched && <p className="review-status">{closedAt
-      ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
-      : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
+    {review.lavish && pending && review.watched && <p className="review-status">{review.revising_since
+      ? <><Icon name="check" />Revision received: the next version replaces this page.</>
+      : closedAt
+        ? <><Icon name="refresh" />Its window closed at {closedAt}. Reopen it to answer; nothing you send there is lost.</>
+        : <><Icon name="clock" />Waiting for your answer. Reply in the page's conversation box; your answer closes this card.</>}</p>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images to review">
       {images.map((src, index) => <button type="button" key={src} aria-label={"View image " + (index + 1) + " of " + images.length + " full size"} onClick={() => onImage(index)}>
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
