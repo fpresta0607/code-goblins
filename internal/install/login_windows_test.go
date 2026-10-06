@@ -96,7 +96,8 @@ func TestUninstallWithNoStartAtLoginEntryChangesNothing(t *testing.T) {
 // An install that takes an earlier window's place makes Start at login start
 // this home's window where it started that one, as the window itself writes
 // the entry when this home's goblins starts it. An entry that starts anything
-// else is left as it is, and none is made where there was none.
+// else is left as it is, and where there was none the install makes this
+// home's, since Start at login is on unless it is turned off.
 func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testing.T) {
 	for name, test := range map[string]struct {
 		command func(earlier string) string
@@ -130,14 +131,10 @@ func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testin
 
 			// Assert
 			want := command
-			if test.adopted {
+			if test.adopted || command == "" {
 				want = `"` + filepath.Join(f.bin, "goblins-window.exe") + `" --background`
 			}
-			got, _, err := key.GetStringValue(startAtLoginValue)
-			if want == "" && !errors.Is(err, registry.ErrNotExist) {
-				t.Errorf("Start at login runs %q (%v), want no entry made", got, err)
-			}
-			if want != "" && (err != nil || got != want) {
+			if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
 				t.Errorf("Start at login runs %q (%v), want %s", got, err, want)
 			}
 			if reported := strings.Contains(output, "now runs "+want+", in place of the earlier desktop window"); reported != test.adopted {
@@ -227,24 +224,30 @@ func TestInstallStartsAtLoginTheWindowItSuppliedAndGoblinsForOneItKept(t *testin
 
 // An install that kept the home's window adopts only the earlier window's
 // Start at login entry, as one that supplied the window does: an entry that
-// starts anything else, this home's own included, is left as it is, none is
-// made where there was none, and the window the home held stays as it was.
-func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testing.T) {
+// starts another home, or that already starts this home's supervisor through
+// its window alone, is left as it is, and the window the home held stays as
+// it was. Where there is no entry, or this home's window is started on its
+// own board, which starts no supervisor, Start at login runs goblins with
+// --window from now on, which opens any window.
+func TestInstallThatKeptTheHomesWindowStartsItsSupervisorAtLoginAndLeavesOtherEntries(t *testing.T) {
 	const kept = "a window from before"
-	for name, command := range map[string]func(bin, earlier string) string{
-		"a window in a folder beside the earlier one": func(_, earlier string) string {
+	for name, test := range map[string]struct {
+		command  func(bin, earlier string) string
+		replaced bool
+	}{
+		"a window in a folder beside the earlier one": {func(_, earlier string) string {
 			return `"` + filepath.Join(earlier+"Other", windowName) + `" --board http://127.0.0.1:4310 --state "C:\home\state" --background`
-		},
-		"another home's goblins": func(string, string) string {
+		}, false},
+		"another home's goblins": {func(string, string) string {
 			return `"C:\elsewhere\CodeGoblins\goblins.exe" --window --background`
-		},
-		"this home's window on its own": func(bin, _ string) string {
+		}, false},
+		"this home's window on its own": {func(bin, _ string) string {
 			return `"` + filepath.Join(bin, windowName) + `" --board http://127.0.0.1:4310 --state "` + filepath.Join(filepath.Dir(bin), "state") + `" --background`
-		},
-		"this home's window alone": func(bin, _ string) string {
+		}, true},
+		"this home's window alone": {func(bin, _ string) string {
 			return `"` + filepath.Join(bin, windowName) + `" --background`
-		},
-		"no entry": func(string, string) string { return "" },
+		}, false},
+		"no entry": {func(string, string) string { return "" }, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -252,9 +255,9 @@ func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testi
 			writeFile(t, filepath.Join(f.bin, windowName), kept)
 			earlierWindowAtLogin(t, f)
 			key := ownStartAtLogin(t, f)
-			want := command(f.bin, f.service.EarlierWindow)
-			if want != "" {
-				if err := key.SetStringValue(startAtLoginValue, want); err != nil {
+			command := test.command(f.bin, f.service.EarlierWindow)
+			if command != "" {
+				if err := key.SetStringValue(startAtLoginValue, command); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -263,15 +266,15 @@ func TestInstallThatKeptTheHomesWindowLeavesEveryOtherStartAtLoginEntry(t *testi
 			output := f.install()
 
 			// Assert
-			got, _, err := key.GetStringValue(startAtLoginValue)
-			if want == "" && !errors.Is(err, registry.ErrNotExist) {
-				t.Errorf("Start at login runs %q (%v), want no entry made", got, err)
+			want := command
+			if test.replaced {
+				want = `"` + filepath.Join(f.bin, "goblins.exe") + `" --window --background`
 			}
-			if want != "" && (err != nil || got != want) {
-				t.Errorf("Start at login runs %q (%v), want it left as %s", got, err, want)
+			if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
+				t.Errorf("Start at login runs %q (%v), want %s", got, err, want)
 			}
-			if strings.Contains(output, "start at login") {
-				t.Errorf("the install reports Start at login changed:\n%s", output)
+			if reported := strings.Contains(output, "start at login changed   Windows starts Code Goblins at login, in the tray: "+want); reported != test.replaced {
+				t.Errorf("the install reports Start at login changed: %v, want %v:\n%s", reported, test.replaced, output)
 			}
 			if got := readFile(t, filepath.Join(f.bin, windowName)); got != kept {
 				t.Errorf("%s in the home = %q, want %q", windowName, got, kept)

@@ -708,11 +708,29 @@ Each notification carries the goblin from `goblins-window.png`, which every star
 A picture that went missing while the window ran is put back before the next notification, and a notification goes out without it when it cannot be kept.
 A window started with `--profile`, as its tests start it, registers for no notification, raises none and claims nothing from its board.
 **Start at login** in the tray menu writes the `CodeGoblins` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and clearing it removes the value.
+It is one setting with the board's switch, `POST /api/start-at-login` with `{"on": true}` or `false`, the setup's box and `cfo install --start-at-login on|off`: each keeps the choice in `state\start-at-login`, and the tray reads the value again every 3 seconds, so it shows a change made on the board.
+An install sets the value unless that choice is off, and removes this home's value when it is; a value that starts another home is left as it is.
 For a window that `goblins` started, the value runs the window alone with `--background`, which runs that `goblins` as above, so the supervisor starts before the window and no terminal shows at sign-in; `goblins uninstall` removes the value where it starts a program in that home, and an install rewrites it to this home's where it started a copy of the window installed on its own.
 The install writes the window alone only where it put the window in the home itself, from a release that ships it or, with `-Dev`, from the build it just made; where the home only kept a window it already held, the install writes that home's `goblins.exe --window --background`, which opens any window.
 An install that retained the home's window keeps the earlier standalone window, its picture, folder and Start-menu entry unchanged.
 A value an earlier window wrote, which ran the `goblins.exe` beside it with `--window --background` in a terminal at every sign-in, is rewritten to this one the next time `goblins` starts the window, so the tray shows **Start at login** as on and clearing it once removes the value.
 The board's dictation works in it as in a browser tab, because the page records with the browser engine's own recorder and the supervisor recognises the sound; WebView2's speech recognition, which has no service behind it, is not used.
+
+### Restarts
+
+A restart or a sign-out ends the supervisor and every `cfo host`; Start at login starts the window alone, in the tray, which runs `goblins --window --background`, which starts the supervisor detached from any terminal.
+The supervisor then brings back what the sign-in before this one left running, the comeback, recorded in `state\comeback.json`.
+It reads when this sign-in began from Windows (`LsaGetLogonSessionData` for the process's logon session), since a restart and a sign-out both end every process of the sign-in before.
+The first supervisor of a sign-in plans the comeback once: the CFO's terminal, and each live native goblin's terminal, that started in the sign-in before (at or after the last comeback's sign-in and before this one) and no longer answers, plus whatever an earlier comeback had not reached.
+A goblin whose task the board shows done or merged for its session, whose lifecycle record for its session is anything but running (paused, stopped, or an operation the restart cut short), or that is retired, is not planned.
+A home with no comeback record has no sign-in before to compare with, so its first supervisor plans nothing and only records this sign-in; a supervisor that starts again in the same sign-in, as an update restarts it, carries on with what still waits.
+Each memory reading, once a minute, takes the comeback's next step: the CFO at the first reading at or above the 4 GB floor, then the next goblin once memory and commit both read at the 5 GB start mark twice in a row and a launch has room as a spawn's does (`CheckLaunch`: memory, disk and the live goblin cap), one at a time.
+While anything waits to come back nothing else starts, no queued task and no paused goblin's own resume, and `memory_ready` waits.
+The CFO comes back as `goblins` brings back a closed one, under `.cfo-launch.lock`, but only on its registered conversation, with its startup dialogs answered; one with no conversation to resume, or past 20 MB, or whose resumed terminal does not hold, is left closed with the reason, which the board's line names.
+Each goblin comes back as `goblins resume` brings one back, through the in-place switch on its own conversation where the board's record proves it its own and from a handoff where it does not, with one more line in its instruction: that the machine restarted, which ended its terminal, and to continue where it left off.
+One that cannot come back is recorded stopped with the reason on its card, as its action error, and raises a `check` wake keyed by its id that names `cfo switch <id> --harness <its harness>`; the next goblin's turn comes at the next reading either way.
+The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`.
+An example board brings nothing back.
 
 ### Interface rules
 

@@ -76,6 +76,10 @@ type Service struct {
 	// window's entry for this home, and an install makes that entry start
 	// this home where it started an earlier copy of the window.
 	StartAtLoginKey string
+	// StartAtLogin is the person's choice of Start at login made at this
+	// install, on or off, which the home keeps; empty keeps the choice the
+	// home holds, and Start at login is on where it holds none.
+	StartAtLogin string
 	// EarlierWindow is the folder an earlier install kept the desktop window
 	// in, on its own. An install whose home holds the window takes its place.
 	EarlierWindow string
@@ -134,6 +138,9 @@ func (s Service) Install(out io.Writer) error {
 		return err
 	}
 	if err := s.adoptEarlierWindow(report); err != nil {
+		return err
+	}
+	if err := s.keepStartAtLogin(report); err != nil {
 		return err
 	}
 	return s.finish(report, "cfo install: already installed - nothing changed")

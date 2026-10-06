@@ -237,6 +237,9 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // report is a wait on memory. It wakes once per crossing: not again until a
 // reading falls under the floor and crosses back, and never twice within
 // memoryWakeGap. A reading under the floor goes to AFK mode's memory floor.
+// Each reading at or above the floor first takes the comeback's next step
+// after a restart, and while anything waits to come back nothing else starts
+// and memory_ready waits.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {
@@ -261,9 +264,17 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
+	} else {
+		w.MemoryAbove++
+	}
+	// What a restart ended comes back before anything else starts, and no
+	// memory wake offers its room to other work while it does.
+	if isComing, err := s.comeBack(now, memory, w); isComing || err != nil {
+		return err
+	}
+	if low < memoryNext {
 		return nil
 	}
-	w.MemoryAbove++
 	if err := s.schedule(ctx, now, memory, w); err != nil {
 		return err
 	}

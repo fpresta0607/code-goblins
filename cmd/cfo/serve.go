@@ -161,6 +161,30 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		dictation = speech
 		defer speech.Close()
 	}
+	// After a restart or sign-out the supervisor brings the CFO and the
+	// goblins that were working back by itself; an example board brings
+	// nothing back.
+	var comeback *supervisor.Comeback
+	var startAtLogin *supervisor.StartAtLogin
+	if !*example {
+		// The board's Start at login is the setting the install, the setup
+		// and the desktop window's tray change.
+		login := install.Service{Root: h.Root, StartAtLoginKey: install.StartAtLoginKey}
+		startAtLogin = &supervisor.StartAtLogin{
+			Read: func() (supervisor.StartAtLoginView, error) {
+				on, unavailable, err := login.StartsAtLogin()
+				return supervisor.StartAtLoginView{On: on, Unavailable: unavailable}, err
+			},
+			Set: login.SetStartsAtLogin,
+		}
+		comeback = &supervisor.Comeback{
+			SignedIn: supervisor.SignedIn,
+			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
+			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
+				return comebackGoblin(ctx, h, runtime, id)
+			},
+		}
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		Dictation:        dictation,
 		Example:          *example,
@@ -186,6 +210,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Allowance:          readAFKAllowance(runtime),
 		Quota:              runtime.quota,
+		Comeback:           comeback,
+		StartAtLogin:       startAtLogin,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

@@ -41,6 +41,9 @@
   .facts div + div { border-top: 1px solid var(--hairline); }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }
+  .choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+  .choice input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--green); }
+  .choice small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
   .note { display: flex; gap: 10px; margin: 0; padding: 10px 14px; border: 1px solid var(--edge); border-radius: 10px; background: rgba(0, 229, 155, 0.06); color: #c9f2e2; }
   .note::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: var(--green); }
 
@@ -98,6 +101,7 @@
       <div><dt>Folder</dt><dd id="folder" class="path"></dd></div>
       <div><dt>Adds</dt><dd>The cfo command line to your PATH, and Code Goblins to the Start menu</dd></div>
       <div><dt>Tools</dt><dd>Git, GitHub CLI, Claude Code and the others goblins use, where they are missing</dd></div>
+      <div><dt>At login</dt><dd><label class="choice"><input type="checkbox" id="start-at-login" checked><span>Start Code Goblins when I sign in<small>After a restart, your CFO and goblins come back by themselves.</small></span></label></dd></div>
     </dl>
   </section>
 
@@ -138,6 +142,7 @@
     text("note", plan.note || "");
     text("title", updating ? "Update Code Goblins" : "Install Code Goblins");
     text("install", updating ? "Update" : "Install");
+    document.getElementById("start-at-login").checked = plan.start_at_login;
   }
 
   function setupStarted() {
@@ -197,8 +202,13 @@
       details.scrollTop = details.scrollHeight;
     }
   });
+  // Install and Try again carry the Start at login box.
+  const startAtLogin = document.getElementById("start-at-login");
   for (const button of document.querySelectorAll("[data-send]")) {
-    button.addEventListener("click", () => window.chrome?.webview?.postMessage("setup:" + button.dataset.send));
+    button.addEventListener("click", () => {
+      const send = button.dataset.send === "install" ? "install:" + (startAtLogin.checked ? "on" : "off") : button.dataset.send;
+      window.chrome?.webview?.postMessage("setup:" + send);
+    });
   }
 </script>
 </body>

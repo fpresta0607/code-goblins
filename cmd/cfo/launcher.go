@@ -172,10 +172,11 @@ func launchBoard(ctx context.Context, runtime commandRuntime, h home.Home, stdou
 		var taken boardAddressTaken
 		switch {
 		case errors.As(startErr, &taken):
-			// The board's address is the same every time, so a board is
-			// never started on another one because this one is in use. Only
-			// this home's own supervisor, started a moment ago by another
-			// goblins and not yet recorded, is waited for below.
+			// An address taken here is the one the person chose, or the
+			// usual one held by this home's own supervisor, started a moment
+			// ago by another goblins and not yet recorded, which is waited
+			// for below; another home's board on the usual address gives
+			// this one a free port of its own (see serveAddress).
 			if !sameHomePath(taken.home, h.Root) && !anotherSupervisorStarting(h.State) {
 				fmt.Fprintf(stderr, "goblins: %v\n", taken)
 				return "", false, false
@@ -377,15 +378,12 @@ const (
 const errorSharingViolation = syscall.Errno(32)
 
 // startDetachedServe starts this binary's serve in the home on the board's
-// address, detached from this terminal. An address already in use starts
-// nothing and is a boardAddressTaken. The returned channel closes when the
+// address, detached from this terminal, as serveAddress picks it. An address
+// it cannot take starts nothing. The returned channel closes when the
 // supervisor exits.
 func startDetachedServe(h home.Home) (<-chan struct{}, error) {
-	address := boardAddress()
-	if !loopbackAddress(address) {
-		return nil, fmt.Errorf("%s is %q, not a numeric loopback address such as %s", boardAddressVariable, address, defaultBoardAddress)
-	}
-	if err := boardAddressFree(context.Background(), address); err != nil {
+	address, err := serveAddress(context.Background(), h, strings.TrimSpace(os.Getenv(boardAddressVariable)), defaultBoardAddress)
+	if err != nil {
 		return nil, err
 	}
 	executable, err := os.Executable()
@@ -402,6 +400,33 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 		close(exited)
 	}()
 	return exited, nil
+}
+
+// anyFreePort asks for a free port of the system's choosing on loopback.
+const anyFreePort = "127.0.0.1:0"
+
+// serveAddress is the address a supervisor for h is started on: the one the
+// person chose with CFO_BOARD_ADDRESS, which must be free, or else the usual
+// one. The usual address held by another Code Goblins home's board, as on a
+// machine where a fleet already runs, or by another program, gives this home
+// a free port of its own instead, so its app opens on its own board and
+// never stops on a box about the port; goblins finds that board through its
+// record. The usual address held by this home's own supervisor, started a
+// moment ago and not yet recorded, is its boardAddressTaken, which the
+// launcher waits on.
+func serveAddress(ctx context.Context, h home.Home, chosen, usual string) (string, error) {
+	if chosen != "" {
+		if !loopbackAddress(chosen) {
+			return "", fmt.Errorf("%s is %q, not a numeric loopback address such as %s", boardAddressVariable, chosen, defaultBoardAddress)
+		}
+		return chosen, boardAddressFree(ctx, chosen)
+	}
+	err := boardAddressFree(ctx, usual)
+	var taken boardAddressTaken
+	if errors.As(err, &taken) && !sameHomePath(taken.home, h.Root) {
+		return anyFreePort, nil
+	}
+	return usual, err
 }
 
 // boardAddressTaken says the board's address cannot be listened on, and

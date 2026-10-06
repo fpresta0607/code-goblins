@@ -91,6 +91,9 @@ type Setup struct {
 	Client *http.Client
 	// Env is the environment the script runs in; nil is this program's own.
 	Env []string
+	// StartAtLogin is the person's choice of Start at login, on or off,
+	// which the script hands to cfo install; empty keeps the home's choice.
+	StartAtLogin string
 }
 
 // Install downloads the install script and runs it out of sight, handing
@@ -116,7 +119,14 @@ func (s Setup) Install(ctx context.Context, report func(Progress)) error {
 
 	// -File runs the script as the one-line install does, in a session of its
 	// own. With no console and no input it asks nothing.
-	command := execx.CommandContext(ctx, s.Shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script)
+	arguments := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script}
+	switch s.StartAtLogin {
+	case "on":
+		arguments = append(arguments, "-StartAtLogin")
+	case "off":
+		arguments = append(arguments, "-NoStartAtLogin")
+	}
+	command := execx.CommandContext(ctx, s.Shell, arguments...)
 	command.Dir = folder
 	environment := s.Env
 	if environment == nil {

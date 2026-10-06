@@ -961,3 +961,65 @@ func TestTheWindowStartsWithoutItsTerminalsProofAndKnowsItsGoblins(t *testing.T)
 		t.Errorf("the caller's environment was changed: %q", environment)
 	}
 }
+
+// A home whose usual board address another home's board or another program
+// holds, as a second home on a machine that already runs a fleet finds it,
+// starts its own board on a free port, so its app opens on its own board and
+// never stops on a box about the port. The usual address held by this home's
+// own supervisor is waited on as before, and an address the person chose must
+// be free.
+func TestASecondHomesBoardStartsOnAFreePortWhereTheUsualAddressIsHeld(t *testing.T) {
+	previous := aliveTimeout
+	aliveTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { aliveTimeout = previous })
+	h := home.Home{Root: filepath.Join(t.TempDir(), "SecondHome")}
+	answering := func(alive string) string {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(alive))
+		}))
+		t.Cleanup(server.Close)
+		return strings.TrimPrefix(server.URL, "http://")
+	}
+	program, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = program.Close() })
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unused := free.Addr().String()
+	if err := free.Close(); err != nil {
+		t.Fatal(err)
+	}
+	thisHome, err := json.Marshal(map[string]any{"pid": 4242, "home": h.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, chosen, usual, want string
+		isTaken                   bool
+	}{
+		{name: "another home's board", usual: answering(`{"pid":4242,"home":"C:\\Fleet"}`), want: anyFreePort},
+		{name: "an older board that names no home", usual: answering(`{"pid":4242}`), want: anyFreePort},
+		{name: "another program", usual: program.Addr().String(), want: anyFreePort},
+		{name: "this home's own supervisor, not yet recorded", usual: answering(string(thisHome)), isTaken: true},
+		{name: "a free usual address", usual: unused, want: unused},
+		{name: "a chosen address another program holds", chosen: program.Addr().String(), usual: unused, isTaken: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			address, err := serveAddress(context.Background(), h, test.chosen, test.usual)
+
+			// Assert
+			var taken boardAddressTaken
+			if test.isTaken != errors.As(err, &taken) {
+				t.Fatalf("serveAddress = %q, %v; want taken %v", address, err, test.isTaken)
+			}
+			if !test.isTaken && (err != nil || address != test.want) {
+				t.Errorf("serveAddress = %q, %v; want %q", address, err, test.want)
+			}
+		})
+	}
+}

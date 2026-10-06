@@ -5,6 +5,7 @@ import { Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
 import { Orchestration } from "./Orchestration";
 import { CommandCenter, type CommandFocus } from "./CommandCenter";
+import { ComebackBanner } from "./ComebackBanner";
 import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
@@ -284,6 +285,7 @@ export function App() {
       </div>
     </header>
     {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
+    {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(target) => { if (target.kind === "command") setCommandFocus({ key: target.key, at: Date.now() }); else if (target.kind === "cfo") { setView("Board"); switchTo(CFO_KEY); } else select({ task: target.id }, document.body, "task"); }} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">
       {snapshot && <FirstRun instance={snapshot.instance} onStarted={() => { setFirstRunChoice("started"); setView("Board"); switchTo(CFO_KEY); }} onBoard={() => setFirstRunChoice("board")} />}

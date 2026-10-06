@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/install"
 )
 
 // boardAddress reads the board's address from the record cfo serve writes in
@@ -313,6 +314,20 @@ func StartsAtLogin(command string) bool {
 	defer key.Close()
 	value, _, err := key.GetStringValue(runValue)
 	return err == nil && strings.EqualFold(value, command)
+}
+
+// keepStartAtLogin turns Start at login on or off from the tray and keeps the
+// choice in the home at stateDir, as the board's switch does, so an install
+// keeps it.
+func keepStartAtLogin(command, stateDir string, on bool) error {
+	choice := install.StartAtLoginOff
+	if on {
+		choice = install.StartAtLoginOn
+	}
+	if err := install.WriteStartAtLogin(stateDir, choice); err != nil {
+		return err
+	}
+	return SetStartAtLogin(command, on)
 }
 
 // SetStartAtLogin adds the login entry running command, or removes the entry.

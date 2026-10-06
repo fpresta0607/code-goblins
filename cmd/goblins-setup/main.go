@@ -117,7 +117,9 @@ func main() {
 		// channel.
 		RawMessageHandler: func(_ application.Window, message string, _ *application.OriginInfo) {
 			switch message {
-			case "setup:install":
+			case "setup:install:on", "setup:install:off":
+				// The page sends its Start at login box with Install.
+				setup.StartAtLogin = strings.TrimPrefix(message, "setup:install:")
 				install()
 			case "setup:cancel":
 				app.Quit()

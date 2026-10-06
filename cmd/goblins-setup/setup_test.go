@@ -285,3 +285,28 @@ func TestTheSetupDrawsAtEachMonitorsScale(t *testing.T) {
 		t.Errorf("winres.json declares dpi-awareness %q, want \"per monitor v2\"", got)
 	}
 }
+
+// The setup hands the install script the person's choice of Start at login:
+// -NoStartAtLogin when the box is unticked, -StartAtLogin when it is ticked,
+// and neither where no choice was made, which keeps the home's.
+func TestTheSetupHandsTheScriptTheChoiceOfStartAtLogin(t *testing.T) {
+	for choice, want := range map[string]string{"off": "-NoStartAtLogin", "on": "-StartAtLogin", "": ""} {
+		t.Run("choice "+choice, func(t *testing.T) {
+			// Arrange
+			setup := published(t, "Write-Host ('Note: given [' + ($args -join ' ') + ']')", http.StatusOK)
+			setup.StartAtLogin = choice
+			var shown []Progress
+
+			// Act
+			err := setup.Install(context.Background(), func(progress Progress) { shown = append(shown, progress) })
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(shown, Progress{Note: "given [" + want + "]"}) {
+				t.Errorf("the script was given %+v, want [%s]", shown, want)
+			}
+		})
+	}
+}
